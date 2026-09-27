@@ -20,6 +20,8 @@ export interface AppModule {
   slots?: {
     taskDetail?: ComponentType<{ taskId: string }>;
     pageFooter?: ComponentType<{ pageId: string }>;
+    /** Comment badge + thread popover/sheet on a block or mood item. */
+    commentBadge?: ComponentType<{ targetType: 'block' | 'mooditem'; targetId: string; overlay?: boolean }>;
   };
 }
 

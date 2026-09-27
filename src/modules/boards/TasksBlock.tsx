@@ -3,6 +3,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useNavigate } from 'react-router';
 import { Check, Plus } from 'lucide-react';
 import { db, type LocalRow } from '../../core/db';
+import { renderPlain } from '../../core/mentions';
+import { useTokenResolver } from '../../core/resolveMentions';
 import { FileImage } from '../../core/fileui';
 import { mutate } from '../../core/sync/engine';
 import { useResolvedUser } from '../../core/users';
@@ -13,6 +15,7 @@ import { registerBlockType, type MediaBlockProps } from '../pages/blocks/registr
 /** Embedded board task list inside a page block. */
 function TasksBlock({ block }: MediaBlockProps) {
   const nav = useNavigate();
+  const resolveTokens = useTokenResolver();
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const boardId = block.boardId ? String(block.boardId) : undefined;
@@ -86,7 +89,7 @@ function TasksBlock({ block }: MediaBlockProps) {
             </button>
             {coverId && <FileImage fileId={coverId} className="h-7 w-10 shrink-0 rounded object-cover" />}
             <button className={cn('min-w-0 flex-1 truncate text-left text-sm', done && 'text-neutral-400 line-through')} onClick={() => nav(`/boards/${boardId}/tasks/${t.id}`)}>
-              {String(t.title ?? 'Untitled')}
+              {renderPlain(String(t.title ?? 'Untitled'), resolveTokens)}
             </button>
             <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ backgroundColor: `${col?.color ?? '#9ca3af'}22`, color: col?.color ?? '#9ca3af' }}>
               {col?.name ?? colId}

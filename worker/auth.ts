@@ -6,6 +6,7 @@ import { hashPassword, inviteCode, newSalt, randomToken, sha256Hex, verifyPasswo
 export interface Env {
   DB: D1Database;
   AI: Ai;
+  LIVE: DurableObjectNamespace;
 }
 
 export interface AuthUser extends PublicUser {
@@ -21,7 +22,7 @@ const USER_COLORS = ['#e5484d', '#e93d82', '#8e4ec6', '#6e56cf', '#0091ff', '#12
 
 type Ctx = Context<{ Bindings: Env; Variables: { user: AuthUser } }>;
 
-async function userByToken(db: D1Database, token: string): Promise<AuthUser | null> {
+export async function userByToken(db: D1Database, token: string): Promise<AuthUser | null> {
   const tokenHash = await sha256Hex(token);
   const row = await db
     .prepare(

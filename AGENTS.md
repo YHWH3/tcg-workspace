@@ -14,13 +14,15 @@ Local-first mini-Notion: Vite + React + TS client, Hono Worker API, D1, Dexie ou
 - `node scripts/screenshots.mjs` — playwright visual pass → `/tmp/notion-shots/`
 - `node scripts/offline-test.mjs` — offline create/reload/resync test (needs `wrangler dev --port 8788` running the built app)
 - `node scripts/verify-v3.mjs` — full boards/media/capture e2e (needs `wrangler dev --port 8788` running the built app + `admin`/`bob` users from smoke)
+- `node scripts/verify-v4.mjs` — presence/instant-sync, moodboard gestures, block comments, public links e2e (same :8788 requirements; `vite dev` does NOT forward WS upgrades — run against `wrangler dev`)
 
 ## Architecture
 
-- `shared/collections.ts` — the collection allowlist used by client Dexie tables and the worker push validator. Currently: `pages`, `blocks`, `tasks`, `comments`, `activity`, `boards`, `files`.
-- `worker/` — Hono app: `auth.ts` (signup/login/sessions/me), `sync.ts` (`/api/sync/push|pull`), `files.ts` (chunked upload, byte serving, usage, Whisper transcribe), `admin.ts` (users + invites), `merge.ts` (pure per-field LWW), `index.ts`.
-- `src/core/` — `db.ts` (Dexie: one table per synced collection + `blobs` (local file bytes) + `outbox` + `meta`), `hlc.ts`, `sync/engine.ts` (`mutate()` local-write API, push/pull loop, rebase on pull, `seedRecord()` built-in rows), `sync/rebase.ts` (pure), `files.ts` (`addFile`/`deleteFile`/`useFileUrl` + resumable chunk upload + transcription), `fileui.tsx` (attachment renderers), `recorder.tsx` (voice memos), `chunks.ts`, `auth.ts`, `theme.ts`, `shell.tsx`, `search.tsx` (⌘K), `install.tsx`, `settings.tsx`, `ui.tsx` (primitives).
-- `src/modules/` — `pages/`, `boards/`, `comments/`, `activity/`. The shell builds nav + routes purely from `modules` in `src/modules/index.ts`.
+- `shared/collections.ts` — the collection allowlist used by client Dexie tables and the worker push validator. Currently: `pages`, `blocks`, `tasks`, `comments`, `activity`, `boards`, `files`, `moodboards`, `mooditems`.
+- `worker/` — Hono app: `auth.ts` (signup/login/sessions/me), `sync.ts` (`/api/sync/push|pull`; after a successful push it calls `LIVE.poke()`), `files.ts` (chunked upload, byte serving, usage, Whisper transcribe), `admin.ts` (users + invites), `merge.ts` (pure per-field LWW), `live.ts` (`/api/live` WS upgrade → LiveRoom DO, auth via `ws-auth` subprotocol token), `shares.ts` (share-token CRUD), `public.ts` (unauthed `/api/public/*` router), `publicAccess.ts` (pure access decisions — unit-tested in `tests/publicAccess.test.ts`), `index.ts`.
+- `src/core/` — `db.ts` (Dexie: one table per synced collection + `blobs` (local file bytes) + `outbox` + `meta`), `hlc.ts`, `sync/engine.ts` (`mutate()` local-write API, push/pull loop, rebase on pull, `seedRecord()` built-in rows), `sync/rebase.ts` (pure), `files.ts` (`addFile`/`deleteFile`/`useFileUrl` + resumable chunk upload + transcription), `fileui.tsx` (attachment renderers), `recorder.tsx` (voice memos), `chunks.ts`, `auth.ts`, `theme.ts`, `shell.tsx`, `search.tsx` (⌘K), `install.tsx`, `settings.tsx`, `ui.tsx` (primitives), `mobile.ts` (`useIsMobile` — keep it here, NOT in `shell.tsx`, to avoid module↔core import cycles), `live.ts` (WS client: `here` on route change, 30s heartbeat, `changed` → `syncNow`, jittered reconnect, disconnects when hidden >60s), `presence.tsx` (`PresenceStack`, `usePresence`), `mentions.ts` (pure token serializer/DOM-offset helpers), `resolveMentions.ts` (token → live title/name resolution), `commentui.ts` (comment-target store shared by modules).
+- `src/modules/` — `pages/` (incl. `RichInput` contentEditable + mention chips, `Backlinks`, `Share` popover), `boards/`, `comments/` (IG-style threads on tasks/pages/blocks/mooditems via the `commentBadge` slot), `activity/`, `moodboards/` (infinite canvas, palette extraction, convert-to-task). The shell builds nav + routes purely from `modules` in `src/modules/index.ts`.
+- `src/public/PublicView.tsx` — read-only shared-page renderer for `/s/:token[/:pageId]`, mounted in `App.tsx` OUTSIDE the auth shell: never starts the sync engine, never redirects to login, sets `noindex`.
 - `src/sw.ts` — custom service worker (injectManifest): precache + SPA navigation fallback, `/api/*` never cached, `share_target` POST → `shared_inbox` idb → redirect `/capture?shared=1`. Must stay classic-script safe (`injectManifest.rollupFormat: 'iife'` in vite.config.ts).
 
 ## File pipeline
@@ -30,6 +32,15 @@ Attachments are `files` records found by `parentId` (`task` | `block` | `moodite
 ## Boards
 
 `boards` records hold `{name, icon, columns: {id,name,color}[], order}` — `columns` is a single LWW field (rare edits). `tasks.boardId` (missing → `board-default`), `tasks.status` = column id (unknown → first column; last column counts as "done"). `board-default` and `board-inbox` are seeded via `seedRecord()` (field ts=1 — any real edit wins). Drag/drop is @dnd-kit (mouse + touch long-press ~200ms); `/tasks` is "My tasks" across boards, `/tasks/:id` redirects to the board route.
+
+## Mentions & live
+
+- Block text stores `@[page:ID]` / `@[user:ID]` tokens; `RichInput` renders them as `contenteditable=false` chips and resolves titles/names live (`resolveMentions`). All DOM↔text mapping lives in `core/mentions.ts` (pure, unit-tested). New user-mention tokens on commit log `mentioned` activity (`meta.userId`).
+- `GET /api/live` upgrades to a `LiveRoom` Durable Object (SQLite class via `new_sqlite_classes` in `wrangler.jsonc`, hibernation API). Auth: `new WebSocket(url, ['ws-auth', token])` — the worker validates the session before forwarding; no tokens in URLs. Push → `poke()` → `{t:'changed'}` broadcast → clients `syncNow()`. `presence.tsx` renders `PresenceStack` (add it to page/board/moodboard/task-detail headers) and sidebar dots.
+
+## Public shares
+
+`shares` table (migration `0003`) maps token → page. `POST /api/shares` is idempotent per page. Public reads go through `worker/public.ts`; ALL access decisions funnel through `worker/publicAccess.ts` (`canServePage`, `canServeFile` — pure, unit-tested; uses `json_extract` on `records`). Files are only served when referenced inside the shared tree (block `fileId`/thumb, or a shown task's `coverFileId`).
 
 ## Add a block type
 

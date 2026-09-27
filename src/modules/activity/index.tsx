@@ -15,7 +15,7 @@ export interface ActivityRow extends LocalRow {
   targetType?: string;
   targetId?: string;
   targetTitle?: string;
-  meta?: { assigneeId?: string | null } | null;
+  meta?: { assigneeId?: string | null; userId?: string; pageId?: string; boardId?: string } | null;
   createdAt?: number;
 }
 
@@ -59,6 +59,10 @@ function verbText(a: ActivityRow): string {
       return 'assigned task';
     case 'commented':
       return 'commented on';
+    case 'mentioned':
+      return 'mentioned you in';
+    case 'captured':
+      return 'captured';
     default:
       return String(a.verb ?? 'updated');
   }
@@ -79,7 +83,11 @@ function ActivityPage() {
   const myTaskIds = useMemo(() => new Set(tasks.filter((t) => t.assigneeId === me && !t.deleted).map((t) => t.id)), [tasks, me]);
 
   const forYou = activity
-    .filter((a) => a.targetType === 'task' && (a.meta?.assigneeId === me || myTaskIds.has(String(a.targetId))))
+    .filter(
+      (a) =>
+        (a.targetType === 'task' && (a.meta?.assigneeId === me || myTaskIds.has(String(a.targetId)))) ||
+        (a.verb === 'mentioned' && a.meta?.userId === me),
+    )
     .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0));
   const all = [...activity].sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0));
   const list = tab === 'you' ? forYou : all;
@@ -105,7 +113,18 @@ function ActivityPage() {
         <ul className="overflow-hidden rounded-xl border border-neutral-200/70 dark:border-neutral-800">
           {list.slice(0, 200).map((a) => {
             const actor = resolveUser(a.actorId ?? null, users, meUser);
-            const href = a.targetType === 'task' ? `/tasks/${a.targetId}` : a.targetType === 'page' ? `/pages/${a.targetId}` : null;
+            const href =
+              a.targetType === 'task'
+                ? `/tasks/${a.targetId}`
+                : a.targetType === 'page'
+                  ? `/pages/${a.targetId}`
+                  : a.targetType === 'block' && a.meta?.pageId
+                    ? `/pages/${a.meta.pageId}`
+                    : a.targetType === 'mooditem' && a.meta?.boardId
+                      ? `/moodboards/${a.meta.boardId}`
+                      : a.targetType === 'moodboard'
+                        ? `/moodboards/${a.targetId}`
+                        : null;
             return (
               <li key={a.id} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
                 <Link to={href ?? '#'} className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900">

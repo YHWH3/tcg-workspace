@@ -6,7 +6,8 @@ import { db } from '../../core/db';
 import { addFile, deleteFile, useAttachments, useFileUrl, type FileRow } from '../../core/files';
 import { AudioPlayer, FileImage, FilePreview, Lightbox } from '../../core/fileui';
 import { RecordButton } from '../../core/recorder';
-import { useIsMobile } from '../../core/shell';
+import { useIsMobile } from '../../core/mobile';
+import { PresenceStack } from '../../core/presence';
 import { Avatar, IconButton, Select, Sheet } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { useStore } from '../../core/store';
@@ -92,6 +93,7 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
           <span>{String(board?.icon ?? '🗂️')}</span> {String(board?.name ?? 'Board')}
         </span>
         <div className="flex items-center gap-1">
+          <PresenceStack path={`/boards/${taskBoardId(task)}/tasks/${task.id}`} />
           <IconButton aria-label="Delete task" onClick={async () => { await deleteTask(task.id); onClose(); }}>
             <Trash2 size={15} />
           </IconButton>

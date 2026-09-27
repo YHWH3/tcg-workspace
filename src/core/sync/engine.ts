@@ -6,6 +6,7 @@ import { hlc } from '../hlc';
 import { createStore } from '../store';
 import { rebaseRecord, type PendingChange } from './rebase';
 import { authStore, dropSession } from '../auth';
+import { liveConnected, startPresence } from '../live';
 
 export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'idle';
 
@@ -25,6 +26,7 @@ const CURSOR_KEY = 'sync_cursor';
 let running = false;
 let queued = false;
 let timer: ReturnType<typeof setInterval> | undefined;
+let lastPeriod = 0;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 async function updatePending() {
@@ -234,6 +236,7 @@ export function startSyncEngine() {
     if (authed && !wasAuthed) void syncNow();
     wasAuthed = authed;
   });
+  void startPresence();
   window.addEventListener('online', () => {
     onlineStore.set(true);
     void syncNow();
@@ -243,8 +246,19 @@ export function startSyncEngine() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void syncNow();
   });
-  timer = setInterval(() => {
+  const pollTick = () => {
     if (document.visibilityState === 'visible' && navigator.onLine) void syncNow();
-  }, 15000);
+  };
+  timer = setInterval(pollTick, liveConnected() ? 60000 : 15000);
+  // Poll every 60s while the live socket is up (pokes give instant updates);
+  // drop back to 15s as the fallback when it isn't.
+  setInterval(() => {
+    const period = liveConnected() ? 60000 : 15000;
+    if (period !== lastPeriod) {
+      lastPeriod = period;
+      clearInterval(timer);
+      timer = setInterval(pollTick, period);
+    }
+  }, 5000);
   void timer;
 }

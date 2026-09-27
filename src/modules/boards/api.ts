@@ -1,10 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { generateKeyBetween } from 'fractional-indexing';
 import { authStore } from '../../core/auth';
 import { logActivity } from '../../core/activity';
 import { db, type LocalRow } from '../../core/db';
 import { mutate } from '../../core/sync/engine';
-import { cmpOrder, uuid } from '../../core/utils';
+import { cmpOrder, orderBetween, uuid } from '../../core/utils';
 
 /* ---------- types ---------- */
 
@@ -83,7 +82,7 @@ export async function createTask(boardId: string = INBOX_BOARD_ID, columnId?: st
   const board = await db.boards.get(boardId);
   const status = columnId ?? firstColumnId(board as BoardRow | undefined);
   const inCol = (await db.tasks.toArray()).filter((t) => !t.deleted && taskBoardId(t) === boardId && String(t.status) === status).sort(byOrder);
-  const order = generateKeyBetween(inCol.length ? String(inCol[inCol.length - 1].order ?? '') || null : null, null);
+  const order = orderBetween(inCol.length ? String(inCol[inCol.length - 1].order ?? '') || null : null, null);
   const id = uuid();
   const me = authStore.get().user;
   await mutate('tasks', id, {
@@ -132,7 +131,7 @@ export async function moveTaskToBoard(taskId: string, boardId: string): Promise<
   const board = (await db.boards.get(boardId)) as BoardRow | undefined;
   const status = firstColumnId(board);
   const inCol = (await db.tasks.toArray()).filter((t) => !t.deleted && taskBoardId(t) === boardId && String(t.status) === status).sort(byOrder);
-  const order = generateKeyBetween(inCol.length ? String(inCol[inCol.length - 1].order ?? '') || null : null, null);
+  const order = orderBetween(inCol.length ? String(inCol[inCol.length - 1].order ?? '') || null : null, null);
   await setTaskField(taskId, { boardId, status, order });
 }
 
@@ -141,7 +140,7 @@ export async function moveTaskToBoard(taskId: string, boardId: string): Promise<
 export async function createBoard(name: string): Promise<string> {
   const boards = await db.boards.toArray();
   const live = boards.filter((b) => !b.deleted).sort((a, b) => cmpOrder(a.order, b.order));
-  const order = generateKeyBetween(live.length ? String(live[live.length - 1].order ?? '') || null : null, null);
+  const order = orderBetween(live.length ? String(live[live.length - 1].order ?? '') || null : null, null);
   const id = uuid();
   const me = authStore.get().user;
   await mutate('boards', id, {

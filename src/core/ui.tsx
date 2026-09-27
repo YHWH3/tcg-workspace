@@ -91,7 +91,7 @@ export function Popover({
 }: {
   trigger: ReactNode;
   children: (close: () => void) => ReactNode;
-  align?: 'left' | 'right';
+  align?: 'left' | 'right' | 'center';
   className?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -125,7 +125,7 @@ export function Popover({
         <div
           className={cn(
             'anim-slide-up absolute z-50 mt-1 min-w-44 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900',
-            align === 'right' ? 'right-0' : 'left-0',
+            align === 'right' ? 'right-0' : align === 'center' ? 'left-1/2 -translate-x-1/2' : 'left-0',
             className,
           )}
         >

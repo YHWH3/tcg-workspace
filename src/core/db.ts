@@ -36,6 +36,8 @@ export class LocalDB extends Dexie {
   activity!: Table<LocalRow, string>;
   boards!: Table<LocalRow, string>;
   files!: Table<LocalRow, string>;
+  moodboards!: Table<LocalRow, string>;
+  mooditems!: Table<LocalRow, string>;
   users!: Table<PublicUser, string>;
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<{ key: string; value: unknown }, string>;
@@ -58,6 +60,10 @@ export class LocalDB extends Dexie {
       files: 'id, parentId, createdAt',
       blobs: 'id, state',
       tasks: 'id, status, assigneeId, boardId, order, createdAt',
+    });
+    this.version(3).stores({
+      moodboards: 'id, order',
+      mooditems: 'id, boardId, z',
     });
   }
 

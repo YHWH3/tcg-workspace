@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { CheckSquare, LayoutGrid, List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { authStore } from '../../core/auth';
-import { useIsMobile } from '../../core/shell';
+import { useIsMobile } from '../../core/mobile';
+import { PresenceStack } from '../../core/presence';
 import { Avatar, EmptyState, IconButton, Menu, Popover, Select } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { useStore } from '../../core/store';
@@ -107,6 +108,7 @@ export function BoardPage() {
             </div>
           )}
           <div className="ml-auto flex items-center gap-1">
+            <PresenceStack path={`/boards/${board.id}`} />
             {mobile ? (
               <IconButton aria-label="New task" onClick={async () => navigate(`/boards/${board.id}/tasks/${await createTask(board.id)}`)}>
                 <Plus size={16} />

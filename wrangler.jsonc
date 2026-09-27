@@ -20,5 +20,19 @@
   ],
   "ai": {
     "binding": "AI"
-  }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LIVE",
+        "class_name": "LiveRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LiveRoom"]
+    }
+  ]
 }

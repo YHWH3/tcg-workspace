@@ -1,4 +1,4 @@
-export const COLLECTIONS = ['pages', 'blocks', 'tasks', 'comments', 'activity', 'boards', 'files'] as const;
+export const COLLECTIONS = ['pages', 'blocks', 'tasks', 'comments', 'activity', 'boards', 'files', 'moodboards', 'mooditems'] as const;
 
 export type Collection = (typeof COLLECTIONS)[number];
 

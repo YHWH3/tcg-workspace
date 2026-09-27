@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { Search, Settings, LogOut, Moon, Sun, Monitor, CloudOff, RefreshCw, Check, AlertTriangle, PanelLeft, Plus, Camera } from 'lucide-react';
 import { toastStore } from './files';
 import { modules } from '../modules';
@@ -8,22 +8,16 @@ import { authStore, signOut } from './auth';
 import { APP_NAME } from './config';
 import { InstallButton } from './install';
 import { CommandPalette, paletteStore } from './search';
+import { sendHere } from './live';
+import { PresenceDots } from './presence';
 import { flushAndCountPending, onlineStore, syncNow, syncStore } from './sync/engine';
 import { useStore } from './store';
 import { setTheme, themeStore } from './theme';
 import { Avatar, Button, Dialog, Menu, Popover, Sheet } from './ui';
 import { cn } from './utils';
 
-export function useIsMobile(): boolean {
-  const [mobile, setMobile] = useState(() => matchMedia('(max-width: 767px)').matches);
-  useEffect(() => {
-    const mq = matchMedia('(max-width: 767px)');
-    const fn = () => setMobile(mq.matches);
-    mq.addEventListener('change', fn);
-    return () => mq.removeEventListener('change', fn);
-  }, []);
-  return mobile;
-}
+export { useIsMobile } from './mobile';
+import { useIsMobile } from './mobile';
 
 function SyncIndicator() {
   const { status, pending } = useStore(syncStore);
@@ -227,6 +221,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
             >
               <nav.icon size={16} strokeWidth={1.8} />
               <span className="flex-1">{nav.label}</span>
+              <PresenceDots match={(p) => (nav.path === '/' ? p === '/' : p === nav.path || p.startsWith(`${nav.path}/`))} />
               {Badge && <Badge />}
             </NavLink>
           );
@@ -283,6 +278,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 export function Shell() {
   const mobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const location = useLocation();
+
+  // Report our route to the presence socket on every navigation.
+  useEffect(() => sendHere(location.pathname), [location.pathname]);
 
   const navigate = useNavigate();
   useEffect(() => {

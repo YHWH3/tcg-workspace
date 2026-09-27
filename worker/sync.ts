@@ -168,6 +168,14 @@ sync.post('/push', async (c) => {
   }
   if (todo.length > 0) return c.json({ error: 'conflict, retry' }, 409);
 
+  // Tell live clients to pull immediately instead of waiting for a poll tick.
+  try {
+    const stub = c.env.LIVE.get(c.env.LIVE.idFromName('workspace'));
+    c.executionCtx.waitUntil(Promise.resolve((stub as unknown as { poke(): void }).poke()));
+  } catch {
+    /* presence is best-effort */
+  }
+
   return c.json({ ok: true, serverTime: Date.now(), rejected });
 });
 

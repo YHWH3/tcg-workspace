@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { FileText, CheckSquare, Search } from 'lucide-react';
 import { db } from './db';
+import { useTokenResolver } from './resolveMentions';
+import { renderPlain } from './mentions';
 import { createStore, useStore } from './store';
 import { cn } from './utils';
 
@@ -24,20 +26,21 @@ export function CommandPalette() {
 
   const pages = useLiveQuery(() => db.pages.toArray(), [], []) ?? [];
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], []) ?? [];
+  const resolveTokens = useTokenResolver();
 
   const hits = useMemo<Hit[]>(() => {
     const q = query.trim().toLowerCase();
     const all: Hit[] = [
       ...pages
         .filter((p) => !p.deleted)
-        .map((p) => ({ kind: 'page' as const, id: p.id, title: String(p.title ?? 'Untitled'), subtitle: `${String(p.icon ?? '')} Page` })),
+        .map((p) => ({ kind: 'page' as const, id: p.id, title: renderPlain(String(p.title ?? 'Untitled'), resolveTokens), subtitle: `${String(p.icon ?? '')} Page` })),
       ...tasks
         .filter((t) => !t.deleted)
-        .map((t) => ({ kind: 'task' as const, id: t.id, title: String(t.title ?? ''), subtitle: `Task · ${String(t.status ?? '').replace('_', ' ')}` })),
+        .map((t) => ({ kind: 'task' as const, id: t.id, title: renderPlain(String(t.title ?? ''), resolveTokens), subtitle: `Task · ${String(t.status ?? '').replace('_', ' ')}` })),
     ];
     const filtered = q ? all.filter((h) => h.title.toLowerCase().includes(q)) : all;
     return filtered.slice(0, 12);
-  }, [pages, tasks, query]);
+  }, [pages, tasks, query, resolveTokens]);
 
   useEffect(() => {
     if (open) {

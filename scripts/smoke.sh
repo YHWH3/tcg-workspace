@@ -133,7 +133,7 @@ check "complete idempotent" "$(echo "$R" | python3 -c 'import json,sys; print(js
 curl -s -H "Authorization: Bearer $TA" -o /tmp/smoke_file.out "$BASE/api/files/$FID"
 SHA_OUT=$(shasum -a 256 /tmp/smoke_file.out | awk '{print $1}')
 check "GET byte-identical (sha256)" "$SHA_OUT" "$SHA_IN"
-check "GET cache header" "$(curl -s -D - -o /dev/null -H "Authorization: Bearer $TA" "$BASE/api/files/$FID" | grep -i 'cache-control' | tr -d '\r')" "cache-control: private, max-age=31536000, immutable"
+check "GET cache header" "$(curl -s -D - -o /dev/null -H "Authorization: Bearer $TA" "$BASE/api/files/$FID" | grep -i 'cache-control' | tr -d '\r' | tr '[:upper:]' '[:lower:]')" "cache-control: private, max-age=31536000, immutable"
 
 # usage endpoint reflects the upload
 USED=$(req GET /api/files/usage "$TA" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["used"] >= 2621440, d["limit"])')
@@ -154,7 +154,50 @@ check "deleted file GET 404" "$(code -H "Authorization: Bearer $TA" "$BASE/api/f
 
 rm -f /tmp/smoke_file.bin /tmp/smoke_file.out /tmp/smoke_big.bin /tmp/smoke_chunk_*
 
-# 14. login works
+# 15. public share links + live socket auth
+PID="share_root_$$"; CID="share_child_$$"; OID="share_other_$$"
+NOW=$(python3 -c 'import time; print(int(time.time()*1000))')
+# a referenced file + an unreferenced one
+PUBFID="pubfile_$$"; UNREFFID="unref_$$"
+echo -n 'public-bytes' > /tmp/smoke_pub.bin
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_pub.bin "$BASE/api/files/$PUBFID/chunks/0" >/dev/null
+code -X POST -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"mime":"text/plain","size":12,"chunks":1}' "$BASE/api/files/$PUBFID/complete" >/dev/null
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_pub.bin "$BASE/api/files/$UNREFFID/chunks/0" >/dev/null
+code -X POST -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"mime":"text/plain","size":12,"chunks":1}' "$BASE/api/files/$UNREFFID/complete" >/dev/null
+# pages + a block referencing PUBFID inside the child
+req POST /api/sync/push "$TA" "{\"changes\":[{\"id\":\"$PID\",\"collection\":\"pages\",\"patch\":{\"title\":\"Shared\",\"order\":\"aY\"},\"ts\":$NOW},{\"id\":\"$CID\",\"collection\":\"pages\",\"patch\":{\"title\":\"Child\",\"parentId\":\"$PID\",\"order\":\"aZ\"},\"ts\":$NOW},{\"id\":\"$OID\",\"collection\":\"pages\",\"patch\":{\"title\":\"Other\",\"order\":\"b0\"},\"ts\":$NOW},{\"id\":\"pb1_$$\",\"collection\":\"blocks\",\"patch\":{\"pageId\":\"$CID\",\"type\":\"image\",\"fileId\":\"$PUBFID\",\"order\":\"c0\",\"text\":\"\"},\"ts\":$NOW}]}" >/dev/null
+
+R=$(req POST /api/shares "$TA" "{\"pageId\":\"$PID\"}")
+TOKEN=$(echo "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')
+check "share token created" "${#TOKEN}" "43"
+R=$(req POST /api/shares "$TA" "{\"pageId\":\"$PID\"}")
+check "share create idempotent" "$(echo "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')" "$TOKEN"
+check "share listed" "$(req GET /api/shares "$TA" | python3 -c "import json,sys; print(any(s['page_id']=='$PID' for s in json.load(sys.stdin)))")" "True"
+
+R=$(curl -s "$BASE/api/public/$TOKEN")
+check "public tree has child page" "$(echo "$R" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(n['id']=='$CID' for n in d['tree']), d['page']['title'])")" "True Shared"
+check "public child page ok" "$(code "$BASE/api/public/$TOKEN/pages/$CID")" "200"
+R=$(curl -s "$BASE/api/public/$TOKEN/pages/$CID")
+check "public page block has file" "$(echo "$R" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['blocks'][0]['fileId']=='$PUBFID')")" "True"
+check "non-descendant page denied" "$(code "$BASE/api/public/$TOKEN/pages/$OID")" "404"
+curl -s -o /tmp/smoke_pubdl.out "$BASE/api/public/$TOKEN/files/$PUBFID"
+check "public file allowed when referenced" "$(shasum -a 256 /tmp/smoke_pubdl.out | awk '{print $1}')" "$(shasum -a 256 /tmp/smoke_pub.bin | awk '{print $1}')"
+check "public file denied when unreferenced" "$(code "$BASE/api/public/$TOKEN/files/$UNREFFID")" "404"
+
+check "shares require auth" "$(code -X POST -H 'Content-Type: application/json' -d '{"pageId":"x"}' "$BASE/api/shares")" "401"
+
+# live socket: upgrade without/with-bad subprotocol token must be rejected
+WSCODE=$(curl -s -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "$BASE/api/live")
+check "live upgrade without subprotocol rejected" "$([ "$WSCODE" = "401" ] || [ "$WSCODE" = "400" ] || [ "$WSCODE" = "426" ] && echo rejected)" "rejected"
+WSCODE=$(curl -s -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Protocol: ws-auth, deadbeef' "$BASE/api/live")
+check "live upgrade with bad token rejected" "$WSCODE" "401"
+
+# revoke → public routes go dark
+code -X DELETE -H "Authorization: Bearer $TA" "$BASE/api/shares/$PID" >/dev/null
+check "public 404 after revoke" "$(code "$BASE/api/public/$TOKEN")" "404"
+rm -f /tmp/smoke_pub.bin /tmp/smoke_pubdl.out
+
+# 16. login works
 R=$(req POST /api/auth/login '' '{"username":"admin","password":"password123"}')
 check "login returns token" "$(echo "$R" | python3 -c 'import json,sys; print("yes" if json.load(sys.stdin).get("token") else "no")')" "yes"
 

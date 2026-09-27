@@ -9,6 +9,9 @@ import { cn, cmpOrder, debounce } from '../../core/utils';
 import { PAGE_ICONS } from '../../core/config';
 import { modules } from '..';
 import { Slot } from '../slots';
+import { PresenceStack } from '../../core/presence';
+import { Backlinks } from './Backlinks';
+import { SharePopover } from './Share';
 import { createPage, deletePage, renamePage, usePages, visiblePages, type PageRow } from './api';
 import { BlockEditor } from './BlockEditor';
 
@@ -81,7 +84,10 @@ export function PageView() {
         <div className="flex items-center gap-1 text-xs text-neutral-400">
           <Breadcrumbs page={page} />
         </div>
-        <Popover
+        <div className="flex items-center gap-1">
+          <PresenceStack path={`/pages/${page.id}`} />
+          <SharePopover pageId={page.id} />
+          <Popover
           align="right"
           trigger={
             <IconButton aria-label="Page menu">
@@ -111,7 +117,8 @@ export function PageView() {
               ]}
             />
           )}
-        </Popover>
+          </Popover>
+        </div>
       </div>
 
       <div className="mb-2 flex items-start gap-2">
@@ -160,6 +167,7 @@ export function PageView() {
 
       <BlockEditor pageId={page.id} />
 
+      <Backlinks pageId={page.id} />
       <Slot modules={modules} kind="pageFooter" props={{ pageId: page.id }} />
     </div>
   );

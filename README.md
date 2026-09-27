@@ -1,11 +1,11 @@
 # Workspace
 
-A local-first, self-hosted mini-Notion for a small team (≤7 members). Pages with a block editor (text + image/video/audio/PDF/task-list media blocks), multiple kanban boards with custom stages and drag-and-drop, media-rich task cards, a quick-capture sheet for photo + voice memos (auto-transcribed), comments, and an activity feed — all offline-capable, syncing through a Cloudflare Worker + D1, installable as a PWA with an Android share target.
+A local-first, self-hosted mini-Notion for a small team (≤7 members). Pages with a block editor (text + image/video/audio/PDF/task-list media blocks), multiple kanban boards with custom stages and drag-and-drop, media-rich task cards, a quick-capture sheet for photo + voice memos (auto-transcribed), infinite-canvas moodboards, `@` page/person mentions with backlinks, comment threads on anything, live presence + instant sync, public read-only share links, and an activity feed — all offline-capable, syncing through a Cloudflare Worker + D1 (+ a Durable Object for presence), installable as a PWA with an Android share target.
 
 ## Stack
 
 - **Client:** Vite + React 19 + TypeScript (strict), Tailwind v4, react-router, Dexie (IndexedDB outbox + local blob store), fractional-indexing, @dnd-kit, vite-plugin-pwa (injectManifest custom service worker)
-- **Server:** Cloudflare Worker (Hono) + D1 (SQLite) — per-field last-write-wins sync via HLC timestamps; files stored as D1 chunks; Workers AI for voice-memo transcription
+- **Server:** Cloudflare Worker (Hono) + D1 (SQLite) + a SQLite-backed Durable Object (`LiveRoom`) — per-field last-write-wins sync via HLC timestamps; files stored as D1 chunks; Workers AI for voice-memo transcription
 - Single npm package; `@cloudflare/vite-plugin` runs the Worker inside `vite dev`.
 
 ## Local development
@@ -50,6 +50,12 @@ Learnings:
 - Uploads are chunked and resumable; everything attaches offline first and uploads on reconnect.
 - Voice memos are auto-transcribed via **Workers AI** (`@cf/openai/whisper-large-v3-turbo`, `ai` binding `AI` in `wrangler.jsonc` — free daily allowance, no key needed). Chrome/Android record `audio/webm`, Safari/iOS `audio/mp4`; both are accepted.
 - Android: the PWA manifest registers a `share_target`, so photos/videos can be shared from the gallery straight into the capture sheet (custom service worker stores them in IndexedDB and opens `/capture`).
+
+## Presence, shares & mentions
+
+- A `LiveRoom` Durable Object (WebSocket hibernation) keeps presence per path and pushes `{t:'changed'}` pokes after every sync push, so remote edits land in ~1–2s instead of the 60s fallback poll. WS auth uses the `ws-auth` subprotocol — no tokens in URLs.
+- **Share** on any page publishes `/s/<token>` — a read-only render of that page and its sub-pages (blocks, images, PDFs, embedded task lists). Files outside the shared tree return 404; revoking the link shows a friendly "no longer active" page. Public routes are `noindex` and never touch auth or sync.
+- `@` opens a mention picker (pages and people; the last entry creates a page). Stored as `@[page:ID]`/`@[user:ID]` tokens that resolve live, so renames propagate and backlinks appear in the target page's "Linked from" section.
 
 ## Notes
 

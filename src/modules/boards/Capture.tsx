@@ -5,7 +5,7 @@ import { logActivity } from '../../core/activity';
 import { addFile } from '../../core/files';
 import { useRecorder } from '../../core/recorder';
 import { takeShared } from '../../core/sharedInbox';
-import { useIsMobile } from '../../core/shell';
+import { useIsMobile } from '../../core/mobile';
 import { IconButton, Select } from '../../core/ui';
 import { cn } from '../../core/utils';
 import { createTask, INBOX_BOARD_ID, setTaskField, useBoards } from './api';

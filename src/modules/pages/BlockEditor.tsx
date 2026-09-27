@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { generateKeyBetween } from 'fractional-indexing';
-import { ArrowDown, ArrowUp, GripVertical, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, GripVertical, MessageSquare, Trash2 } from 'lucide-react';
 import { db, type LocalRow } from '../../core/db';
+import { logActivity } from '../../core/activity';
+import { openCommentThread } from '../../core/commentui';
 import { addFile } from '../../core/files';
+import { mentionTokens } from '../../core/mentions';
 import { mutate } from '../../core/sync/engine';
 import { IconButton, Menu, Popover } from '../../core/ui';
-import { cn, cmpOrder, debounce, uuid } from '../../core/utils';
+import { cn, cmpOrder, debounce, orderBetween, uuid } from '../../core/utils';
 import { blockRenderer, insertEntries } from './blocks/registry';
+import { RichInput, type RichHandle } from './RichInput';
+import { modules } from '..';
+import { Slot } from '../slots';
 
 export const BLOCK_TYPES = [
   { id: 'p', label: 'Text' },
@@ -78,7 +83,7 @@ interface FocusReq {
 export function BlockEditor({ pageId }: { pageId: string }) {
   const raw = useLiveQuery(() => db.blocks.where('pageId').equals(pageId).toArray(), [pageId], []);
   const blocks = useMemo(() => ((raw ?? []) as BlockRow[]).filter((b) => !b.deleted).sort(byOrder), [raw]);
-  const refs = useRef(new Map<string, HTMLTextAreaElement>());
+  const refs = useRef(new Map<string, RichHandle>());
   const pendingText = useRef(new Map<string, string>());
   const debouncers = useRef(new Map<string, ReturnType<typeof debounce<[string]>>>());
   const [focusReq, setFocusReq] = useState<FocusReq | null>(null);
@@ -106,9 +111,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
     if (!focusReq) return;
     const el = refs.current.get(focusReq.id);
     if (el) {
-      el.focus();
-      const pos = Math.min(focusReq.pos, el.value.length);
-      el.setSelectionRange(pos, pos);
+      el.focus(focusReq.pos);
       setFocusReq(null);
     }
   }, [focusReq, blocks]);
@@ -131,7 +134,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
     async (afterIndex: number, type: string, text: string): Promise<string> => {
       const prev = blocks[afterIndex];
       const next = blocks[afterIndex + 1];
-      const order = generateKeyBetween(prev ? String(prev.order) : null, next ? String(next.order) : null);
+      const order = orderBetween(prev ? String(prev.order) : null, next ? String(next.order) : null);
       const id = uuid();
       await mutate('blocks', id, { pageId, order, type, text, ...(type === 'todo' ? { checked: false } : {}) });
       return id;
@@ -195,10 +198,10 @@ export function BlockEditor({ pageId }: { pageId: string }) {
       if (j < 0 || j >= blocks.length) return;
       const order =
         dir === -1
-          ? generateKeyBetween(j > 0 ? String(blocks[j - 1].order) : null, String(blocks[j].order))
-          : generateKeyBetween(String(blocks[j].order), j + 1 < blocks.length ? String(blocks[j + 1].order) : null);
+          ? orderBetween(j > 0 ? String(blocks[j - 1].order) : null, String(blocks[j].order))
+          : orderBetween(String(blocks[j].order), j + 1 < blocks.length ? String(blocks[j + 1].order) : null);
       await mutate('blocks', block.id, { order });
-      setFocusReq({ id: block.id, pos: refs.current.get(block.id)?.selectionStart ?? 0 });
+      setFocusReq({ id: block.id, pos: refs.current.get(block.id)?.caret() ?? 0 });
     },
     [blocks, idxOf],
   );
@@ -208,7 +211,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
       if (target.id === draggedId) return;
       const ti = idxOf(target.id);
       const next = blocks[ti + 1];
-      const order = generateKeyBetween(String(target.order), next?.id === draggedId ? String(blocks[ti + 2]?.order ?? '') || null : next ? String(next.order) : null);
+      const order = orderBetween(String(target.order), next?.id === draggedId ? String(blocks[ti + 2]?.order ?? '') || null : next ? String(next.order) : null);
       await mutate('blocks', draggedId, { order });
     },
     [blocks, idxOf],
@@ -271,7 +274,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
             number={number}
             dragOver={dragOver === block.id}
             onlyBlock={blocks.length === 1}
-            registerRef={(el) => {
+            registerRef={(el: RichHandle | null) => {
               if (el) refs.current.set(block.id, el);
               else refs.current.delete(block.id);
             }}
@@ -327,7 +330,7 @@ interface BlockItemProps {
   number: number;
   dragOver: boolean;
   onlyBlock: boolean;
-  registerRef: (el: HTMLTextAreaElement | null) => void;
+  registerRef: (el: RichHandle | null) => void;
   onText: (text: string) => void;
   onFlush: () => void;
   onSplit: (caret: number, text: string) => void;
@@ -350,25 +353,36 @@ function BlockItem(props: BlockItemProps) {
   const [val, setVal] = useState(String(block.text ?? ''));
   const [slashSel, setSlashSel] = useState(0);
   const [focused, setFocused] = useState(false);
-  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const taRef = useRef<RichHandle | null>(null);
 
   // Pull in remote changes when not focused.
   useEffect(() => {
-    if (document.activeElement !== taRef.current) setVal(String(block.text ?? ''));
+    if (document.activeElement !== taRef.current?.el()) setVal(String(block.text ?? ''));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [block.text]);
+
+  const mentionDiff = (prev: string, next: string) => {
+    const seen = new Set(mentionTokens(prev).filter((t) => t.kind === 'user').map((t) => t.id));
+    const fresh = mentionTokens(next).filter((t) => t.kind === 'user' && !seen.has(t.id));
+    if (fresh.length === 0) return;
+    void (async () => {
+      const page = block.pageId ? await db.pages.get(String(block.pageId)) : undefined;
+      for (const t of fresh) logActivity('mentioned', 'page', String(block.pageId ?? ''), String(page?.title ?? 'page'), { userId: t.id });
+    })();
+  };
 
   const type = block.type ?? 'p';
   const slashFilter = val.startsWith('/') ? val.slice(1).toLowerCase() : null;
   const slashAll = useMemo(() => [...BLOCK_TYPES, ...insertEntries().map((e) => ({ id: e.type, label: e.label }))], []);
   const slashItems = slashFilter !== null ? slashAll.filter((t) => t.label.toLowerCase().includes(slashFilter)) : [];
 
-  const setRef = (el: HTMLTextAreaElement | null) => {
+  const setRef = (el: RichHandle | null) => {
     taRef.current = el;
     props.registerRef(el);
   };
 
   const commit = (text: string) => {
+    mentionDiff(val, text);
     setVal(text);
     props.onText(text);
   };
@@ -388,7 +402,7 @@ function BlockItem(props: BlockItemProps) {
     props.onChangeType(t);
     commit('');
     setSlashSel(0);
-    taRef.current?.focus();
+    taRef.current?.focus(0);
   };
 
   if (type === 'divider') {
@@ -443,8 +457,9 @@ function BlockItem(props: BlockItemProps) {
         onDrop={props.onDrop}
       >
         <Handle {...props} />
-        <div className="min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
           <Media block={block} onNewBelow={props.onNewBelow} onDelete={props.onDelete} />
+          <Slot modules={modules} kind="commentBadge" props={{ targetType: 'block', targetId: block.id, overlay: true }} />
         </div>
         <BlockMenu {...props} />
       </div>
@@ -481,32 +496,25 @@ function BlockItem(props: BlockItemProps) {
         </button>
       )}
       <div className={cn('relative min-w-0 flex-1', type === 'quote' && 'border-l-2 border-neutral-300 pl-3 dark:border-neutral-600', type === 'code' && 'rounded-lg bg-neutral-100 px-3 py-2 dark:bg-neutral-900')}>
-        <textarea
+        <RichInput
           ref={setRef}
           value={val}
-          rows={1}
-          spellCheck={false}
           data-block
           placeholder={type === 'p' ? (focused || props.onlyBlock ? "Type '/' for commands" : undefined) : BLOCK_TYPES.find((t) => t.id === type)?.label}
           className={cn(
-            'block w-full resize-none overflow-hidden bg-transparent outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600',
+            'block w-full bg-transparent outline-none',
             TEXT_CLS[type] ?? TEXT_CLS.p,
             type === 'todo' && block.checked && 'text-neutral-400 line-through',
           )}
-          onChange={(e) => handleChange(e.target.value)}
-          onPaste={(e) => {
-            if (e.clipboardData.files.length) {
-              e.preventDefault();
-              props.onPasteFiles(e.clipboardData.files);
-            }
-          }}
+          onChange={handleChange}
+          onPasteFiles={(files) => props.onPasteFiles(files)}
           onFocus={() => setFocused(true)}
           onBlur={() => {
             setFocused(false);
             props.onFlush();
           }}
           onKeyDown={(e) => {
-            const el = e.currentTarget;
+            const h = taRef.current;
             if (slashItems.length > 0) {
               if (e.key === 'ArrowDown') { e.preventDefault(); setSlashSel((s) => (s + 1) % slashItems.length); return; }
               if (e.key === 'ArrowUp') { e.preventDefault(); setSlashSel((s) => (s - 1 + slashItems.length) % slashItems.length); return; }
@@ -515,24 +523,26 @@ function BlockItem(props: BlockItemProps) {
             }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
+              const full = h?.text() ?? val;
+              const caret = h?.caret() ?? full.length;
               // Empty list item + Enter → convert to paragraph (Notion-style).
-              if (el.value === '' && (type === 'bullet' || type === 'numbered' || type === 'todo')) {
+              if (full === '' && (type === 'bullet' || type === 'numbered' || type === 'todo')) {
                 props.onChangeType('p');
                 return;
               }
               // Truncate this block's text immediately and blur it, so keystrokes
               // can't leak into the old block while the new one mounts+focuses.
-              const before = el.value.slice(0, el.selectionStart);
+              const before = full.slice(0, caret);
               commit(before);
-              el.blur();
-              props.onSplit(el.selectionStart, el.value);
-            } else if (e.key === 'Backspace' && el.selectionStart === 0 && el.selectionEnd === 0) {
+              h?.el()?.blur();
+              props.onSplit(caret, full);
+            } else if (e.key === 'Backspace' && (h?.caret() ?? -1) === 0) {
               e.preventDefault();
-              props.onMergeUp(el.value);
-            } else if (e.key === 'ArrowUp' && el.selectionStart === 0) {
+              props.onMergeUp(h?.text() ?? val);
+            } else if (e.key === 'ArrowUp' && (h?.caret() ?? -1) === 0) {
               e.preventDefault();
               props.onFocusPrev();
-            } else if (e.key === 'ArrowDown' && el.selectionEnd === el.value.length) {
+            } else if (e.key === 'ArrowDown' && (h?.caret() ?? -1) === (h?.text() ?? val).length) {
               e.preventDefault();
               props.onFocusNext();
             }
@@ -556,6 +566,7 @@ function BlockItem(props: BlockItemProps) {
           </div>
         )}
       </div>
+      <Slot modules={modules} kind="commentBadge" props={{ targetType: 'block', targetId: block.id }} />
       <BlockMenu {...props} />
     </div>
   );
@@ -611,6 +622,11 @@ function BlockMenu(props: BlockItemProps) {
                 ),
               },
               'divider',
+              {
+                label: 'Comments',
+                icon: MessageSquare,
+                onClick: () => openCommentThread(props.block.id),
+              },
               { label: 'Move up', icon: ArrowUp, onClick: () => props.onMove(-1) },
               { label: 'Move down', icon: ArrowDown, onClick: () => props.onMove(1) },
               'divider',

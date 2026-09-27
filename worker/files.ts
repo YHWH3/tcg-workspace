@@ -5,12 +5,12 @@ import type { Env, AuthUser } from './auth';
 export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB per file
 export const QUOTA_BYTES = 450 * 1024 * 1024; // 450 MB workspace quota
 const MAX_CHUNK = 2 * 1024 * 1024; // D1 row limit; clients send 1 MiB
-const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+export const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const WHISPER_MODEL = '@cf/openai/whisper-large-v3-turbo';
 // Whisper-large-v3-turbo input ceiling; voice notes are also capped client-side at 5 min.
 const MAX_TRANSCRIBE_BYTES = MAX_FILE_SIZE;
 
-interface FileRow {
+export interface FileRow {
   id: string;
   mime: string | null;
   size: number | null;
@@ -26,7 +26,7 @@ function toBytes(d: unknown): Uint8Array {
   return new Uint8Array(0);
 }
 
-function concatRows(results: { data: unknown }[]): Uint8Array<ArrayBuffer> {
+export function concatRows(results: { data: unknown }[]): Uint8Array<ArrayBuffer> {
   const parts = results.map((r) => toBytes(r.data));
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let off = 0;

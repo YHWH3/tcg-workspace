@@ -9,6 +9,7 @@ import { startSyncEngine } from './core/sync/engine';
 import { initTheme } from './core/theme';
 import { useStore } from './core/store';
 import { modules } from './modules';
+import { PublicView } from './public/PublicView';
 
 function Loading() {
   return (
@@ -26,6 +27,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 const router = createBrowserRouter([
+  // Public share links live entirely outside the auth shell — no sync engine,
+  // no login redirect.
+  { path: 's/:token', element: <PublicView /> },
+  { path: 's/:token/:pageId', element: <PublicView /> },
   {
     element: (
       <RequireAuth>
@@ -45,6 +50,8 @@ let engineStarted = false;
 export default function App() {
   useEffect(() => {
     initTheme();
+    // Public share routes must never touch auth or the sync engine.
+    if (location.pathname.startsWith('/s/')) return;
     void initAuth().then(() => {
       if (!engineStarted) {
         engineStarted = true;

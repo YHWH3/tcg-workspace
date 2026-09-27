@@ -3,11 +3,10 @@ import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensor
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { generateKeyBetween } from 'fractional-indexing';
 import { Check, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { mutate } from '../../core/sync/engine';
 import { IconButton, Menu, Popover } from '../../core/ui';
-import { cn, cmpOrder } from '../../core/utils';
+import { cn, cmpOrder, orderBetween } from '../../core/utils';
 import { TaskCard } from './TaskCard';
 import { addColumn, columnIdFor, columnsOf, createTask, deleteColumn, moveColumn, COLUMN_COLORS, recolorColumn, renameColumn, setTaskField, type BoardColumn, type BoardRow, type TaskRow } from './api';
 
@@ -55,7 +54,7 @@ export function Board({ board, tasks }: { board: BoardRow; tasks: TaskRow[] }) {
       after = String(overTask.order ?? '') || null;
     }
     if (!cols.some((c) => c.id === targetColId)) return;
-    const order = generateKeyBetween(before, after);
+    const order = orderBetween(before, after);
     void mutate('tasks', task.id, { status: targetColId, order });
   };
 

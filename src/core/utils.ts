@@ -1,3 +1,5 @@
+import { generateKeyBetween } from 'fractional-indexing';
+
 export function cn(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(' ');
 }
@@ -13,6 +15,19 @@ export function cmpOrder(a: unknown, b: unknown): number {
   const x = String(a ?? '');
   const y = String(b ?? '');
   return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/**
+ * generateKeyBetween that survives a malformed key in the data (e.g. an order
+ * field written by a buggy client): falls back to a fresh key rather than
+ * crashing the render/insert path.
+ */
+export function orderBetween(a: string | null | undefined, b: string | null | undefined): string {
+  try {
+    return generateKeyBetween(a ?? null, b ?? null);
+  } catch {
+    return generateKeyBetween(null, null);
+  }
 }
 
 export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
