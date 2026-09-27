@@ -270,6 +270,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
             block={block}
             number={number}
             dragOver={dragOver === block.id}
+            onlyBlock={blocks.length === 1}
             registerRef={(el) => {
               if (el) refs.current.set(block.id, el);
               else refs.current.delete(block.id);
@@ -325,6 +326,7 @@ interface BlockItemProps {
   block: BlockRow;
   number: number;
   dragOver: boolean;
+  onlyBlock: boolean;
   registerRef: (el: HTMLTextAreaElement | null) => void;
   onText: (text: string) => void;
   onFlush: () => void;
@@ -347,6 +349,7 @@ function BlockItem(props: BlockItemProps) {
   const { block } = props;
   const [val, setVal] = useState(String(block.text ?? ''));
   const [slashSel, setSlashSel] = useState(0);
+  const [focused, setFocused] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Pull in remote changes when not focused.
@@ -484,7 +487,7 @@ function BlockItem(props: BlockItemProps) {
           rows={1}
           spellCheck={false}
           data-block
-          placeholder={type === 'p' ? "Type '/' for commands" : BLOCK_TYPES.find((t) => t.id === type)?.label}
+          placeholder={type === 'p' ? (focused || props.onlyBlock ? "Type '/' for commands" : undefined) : BLOCK_TYPES.find((t) => t.id === type)?.label}
           className={cn(
             'block w-full resize-none overflow-hidden bg-transparent outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600',
             TEXT_CLS[type] ?? TEXT_CLS.p,
@@ -497,7 +500,11 @@ function BlockItem(props: BlockItemProps) {
               props.onPasteFiles(e.clipboardData.files);
             }
           }}
-          onBlur={() => props.onFlush()}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false);
+            props.onFlush();
+          }}
           onKeyDown={(e) => {
             const el = e.currentTarget;
             if (slashItems.length > 0) {

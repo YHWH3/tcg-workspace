@@ -75,8 +75,13 @@ export function BoardPage() {
             ))}
           </div>
           <div className="flex rounded-lg bg-neutral-100 p-0.5 text-xs dark:bg-neutral-800">
-            {(['all', 'mine'] as const).map(([v, label]) => (
-              <button key={v} onClick={() => setFilter(v)} className={cn('rounded-md px-2.5 py-1 font-medium capitalize transition-colors', filter === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-500')}>
+            {(
+              [
+                ['all', 'All'],
+                ['mine', 'Mine'],
+              ] as const
+            ).map(([v, label]) => (
+              <button key={v} onClick={() => setFilter(v)} className={cn('rounded-md px-2.5 py-1 font-medium transition-colors', filter === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-500')}>
                 {label}
               </button>
             ))}
@@ -101,13 +106,16 @@ export function BoardPage() {
               </Select>
             </div>
           )}
-          {!mobile && (
-            <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1">
+            {mobile ? (
+              <IconButton aria-label="New task" onClick={async () => navigate(`/boards/${board.id}/tasks/${await createTask(board.id)}`)}>
+                <Plus size={16} />
+              </IconButton>
+            ) : (
               <NewTaskButton board={board} />
-              <BoardMenu board={board} deletable={board.id !== 'board-default' && board.id !== 'board-inbox'} />
-            </div>
-          )}
-          {mobile && <BoardMenu board={board} deletable={board.id !== 'board-default' && board.id !== 'board-inbox'} />}
+            )}
+            <BoardMenu board={board} deletable={board.id !== 'board-default' && board.id !== 'board-inbox'} />
+          </div>
         </header>
         <div className="min-h-0 flex-1 overflow-auto">
           {view === 'board' ? (
@@ -122,7 +130,6 @@ export function BoardPage() {
         </div>
       </div>
       {taskId && <TaskDetail taskId={taskId} onClose={closeDetail} />}
-      {mobile && <NewTaskFab board={board} />}
     </div>
   );
 }
@@ -197,20 +204,6 @@ export function NewTaskButton({ board }: { board: BoardRow }) {
       onClick={async () => navigate(`/boards/${board.id}/tasks/${await createTask(board.id)}`)}
     >
       <Plus size={14} /> New task
-    </button>
-  );
-}
-
-function NewTaskFab({ board }: { board: BoardRow }) {
-  const navigate = useNavigate();
-  return (
-    <button
-      className="fixed right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg transition-transform active:scale-95 dark:bg-white dark:text-neutral-900"
-      style={{ bottom: 'calc(60px + env(safe-area-inset-bottom))' }}
-      aria-label="New task"
-      onClick={async () => navigate(`/boards/${board.id}/tasks/${await createTask(board.id)}`)}
-    >
-      <Plus size={20} />
     </button>
   );
 }
