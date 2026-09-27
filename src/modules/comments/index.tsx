@@ -6,7 +6,7 @@ import { logActivity } from '../../core/activity';
 import { db, type LocalRow } from '../../core/db';
 import { mutate } from '../../core/sync/engine';
 import { Avatar, IconButton, Menu, Popover, Textarea } from '../../core/ui';
-import { useUsers } from '../../core/users';
+import { resolveUser, useUsers } from '../../core/users';
 import { relTime, uuid } from '../../core/utils';
 import type { AppModule } from '../types';
 
@@ -43,9 +43,10 @@ export function Comments({ targetType, targetId }: { targetType: 'task' | 'page'
         <MessageSquare size={13} /> Comments {comments.length > 0 && <span className="text-neutral-300 dark:text-neutral-600">{comments.length}</span>}
       </p>
       <div className="flex flex-col gap-4">
-        {comments.map((c) => (
-          <CommentItem key={c.id} comment={c} isOwn={c.authorId === me?.id} authorName={users.find((u) => u.id === c.authorId)?.name ?? 'Someone'} authorColor={users.find((u) => u.id === c.authorId)?.color} />
-        ))}
+        {comments.map((c) => {
+          const author = resolveUser(c.authorId ?? null, users, me);
+          return <CommentItem key={c.id} comment={c} isOwn={c.authorId === me?.id} authorName={author?.name ?? 'Someone'} authorColor={author?.color} />;
+        })}
       </div>
       <div className="mt-4 flex items-start gap-2.5">
         {me && <Avatar name={me.name} color={me.color} size={24} className="mt-1.5" />}

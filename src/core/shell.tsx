@@ -6,10 +6,10 @@ import { authStore, signOut } from './auth';
 import { APP_NAME } from './config';
 import { InstallButton } from './install';
 import { CommandPalette, paletteStore } from './search';
-import { syncStore } from './sync/engine';
+import { flushAndCountPending, onlineStore, syncNow, syncStore } from './sync/engine';
 import { useStore } from './store';
 import { setTheme, themeStore } from './theme';
-import { Avatar, Menu, Popover, Sheet } from './ui';
+import { Avatar, Button, Dialog, Menu, Popover, Sheet } from './ui';
 import { cn } from './utils';
 
 export function useIsMobile(): boolean {
@@ -25,19 +25,52 @@ export function useIsMobile(): boolean {
 
 function SyncIndicator() {
   const { status, pending } = useStore(syncStore);
-  const items: Record<string, { icon: typeof Check; text: string; cls: string; spin?: boolean }> = {
-    synced: { icon: Check, text: 'Synced', cls: 'text-neutral-400' },
-    syncing: { icon: RefreshCw, text: 'Syncing…', cls: 'text-neutral-400', spin: true },
-    offline: { icon: CloudOff, text: 'Offline', cls: 'text-amber-500' },
-    error: { icon: AlertTriangle, text: 'Sync error', cls: 'text-red-500' },
-    idle: { icon: Check, text: 'Local', cls: 'text-neutral-400' },
-  };
-  const it = items[status];
+  const online = useStore(onlineStore);
+
+  if (status === 'error') {
+    return (
+      <button
+        onClick={() => void syncNow()}
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
+        title="Sync failed — click to retry"
+      >
+        <AlertTriangle size={13} />
+        <span>Sync error · retry</span>
+      </button>
+    );
+  }
+  if (!online) {
+    return (
+      <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-amber-500">
+        <CloudOff size={13} />
+        <span>Offline{pending > 0 ? ` · ${pending} pending` : ''}</span>
+      </div>
+    );
+  }
+  if (status === 'syncing') {
+    return (
+      <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-neutral-400">
+        <RefreshCw size={13} className="animate-spin" />
+        <span>Syncing…</span>
+      </div>
+    );
+  }
+  if (pending > 0) {
+    return (
+      <button
+        onClick={() => void syncNow()}
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-amber-600 transition-colors hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30"
+        title="Unsynced changes — click to sync now"
+      >
+        <RefreshCw size={13} />
+        <span>{pending} unsynced</span>
+      </button>
+    );
+  }
   return (
-    <div className={cn('flex items-center gap-1.5 px-2 py-1 text-xs', it.cls)} title={pending ? `${pending} change${pending === 1 ? '' : 's'} pending` : undefined}>
-      <it.icon size={13} className={it.spin ? 'animate-spin' : undefined} />
-      <span>{it.text}</span>
-      {pending > 0 && <span className="rounded-full bg-neutral-200 px-1.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">{pending}</span>}
+    <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-neutral-400">
+      <Check size={13} />
+      <span>Synced</span>
     </div>
   );
 }
@@ -77,38 +110,64 @@ function ThemeRow() {
 function UserMenu() {
   const user = useStore(authStore).user;
   const navigate = useNavigate();
+  const [confirmOut, setConfirmOut] = useState(0);
+
+  const trySignOut = async () => {
+    const pending = await flushAndCountPending();
+    if (pending > 0) setConfirmOut(pending);
+    else void signOut();
+  };
+
   if (!user) return null;
   return (
-    <Popover
-      align="left"
-      trigger={
-        <span className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800">
-          <Avatar name={user.name} color={user.color} size={24} />
-          <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{user.name}</span>
-        </span>
-      }
-      className="bottom-full left-0 mb-1 mt-0 w-56"
-    >
-      {(close) => (
-        <div>
-          <div className="border-b border-neutral-100 px-3 py-2.5 dark:border-neutral-800">
-            <p className="truncate text-sm font-medium">{user.name}</p>
-            <p className="truncate text-xs text-neutral-400">
-              @{user.username} · {user.role}
-            </p>
+    <>
+      <Popover
+        align="left"
+        trigger={
+          <span className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800">
+            <Avatar name={user.name} color={user.color} size={24} />
+            <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{user.name}</span>
+          </span>
+        }
+        className="bottom-full left-0 mb-1 mt-0 w-56"
+      >
+        {(close) => (
+          <div>
+            <div className="border-b border-neutral-100 px-3 py-2.5 dark:border-neutral-800">
+              <p className="truncate text-sm font-medium">{user.name}</p>
+              <p className="truncate text-xs text-neutral-400">
+                @{user.username} · {user.role}
+              </p>
+            </div>
+            <ThemeRow />
+            <Menu
+              close={close}
+              items={[
+                { label: 'Settings', icon: Settings, onClick: () => navigate('/settings') },
+                'divider',
+                { label: 'Sign out', icon: LogOut, onClick: () => void trySignOut() },
+              ]}
+            />
           </div>
-          <ThemeRow />
-          <Menu
-            close={close}
-            items={[
-              { label: 'Settings', icon: Settings, onClick: () => navigate('/settings') },
-              'divider',
-              { label: 'Sign out', icon: LogOut, onClick: () => void signOut() },
-            ]}
-          />
-        </div>
+        )}
+      </Popover>
+      {confirmOut > 0 && (
+        <Dialog title="Unsynced changes" onClose={() => setConfirmOut(0)}>
+          <p className="text-sm text-neutral-600 dark:text-neutral-300">
+            You have {confirmOut} unsynced change{confirmOut === 1 ? '' : 's'}. They'll sync next time you sign in here, but will be lost if someone
+            else signs in on this device.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setConfirmOut(0)}>
+              Stay signed in
+            </Button>
+            <Button variant="danger" size="sm" onClick={() => void signOut()}>
+              Sign out anyway
+            </Button>
+          </div>
+        </Dialog>
       )}
-    </Popover>
+    </>
   );
 }
 

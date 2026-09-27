@@ -79,13 +79,29 @@ check "disjoint field merge" "$(echo "$R" | python3 -c 'import json,sys; d=json.
 R=$(req GET "/api/sync/pull?since=0" "$TB" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["cursor"], d["hasMore"])')
 check "cursor advanced + hasMore false" "$R" "$(echo "$R" | awk '{print $1}') False"
 
-# 10. unknown collection rejected
-R=$(req POST /api/sync/push "$TA" "{\"changes\":[{\"id\":\"x1\",\"collection\":\"secrets\",\"patch\":{\"a\":1},\"ts\":$NOW}]}")
-check "unknown collection rejected" "$(echo "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("error",""))')" "invalid change"
+# 10. unknown collection skipped, not stored, batch still ok
+R=$(req POST /api/sync/push "$TA" "{\"changes\":[{\"id\":\"x1\",\"collection\":\"secrets\",\"patch\":{\"a\":1},\"ts\":$NOW},{\"id\":\"ok1\",\"collection\":\"pages\",\"patch\":{\"a\":1},\"ts\":$NOW}]}")
+check "invalid change skipped, batch ok" "$(echo "$R" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("ok"), d.get("rejected"))')" "True 1"
+R=$(req GET "/api/sync/pull?since=0" "$TB")
+check "rejected record not stored" "$(echo "$R" | python3 -c 'import json,sys; print(any(r["id"]=="x1" for r in json.load(sys.stdin)["records"]))')" "False"
 
 # 11. unauthenticated push rejected
 R=$(req POST /api/sync/push '' "{\"changes\":[{\"id\":\"x1\",\"collection\":\"pages\",\"patch\":{\"a\":1},\"ts\":$NOW}]}")
 check "unauthenticated push 401" "$(echo "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("error",""))')" "unauthenticated"
+
+# 12. concurrent disjoint pushes to same new record keep both fields (x20)
+CONC_OK=0
+for i in $(seq 1 20); do
+  RID="conc_$i"
+  T1=$((NOW + 100000 + i))
+  T2=$((NOW + 100000 + i))
+  req POST /api/sync/push "$TA" "{\"changes\":[{\"id\":\"$RID\",\"collection\":\"pages\",\"patch\":{\"fA\":\"v$i\"},\"ts\":$T1}]}" >/dev/null &
+  req POST /api/sync/push "$TB" "{\"changes\":[{\"id\":\"$RID\",\"collection\":\"pages\",\"patch\":{\"fB\":\"w$i\"},\"ts\":$T2}]}" >/dev/null &
+  wait
+  GOT=$(req GET "/api/sync/pull?since=0" "$TA" | python3 -c "import json,sys; d=json.load(sys.stdin); r=[x for x in d['records'] if x['id']=='$RID']; print('ok' if r and r[0]['data'].get('fA')=='v$i' and r[0]['data'].get('fB')=='w$i' else 'bad')")
+  [ "$GOT" = "ok" ] && CONC_OK=$((CONC_OK+1))
+done
+check "concurrent disjoint-field pushes (20 races)" "$CONC_OK" "20"
 
 # 12. login works
 R=$(req POST /api/auth/login '' '{"username":"admin","password":"password123"}')

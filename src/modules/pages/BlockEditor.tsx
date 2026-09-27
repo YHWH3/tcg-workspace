@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { generateKeyBetween } from 'fractional-indexing';
-import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, GripVertical, Trash2 } from 'lucide-react';
 import { db, type LocalRow } from '../../core/db';
 import { mutate } from '../../core/sync/engine';
 import { IconButton, Menu, Popover } from '../../core/ui';
@@ -132,7 +132,9 @@ export function BlockEditor({ pageId }: { pageId: string }) {
       const before = currentText.slice(0, caret);
       const after = currentText.slice(caret);
       const i = idxOf(block.id);
-      const id = await insertBlock(i, block.type === 'divider' ? 'p' : (block.type ?? 'p'), after);
+      // List types continue on Enter; headings/quotes/code break back to text.
+      const nextType: BlockType = block.type === 'bullet' || block.type === 'numbered' || block.type === 'todo' ? block.type : 'p';
+      const id = await insertBlock(i, nextType, after);
       await mutate('blocks', block.id, { text: before });
       setFocusReq({ id, pos: 0 });
     },
@@ -187,17 +189,31 @@ export function BlockEditor({ pageId }: { pageId: string }) {
 
   if (raw === undefined) return null;
 
+  const focusLastOrCreate = async () => {
+    const last = blocks[blocks.length - 1];
+    if (last && (last.type ?? 'p') === 'p' && !String(last.text ?? '').length) {
+      setFocusReq({ id: last.id, pos: 0 });
+    } else {
+      const id = await insertBlock(blocks.length - 1, 'p', '');
+      setFocusReq({ id, pos: 0 });
+    }
+  };
+
   return (
-    <div className="pb-24">
+    <div
+      className="min-h-40 pb-24"
+      onClick={(e) => {
+        // Click in the empty area below the blocks → focus/create last block.
+        if (e.target === e.currentTarget) void focusLastOrCreate();
+      }}
+    >
       {blocks.length === 0 && (
         <button
-          className="mt-2 flex items-center gap-2 rounded-lg px-1 py-1.5 text-sm text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-900"
-          onClick={async () => {
-            const id = await insertBlock(-1, 'p', '');
-            setFocusReq({ id, pos: 0 });
-          }}
+          className="block w-full cursor-text rounded-md px-1 py-0.5 text-left text-[15px] leading-7 text-neutral-300 hover:bg-neutral-50 dark:text-neutral-600 dark:hover:bg-neutral-900/50"
+          onClick={() => void focusLastOrCreate()}
+          data-placeholder-block
         >
-          <Plus size={15} /> Add a block
+          Type &apos;/&apos; for commands
         </button>
       )}
       {blocks.map((block, i) => {
@@ -386,6 +402,7 @@ function BlockItem(props: BlockItemProps) {
           value={val}
           rows={1}
           spellCheck={false}
+          data-block
           placeholder={type === 'p' ? "Type '/' for commands" : BLOCK_TYPES.find((t) => t.id === type)?.label}
           className={cn(
             'block w-full resize-none overflow-hidden bg-transparent outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600',
@@ -404,6 +421,16 @@ function BlockItem(props: BlockItemProps) {
             }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
+              // Empty list item + Enter → convert to paragraph (Notion-style).
+              if (el.value === '' && (type === 'bullet' || type === 'numbered' || type === 'todo')) {
+                props.onChangeType('p');
+                return;
+              }
+              // Truncate this block's text immediately and blur it, so keystrokes
+              // can't leak into the old block while the new one mounts+focuses.
+              const before = el.value.slice(0, el.selectionStart);
+              commit(before);
+              el.blur();
               props.onSplit(el.selectionStart, el.value);
             } else if (e.key === 'Backspace' && el.selectionStart === 0 && el.selectionEnd === 0) {
               e.preventDefault();

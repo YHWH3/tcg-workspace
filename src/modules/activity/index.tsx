@@ -5,7 +5,7 @@ import { Activity as ActivityIcon, Inbox } from 'lucide-react';
 import { authStore } from '../../core/auth';
 import { db, type LocalRow } from '../../core/db';
 import { Avatar, Dot, EmptyState } from '../../core/ui';
-import { useUsers } from '../../core/users';
+import { resolveUser, useUsers } from '../../core/users';
 import { cn, relTime } from '../../core/utils';
 import type { AppModule } from '../types';
 
@@ -69,7 +69,8 @@ function ActivityPage() {
   const activity = useActivity();
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], []) ?? [];
   const users = useUsers();
-  const me = authStore.get().user?.id;
+  const meUser = authStore.get().user;
+  const me = meUser?.id;
 
   useEffect(() => {
     localStorage.setItem(SEEN_KEY, String(Date.now()));
@@ -103,7 +104,7 @@ function ActivityPage() {
       ) : (
         <ul className="overflow-hidden rounded-xl border border-neutral-200/70 dark:border-neutral-800">
           {list.slice(0, 200).map((a) => {
-            const actor = users.find((u) => u.id === a.actorId);
+            const actor = resolveUser(a.actorId ?? null, users, meUser);
             const href = a.targetType === 'task' ? `/tasks/${a.targetId}` : a.targetType === 'page' ? `/pages/${a.targetId}` : null;
             return (
               <li key={a.id} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
@@ -114,7 +115,7 @@ function ActivityPage() {
                     <span className="text-neutral-500 dark:text-neutral-400">{verbText(a)}</span>{' '}
                     <span className="font-medium">{String(a.targetTitle ?? '') || 'Untitled'}</span>
                     {a.verb === 'assigned' && a.meta?.assigneeId && (
-                      <span className="text-neutral-500 dark:text-neutral-400"> → {users.find((u) => u.id === a.meta?.assigneeId)?.name ?? 'someone'}</span>
+                      <span className="text-neutral-500 dark:text-neutral-400"> → {resolveUser(a.meta.assigneeId, users, meUser)?.name ?? 'someone'}</span>
                     )}
                   </div>
                   <span className="shrink-0 pt-0.5 text-[11px] text-neutral-400">{relTime(Number(a.createdAt ?? 0))}</span>

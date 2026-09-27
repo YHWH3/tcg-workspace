@@ -5,7 +5,9 @@ import { Trash2, X } from 'lucide-react';
 import { useIsMobile } from '../../core/shell';
 import { db } from '../../core/db';
 import { Avatar, IconButton, Select, Sheet } from '../../core/ui';
-import { useUsers } from '../../core/users';
+import { resolveUser, useUsers } from '../../core/users';
+import { authStore } from '../../core/auth';
+import { useStore } from '../../core/store';
 import { cn, debounce, todayISO } from '../../core/utils';
 import { modules } from '..';
 import { Slot } from '../slots';
@@ -169,7 +171,8 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
 
 function Creator({ id }: { id: string }) {
   const users = useUsers();
-  const u = users.find((x) => x.id === id);
+  const me = useStore(authStore).user;
+  const u = resolveUser(id, users, me);
   if (!u) return null;
   return (
     <span className="flex items-center gap-1.5">

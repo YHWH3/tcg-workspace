@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { CalendarDays, Flag, LayoutGrid, List, Plus, CheckSquare } from 'lucide-react';
 import { authStore } from '../../core/auth';
+import { useIsMobile } from '../../core/shell';
 import { Avatar, EmptyState, Menu, Popover, Select } from '../../core/ui';
-import { useUsers } from '../../core/users';
+import { resolveUser, useUsers } from '../../core/users';
+import { useStore } from '../../core/store';
 import { cn, formatDate, todayISO } from '../../core/utils';
 import { TaskDetail } from './TaskDetail';
 import { byOrder, createTask, liveTasks, PRIORITIES, setTaskField, STATUSES, useTasks, type TaskRow, type TaskStatus } from './api';
@@ -20,6 +22,7 @@ export function TasksPage() {
   const tasks = useTasks();
   const users = useUsers();
   const me = useStoreMe();
+  const mobile = useIsMobile();
   const [view, setView] = useState<View>('board');
   const [filter, setFilter] = useState<Filter>('all');
   const [sort, setSort] = useState<Sort>('order');
@@ -34,41 +37,67 @@ export function TasksPage() {
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center gap-2 border-b border-neutral-200/70 px-4 py-3 dark:border-neutral-800/70">
-          <h1 className="mr-1 text-base font-semibold tracking-tight">Tasks</h1>
+        <header className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-neutral-200/70 px-4 py-2.5 dark:border-neutral-800/70">
+          <h1 className="text-base font-semibold tracking-tight">Tasks</h1>
           <div className="flex rounded-lg bg-neutral-100 p-0.5 text-xs dark:bg-neutral-800">
             {(['board', 'list'] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
+                aria-label={`${v} view`}
                 className={cn('flex items-center gap-1 rounded-md px-2.5 py-1 font-medium capitalize transition-colors', view === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-500')}
               >
                 {v === 'board' ? <LayoutGrid size={13} /> : <List size={13} />}
-                {v}
+                <span className="hidden sm:inline">{v}</span>
               </button>
             ))}
           </div>
-          <Select value={filter} onChange={(e) => setFilter(e.target.value)} className="w-auto py-1 text-xs">
-            <option value="all">All tasks</option>
-            <option value="mine">My tasks</option>
-            <option disabled>— Assignee —</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
+          <div className="flex rounded-lg bg-neutral-100 p-0.5 text-xs dark:bg-neutral-800">
+            {(
+              [
+                ['all', 'All'],
+                ['mine', 'Mine'],
+              ] as const
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setFilter(v)}
+                className={cn('rounded-md px-2.5 py-1 font-medium transition-colors', filter === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-500')}
+              >
+                {label}
+              </button>
             ))}
-          </Select>
-          {view === 'list' && (
-            <Select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="w-auto py-1 text-xs">
-              <option value="order">Manual order</option>
-              <option value="due">Due date</option>
-              <option value="priority">Priority</option>
-              <option value="title">Title</option>
-            </Select>
-          )}
-          <div className="ml-auto">
-            <NewTaskButton />
           </div>
+          <div className="w-32">
+            <Select
+              value={filter === 'all' || filter === 'mine' ? '' : filter}
+              onChange={(e) => setFilter(e.target.value || 'all')}
+              className="py-1 text-xs"
+              aria-label="Filter by assignee"
+            >
+              <option value="">Anyone</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {view === 'list' && (
+            <div className="w-28">
+              <Select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="py-1 text-xs" aria-label="Sort tasks">
+                <option value="order">Manual</option>
+                <option value="due">Due date</option>
+                <option value="priority">Priority</option>
+                <option value="title">Title</option>
+              </Select>
+            </div>
+          )}
+          {!mobile && (
+            <div className="ml-auto">
+              <NewTaskButton />
+            </div>
+          )}
         </header>
         <div className="min-h-0 flex-1 overflow-auto">
           {filtered.length === 0 ? (
@@ -81,6 +110,7 @@ export function TasksPage() {
         </div>
       </div>
       {taskId && <TaskDetail taskId={taskId} />}
+      {mobile && <NewTaskFab />}
     </div>
   );
 }
@@ -97,6 +127,20 @@ function NewTaskButton() {
       onClick={async () => navigate(`/tasks/${await createTask('todo')}`)}
     >
       <Plus size={14} /> New task
+    </button>
+  );
+}
+
+function NewTaskFab() {
+  const navigate = useNavigate();
+  return (
+    <button
+      className="fixed right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg transition-transform active:scale-95 dark:bg-white dark:text-neutral-900"
+      style={{ bottom: 'calc(60px + env(safe-area-inset-bottom))' }}
+      aria-label="New task"
+      onClick={async () => navigate(`/tasks/${await createTask('todo')}`)}
+    >
+      <Plus size={20} />
     </button>
   );
 }
@@ -167,7 +211,8 @@ export function StatusDot({ status }: { status: TaskStatus }) {
 export function TaskCard({ task, onClick }: { task: TaskRow; onClick?: () => void }) {
   const navigate = useNavigate();
   const users = useUsers();
-  const assignee = users.find((u) => u.id === task.assigneeId);
+  const me = useStore(authStore).user;
+  const assignee = resolveUser(task.assigneeId ?? null, users, me);
   const prio = PRIORITIES.find((p) => p.id === (task.priority ?? 'none'))!;
   const overdue = task.dueDate && task.dueDate < todayISO() && task.status !== 'done';
   return (
@@ -205,6 +250,7 @@ export function TaskCard({ task, onClick }: { task: TaskRow; onClick?: () => voi
 function TaskList({ tasks, sort }: { tasks: TaskRow[]; sort: Sort }) {
   const navigate = useNavigate();
   const users = useUsers();
+  const me = useStore(authStore).user;
   const sorter = (a: TaskRow, b: TaskRow) => {
     if (sort === 'due') return String(a.dueDate ?? '9999').localeCompare(String(b.dueDate ?? '9999'));
     if (sort === 'priority') return PRIO_RANK[String(a.priority ?? 'none')] - PRIO_RANK[String(b.priority ?? 'none')];
@@ -224,7 +270,7 @@ function TaskList({ tasks, sort }: { tasks: TaskRow[]; sort: Sort }) {
             </div>
             <div className="overflow-hidden rounded-xl border border-neutral-200/70 dark:border-neutral-800">
               {items.map((t) => {
-                const assignee = users.find((u) => u.id === t.assigneeId);
+                const assignee = resolveUser(t.assigneeId ?? null, users, me);
                 const prio = PRIORITIES.find((p) => p.id === (t.priority ?? 'none'))!;
                 const overdue = t.dueDate && t.dueDate < todayISO() && t.status !== 'done';
                 return (

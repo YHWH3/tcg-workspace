@@ -148,10 +148,12 @@ export function PageView() {
           debouncedRename.current(page.id, e.target.value);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') {
+          if (e.key === 'Enter' || e.key === 'ArrowDown') {
             e.preventDefault();
             e.currentTarget.blur();
-            (document.querySelector('[data-first-block] textarea') as HTMLTextAreaElement | null)?.focus();
+            const first = document.querySelector<HTMLTextAreaElement>('[data-block]');
+            if (first) first.focus();
+            else document.querySelector<HTMLElement>('[data-placeholder-block]')?.click();
           }
         }}
       />

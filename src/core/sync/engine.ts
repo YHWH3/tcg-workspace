@@ -5,7 +5,7 @@ import { db, getMeta, setMeta } from '../db';
 import { hlc } from '../hlc';
 import { createStore } from '../store';
 import { rebaseRecord, type PendingChange } from './rebase';
-import { dropSession } from '../auth';
+import { authStore, dropSession } from '../auth';
 
 export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'idle';
 
@@ -16,6 +16,7 @@ interface SyncState {
 }
 
 export const syncStore = createStore<SyncState>({ status: 'idle', pending: 0, lastSyncedAt: null });
+export const onlineStore = createStore(typeof navigator === 'undefined' ? true : navigator.onLine);
 
 const PUSH_CHUNK = 500;
 const PULL_LIMIT = 500;
@@ -48,13 +49,37 @@ export async function mutate(collection: Collection, id: string, patch: Record<s
   scheduleSync();
 }
 
+function validOutboxEntry(e: { id: unknown; collection: unknown; patch: unknown; ts: unknown }): boolean {
+  return (
+    typeof e.id === 'string' &&
+    e.id.length > 0 &&
+    e.id.length <= 64 &&
+    typeof e.collection === 'string' &&
+    isCollection(e.collection) &&
+    typeof e.patch === 'object' &&
+    e.patch !== null &&
+    !Array.isArray(e.patch) &&
+    typeof e.ts === 'number' &&
+    Number.isFinite(e.ts)
+  );
+}
+
 async function pushOutbox(): Promise<boolean> {
   for (;;) {
     const entries = await db.outbox.orderBy('autoId').limit(PUSH_CHUNK).toArray();
     if (entries.length === 0) return true;
-    const changes: Mutation[] = entries.map((e) => ({ id: e.id, collection: e.collection, patch: e.patch, ts: e.ts }));
+    // Drop poison entries the server would reject (e.g. a collection removed
+    // when a module is uninstalled) so they can't jam the queue forever.
+    const poison = entries.filter((e) => !validOutboxEntry(e));
+    if (poison.length > 0) {
+      console.warn('sync: dropping invalid outbox entries', poison.map((e) => e.id));
+      await db.outbox.bulkDelete(poison.map((e) => e.autoId!).filter((n) => n !== undefined));
+    }
+    const good = entries.filter(validOutboxEntry);
+    if (good.length === 0) continue;
+    const changes: Mutation[] = good.map((e) => ({ id: e.id, collection: e.collection, patch: e.patch, ts: e.ts }));
     await api('/api/sync/push', { method: 'POST', body: { changes } });
-    await db.outbox.bulkDelete(entries.map((e) => e.autoId!).filter((n) => n !== undefined));
+    await db.outbox.bulkDelete(good.map((e) => e.autoId!).filter((n) => n !== undefined));
     await updatePending();
     if (entries.length < PUSH_CHUNK) return true;
   }
@@ -67,14 +92,15 @@ async function pullRemote(): Promise<boolean> {
       `/api/sync/pull?since=${cursor}&limit=${PULL_LIMIT}`,
     );
     if (res.records.length > 0) {
-      const byId = new Map<string, PendingChange[]>();
-      for (const rec of res.records) {
-        if (!byId.has(rec.id)) {
-          const pending = await db.outbox.where('id').equals(rec.id).sortBy('autoId');
-          byId.set(rec.id, pending);
-        }
-      }
       await db.transaction('rw', db.tables, async () => {
+        // Read pending entries inside the tx: a mutate() that lands between the
+        // read and the write must not be clobbered by stale server data.
+        const byId = new Map<string, PendingChange[]>();
+        for (const rec of res.records) {
+          if (!byId.has(rec.id)) {
+            byId.set(rec.id, await db.outbox.where('id').equals(rec.id).sortBy('autoId'));
+          }
+        }
         for (const rec of res.records) {
           if (!isCollection(rec.collection)) continue;
           const rebased = rebaseRecord({ data: rec.data, field_ts: rec.field_ts }, byId.get(rec.id) ?? []);
@@ -138,10 +164,32 @@ export function scheduleSync() {
   debounceTimer = setTimeout(() => void syncNow(), 800);
 }
 
+/** Flush the outbox, then report remaining pending count (for sign-out warning). */
+export async function flushAndCountPending(): Promise<number> {
+  try {
+    await syncNow();
+  } catch {
+    /* best effort */
+  }
+  return db.outbox.count();
+}
+
 export function startSyncEngine() {
   void updatePending();
   void syncNow();
-  window.addEventListener('online', () => void syncNow());
+  // Re-kick sync whenever auth state flips to authed (e.g. right after login:
+  // the engine's first run happens while unauthenticated and early-returns).
+  let wasAuthed = !!authStore.get().user;
+  authStore.subscribe(() => {
+    const authed = !!authStore.get().user;
+    if (authed && !wasAuthed) void syncNow();
+    wasAuthed = authed;
+  });
+  window.addEventListener('online', () => {
+    onlineStore.set(true);
+    void syncNow();
+  });
+  window.addEventListener('offline', () => onlineStore.set(false));
   window.addEventListener('focus', () => void syncNow());
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void syncNow();
