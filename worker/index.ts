@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { auth, me } from './auth';
 import { sync } from './sync';
 import { admin } from './admin';
+import { files } from './files';
 import type { Env, AuthUser } from './auth';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
@@ -14,6 +15,7 @@ app.onError((err, c) => {
 app.route('/api/auth', auth);
 app.route('/api/me', me);
 app.route('/api/sync', sync);
+app.route('/api/files', files);
 app.route('/api', admin);
 
 app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));

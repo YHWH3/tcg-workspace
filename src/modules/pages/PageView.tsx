@@ -5,7 +5,7 @@ import { FilePlus2, FileText, MoreHorizontal, Trash2 } from 'lucide-react';
 import { db } from '../../core/db';
 import { mutate } from '../../core/sync/engine';
 import { IconButton, Menu, Popover, EmptyState } from '../../core/ui';
-import { cn, debounce } from '../../core/utils';
+import { cn, cmpOrder, debounce } from '../../core/utils';
 import { PAGE_ICONS } from '../../core/config';
 import { modules } from '..';
 import { Slot } from '../slots';
@@ -18,7 +18,7 @@ export function PagesHome() {
   const navigate = useNavigate();
   const roots = visible.filter((p) => !p.parentId);
   if (roots.length > 0) {
-    const sorted = [...roots].sort((a, b) => String(a.order).localeCompare(String(b.order)));
+    const sorted = [...roots].sort((a, b) => cmpOrder(a.order, b.order));
     return <Navigate to={`/pages/${sorted[0].id}`} replace />;
   }
   return (

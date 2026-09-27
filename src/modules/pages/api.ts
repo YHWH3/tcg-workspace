@@ -4,7 +4,7 @@ import { authStore } from '../../core/auth';
 import { logActivity } from '../../core/activity';
 import { db, type LocalRow } from '../../core/db';
 import { mutate } from '../../core/sync/engine';
-import { uuid } from '../../core/utils';
+import { cmpOrder, uuid } from '../../core/utils';
 
 export interface PageRow extends LocalRow {
   title?: string;
@@ -36,7 +36,7 @@ export function visiblePages(pages: PageRow[]): PageRow[] {
 
 export async function createPage(parentId: string | null = null): Promise<string> {
   const all = await db.pages.toArray();
-  const live = all.filter((p) => (p.parentId ?? null) === parentId && !p.deleted).sort((a, b) => String(a.order).localeCompare(String(b.order)));
+  const live = all.filter((p) => (p.parentId ?? null) === parentId && !p.deleted).sort((a, b) => cmpOrder(a.order, b.order));
   const order = generateKeyBetween(live.length ? String(live[live.length - 1].order ?? '') || null : null, null);
   const id = uuid();
   const me = authStore.get().user;

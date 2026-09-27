@@ -3,9 +3,11 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { generateKeyBetween } from 'fractional-indexing';
 import { ArrowDown, ArrowUp, GripVertical, Trash2 } from 'lucide-react';
 import { db, type LocalRow } from '../../core/db';
+import { addFile } from '../../core/files';
 import { mutate } from '../../core/sync/engine';
 import { IconButton, Menu, Popover } from '../../core/ui';
-import { cn, debounce, uuid } from '../../core/utils';
+import { cn, cmpOrder, debounce, uuid } from '../../core/utils';
+import { blockRenderer, insertEntries } from './blocks/registry';
 
 export const BLOCK_TYPES = [
   { id: 'p', label: 'Text' },
@@ -25,10 +27,21 @@ export type BlockType = (typeof BLOCK_TYPES)[number]['id'];
 export interface BlockRow extends LocalRow {
   pageId?: string;
   order?: string;
-  type?: BlockType;
+  /** Built-in text types (see BLOCK_TYPES) plus registered media types (image/video/audio/file/tasks…). */
+  type?: string;
   text?: string;
   checked?: boolean;
+  fileId?: string;
+  caption?: string;
+  boardId?: string;
   deleted?: boolean;
+}
+
+function blockTypeForFile(mime: string): string {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  return 'file';
 }
 
 const MD_PATTERNS: [RegExp, BlockType][] = [
@@ -55,7 +68,7 @@ const TEXT_CLS: Record<string, string> = {
   code: 'text-[13px] leading-6 font-mono',
 };
 
-const byOrder = (a: BlockRow, b: BlockRow) => String(a.order).localeCompare(String(b.order));
+const byOrder = (a: BlockRow, b: BlockRow) => cmpOrder(a.order, b.order);
 
 interface FocusReq {
   id: string;
@@ -115,7 +128,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
   const idxOf = useCallback((id: string) => blocks.findIndex((b) => b.id === id), [blocks]);
 
   const insertBlock = useCallback(
-    async (afterIndex: number, type: BlockType, text: string): Promise<string> => {
+    async (afterIndex: number, type: string, text: string): Promise<string> => {
       const prev = blocks[afterIndex];
       const next = blocks[afterIndex + 1];
       const order = generateKeyBetween(prev ? String(prev.order) : null, next ? String(next.order) : null);
@@ -124,6 +137,20 @@ export function BlockEditor({ pageId }: { pageId: string }) {
       return id;
     },
     [blocks, pageId],
+  );
+
+  /** Files pasted/dropped into the editor become media blocks using the file pipeline. */
+  const insertFiles = useCallback(
+    async (afterIndex: number, files: FileList | File[]) => {
+      let i = afterIndex;
+      for (const f of Array.from(files)) {
+        const id = await insertBlock(i, blockTypeForFile(f.type), '');
+        i += 1;
+        const fid = await addFile(f, { parentType: 'block', parentId: id, transcriptState: f.type.startsWith('audio/') ? 'pending' : undefined });
+        await mutate('blocks', id, { fileId: fid });
+      }
+    },
+    [insertBlock],
   );
 
   const splitBlock = useCallback(
@@ -206,6 +233,19 @@ export function BlockEditor({ pageId }: { pageId: string }) {
         // Click in the empty area below the blocks → focus/create last block.
         if (e.target === e.currentTarget) void focusLastOrCreate();
       }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      onDrop={(e) => {
+        if (e.dataTransfer.files.length) {
+          e.preventDefault();
+          e.stopPropagation();
+          void insertFiles(blocks.length - 1, e.dataTransfer.files);
+        }
+      }}
     >
       {blocks.length === 0 && (
         <button
@@ -260,9 +300,16 @@ export function BlockEditor({ pageId }: { pageId: string }) {
             onDragOver={() => setDragOver(block.id)}
             onDrop={(e) => {
               setDragOver(null);
+              if (e.dataTransfer.files.length) {
+                e.preventDefault();
+                e.stopPropagation();
+                void insertFiles(i, e.dataTransfer.files);
+                return;
+              }
               const id = e.dataTransfer.getData('text/block-id');
               if (id) void dropOn(block, id);
             }}
+            onPasteFiles={(files) => void insertFiles(i, files)}
             onChangeType={(type) => void mutate('blocks', block.id, { type, ...(type === 'todo' ? { checked: false } : {}) })}
             onToggleChecked={(checked) => void mutate('blocks', block.id, { checked })}
           />
@@ -291,7 +338,8 @@ interface BlockItemProps {
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: () => void;
   onDrop: (e: React.DragEvent) => void;
-  onChangeType: (t: BlockType) => void;
+  onPasteFiles: (files: FileList) => void;
+  onChangeType: (t: string) => void;
   onToggleChecked: (checked: boolean) => void;
 }
 
@@ -309,7 +357,8 @@ function BlockItem(props: BlockItemProps) {
 
   const type = block.type ?? 'p';
   const slashFilter = val.startsWith('/') ? val.slice(1).toLowerCase() : null;
-  const slashItems = slashFilter !== null ? BLOCK_TYPES.filter((t) => t.label.toLowerCase().includes(slashFilter)) : [];
+  const slashAll = useMemo(() => [...BLOCK_TYPES, ...insertEntries().map((e) => ({ id: e.type, label: e.label }))], []);
+  const slashItems = slashFilter !== null ? slashAll.filter((t) => t.label.toLowerCase().includes(slashFilter)) : [];
 
   const setRef = (el: HTMLTextAreaElement | null) => {
     taRef.current = el;
@@ -332,7 +381,7 @@ function BlockItem(props: BlockItemProps) {
     commit(text);
   };
 
-  const pickSlash = (t: BlockType) => {
+  const pickSlash = (t: string) => {
     props.onChangeType(t);
     commit('');
     setSlashSel(0);
@@ -362,6 +411,38 @@ function BlockItem(props: BlockItemProps) {
       >
         <Handle {...props} />
         <div className="mx-1 h-px flex-1 bg-neutral-200 dark:bg-neutral-800" />
+        <BlockMenu {...props} />
+      </div>
+    );
+  }
+
+  // Registered media blocks (image, video, audio, file, tasks…) render via the registry.
+  const Media = blockRenderer(type);
+  if (Media) {
+    return (
+      <div
+        className={cn('group relative flex items-start gap-0.5 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-blue-300', props.dragOver && 'border-t-2 border-blue-400')}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Backspace' || e.key === 'Delete') {
+            e.preventDefault();
+            props.onDelete();
+          } else if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            void props.onNewBelow();
+          }
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          props.onDragOver();
+        }}
+        onDrop={props.onDrop}
+      >
+        <Handle {...props} />
+        <div className="min-w-0 flex-1">
+          <Media block={block} onNewBelow={props.onNewBelow} onDelete={props.onDelete} />
+        </div>
         <BlockMenu {...props} />
       </div>
     );
@@ -410,6 +491,12 @@ function BlockItem(props: BlockItemProps) {
             type === 'todo' && block.checked && 'text-neutral-400 line-through',
           )}
           onChange={(e) => handleChange(e.target.value)}
+          onPaste={(e) => {
+            if (e.clipboardData.files.length) {
+              e.preventDefault();
+              props.onPasteFiles(e.clipboardData.files);
+            }
+          }}
           onBlur={() => props.onFlush()}
           onKeyDown={(e) => {
             const el = e.currentTarget;

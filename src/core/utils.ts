@@ -6,6 +6,15 @@ export function uuid(): string {
   return crypto.randomUUID();
 }
 
+/** Fractional-index order keys sort by ordinal char order (0-9 A-Z a-z), which
+ *  localeCompare does NOT reproduce (ICU ranks a < Z). Always sort `order`
+ *  fields with this comparator so display order matches generateKeyBetween. */
+export function cmpOrder(a: unknown, b: unknown): number {
+  const x = String(a ?? '');
+  const y = String(b ?? '');
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
 export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
   let t: ReturnType<typeof setTimeout> | undefined;
   const wrapped = (...args: A) => {

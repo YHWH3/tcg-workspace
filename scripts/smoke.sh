@@ -103,7 +103,58 @@ for i in $(seq 1 20); do
 done
 check "concurrent disjoint-field pushes (20 races)" "$CONC_OK" "20"
 
-# 12. login works
+# 13. file storage: chunked upload, byte-identical download, limits
+FID="smokefile_$$"
+head -c 2621440 /dev/urandom > /tmp/smoke_file.bin   # 2.5 MiB → 3 chunks
+SHA_IN=$(shasum -a 256 /tmp/smoke_file.bin | awk '{print $1}')
+
+code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+
+# unauthenticated chunk upload → 401
+check "unauth chunk PUT 401" "$(code -X PUT --data-binary 'x' "$BASE/api/files/$FID/chunks/0")" "401"
+
+# incomplete file → GET 404
+split -b 1048576 /tmp/smoke_file.bin /tmp/smoke_chunk_
+C=$(code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_chunk_aa "$BASE/api/files/$FID/chunks/0")
+check "chunk 0 PUT ok" "$C" "200"
+check "incomplete file GET 404" "$(code -H "Authorization: Bearer $TA" "$BASE/api/files/$FID")" "404"
+
+# remaining chunks, idempotent re-PUT of chunk 0
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_chunk_aa "$BASE/api/files/$FID/chunks/0" >/dev/null
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_chunk_ab "$BASE/api/files/$FID/chunks/1" >/dev/null
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_chunk_ac "$BASE/api/files/$FID/chunks/2" >/dev/null
+
+R=$(req POST "/api/files/$FID/complete" "$TA" '{"mime":"application/octet-stream","size":2621440,"chunks":3}')
+check "complete ok" "$(echo "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ok"))')" "True"
+# complete is idempotent
+R=$(req POST "/api/files/$FID/complete" "$TA" '{"mime":"application/octet-stream","size":2621440,"chunks":3}')
+check "complete idempotent" "$(echo "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ok"))')" "True"
+
+curl -s -H "Authorization: Bearer $TA" -o /tmp/smoke_file.out "$BASE/api/files/$FID"
+SHA_OUT=$(shasum -a 256 /tmp/smoke_file.out | awk '{print $1}')
+check "GET byte-identical (sha256)" "$SHA_OUT" "$SHA_IN"
+check "GET cache header" "$(curl -s -D - -o /dev/null -H "Authorization: Bearer $TA" "$BASE/api/files/$FID" | grep -i 'cache-control' | tr -d '\r')" "cache-control: private, max-age=31536000, immutable"
+
+# usage endpoint reflects the upload
+USED=$(req GET /api/files/usage "$TA" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["used"] >= 2621440, d["limit"])')
+check "usage reflects upload" "$USED" "True 471859200"
+
+# >20 MB rejected at complete
+FID2="toobig_$$"
+code -X PUT -H "Authorization: Bearer $TA" --data-binary 'x' "$BASE/api/files/$FID2/chunks/0" >/dev/null
+check "oversized file complete 413" "$(code -X POST -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"mime":"x","size":21943040,"chunks":1}' "$BASE/api/files/$FID2/complete")" "413"
+
+# oversize chunk rejected
+head -c 3145729 /dev/urandom > /tmp/smoke_big.bin   # > 2 MiB chunk cap
+check "oversize chunk PUT 413" "$(code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_big.bin "$BASE/api/files/bigchunk_$$/chunks/0")" "413"
+
+# delete removes the file
+check "DELETE ok" "$(code -X DELETE -H "Authorization: Bearer $TA" "$BASE/api/files/$FID")" "200"
+check "deleted file GET 404" "$(code -H "Authorization: Bearer $TA" "$BASE/api/files/$FID")" "404"
+
+rm -f /tmp/smoke_file.bin /tmp/smoke_file.out /tmp/smoke_big.bin /tmp/smoke_chunk_*
+
+# 14. login works
 R=$(req POST /api/auth/login '' '{"username":"admin","password":"password123"}')
 check "login returns token" "$(echo "$R" | python3 -c 'import json,sys; print("yes" if json.load(sys.stdin).get("token") else "no")')" "yes"
 

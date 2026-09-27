@@ -2,6 +2,7 @@ import { FileText, Home } from 'lucide-react';
 import type { AppModule } from '../types';
 import { PageView, PagesHome } from './PageView';
 import { PagesTree } from './tree';
+import './blocks/media';
 
 export const pagesModule: AppModule = {
   id: 'pages',

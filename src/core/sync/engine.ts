@@ -32,6 +32,51 @@ async function updatePending() {
   syncStore.set((s) => (s.pending === n ? s : { ...s, pending: n }));
 }
 
+/**
+ * Seed a record with field timestamps = 1 — any real user edit (local or
+ * remote) has a higher ts and therefore wins. No-ops if the row exists.
+ * The seed goes through the outbox so it propagates to the server, where it
+ * likewise loses to any existing version of the row.
+ */
+export async function seedRecord(collection: Collection, id: string, data: Record<string, unknown>): Promise<void> {
+  const table = db.collection(collection);
+  await db.transaction('rw', table, db.outbox, async () => {
+    if (await table.get(id)) return;
+    const fieldTs: Record<string, number> = {};
+    for (const field of Object.keys(data)) fieldTs[field] = 1;
+    await table.put({ id, ...data, _ts: fieldTs });
+    await db.outbox.add({ id, collection, patch: data, ts: 1 });
+  });
+}
+
+const SEEDS_DONE = 'seeds_v1';
+
+async function seedBuiltins(): Promise<void> {
+  if (await getMeta(SEEDS_DONE)) return;
+  await seedRecord('boards', 'board-default', {
+    name: 'Tasks',
+    icon: '✅',
+    columns: [
+      { id: 'todo', name: 'To do', color: '#8a8a8a' },
+      { id: 'in_progress', name: 'In progress', color: '#0091ff' },
+      { id: 'done', name: 'Done', color: '#30a46c' },
+    ],
+    order: 'a0',
+    createdAt: Date.now(),
+  });
+  await seedRecord('boards', 'board-inbox', {
+    name: 'Inbox',
+    icon: '📥',
+    columns: [
+      { id: 'new', name: 'New', color: '#e5a000' },
+      { id: 'sorted', name: 'Sorted', color: '#30a46c' },
+    ],
+    order: 'a1',
+    createdAt: Date.now(),
+  });
+  await setMeta(SEEDS_DONE, 1);
+}
+
 /** Local write API: apply patch to the local row + enqueue for sync, in one tx. */
 export async function mutate(collection: Collection, id: string, patch: Record<string, unknown>): Promise<void> {
   const table = db.collection(collection);
@@ -140,7 +185,11 @@ export async function syncNow(): Promise<void> {
   try {
     await pushOutbox();
     await pullRemote();
+    await seedBuiltins();
     await refreshUsers();
+    // Chunked blob uploads run after metadata sync (dynamic import avoids a cycle).
+    const { uploadPendingBlobs } = await import('../files');
+    await uploadPendingBlobs();
     syncStore.set((s) => ({ ...s, status: 'synced', lastSyncedAt: Date.now() }));
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) {

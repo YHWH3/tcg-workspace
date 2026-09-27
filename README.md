@@ -1,11 +1,11 @@
 # Workspace
 
-A local-first, self-hosted mini-Notion for a small team (≤7 members). Pages with a block editor, task board, comments, and an activity feed — all offline-capable, syncing through a Cloudflare Worker + D1, installable as a PWA.
+A local-first, self-hosted mini-Notion for a small team (≤7 members). Pages with a block editor (text + image/video/audio/PDF/task-list media blocks), multiple kanban boards with custom stages and drag-and-drop, media-rich task cards, a quick-capture sheet for photo + voice memos (auto-transcribed), comments, and an activity feed — all offline-capable, syncing through a Cloudflare Worker + D1, installable as a PWA with an Android share target.
 
 ## Stack
 
-- **Client:** Vite + React 19 + TypeScript (strict), Tailwind v4, react-router, Dexie (IndexedDB outbox), fractional-indexing, vite-plugin-pwa
-- **Server:** Cloudflare Worker (Hono) + D1 (SQLite) — per-field last-write-wins sync via HLC timestamps
+- **Client:** Vite + React 19 + TypeScript (strict), Tailwind v4, react-router, Dexie (IndexedDB outbox + local blob store), fractional-indexing, @dnd-kit, vite-plugin-pwa (injectManifest custom service worker)
+- **Server:** Cloudflare Worker (Hono) + D1 (SQLite) — per-field last-write-wins sync via HLC timestamps; files stored as D1 chunks; Workers AI for voice-memo transcription
 - Single npm package; `@cloudflare/vite-plugin` runs the Worker inside `vite dev`.
 
 ## Local development
@@ -42,6 +42,14 @@ Learnings:
 - `wrangler d1 create` and `migrations apply --remote` prompt interactively — both accept CI-friendly fallbacks in non-interactive shells.
 - The first signup on a fresh deployment becomes the workspace admin — open the deployed URL and create it before anyone else does.
 - Read-only sanity checks after deploy: `GET /api/auth/status` → `{"needsBootstrap":true}`, `/` and `/some/deep/route` → SPA HTML, `/manifest.webmanifest` and `/sw.js` → 200, unauthenticated `POST /api/sync/push` → 401.
+
+## Storage & files
+
+- Files live in D1 (`files` + `file_chunks` tables, 1 MiB chunks) — no R2 needed.
+- Limits: **20 MB per file**, **450 MB per workspace** (server-enforced; usage bar in **Settings**).
+- Uploads are chunked and resumable; everything attaches offline first and uploads on reconnect.
+- Voice memos are auto-transcribed via **Workers AI** (`@cf/openai/whisper-large-v3-turbo`, `ai` binding `AI` in `wrangler.jsonc` — free daily allowance, no key needed). Chrome/Android record `audio/webm`, Safari/iOS `audio/mp4`; both are accepted.
+- Android: the PWA manifest registers a `share_target`, so photos/videos can be shared from the gallery straight into the capture sheet (custom service worker stores them in IndexedDB and opens `/capture`).
 
 ## Notes
 

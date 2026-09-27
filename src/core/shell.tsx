@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
-import { Search, Settings, LogOut, Moon, Sun, Monitor, CloudOff, RefreshCw, Check, AlertTriangle, PanelLeft } from 'lucide-react';
+import { Search, Settings, LogOut, Moon, Sun, Monitor, CloudOff, RefreshCw, Check, AlertTriangle, PanelLeft, Plus, Camera } from 'lucide-react';
+import { toastStore } from './files';
 import { modules } from '../modules';
+import type { AppModule } from '../modules/types';
 import { authStore, signOut } from './auth';
 import { APP_NAME } from './config';
 import { InstallButton } from './install';
@@ -171,6 +173,35 @@ function UserMenu() {
   );
 }
 
+function TabLink({ item }: { item: NonNullable<AppModule['navItem']> }) {
+  return (
+    <NavLink
+      to={item.path}
+      end={item.path === '/'}
+      className={({ isActive }) =>
+        cn('flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] transition-colors', isActive ? 'text-neutral-900 dark:text-white' : 'text-neutral-400')
+      }
+    >
+      <item.icon size={20} strokeWidth={1.8} />
+      {item.label}
+    </NavLink>
+  );
+}
+
+function Toaster() {
+  const { items } = useStore(toastStore);
+  if (items.length === 0) return null;
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-20 z-[70] flex flex-col items-center gap-1.5 px-4 sm:bottom-6">
+      {items.map((t) => (
+        <div key={t.id} className={cn('anim-slide-up rounded-full px-4 py-2 text-xs font-medium shadow-lg', t.tone === 'error' ? 'bg-red-600 text-white' : 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900')}>
+          {t.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav className="flex flex-col gap-0.5 px-2">
@@ -213,18 +244,26 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
         <span className="text-sm font-semibold tracking-tight">{APP_NAME}</span>
       </div>
-      <div className="px-2 py-2">
+      <div className="flex gap-1.5 px-2 py-2">
         <button
           onClick={() => {
             onNavigate?.();
             paletteStore.set(true);
           }}
-          className="flex w-full items-center gap-2.5 rounded-lg border border-neutral-200/80 px-2.5 py-1.5 text-sm text-neutral-400 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/50"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-neutral-200/80 px-2.5 py-1.5 text-sm text-neutral-400 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/50"
         >
           <Search size={15} />
           <span className="flex-1 text-left">Search</span>
           <kbd className="text-[10px] text-neutral-300 dark:text-neutral-600">⌘K</kbd>
         </button>
+        <NavLink
+          to="/capture"
+          onClick={onNavigate}
+          title="Quick capture (C)"
+          className="flex items-center justify-center rounded-lg border border-neutral-200/80 px-2.5 text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/50"
+        >
+          <Camera size={15} />
+        </NavLink>
       </div>
       <NavItems onNavigate={onNavigate} />
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
@@ -245,16 +284,24 @@ export function Shell() {
   const mobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  const navigate = useNavigate();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         paletteStore.set(true);
+        return;
+      }
+      // C → quick capture, when not typing in a field.
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement | null)?.isContentEditable;
+      if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'c') {
+        navigate('/capture');
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [navigate]);
 
   const tabItems = modules.filter((m) => m.navItem).map((m) => m.navItem!);
 
@@ -285,24 +332,19 @@ export function Shell() {
           <Outlet />
         </main>
 
-        {/* Mobile bottom tabs */}
+        {/* Mobile bottom tabs with a prominent center capture button */}
         {mobile && (
           <nav className="pb-safe flex shrink-0 items-stretch border-t border-neutral-200/80 bg-white dark:border-neutral-800 dark:bg-neutral-950">
-            {tabItems.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                end={item.path === '/'}
-                className={({ isActive }) =>
-                  cn(
-                    'relative flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] transition-colors',
-                    isActive ? 'text-neutral-900 dark:text-white' : 'text-neutral-400',
-                  )
-                }
-              >
-                <item.icon size={20} strokeWidth={1.8} />
-                {item.label}
-              </NavLink>
+            {tabItems.slice(0, Math.ceil(tabItems.length / 2)).map((item) => (
+              <TabLink key={item.path} item={item} />
+            ))}
+            <NavLink to="/capture" aria-label="Quick capture" className="flex min-h-11 flex-1 items-center justify-center">
+              <span className="-mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg ring-4 ring-white active:scale-95 dark:bg-white dark:text-neutral-900 dark:ring-neutral-950">
+                <Plus size={22} strokeWidth={2.2} />
+              </span>
+            </NavLink>
+            {tabItems.slice(Math.ceil(tabItems.length / 2)).map((item) => (
+              <TabLink key={item.path} item={item} />
             ))}
             <NavLink
               to="/settings"
@@ -323,6 +365,7 @@ export function Shell() {
         </Sheet>
       )}
 
+      <Toaster />
       <CommandPalette />
     </div>
   );

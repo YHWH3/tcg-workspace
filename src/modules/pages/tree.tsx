@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { ChevronRight, Plus, FileText, Trash2, FilePlus2 } from 'lucide-react';
 import { IconButton, Menu, Popover } from '../../core/ui';
-import { cn } from '../../core/utils';
+import { cn, cmpOrder } from '../../core/utils';
 import { createPage, deletePage, usePages, visiblePages, type PageRow } from './api';
 
 export function PagesTree() {
@@ -19,7 +19,7 @@ export function PagesTree() {
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(p);
     }
-    for (const list of map.values()) list.sort((a, b) => String(a.order).localeCompare(String(b.order)));
+    for (const list of map.values()) list.sort((a, b) => cmpOrder(a.order, b.order));
     return map;
   }, [visible]);
 

@@ -5,6 +5,7 @@ import { hashPassword, inviteCode, newSalt, randomToken, sha256Hex, verifyPasswo
 
 export interface Env {
   DB: D1Database;
+  AI: Ai;
 }
 
 export interface AuthUser extends PublicUser {

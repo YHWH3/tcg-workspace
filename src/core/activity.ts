@@ -5,7 +5,7 @@ import { uuid } from './utils';
 /** Append an activity record. Safe no-op when signed out. */
 export function logActivity(
   verb: string,
-  targetType: 'page' | 'task' | 'comment',
+  targetType: 'page' | 'task' | 'comment' | 'board' | 'file' | 'block' | 'mooditem',
   targetId: string,
   targetTitle: string,
   meta?: Record<string, unknown>,

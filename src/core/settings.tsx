@@ -31,6 +31,7 @@ export function SettingsPage() {
       <h1 className="mb-6 text-xl font-semibold tracking-tight">Settings</h1>
       <div className="flex flex-col gap-5">
         <ProfileSection user={user} />
+        <StorageSection />
         <PasswordSection />
         {user?.role === 'admin' && <AdminSection />}
       </div>
@@ -95,6 +96,43 @@ function ProfileSection({ user }: { user: PublicUser | null }) {
         {saved && <span className="text-xs text-emerald-600 dark:text-emerald-400">Saved</span>}
         <span className="text-xs text-neutral-400">@{user.username}</span>
       </div>
+    </Section>
+  );
+}
+
+function fmtMB(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 100 * 1024 * 1024 ? 0 : 1)} MB`;
+}
+
+function StorageSection() {
+  const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null);
+  useEffect(() => {
+    api<{ used: number; limit: number }>('/api/files/usage')
+      .then(setUsage)
+      .catch(() => setUsage(null));
+  }, []);
+  const pct = usage ? Math.min(100, Math.round((usage.used / usage.limit) * 100)) : 0;
+  return (
+    <Section title="Storage">
+      {usage ? (
+        <div>
+          <div className="mb-1.5 flex items-center justify-between text-sm">
+            <span className="font-medium">Storage</span>
+            <span className="text-xs text-neutral-400">
+              {fmtMB(usage.used)} of {fmtMB(usage.limit)}
+            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+            <div
+              className={cn('h-full rounded-full transition-all', pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-500' : 'bg-neutral-900 dark:bg-white')}
+              style={{ width: `${Math.max(pct, 1)}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-neutral-400">Files are stored in D1 and capped at 20 MB each. The workspace quota is shared by all members.</p>
+        </div>
+      ) : (
+        <p className="text-xs text-neutral-400">Storage usage is unavailable while offline.</p>
+      )}
     </Section>
   );
 }

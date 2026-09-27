@@ -114,3 +114,23 @@ textarea {
 .anim-slide-bottom {
   animation: slide-in-bottom 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.anim-pulse {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+/* horizontal column snap on touch */
+.snap-x-cols {
+  scroll-snap-type: x mandatory;
+}
+.snap-x-cols > * {
+  scroll-snap-align: start;
+}

@@ -1,7 +1,7 @@
 import { pagesModule } from './pages';
-import { tasksModule } from './tasks';
+import { boardsModule } from './boards';
 import { commentsModule } from './comments';
 import { activityModule } from './activity';
 import type { AppModule } from './types';
 
-export const modules: AppModule[] = [pagesModule, tasksModule, commentsModule, activityModule];
+export const modules: AppModule[] = [pagesModule, boardsModule, commentsModule, activityModule];

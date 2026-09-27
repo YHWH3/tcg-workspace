@@ -17,15 +17,29 @@ export interface OutboxEntry {
   ts: number;
 }
 
+export type BlobState = 'pending' | 'uploaded' | 'cached' | 'failed';
+
+export interface BlobRow {
+  id: string;
+  blob: Blob;
+  state: BlobState;
+  uploadedChunks: number;
+  mime?: string;
+  error?: string;
+}
+
 export class LocalDB extends Dexie {
   pages!: Table<LocalRow, string>;
   blocks!: Table<LocalRow, string>;
   tasks!: Table<LocalRow, string>;
   comments!: Table<LocalRow, string>;
   activity!: Table<LocalRow, string>;
+  boards!: Table<LocalRow, string>;
+  files!: Table<LocalRow, string>;
   users!: Table<PublicUser, string>;
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<{ key: string; value: unknown }, string>;
+  blobs!: Table<BlobRow, string>;
 
   constructor() {
     super('workspace');
@@ -38,6 +52,12 @@ export class LocalDB extends Dexie {
       users: 'id',
       outbox: '++autoId, id',
       meta: 'key',
+    });
+    this.version(2).stores({
+      boards: 'id, order',
+      files: 'id, parentId, createdAt',
+      blobs: 'id, state',
+      tasks: 'id, status, assigneeId, boardId, order, createdAt',
     });
   }
 

@@ -10,6 +10,9 @@ export default defineConfig({
     tailwindcss(),
     cloudflare(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
@@ -26,12 +29,23 @@ export default defineConfig({
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
           { src: 'icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
+        shortcuts: [
+          { name: 'Quick photo', url: '/capture?mode=photo', icons: [{ src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Voice memo', url: '/capture?mode=voice', icons: [{ src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+        ],
+        share_target: {
+          action: '/share-target',
+          method: 'POST',
+          enctype: 'multipart/form-data',
+          params: {
+            files: [{ name: 'media', accept: ['image/*', 'video/*', 'audio/*'] }],
+          },
+        },
       },
-      workbox: {
+      injectManifest: {
+        // Classic-script SW (registered without type:module) — must be iife.
+        rollupFormat: 'iife',
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api\//],
-        runtimeCaching: [{ urlPattern: /\/api\/.*/, handler: 'NetworkOnly' }],
       },
       devOptions: { enabled: false },
     }),
