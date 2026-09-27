@@ -29,12 +29,19 @@ npm run smoke               # end-to-end API test against the dev server
 ## Deploy
 
 ```bash
-wrangler login
-wrangler d1 create workspace-db          # copy the printed database_id
+npx wrangler login
+npx wrangler d1 create workspace-db       # copy the printed database_id
 # → put that id into wrangler.jsonc d1_databases[0].database_id
-wrangler d1 migrations apply DB --remote
+npx wrangler d1 migrations apply DB --remote
 npm run deploy                            # vite build + wrangler deploy
 ```
+
+Deployed at **https://workspace.teqlume-platform-ui.workers.dev** (worker name `workspace`; if taken on your account, rename to `team-workspace` in `wrangler.jsonc`).
+
+Learnings:
+- `wrangler d1 create` and `migrations apply --remote` prompt interactively — both accept CI-friendly fallbacks in non-interactive shells.
+- The first signup on a fresh deployment becomes the workspace admin — open the deployed URL and create it before anyone else does.
+- Read-only sanity checks after deploy: `GET /api/auth/status` → `{"needsBootstrap":true}`, `/` and `/some/deep/route` → SPA HTML, `/manifest.webmanifest` and `/sw.js` → 200, unauthenticated `POST /api/sync/push` → 401.
 
 ## Notes
 

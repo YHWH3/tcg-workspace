@@ -14,7 +14,7 @@
     {
       "binding": "DB",
       "database_name": "workspace-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "59b10ca8-3018-4e26-aa42-c9eeeb2fccc6",
       "migrations_dir": "migrations"
     }
   ]
