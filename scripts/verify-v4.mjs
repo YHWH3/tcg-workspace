@@ -226,10 +226,22 @@ await sleep(400);
 await pageA.locator('.w-56 button', { hasText: 'Tasks' }).first().click();
 await sleep(900);
 check('linked-task badge on item', (await pageA.locator('text=Task').count()) > 0);
-// the task should carry the image as cover — verify via sync pull
-const pull = await api('/api/sync/pull?since=0', { token: admin.token });
-const tasks = pull.data.records.filter((r) => r.collection === 'tasks');
-const made = tasks.find((t) => t.data.coverFileId);
+// the task should carry the image as cover — verify via sync pull (poll: outbox flush is async; paginate past 500)
+const pullAll = async () => {
+  const out = [];
+  let since = 0;
+  for (;;) {
+    const pull = await api(`/api/sync/pull?since=${since}`, { token: admin.token });
+    out.push(...pull.data.records);
+    if (!pull.data.hasMore) return out;
+    since = pull.data.cursor;
+  }
+};
+let made = null;
+for (let i = 0; i < 24 && !made; i++) {
+  await sleep(1000);
+  made = (await pullAll()).filter((r) => r.collection === 'tasks').find((t) => t.data.coverFileId);
+}
 check('created task has coverFileId', !!made);
 
 // ---------- 3. comments ----------

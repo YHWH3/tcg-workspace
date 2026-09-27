@@ -187,9 +187,10 @@ check "public file denied when unreferenced" "$(code "$BASE/api/public/$TOKEN/fi
 check "shares require auth" "$(code -X POST -H 'Content-Type: application/json' -d '{"pageId":"x"}' "$BASE/api/shares")" "401"
 
 # live socket: upgrade without/with-bad subprotocol token must be rejected
-WSCODE=$(curl -s -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "$BASE/api/live")
+# --http1.1: h2 strips hop-by-hop Upgrade headers, so the worker would see a plain GET.
+WSCODE=$(curl -s --http1.1 -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "$BASE/api/live")
 check "live upgrade without subprotocol rejected" "$([ "$WSCODE" = "401" ] || [ "$WSCODE" = "400" ] || [ "$WSCODE" = "426" ] && echo rejected)" "rejected"
-WSCODE=$(curl -s -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Protocol: ws-auth, deadbeef' "$BASE/api/live")
+WSCODE=$(curl -s --http1.1 -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Protocol: ws-auth, deadbeef' "$BASE/api/live")
 check "live upgrade with bad token rejected" "$WSCODE" "401"
 
 # revoke → public routes go dark
