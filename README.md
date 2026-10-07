@@ -43,6 +43,19 @@ Learnings:
 - The first signup on a fresh deployment becomes the workspace admin — open the deployed URL and create it before anyone else does.
 - Read-only sanity checks after deploy: `GET /api/auth/status` → `{"needsBootstrap":true}`, `/` and `/some/deep/route` → SPA HTML, `/manifest.webmanifest` and `/sw.js` → 200, unauthenticated `POST /api/sync/push` → 401.
 
+## AI connectors (MCP)
+
+The Worker exposes an MCP server at `POST https://<host>/mcp` (Streamable HTTP, OAuth 2.1 + PKCE + dynamic client registration). Connect an AI app, sign in with your workspace credentials on the consent page, and it can read and create pages, boards (with custom fields), tasks, mood boards and comments; activity is attributed "via <app>".
+
+Setup per client:
+
+- **Claude**: Settings → Connectors → Add custom connector → paste the MCP URL.
+- **ChatGPT**: Settings → Apps & Connectors → Advanced → enable Developer mode → Create. Caveat: write tools require a Business/Enterprise/Edu workspace — Plus/Pro accounts get read-only `search`/`fetch`.
+- **Gemini**: gemini.google.com → Settings → Connected Apps → Add a custom app (custom apps currently require a US personal account, English language).
+- Any standard MCP client: register via `/register`, then the normal OAuth flow.
+
+Settings → AI connectors shows the URL to copy, per-client steps, and your connected apps with Revoke (revoking kills the grant's tokens immediately).
+
 ## Storage & files
 
 - Files live in D1 (`files` + `file_chunks` tables, 1 MiB chunks) — no R2 needed.

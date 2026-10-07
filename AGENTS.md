@@ -18,7 +18,7 @@ Local-first mini-Notion: Vite + React + TS client, Hono Worker API, D1, Dexie ou
 
 ## Architecture
 
-- `shared/collections.ts` — the collection allowlist used by client Dexie tables and the worker push validator. Currently: `pages`, `blocks`, `tasks`, `comments`, `activity`, `boards`, `files`, `moodboards`, `mooditems`.
+- `shared/collections.ts` — the collection allowlist used by client Dexie tables and the worker push validator. Currently: `pages`, `blocks`, `tasks`, `comments`, `activity`, `boards`, `files`, `moodboards`, `mooditems`. `shared/` also holds the pure logic both sides import: `fields.ts` (custom fields), `markdown.ts` (markdown⇄blocks + mention tokens), `templates.ts` (template instantiation planner), `order.ts` (fractional-index keys tolerant of malformed values), `filekinds.ts`.
 - `worker/` — Hono app: `auth.ts` (signup/login/sessions/me), `sync.ts` (`/api/sync/push|pull`; after a successful push it calls `LIVE.poke()`), `files.ts` (chunked upload, byte serving, usage, Whisper transcribe), `admin.ts` (users + invites), `merge.ts` (pure per-field LWW), `live.ts` (`/api/live` WS upgrade → LiveRoom DO, auth via `ws-auth` subprotocol token), `shares.ts` (share-token CRUD), `public.ts` (unauthed `/api/public/*` router), `publicAccess.ts` (pure access decisions — unit-tested in `tests/publicAccess.test.ts`), `index.ts`.
 - `src/core/` — `db.ts` (Dexie: one table per synced collection + `blobs` (local file bytes) + `outbox` + `meta`), `hlc.ts`, `sync/engine.ts` (`mutate()` local-write API, push/pull loop, rebase on pull, `seedRecord()` built-in rows), `sync/rebase.ts` (pure), `files.ts` (`addFile`/`deleteFile`/`useFileUrl` + resumable chunk upload + transcription), `fileui.tsx` (attachment renderers), `recorder.tsx` (voice memos), `chunks.ts`, `auth.ts`, `theme.ts`, `shell.tsx`, `search.tsx` (⌘K), `install.tsx`, `settings.tsx`, `ui.tsx` (primitives), `mobile.ts` (`useIsMobile` — keep it here, NOT in `shell.tsx`, to avoid module↔core import cycles), `live.ts` (WS client: `here` on route change, 30s heartbeat, `changed` → `syncNow`, jittered reconnect, disconnects when hidden >60s), `presence.tsx` (`PresenceStack`, `usePresence`), `mentions.ts` (pure token serializer/DOM-offset helpers), `resolveMentions.ts` (token → live title/name resolution), `commentui.ts` (comment-target store shared by modules).
 - `src/modules/` — `pages/` (incl. `RichInput` contentEditable + mention chips, `Backlinks`, `Share` popover), `boards/`, `comments/` (IG-style threads on tasks/pages/blocks/mooditems via the `commentBadge` slot), `activity/`, `moodboards/` (infinite canvas, palette extraction, convert-to-task). The shell builds nav + routes purely from `modules` in `src/modules/index.ts`.
@@ -31,7 +31,15 @@ Attachments are `files` records found by `parentId` (`task` | `block` | `moodite
 
 ## Boards
 
-`boards` records hold `{name, icon, columns: {id,name,color}[], order}` — `columns` is a single LWW field (rare edits). `tasks.boardId` (missing → `board-default`), `tasks.status` = column id (unknown → first column; last column counts as "done"). `board-default` and `board-inbox` are seeded via `seedRecord()` (field ts=1 — any real edit wins). Drag/drop is @dnd-kit (mouse + touch long-press ~200ms); `/tasks` is "My tasks" across boards, `/tasks/:id` redirects to the board route.
+`boards` records hold `{name, icon, columns: {id,name,color}[], fields: FieldDef[], order}` — `columns` and `fields` are single LWW fields (rare edits). `tasks.boardId` (missing → `board-default`), `tasks.status` = column id (unknown → first column; last column counts as "done"). `board-default` and `board-inbox` are seeded via `seedRecord()` (field ts=1 — any real edit wins). Drag/drop is @dnd-kit (mouse + touch long-press ~200ms); `/tasks` is "My tasks" across boards, `/tasks/:id` redirects to the board route.
+
+### Custom fields
+
+`FieldDef` + pure helpers (`fieldsOf`, `propKey`, `coerceFieldValue`, `formatFieldValue`, `optionByName`, `isSelectType`) live in `shared/fields.ts` — the ONE source for worker (MCP) + client (`src/modules/boards/model.ts` re-exports it). Task values are top-level `p_<fieldId>` keys (never a nested object) so concurrent edits merge per-field. Values: string for text/url/date(yyyy-mm-dd), number, boolean, option id, option id[], user id. Removed fields leave stale keys — ignored. UI: `FieldsEditor.tsx` (board menu → "Fields" sheet), `FieldValue.tsx` (`FieldRow` inline editors in task detail, `FieldChips` on cards for `showOnCard`, `useFieldFilterOptions` for the board filter). MCP writes can add unknown select options by name (auto-append to `fields`).
+
+### Page templates
+
+`pages.isTemplate` marks a page as a template (menu toggle, subtle icon in tree, "+" → template picker). `shared/templates.ts` `planTemplateInstantiation(snapshot, opts, {id, now})` is a pure planner returning `{rootPageId, writes}` — deep-copies the page/block subtree with new ids + fresh order keys, substitutes `{{name}}` placeholders (unknowns kept), copies each embedded `tasks` block's board (columns+fields+live tasks, assignee/due dropped), keeps `fileId` references. The client applies writes via `mutate()` (`instantiateTemplate` in `pages/api.ts`); MCP `create_from_template` applies them via `applyChanges`.
 
 ## Mentions & live
 
@@ -41,6 +49,23 @@ Attachments are `files` records found by `parentId` (`task` | `block` | `moodite
 ## Public shares
 
 `shares` table (migration `0003`) maps token → page. `POST /api/shares` is idempotent per page. Public reads go through `worker/public.ts`; ALL access decisions funnel through `worker/publicAccess.ts` (`canServePage`, `canServeFile` — pure, unit-tested; uses `json_extract` on `records`). Files are only served when referenced inside the shared tree (block `fileId`/thumb, or a shown task's `coverFileId`).
+
+## MCP server (AI connectors)
+
+`/mcp` is a stateless Streamable-HTTP MCP endpoint on the same Worker, wrapped by `@cloudflare/workers-oauth-provider` in `worker/index.ts`:
+
+- OAuth 2.1 + PKCE + DCR: provider serves `/oauth/authorize` (endpoint *declaration* — our `worker/oauth.ts` route renders the consent form), `/token`, `/register`, and `/.well-known/oauth-*` metadata. `resourceMetadata.resource` is derived per-request from the URL origin so local/staging/prod all validate correctly.
+- Consent page (light/dark, CSP-free inline CSS): `parseAuthRequest` → `describeConsent` → `beginConsent` (browser cookie + one-time `handle` form field) → POST verifies workspace creds with `verifyPassword` → `approveConsent` → `completeAuthorization` with `props: {userId, clientName}`. Never trust a form-supplied identity.
+- `mcpApiHandler` (`worker/mcp.ts`): per request, rejects if `props.userId` is gone (deleted user → 401), builds a fresh `McpServer` from `@modelcontextprotocol/server` via `agents/mcp/server` `createMcpHandler({route:'/mcp'})`, per-request Ctx holds lookup caches (never module state).
+- Writes go through `applyChanges(env, userId, changes, {serverTs:true})` in `worker/sync.ts` — same merge/upsert as `/api/sync/push`, but stamps `ts = max(now, max(field_ts)+1)` so server edits win; then `pokeLive()` so open UIs refresh. Max 500 records per tool call.
+- Markdown⇄blocks is `shared/markdown.ts` (`markdownToBlocks`, `blocksToMarkdown` — accepts `[[Page Title]]`/`@handle` resolved to `@[page:id]`/`@[user:id]` tokens; renders tokens back). Remote image/file URLs import via `worker/remotefile.ts` (https only, ≤20 MB, same chunk tables + `files` record as client uploads).
+- Activity attribution: MCP writes log `meta.via = clientName` — the Activity UI renders "via <client>".
+- Grants: `GET/DELETE /api/oauth/grants[/:id]` (session auth) back the Settings → AI connectors list + Revoke.
+- Tool returns concise JSON text including the app URL of what was created (`/pages/:id`, `/boards/:id[/tasks/:id]`, `/moodboards/:id`, `/s/:token`).
+
+### Add an MCP tool
+
+In `createWorkspaceServer` (`worker/mcp.ts`): `server.registerTool(name, { description, inputSchema: z.object(...), annotations }, async (args) => { ...; return txt(result) })`. Read via `recs()`/`rec()`; write via `write(env, ctx, userId, ops)` + `activityOp()`. Use `fillCaches(ctx)` then `ctx.userByKey`/`ctx.pageIdByTitle` for name→id lookup. Keep writes ≤500 records and prefer the `create_project` shape for bulk imports.
 
 ## Add a block type
 
