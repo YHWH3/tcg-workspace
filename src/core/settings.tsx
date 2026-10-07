@@ -370,7 +370,7 @@ function AIConnectorsSection() {
             {grants.map((g) => (
               <li key={g.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                 <span className="min-w-0 flex-1 truncate font-medium">{g.clientName}</span>
-                <span className="shrink-0 text-[11px] text-neutral-400">{new Date(g.createdAt).toLocaleDateString()}</span>
+                <span className="shrink-0 text-[11px] text-neutral-400">{new Date(g.createdAt < 1e12 ? g.createdAt * 1000 : g.createdAt).toLocaleDateString()}</span>
                 <button className="shrink-0 text-xs font-medium text-red-500 hover:text-red-600" onClick={() => void revoke(g.id)}>
                   Revoke
                 </button>

@@ -48,9 +48,26 @@ export async function importFileFromUrl(
   const len = Number(res.headers.get('content-length') ?? 0);
   if (len > MAX_FILE_SIZE) throw new RemoteFileError(413, 'file too large (max 20 MB)');
 
-  // Buffer the body (≤20 MB) then chunk it — D1 needs discrete rows.
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  if (bytes.length > MAX_FILE_SIZE) throw new RemoteFileError(413, 'file too large (max 20 MB)');
+  // Stream the body with a hard cap — Content-Length may be missing/wrong.
+  const reader = res.body.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_FILE_SIZE) {
+      await reader.cancel().catch(() => {});
+      throw new RemoteFileError(413, 'file too large (max 20 MB)');
+    }
+    parts.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let off = 0;
+  for (const part of parts) {
+    bytes.set(part, off);
+    off += part.byteLength;
+  }
   if ((await usageBytes(env.DB)) + bytes.length > QUOTA_BYTES) throw new RemoteFileError(507, 'storage quota exceeded');
 
   const fileId = uuid();

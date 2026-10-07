@@ -156,9 +156,8 @@ export function registerAuthorize(app: Hono<{ Bindings: Env; Variables: { user: 
       approved.headers.set('Location', redirectTo);
       return new Response(null, { status: 302, headers: approved.headers });
     } catch (e) {
-      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-      console.error('[oauth] authorize POST failed:', msg);
-      return htmlRes(page(`<h1>Something went wrong</h1><p class="sub">${esc(msg).slice(0, 300)}</p>`), 400);
+      console.error('[oauth] authorize POST failed:', e instanceof Error ? `${e.name}: ${e.message}` : e);
+      return htmlRes(page(`<h1>Something went wrong</h1><p class="sub">The authorization request is invalid or has expired. Go back to your AI app and start the connection again.</p>`), 400);
     }
   });
 }

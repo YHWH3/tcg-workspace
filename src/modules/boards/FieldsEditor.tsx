@@ -67,7 +67,7 @@ function FieldRow({ field, first, last, onChange, onMove, onDelete }: { field: F
   };
   return (
     <div className="rounded-xl border border-neutral-200/70 p-2.5 dark:border-neutral-800">
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name !== field.name && onChange({ name: name.trim() })} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} className={input} aria-label="Field name" />
         <Select
           value={field.type}
@@ -82,15 +82,17 @@ function FieldRow({ field, first, last, onChange, onMove, onDelete }: { field: F
             <option key={t.id} value={t.id}>{t.label}</option>
           ))}
         </Select>
-        <IconButton aria-label="Move up" className="h-7 w-7" disabled={first} onClick={() => onMove(-1)}>
-          <ArrowUp size={13} />
-        </IconButton>
-        <IconButton aria-label="Move down" className="h-7 w-7" disabled={last} onClick={() => onMove(1)}>
-          <ArrowDown size={13} />
-        </IconButton>
-        <IconButton aria-label="Delete field" className="h-7 w-7" onClick={onDelete}>
-          <Trash2 size={13} />
-        </IconButton>
+        <div className="flex shrink-0 items-center">
+          <IconButton aria-label="Move up" className="h-7 w-7" disabled={first} onClick={() => onMove(-1)}>
+            <ArrowUp size={13} />
+          </IconButton>
+          <IconButton aria-label="Move down" className="h-7 w-7" disabled={last} onClick={() => onMove(1)}>
+            <ArrowDown size={13} />
+          </IconButton>
+          <IconButton aria-label="Delete field" className="h-7 w-7" onClick={onDelete}>
+            <Trash2 size={13} />
+          </IconButton>
+        </div>
       </div>
       {isSelectType(field.type) && (
         <div className="mt-2 space-y-1">
