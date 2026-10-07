@@ -8,8 +8,9 @@ import { mutate, syncStore } from './sync/engine';
 import { createStore, useStore } from './store';
 import { uuid } from './utils';
 
-export type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'file';
-export type ParentType = 'task' | 'block' | 'mooditem';
+import { kindOf } from '../../shared/filekinds';
+export type { FileKind, ParentType } from '../../shared/filekinds';
+import type { FileKind, ParentType } from '../../shared/filekinds';
 
 export interface FileRow extends LocalRow {
   name?: string;
@@ -31,14 +32,7 @@ export interface FileRow extends LocalRow {
 }
 
 export { CHUNK_SIZE, MAX_FILE_SIZE, chunkCount, chunkSlice };
-
-export function kindOf(mime: string): FileKind {
-  if (mime.startsWith('image/')) return 'image';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  if (mime === 'application/pdf') return 'pdf';
-  return 'file';
-}
+export { kindOf };
 
 /* ---------- toasts ---------- */
 interface ToastItem {

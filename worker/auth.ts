@@ -3,10 +3,15 @@ import type { Context, Next } from 'hono';
 import type { PublicUser } from '../shared/types';
 import { hashPassword, inviteCode, newSalt, randomToken, sha256Hex, verifyPassword } from './password';
 
+import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
+
 export interface Env {
   DB: D1Database;
   AI: Ai;
   LIVE: DurableObjectNamespace;
+  OAUTH_KV: KVNamespace;
+  /** Injected by the OAuthProvider wrapper — MCP OAuth helpers. */
+  OAUTH_PROVIDER: OAuthHelpers;
 }
 
 export interface AuthUser extends PublicUser {

@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { ChevronRight, Plus, FileText, Trash2, FilePlus2 } from 'lucide-react';
+import { ChevronRight, LayoutTemplate, Plus, FileText, Trash2, FilePlus2 } from 'lucide-react';
 import { IconButton, Menu, Popover } from '../../core/ui';
 import { cn, cmpOrder } from '../../core/utils';
-import { createPage, deletePage, usePages, visiblePages, type PageRow } from './api';
+import { createPage, deletePage, instantiateTemplate, usePages, visiblePages, type PageRow } from './api';
 
 export function PagesTree() {
   const pages = usePages();
@@ -57,6 +57,7 @@ export function PagesTree() {
             </button>
             <span className="w-5 shrink-0 text-center text-[13px]">{String(p.icon ?? '📄')}</span>
             <span className="min-w-0 flex-1 truncate">{String(p.title ?? '') || 'Untitled'}</span>
+            {!!p.isTemplate && <LayoutTemplate size={12} className="shrink-0 text-neutral-400" aria-label="Template" />}
             <span className="hidden shrink-0 items-center group-hover:flex" onClick={(e) => e.stopPropagation()}>
               <Popover
                 align="right"
@@ -105,16 +106,43 @@ export function PagesTree() {
     <div className="px-2">
       <div className="mb-1 flex items-center justify-between px-2">
         <span className="text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">Pages</span>
-        <IconButton
-          className="h-5 w-5"
-          aria-label="New page"
-          onClick={async () => {
-            const id = await createPage(null);
-            navigate(`/pages/${id}`);
-          }}
+        <Popover
+          align="right"
+          trigger={
+            <IconButton className="h-5 w-5" aria-label="New page">
+              <Plus size={14} />
+            </IconButton>
+          }
         >
-          <Plus size={14} />
-        </IconButton>
+          {(close) => (
+            <div className="w-44 p-1 text-sm">
+              <button
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                onClick={async () => {
+                  close();
+                  const id = await createPage(null);
+                  navigate(`/pages/${id}`);
+                }}
+              >
+                <FileText size={13} /> Blank page
+              </button>
+              {visible.filter((t) => t.isTemplate).map((t) => (
+                <button
+                  key={t.id}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  onClick={async () => {
+                    close();
+                    const id = await instantiateTemplate(t.id);
+                    if (id) navigate(`/pages/${id}`);
+                  }}
+                >
+                  <span>{String(t.icon ?? '📄')}</span>
+                  <span className="truncate">{String(t.title ?? 'Untitled')}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Popover>
       </div>
       {renderLevel(null, 0)}
       {visible.length === 0 && (

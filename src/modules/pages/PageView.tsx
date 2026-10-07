@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, Navigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { FilePlus2, FileText, MoreHorizontal, Trash2 } from 'lucide-react';
+import { FilePlus2, FileText, LayoutTemplate, MoreHorizontal, Trash2 } from 'lucide-react';
 import { db } from '../../core/db';
 import { mutate } from '../../core/sync/engine';
 import { IconButton, Menu, Popover, EmptyState } from '../../core/ui';
@@ -103,6 +103,11 @@ export function PageView() {
                   label: 'Add sub-page',
                   icon: FilePlus2,
                   onClick: async () => navigate(`/pages/${await createPage(page.id)}`),
+                },
+                {
+                  label: page.isTemplate ? 'Remove template' : 'Use as template',
+                  icon: LayoutTemplate,
+                  onClick: () => void mutate('pages', page.id, { isTemplate: !page.isTemplate }),
                 },
                 'divider',
                 {

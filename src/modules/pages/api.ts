@@ -4,12 +4,14 @@ import { logActivity } from '../../core/activity';
 import { db, type LocalRow } from '../../core/db';
 import { mutate } from '../../core/sync/engine';
 import { cmpOrder, orderBetween, uuid } from '../../core/utils';
+import { planTemplateInstantiation } from '../../../shared/templates';
 
 export interface PageRow extends LocalRow {
   title?: string;
   icon?: string;
   parentId?: string | null;
   order?: string;
+  isTemplate?: boolean;
   deleted?: boolean;
 }
 
@@ -61,4 +63,23 @@ export async function renamePage(id: string, title: string): Promise<void> {
   const page = await db.pages.get(id);
   await mutate('pages', id, { title });
   if (page && String(page.title ?? '') !== title) logActivity('renamed', 'page', id, title || 'Untitled');
+}
+
+/* ---------- templates ---------- */
+
+/** Deep-copy a template page tree (blocks + embedded boards/tasks) via the shared planner. */
+export async function instantiateTemplate(templateId: string, opts: { title?: string; parentId?: string | null; variables?: Record<string, string> } = {}): Promise<string | null> {
+  const [pages, blocks, boards, tasks] = await Promise.all([db.pages.toArray(), db.blocks.toArray(), db.boards.toArray(), db.tasks.toArray()]);
+  const snap = {
+    pages: Object.fromEntries(pages.map((r) => [r.id, r])),
+    blocks: Object.fromEntries(blocks.map((r) => [r.id, r])),
+    boards: Object.fromEntries(boards.map((r) => [r.id, r])),
+    tasks: Object.fromEntries(tasks.map((r) => [r.id, r])),
+  };
+  const me = authStore.get().user;
+  const plan = planTemplateInstantiation(snap, { templateId, title: opts.title, parentId: opts.parentId ?? null, variables: opts.variables, actorId: me?.id }, { id: uuid, now: Date.now() });
+  if (!plan) return null;
+  for (const w of plan.writes) await mutate(w.collection, w.id, w.patch);
+  logActivity('created', 'page', plan.rootPageId, opts.title ?? 'From template');
+  return plan.rootPageId;
 }

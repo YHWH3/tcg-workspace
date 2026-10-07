@@ -46,3 +46,10 @@ export function lastColumnId(board: { id?: string; columns?: unknown } | undefin
 export function isDone(task: { id?: string; status?: unknown }, board: { id?: string; columns?: unknown } | undefined | null): boolean {
   return columnIdFor(task, board) === lastColumnId(board);
 }
+
+/* Custom field definitions + value helpers live in shared/ so the worker/MCP
+ * layer imports the same code. */
+export {
+  FIELD_TYPES, coerceFieldValue, fieldsOf, formatFieldValue, isSelectType, optionByName, propKey, taskProp,
+  type FieldDef, type FieldOption, type FieldType,
+} from '../../../shared/fields';

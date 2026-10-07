@@ -12,6 +12,7 @@ export {
   columnIdFor, columnsOf, firstColumnId, isDone, lastColumnId, taskBoardId,
   type BoardColumn,
 } from './model';
+import type { FieldDef } from './model';
 import { COLUMN_COLORS, DEFAULT_BOARD_ID, INBOX_BOARD_ID, columnIdFor, columnsOf, firstColumnId, lastColumnId, taskBoardId } from './model';
 import type { BoardColumn } from './model';
 
@@ -19,6 +20,7 @@ export interface BoardRow extends LocalRow {
   name?: string;
   icon?: string;
   columns?: BoardColumn[];
+  fields?: FieldDef[];
   order?: string;
   createdBy?: string;
   createdAt?: number;

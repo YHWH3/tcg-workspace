@@ -31,6 +31,7 @@ export function SettingsPage() {
       <h1 className="mb-6 text-xl font-semibold tracking-tight">Settings</h1>
       <div className="flex flex-col gap-5">
         <ProfileSection user={user} />
+        <AIConnectorsSection />
         <StorageSection />
         <PasswordSection />
         {user?.role === 'admin' && <AdminSection />}
@@ -298,5 +299,86 @@ function AdminSection() {
         )}
       </Section>
     </>
+  );
+}
+
+interface GrantRow {
+  id: string;
+  clientId: string;
+  clientName: string;
+  scope: string[];
+  createdAt: number;
+  expiresAt: number | null;
+}
+
+function AIConnectorsSection() {
+  const [grants, setGrants] = useState<GrantRow[]>([]);
+  const [copied, setCopied] = useState(false);
+  const mcpUrl = `${location.origin}/mcp`;
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api<{ grants: GrantRow[] }>('/api/oauth/grants');
+      setGrants(r.grants);
+    } catch {
+      /* endpoint unreachable (older build) — show section anyway */
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(mcpUrl);
+    } catch {
+      /* noop */
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const revoke = async (id: string) => {
+    await api(`/api/oauth/grants/${id}`, { method: 'DELETE' });
+    setGrants((g) => g.filter((x) => x.id !== id));
+  };
+
+  return (
+    <Section title="AI connectors">
+      <p className="mb-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+        Connect Claude, ChatGPT or Gemini to read and build in this workspace. Paste the MCP URL when the app asks for a
+        connector endpoint — sign-in uses your workspace account.
+      </p>
+      <div className="mb-4 flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs dark:border-neutral-700 dark:bg-neutral-900">{mcpUrl}</code>
+        <Button variant="secondary" size="sm" onClick={() => void copy()}>
+          {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+      <details className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+        <summary className="cursor-pointer font-medium text-neutral-700 dark:text-neutral-300">Setup steps per app</summary>
+        <ul className="mt-2 space-y-1.5 pl-4 leading-5">
+          <li><b>Claude</b>: Settings → Connectors → Add custom connector → paste the URL.</li>
+          <li><b>ChatGPT</b>: Settings → Apps & Connectors → Advanced → Developer mode → Create. Write tools need Business/Enterprise/Edu; Plus/Pro get read-only search.</li>
+          <li><b>Gemini</b>: gemini.google.com → Settings → Connected Apps → Add a custom app (US personal accounts, English).</li>
+        </ul>
+      </details>
+      {grants.length > 0 && (
+        <div>
+          <p className="mb-2 text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">Connected apps</p>
+          <ul className="divide-y divide-neutral-100 rounded-xl border border-neutral-200/70 dark:divide-neutral-800 dark:border-neutral-800">
+            {grants.map((g) => (
+              <li key={g.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+                <span className="min-w-0 flex-1 truncate font-medium">{g.clientName}</span>
+                <span className="shrink-0 text-[11px] text-neutral-400">{new Date(g.createdAt).toLocaleDateString()}</span>
+                <button className="shrink-0 text-xs font-medium text-red-500 hover:text-red-600" onClick={() => void revoke(g.id)}>
+                  Revoke
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Section>
   );
 }

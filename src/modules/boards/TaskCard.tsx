@@ -10,6 +10,7 @@ import { Avatar } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { cn, formatDate, todayISO } from '../../core/utils';
 import { isDone, taskBoardId, type BoardRow, type TaskRow } from './api';
+import { FieldChips } from './FieldValue';
 
 export function TaskCard({ task, board, overlay }: { task: TaskRow; board: BoardRow | undefined; overlay?: boolean }) {
   const navigate = useNavigate();
@@ -42,14 +43,14 @@ export function TaskCard({ task, board, overlay }: { task: TaskRow; board: Board
       )}
       <div className="px-2.5 pb-2 pt-2">
         <p className={cn('text-[13px] font-medium leading-5', isDone(task, board) && 'text-neutral-400 line-through')}>{String(task.title ?? '') || 'Untitled task'}</p>
-        <CardFooter audios={audios} fileCount={files.length} commentCount={commentCount} assignee={assignee} dueDate={task.dueDate} overdue={!!overdue} />
+        <CardFooter audios={audios} fileCount={files.length} commentCount={commentCount} assignee={assignee} dueDate={task.dueDate} overdue={!!overdue} fieldChips={<FieldChips board={board} task={task} />} />
       </div>
     </div>
   );
 }
 
-function CardFooter({ audios, fileCount, commentCount, assignee, dueDate, overdue }: { audios: FileRow[]; fileCount: number; commentCount: number; assignee: { name: string; color?: string } | undefined; dueDate?: string | null; overdue: boolean }) {
-  const extras: ReactNode[] = [];
+function CardFooter({ audios, fileCount, commentCount, assignee, dueDate, overdue, fieldChips }: { audios: FileRow[]; fileCount: number; commentCount: number; assignee: { name: string; color?: string } | undefined; dueDate?: string | null; overdue: boolean; fieldChips?: ReactNode }) {
+  const extras: ReactNode[] = [fieldChips];
   for (const a of audios.slice(0, 1)) extras.push(<AudioChip key={a.id} file={a} />);
   if (fileCount > audios.length) extras.push(<Chip key="files" icon={<FileText size={10} />} label={String(fileCount - audios.length)} />);
   if (commentCount > 0) extras.push(<Chip key="comments" icon={<MessageSquare size={10} />} label={String(commentCount)} />);

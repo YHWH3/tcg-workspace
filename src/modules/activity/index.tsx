@@ -15,7 +15,7 @@ export interface ActivityRow extends LocalRow {
   targetType?: string;
   targetId?: string;
   targetTitle?: string;
-  meta?: { assigneeId?: string | null; userId?: string; pageId?: string; boardId?: string } | null;
+  meta?: { assigneeId?: string | null; userId?: string; pageId?: string; boardId?: string; via?: string } | null;
   createdAt?: number;
 }
 
@@ -133,6 +133,7 @@ function ActivityPage() {
                     <span className="font-medium">{actor?.name ?? 'Someone'}</span>{' '}
                     <span className="text-neutral-500 dark:text-neutral-400">{verbText(a)}</span>{' '}
                     <span className="font-medium">{String(a.targetTitle ?? '') || 'Untitled'}</span>
+                    {!!a.meta?.via && <span className="text-neutral-400"> · via {String(a.meta.via)}</span>}
                     {a.verb === 'assigned' && a.meta?.assigneeId && (
                       <span className="text-neutral-500 dark:text-neutral-400"> → {resolveUser(a.meta.assigneeId, users, meUser)?.name ?? 'someone'}</span>
                     )}

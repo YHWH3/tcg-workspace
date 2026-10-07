@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { CheckSquare, LayoutGrid, List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { CheckSquare, LayoutGrid, List, ListPlus, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { authStore } from '../../core/auth';
 import { useIsMobile } from '../../core/mobile';
 import { PresenceStack } from '../../core/presence';
-import { Avatar, EmptyState, IconButton, Menu, Popover, Select } from '../../core/ui';
+import { FieldsEditor } from './FieldsEditor';
+import { useFieldFilterOptions } from './FieldValue';
+import { Avatar, EmptyState, IconButton, Menu, Popover, Select, Sheet } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { useStore } from '../../core/store';
 import { cn, formatDate, todayISO } from '../../core/utils';
@@ -45,12 +47,16 @@ export function BoardPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [sort, setSort] = useState<Sort>('order');
 
+  const fieldFilterOptions = useFieldFilterOptions(board);
   const filtered = useMemo(() => {
     let list = boardTasks(tasks, boardId);
     if (filter === 'mine') list = list.filter((t) => t.assigneeId === me);
-    else if (filter !== 'all') list = list.filter((t) => t.assigneeId === filter);
+    else if (filter.startsWith('f:')) {
+      const opt = fieldFilterOptions.find((o) => o.key === filter);
+      if (opt) list = list.filter(opt.test);
+    } else if (filter !== 'all') list = list.filter((t) => t.assigneeId === filter);
     return list;
-  }, [tasks, boardId, filter, me]);
+  }, [tasks, boardId, filter, me, fieldFilterOptions]);
 
   if (board === undefined) return null;
   if (!board) return <Navigate to="/boards" replace />;
@@ -88,13 +94,22 @@ export function BoardPage() {
             ))}
           </div>
           <div className="w-32">
-            <Select value={filter === 'all' || filter === 'mine' ? '' : filter} onChange={(e) => setFilter(e.target.value || 'all')} className="py-1 text-xs" aria-label="Filter by assignee">
+            <Select value={filter === 'all' || filter === 'mine' ? '' : filter} onChange={(e) => setFilter(e.target.value || 'all')} className="py-1 text-xs" aria-label="Filter tasks">
               <option value="">Anyone</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.name}
                 </option>
               ))}
+              {fieldFilterOptions.length > 0 && (
+                <optgroup label="Fields">
+                  {fieldFilterOptions.map((o) => (
+                    <option key={o.key} value={o.key}>
+                      {o.label}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </Select>
           </div>
           {view === 'list' && (
@@ -138,9 +153,17 @@ export function BoardPage() {
 
 function BoardMenu({ board, deletable }: { board: BoardRow; deletable: boolean }) {
   const navigate = useNavigate();
+  const mobile = useIsMobile();
   const [renaming, setRenaming] = useState(false);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
   const [name, setName] = useState(String(board.name ?? ''));
   return (
+    <>
+    {fieldsOpen && (
+      <Sheet onClose={() => setFieldsOpen(false)} side={mobile ? 'bottom' : 'right'}>
+        <FieldsEditor board={board} />
+      </Sheet>
+    )}
     <Popover
       align="right"
       trigger={
@@ -174,6 +197,7 @@ function BoardMenu({ board, deletable }: { board: BoardRow; deletable: boolean }
             <Menu
               close={close}
               items={[
+                { label: 'Fields', icon: ListPlus, onClick: () => setFieldsOpen(true) },
                 { label: 'Rename board', icon: Pencil, onClick: () => setRenaming(true) },
                 ...(deletable
                   ? ([
@@ -195,6 +219,7 @@ function BoardMenu({ board, deletable }: { board: BoardRow; deletable: boolean }
         </div>
       )}
     </Popover>
+    </>
   );
 }
 

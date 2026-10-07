@@ -15,6 +15,8 @@ import { cn, debounce, todayISO } from '../../core/utils';
 import { modules } from '..';
 import { Slot } from '../slots';
 import { columnsOf, columnIdFor, deleteTask, isDone, moveTaskToBoard, PRIORITIES, setTaskField, taskBoardId, useBoards, type TaskRow } from './api';
+import { fieldsOf } from './model';
+import { FieldRow } from './FieldValue';
 
 export function TaskDetail({ taskId, onClose }: { taskId: string; onClose: () => void }) {
   const mobile = useIsMobile();
@@ -166,6 +168,9 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
               onChange={(e) => void setTaskField(task.id, { dueDate: e.target.value || null })}
               className={cn('w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10', overdue && 'border-red-300 text-red-600 dark:border-red-800 dark:text-red-400')}
             />
+            {fieldsOf(board).map((f) => (
+              <FieldRow key={f.id} field={f} task={task} />
+            ))}
           </div>
           <div className="mt-4">
             <span className="mb-1 block text-xs text-neutral-400">Description</span>
