@@ -7,6 +7,7 @@ import { resolveUser, useUsers } from '../../core/users';
 import { useStore } from '../../core/store';
 import { cn, cmpOrder, formatDate, todayISO } from '../../core/utils';
 import { columnIdFor, columnsOf, isDone, liveTasks, PRIORITIES, taskBoardId, useBoards, useTasks, type TaskRow } from './api';
+import { FieldChips } from './FieldValue';
 
 /** /tasks — "My tasks" across all boards, grouped by board. */
 export function MyTasksPage() {
@@ -56,6 +57,7 @@ export function MyTasksPage() {
                     >
                       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: col?.color ?? '#999' }} title={col?.name} />
                       <span className={cn('min-w-0 flex-1 truncate', isDone(t, board) && 'text-neutral-400 line-through')}>{String(t.title ?? '') || 'Untitled task'}</span>
+                      <FieldChips board={board} task={t} />
                       {prio && prio.id !== 'none' && <span className={cn('hidden items-center gap-1 text-[11px] sm:flex', prio.cls)}>{prio.label}</span>}
                       {t.dueDate && <span className={cn('text-[11px]', overdue ? 'font-medium text-red-500' : 'text-neutral-400')}>{formatDate(String(t.dueDate))}</span>}
                       {assignee && <Avatar name={assignee.name} color={assignee.color} size={18} />}

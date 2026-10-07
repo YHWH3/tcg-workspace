@@ -5,7 +5,7 @@ import { authStore } from '../../core/auth';
 import { useIsMobile } from '../../core/mobile';
 import { PresenceStack } from '../../core/presence';
 import { FieldsEditor } from './FieldsEditor';
-import { useFieldFilterOptions } from './FieldValue';
+import { FieldChips, useFieldFilterOptions } from './FieldValue';
 import { Avatar, EmptyState, IconButton, Menu, Popover, Select, Sheet } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { useStore } from '../../core/store';
@@ -302,6 +302,7 @@ function ListRow({ task, board, onOpen }: { task: TaskRow; board: BoardRow; onOp
         )}
       </span>
       <span className={cn('min-w-0 flex-1 truncate', done && 'text-neutral-400 line-through')}>{String(task.title ?? '') || 'Untitled task'}</span>
+      <FieldChips board={board} task={task} />
       {prio && prio.id !== 'none' && <span className={cn('hidden items-center gap-1 text-[11px] sm:flex', prio.cls)}>{prio.label}</span>}
       {task.dueDate && <span className={cn('flex items-center gap-1 text-[11px]', overdue ? 'font-medium text-red-500' : 'text-neutral-400')}>{formatDate(String(task.dueDate))}</span>}
       {assignee && <Avatar name={assignee.name} color={assignee.color} size={18} />}
