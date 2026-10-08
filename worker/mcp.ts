@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
-import { createMcpHandler, type StatelessMcpHandler } from 'agents/mcp/server';
+import { createMcpHandler } from 'agents/mcp/server';
 import { z } from 'zod';
 import type { Env } from './auth';
 import { randomToken } from './password';
@@ -1370,22 +1370,30 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
 
 /* ---------- handler ---------- */
 
+function unauthorized(): Response {
+  return new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401, headers: { 'WWW-Authenticate': 'Bearer error="invalid_token"' } });
+}
+
 /**
  * apiHandler for OAuthProvider: validates the token's user still exists in D1
  * (a wiped DB must re-auth rather than write as a ghost), then delegates to the
  * stateless MCP handler. ctx.props comes from completeAuthorization().
+ *
+ * SECURITY: the handler MUST be built per request. The factory closure binds
+ * this request's env/ctx/props (identity); caching the handler at module level
+ * makes every later request execute and attribute as the first caller and
+ * targets waitUntil at a finished request's ExecutionContext.
  */
-let handler: StatelessMcpHandler | null = null;
-
 export const mcpApiHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const props = (ctx.props ?? {}) as { userId?: string; clientName?: string };
-    if (!props.userId) return new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401, headers: { 'WWW-Authenticate': 'Bearer error="invalid_token"' } });
+    if (!props.userId) return unauthorized();
     const user = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(props.userId).first<{ id: string }>();
-    if (!user) return new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401, headers: { 'WWW-Authenticate': 'Bearer error="invalid_token"' } });
-
-    if (!handler) handler = createMcpHandler((mcpCtx: McpRequestContext) => createWorkspaceServer(ctxFor(env, ctx, mcpCtx, props)), { route: '/mcp' });
-    return handler(request, env, ctx);
+    if (!user) return unauthorized();
+    return createMcpHandler(
+      (mcpCtx: McpRequestContext) => createWorkspaceServer(ctxFor(env, ctx, mcpCtx, props)),
+      { route: '/mcp' },
+    )(request, env, ctx);
   },
 };
 

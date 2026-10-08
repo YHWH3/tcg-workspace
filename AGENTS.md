@@ -91,6 +91,7 @@ Delete its entry from `modules` in `src/modules/index.ts` — nav, routes, sideb
 ## Conventions
 
 - Writes always go through `mutate(collection, id, patch)` — never `table.put` directly (keeps outbox + field timestamps correct).
+- No module-level mutable state in `worker/` — requests interleave in one isolate; caches that bind request scope (env, ExecutionContext, identity props) must be built per request (the MCP handler is constructed inside `mcpApiHandler.fetch` for exactly this reason).
 - Deletes are soft: `mutate(c, id, { deleted: true })`.
 - Cross-module features go through `slots` (`taskDetail`, `pageFooter`) — don't import one module from another.
 - Log user-visible events via `logActivity(verb, targetType, targetId, targetTitle, meta?)` — but not per-keystroke edits.
