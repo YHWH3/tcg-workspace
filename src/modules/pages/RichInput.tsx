@@ -129,13 +129,19 @@ export const RichInput = forwardRef<
   const nav = useNavigate();
   const pages = useLiveQuery(() => db.pages.toArray(), [], []) ?? [];
 
+  const recs = useLiveQuery(() => db.tasks.toArray(), [], []) ?? [];
+
   const resolve = useCallback(
     (kind: MentionKind, id: string): string | undefined => {
       if (kind === 'user') return resolveUser(id, users, me)?.name;
+      if (kind === 'rec') {
+        const t = recs.find((x) => x.id === id);
+        return t ? String(t.title ?? '') || 'Untitled' : undefined;
+      }
       const p = pages.find((x) => x.id === id) as PageRow | undefined;
       return p ? String(p.title ?? '') || 'Untitled' : undefined;
     },
-    [users, me, pages],
+    [users, me, pages, recs],
   );
 
   const buildHtml = useCallback(
