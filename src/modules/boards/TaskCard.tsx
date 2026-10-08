@@ -1,15 +1,16 @@
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { CalendarDays, FileText, MessageSquare } from 'lucide-react';
+import { CalendarDays, FileText, MessageSquare, MoveRight } from 'lucide-react';
 import { authStore } from '../../core/auth';
 import { db } from '../../core/db';
 import { useAttachments, type FileRow } from '../../core/files';
 import { AudioChip, FileImage } from '../../core/fileui';
-import { Avatar } from '../../core/ui';
+import { Avatar, IconButton, Menu, Popover } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { cn, formatDate, todayISO } from '../../core/utils';
-import { isDone, taskBoardId, type BoardRow, type TaskRow } from './api';
+import { isDone, setTaskField, taskBoardId, type BoardRow, type TaskRow } from './api';
+import { columnsOf } from './model';
 import { FieldChips } from './FieldValue';
 
 export function TaskCard({ task, board, overlay }: { task: TaskRow; board: BoardRow | undefined; overlay?: boolean }) {
@@ -43,13 +44,13 @@ export function TaskCard({ task, board, overlay }: { task: TaskRow; board: Board
       )}
       <div className="px-2.5 pb-2 pt-2">
         <p className={cn('text-[13px] font-medium leading-5', isDone(task, board) && 'text-neutral-400 line-through')}>{String(task.title ?? '') || 'Untitled task'}</p>
-        <CardFooter audios={audios} fileCount={files.length} commentCount={commentCount} assignee={assignee} dueDate={task.dueDate} overdue={!!overdue} fieldChips={<FieldChips board={board} task={task} />} />
+        <CardFooter audios={audios} fileCount={files.length} commentCount={commentCount} assignee={assignee} dueDate={task.dueDate} overdue={!!overdue} fieldChips={<FieldChips board={board} task={task} />} task={task} board={board} />
       </div>
     </div>
   );
 }
 
-function CardFooter({ audios, fileCount, commentCount, assignee, dueDate, overdue, fieldChips }: { audios: FileRow[]; fileCount: number; commentCount: number; assignee: { name: string; color?: string } | undefined; dueDate?: string | null; overdue: boolean; fieldChips?: ReactNode }) {
+function CardFooter({ audios, fileCount, commentCount, assignee, dueDate, overdue, fieldChips, task, board }: { audios: FileRow[]; fileCount: number; commentCount: number; assignee: { name: string; color?: string } | undefined; dueDate?: string | null; overdue: boolean; fieldChips?: ReactNode; task: TaskRow; board: BoardRow | undefined }) {
   const extras: ReactNode[] = [fieldChips];
   for (const a of audios.slice(0, 1)) extras.push(<AudioChip key={a.id} file={a} />);
   if (fileCount > audios.length) extras.push(<Chip key="files" icon={<FileText size={10} />} label={String(fileCount - audios.length)} />);
@@ -60,8 +61,37 @@ function CardFooter({ audios, fileCount, commentCount, assignee, dueDate, overdu
     <div className="mt-1.5 flex items-center gap-1.5">
       <div className="flex min-w-0 flex-wrap items-center gap-1">{extras}</div>
       <span className="flex-1" />
+      {board && <MoveToStage task={task} board={board} />}
       {assignee && <Avatar name={assignee.name} color={assignee.color} size={18} />}
     </div>
+  );
+}
+
+/** 'Move to…' stage selector — touch/keyboard alternative to drag-and-drop (§11). */
+function MoveToStage({ task, board }: { task: TaskRow; board: BoardRow }) {
+  const columns = columnsOf(board).filter((c) => c.id !== task.status);
+  if (!columns.length) return null;
+  return (
+    <Popover
+      align="right"
+      trigger={
+        <IconButton className="h-5 w-5 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100" aria-label="Move to stage" onClick={(e) => e.stopPropagation()}>
+          <MoveRight size={11} />
+        </IconButton>
+      }
+    >
+      {(close) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <Menu
+            close={close}
+            items={columns.map((c) => ({
+              label: c.name,
+              onClick: () => void setTaskField(task.id, { status: c.id }),
+            }))}
+          />
+        </div>
+      )}
+    </Popover>
   );
 }
 

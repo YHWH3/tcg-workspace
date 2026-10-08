@@ -53,6 +53,22 @@ export async function createPage(parentId: string | null = null): Promise<string
   return id;
 }
 
+export async function movePage(id: string, parentId: string | null): Promise<void> {
+  const all = await db.pages.toArray();
+  if (id === parentId) return;
+  // block cycles: refuse when parentId is the page itself or one of its descendants
+  let cur: string | null = parentId;
+  while (cur) {
+    if (cur === id) return;
+    cur = (all.find((p) => p.id === cur)?.parentId as string | null | undefined) ?? null;
+  }
+  const live = all.filter((p) => ((p.parentId as string | null | undefined) ?? null) === parentId && !p.deleted && p.id !== id).sort((a, b) => cmpOrder(a.order, b.order));
+  const order = orderBetween(live.length ? String(live[live.length - 1].order ?? '') || null : null, null);
+  await mutate('pages', id, { parentId, order });
+  const pg = all.find((p) => p.id === id);
+  logActivity('moved', 'page', id, String(pg?.title ?? 'Untitled'), { parentId });
+}
+
 export async function deletePage(id: string): Promise<void> {
   const page = await db.pages.get(id);
   await mutate('pages', id, { deleted: true });
