@@ -192,7 +192,7 @@ check('project board+moodboard created', !!boardId && !!moodId);
 
 // edit_page append + insert
 const ep = await call('edit_page', { pageId, appendMarkdown: '> quoted note\n\n- follow-up bullet' });
-check('edit_page append', !ep.isError && ep.data.updated > 0);
+check('edit_page append', !ep.isError && ep.data.updated > 0, ep.text.slice(0, 160));
 const gp = await call('get_page', { pageId });
 check('get_page returns markdown + children', typeof gp.data.markdown === 'string' && gp.data.children.length === 1 && /Launch plan/.test(gp.data.markdown));
 check('page markdown renders mention tokens', /@Bob|\[\[Team Handbook\]\]/.test(gp.data.markdown), gp.data.markdown?.slice(0,200));
@@ -242,8 +242,11 @@ const act = await call('recent_activity', { limit: 30 });
 check('activity shows via <client>', act.data.activity?.some((a) => a.via === 'MCP Verify'), JSON.stringify(act.data.activity?.slice(0, 3)));
 
 // delete + restore
-const del = await call('delete_item', { type: 'task', id: aTaskId });
-check('delete_item soft-deletes', !del.isError && del.data.deleted === true);
+const delNoRev = await call('delete_item', { type: 'task', id: aTaskId });
+check('delete_item without expectedRev → error', delNoRev.isError && /expectedRev/.test(delNoRev.text), delNoRev.text.slice(0, 140));
+const taskForRev = await call('get_task', { taskId: aTaskId });
+const del = await call('delete_item', { type: 'task', id: aTaskId, expectedRev: taskForRev.data.task?.rev ?? taskForRev.data.rev });
+check('delete_item soft-deletes', !del.isError && del.data.deleted === true, del.text.slice(0, 140));
 const res = await call('restore_item', { type: 'task', id: aTaskId });
 check('restore_item restores', !res.isError && res.data.restored === true);
 
