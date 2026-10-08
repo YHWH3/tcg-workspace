@@ -7,16 +7,20 @@ import { createStore } from '../store';
 import { rebaseRecord, type PendingChange } from './rebase';
 import { authStore, dropSession } from '../auth';
 import { liveConnected, startPresence } from '../live';
+import { countDrafts, ensurePersistentStorage, reconcileDraft } from '../drafts';
 
 export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'idle';
 
 interface SyncState {
   status: SyncStatus;
+  /** Unsent outbox record writes. */
   pending: number;
+  /** Pending/failed blob uploads — separate so 'Synced' can't lie about media. */
+  pendingMedia: number;
   lastSyncedAt: number | null;
 }
 
-export const syncStore = createStore<SyncState>({ status: 'idle', pending: 0, lastSyncedAt: null });
+export const syncStore = createStore<SyncState>({ status: 'idle', pending: 0, pendingMedia: 0, lastSyncedAt: null });
 export const onlineStore = createStore(typeof navigator === 'undefined' ? true : navigator.onLine);
 
 const PUSH_CHUNK = 500;
@@ -28,10 +32,17 @@ let queued = false;
 let timer: ReturnType<typeof setInterval> | undefined;
 let lastPeriod = 0;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+let persistenceRequested = false;
 
 async function updatePending() {
   const n = await db.outbox.count();
-  syncStore.set((s) => (s.pending === n ? s : { ...s, pending: n }));
+  const media = await db.blobs.where('state').anyOf('pending', 'failed').count();
+  syncStore.set((s) => (s.pending === n && s.pendingMedia === media ? s : { ...s, pending: n, pendingMedia: media }));
+}
+
+/** Re-count pending work (records + media) — safe to call after any write path. */
+export function refreshPending(): void {
+  void updatePending();
 }
 
 /**
@@ -153,6 +164,10 @@ async function pullRemote(): Promise<boolean> {
           const rebased = rebaseRecord({ data: rec.data, field_ts: rec.field_ts }, byId.get(rec.id) ?? []);
           const row = { id: rec.id, ...rebased.data, _ts: rebased.field_ts };
           await db.collection(rec.collection).put(row);
+          // Settle draft candidates against the reconciled value: matching
+          // fields are confirmed and dropped; fields a remote write won keep
+          // their candidate for review (§7 'recoverable local candidate').
+          await reconcileDraft(rec.collection, rec.id, rebased.data, rebased.field_ts);
           for (const ts of Object.values(rec.field_ts)) hlc.observe(ts);
         }
       });
@@ -192,7 +207,13 @@ export async function syncNow(): Promise<void> {
     // Chunked blob uploads run after metadata sync (dynamic import avoids a cycle).
     const { uploadPendingBlobs } = await import('../files');
     await uploadPendingBlobs();
+    await updatePending();
     syncStore.set((s) => ({ ...s, status: 'synced', lastSyncedAt: Date.now() }));
+    if (!persistenceRequested) {
+      persistenceRequested = true;
+      // Best-effort durability hint after real storage use (platform §3).
+      void ensurePersistentStorage();
+    }
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) {
       // Signed out server-side: keep outbox + local data, drop the session.
@@ -215,14 +236,27 @@ export function scheduleSync() {
   debounceTimer = setTimeout(() => void syncNow(), 800);
 }
 
-/** Flush the outbox, then report remaining pending count (for sign-out warning). */
+/** Flush the outbox, then report remaining pending work incl. media (for sign-out warning). */
 export async function flushAndCountPending(): Promise<number> {
   try {
     await syncNow();
   } catch {
     /* best effort */
   }
-  return db.outbox.count();
+  return (await db.outbox.count()) + (await db.blobs.where('state').anyOf('pending', 'failed').count());
+}
+
+/**
+ * Everything locally owned that a sign-out/account switch could strand:
+ * unsent record writes, pending/failed uploads, and unsent draft envelopes.
+ */
+export async function countLocalPending(): Promise<{ records: number; media: number; drafts: number }> {
+  const [records, media, drafts] = await Promise.all([
+    db.outbox.count(),
+    db.blobs.where('state').anyOf('pending', 'failed').count(),
+    countDrafts(),
+  ]);
+  return { records, media, drafts };
 }
 
 export function startSyncEngine() {
