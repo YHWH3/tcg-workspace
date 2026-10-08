@@ -75,13 +75,13 @@ function MoveToStage({ task, board }: { task: TaskRow; board: BoardRow }) {
     <Popover
       align="right"
       trigger={
-        <IconButton className="h-5 w-5 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100" aria-label="Move to stage" onClick={(e) => e.stopPropagation()}>
+        <IconButton className="h-5 w-5 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100" aria-label="Move to stage">
           <MoveRight size={11} />
         </IconButton>
       }
     >
       {(close) => (
-        <div onClick={(e) => e.stopPropagation()}>
+        <div>
           <Menu
             close={close}
             items={columns.map((c) => ({

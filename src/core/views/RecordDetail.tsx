@@ -5,7 +5,7 @@
  * (BlockEditor with parentType:'record') → attachments (+ 'Add Drive link')
  * → LinkedPanel → comments slot.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowRight, Calendar, ChevronDown, ChevronRight, CornerDownRight, Link2, MoreHorizontal, Plus, Trash2, Users, X } from 'lucide-react';
@@ -46,6 +46,17 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
   const links = useLinks();
   const users = useUsers();
   const resolve = useTokenResolver();
+  const titleRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = rec.id;
+    const orig = String(rec.title ?? '');
+    return () => {
+      const v = titleRef.current;
+      if (v !== null && v !== orig) void mutate('tasks', id, { title: v });
+      titleRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rec.id]);
   const [moveOpen, setMoveOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(true);
 
@@ -120,8 +131,10 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
         <input
           key={rec.id + String(rec.title ?? '')}
           defaultValue={String(rec.title ?? '')}
+          onChange={(e) => { titleRef.current = e.target.value; }}
           onBlur={(e) => {
             const v = e.target.value;
+            titleRef.current = v;
             if (v !== String(rec.title ?? '')) void mutate('tasks', rec.id, { title: v });
           }}
           onKeyDown={(e) => {

@@ -282,7 +282,7 @@ function ViewTabMenu({ view, board, onDeleted }: { view: ViewRow; board: BoardRo
         )}
       </Popover>
       {renaming && (
-        <Dialog title="Rename view" onClose={() => setRenaming(false)}>
+        <Dialog title="Rename view" onClose={() => setRenaming(false)} guard={() => !name.trim() || name.trim() === (view?.name ?? '')}>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-lg border border-neutral-200 bg-transparent px-3 py-2 text-sm outline-none focus:border-neutral-400 dark:border-neutral-700" />
           <div className="mt-3 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setRenaming(false)}>Cancel</Button>

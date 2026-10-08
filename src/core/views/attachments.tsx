@@ -102,7 +102,7 @@ export function AddLinkDialog({ parentId, onClose }: { parentId: string; onClose
   const [name, setName] = useState('');
   const noteSeen = typeof localStorage !== 'undefined' && localStorage.getItem(DRIVE_NOTE_KEY) === '1';
   return (
-    <Dialog title="Add link" onClose={onClose}>
+    <Dialog title="Add link" onClose={onClose} guard={() => !url.trim() && !name.trim()}>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         Paste a Google Drive or Docs link — the file stays in Drive, we keep a preview. Any other URL is added as a link card.
       </p>

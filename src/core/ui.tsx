@@ -145,16 +145,30 @@ export function Popover({
   };
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLSpanElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const layerId = useRef(Symbol('popover'));
   const compact = useIsMobile();
   const sheetMode = adaptive === true && compact;
+  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
   useEffect(() => {
     // In sheet mode the Overlay below owns dismissal/stacking.
     if (!isOpen || sheetMode) return;
     pushLayer({ id: layerId.current });
     const prevFocus = document.activeElement as HTMLElement | null;
+    const update = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const minW = 176; // min-w-44
+      let left = align === 'right' ? r.right - Math.max(minW, r.width) : align === 'center' ? r.left + r.width / 2 - Math.max(minW, r.width) / 2 : r.left;
+      left = Math.max(8, Math.min(left, window.innerWidth - minW - 8));
+      setPos({ left, top: r.bottom + 4, width: Math.max(minW, r.width) });
+    };
+    update();
+    window.addEventListener('resize', update);
+    document.addEventListener('scroll', update, true);
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current?.contains(e.target as Node) || panelRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isTopLayer(layerId.current)) setOpen(false);
@@ -163,6 +177,8 @@ export function Popover({
     document.addEventListener('keydown', onKey, true);
     return () => {
       removeLayer(layerId.current);
+      window.removeEventListener('resize', update);
+      document.removeEventListener('scroll', update, true);
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey, true);
       // Return focus to the trigger (or whatever had focus).
@@ -192,18 +208,22 @@ export function Popover({
             {children(() => setOpen(false))}
           </div>
         </Overlay>
-      ) : isOpen ? (
-        <div
-          role="dialog"
-          aria-label={label}
-          className={cn(
-            'anim-slide-up absolute z-50 mt-1 min-w-44 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900',
-            align === 'right' ? 'right-0' : align === 'center' ? 'left-1/2 -translate-x-1/2' : 'left-0',
-            className,
-          )}
-        >
-          {children(() => setOpen(false))}
-        </div>
+      ) : isOpen && pos ? (
+        createPortal(
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-label={label}
+            style={{ position: 'fixed', left: pos.left, top: pos.top, minWidth: pos.width }}
+            className={cn(
+              'anim-slide-up z-50 max-h-[70vh] overflow-y-auto overflow-x-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900',
+              className,
+            )}
+          >
+            {children(() => setOpen(false))}
+          </div>,
+          document.body,
+        )
       ) : null}
     </div>
   );
