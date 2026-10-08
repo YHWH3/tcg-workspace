@@ -1652,7 +1652,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const expect = a.expectedRev !== undefined ? new Map([[id, a.expectedRev]]) : undefined;
       const ops: WriteOp[] = [{ collection, id, patch: { deleted: false } }];
       if (collection === 'tasks') {
-        for (const d of (await listBy(ctx.env, 'tasks', 'deletedVia', id))) ops.push({ collection: 'tasks', id: d.id, patch: { deleted: false, deletedVia: null } });
+        for (const d of (await listBy(ctx.env, 'tasks', 'deletedVia', id, { includeDeleted: true }))) ops.push({ collection: 'tasks', id: d.id, patch: { deleted: false, deletedVia: null } });
       }
       await write(ctx, ops, { expect });
       return txt({ type, id, restored: true, ...(a.expectedRev === undefined ? { unchecked: [id] } : {}) });
@@ -1832,7 +1832,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           if ('conflict' in outB || 'notFound' in outB) ctx.warnings.push('reverse relation field failed on concurrent edit');
           else if (ctx.cs) ctx.cs.items.push(...outB.result.applied.filter((x) => x.collection !== 'activity'));
         }
-        const field = fieldsOf(out.row.data).find((f) => f.id === fId) ?? null;
+        const fresh = await rec(ctx.env, 'boards', a.boardId);
+        const field = fresh ? fieldsOf(fresh.data).find((f) => f.id === fId) ?? null : null;
         return txt({ boardId: a.boardId, field, existed: !out.result.applied.length });
       }
       const out = await casUpdate(ctx.env, 'boards', a.boardId, (data) => {
@@ -1848,7 +1849,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if ('conflict' in out) return err('concurrent board edits — retry');
       if ('notFound' in out) return err('board not found');
       if (ctx.cs) ctx.cs.items.push(...out.result.applied.filter((x) => x.collection !== 'activity'));
-      const field = fieldsOf(out.row.data).find((f) => f.name.toLowerCase() === a.field.name.toLowerCase());
+      const fresh2 = await rec(ctx.env, 'boards', a.boardId);
+      const field = fresh2 ? fieldsOf(fresh2.data).find((f) => f.name.toLowerCase() === a.field.name.toLowerCase()) : undefined;
       return txt({ boardId: a.boardId, field, existed: !out.result.applied.length });
     },
   );
@@ -2672,7 +2674,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         sorts: (a.sorts ?? []).map((s) => ({ fieldId: resolveFieldKey(board.data, s.field), dir: (s.dir ?? 'asc') as 'asc' | 'desc' })),
       };
       const startIdx = a.cursor ? rows.findIndex((r) => r.id === a.cursor) + 1 : 0;
-      const applied = applyView(rows.map((r) => r.data), view, { meId: ctx.userId, fieldsById: fmap, relationTitles, columnsById: new Map(boardColumns(board).map((c) => [c.id, c])) });
+      const applied = applyView(rows.map((r) => ({ ...r.data, id: r.id })), view, { meId: ctx.userId, fieldsById: fmap, relationTitles, columnsById: new Map(boardColumns(board).map((c) => [c.id, c])) });
       const page = applied.rows.slice(startIdx, startIdx + limit);
       const include = new Set(a.include ?? ['fields']);
       const allTasks = live(await recs(ctx.env, 'tasks'));
