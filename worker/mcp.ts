@@ -1299,9 +1299,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   );
 
   async function snapshot(env: Env): Promise<RecSnapshot> {
-    const [pages, blocks, boards, tasks] = await Promise.all([recs(env, 'pages'), recs(env, 'blocks'), recs(env, 'boards'), recs(env, 'tasks')]);
+    const [pages, blocks, boards, tasks, views, links] = await Promise.all([recs(env, 'pages'), recs(env, 'blocks'), recs(env, 'boards'), recs(env, 'tasks'), recs(env, 'views'), recs(env, 'links')]);
     const map = (rs: Rec[]) => Object.fromEntries(rs.map((r) => [r.id, r.data]));
-    return { pages: map(pages), blocks: map(blocks), boards: map(boards), tasks: map(tasks) };
+    return { pages: map(pages), blocks: map(blocks), boards: map(boards), tasks: map(tasks), views: map(views), links: map(links) };
   }
 
   reg(

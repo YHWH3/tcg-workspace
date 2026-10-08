@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Copy, Plus, Trash2, Check } from 'lucide-react';
 import type { PublicUser } from '../../shared/types';
+import { BUNDLED_TEMPLATES } from './bundledTemplates';
+import { instantiateTemplate } from '../modules/pages/api';
 import { api } from './api';
 import { authStore, changePassword, updateMe } from './auth';
 import { USER_COLORS } from './config';
@@ -33,6 +36,7 @@ export function SettingsPage() {
         <ProfileSection user={user} />
         <AIConnectorsSection />
         <StorageSection />
+        <TemplateGallerySection />
         <PasswordSection />
         {user?.role === 'admin' && <AdminSection />}
       </div>
@@ -134,6 +138,45 @@ function StorageSection() {
       ) : (
         <p className="text-xs text-neutral-400">Storage usage is unavailable while offline.</p>
       )}
+    </Section>
+  );
+}
+
+function TemplateGallerySection() {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [done, setDone] = useState<Record<string, string>>({});
+  const nav = useNavigate();
+  const add = async (key: string) => {
+    const tpl = BUNDLED_TEMPLATES.find((t) => t.key === key);
+    if (!tpl) return;
+    setBusy(key);
+    try {
+      const id = await instantiateTemplate(tpl.root, { snapshot: tpl.snapshot, templateKey: tpl.key, title: tpl.name });
+      if (id) {
+        setDone((d) => ({ ...d, [key]: id }));
+        nav(`/pages/${id}`);
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Section title="Template gallery">
+      <ul className="flex flex-col gap-2">
+        {BUNDLED_TEMPLATES.map((t) => (
+          <li key={t.key} className="flex items-center gap-3 rounded-xl border border-neutral-200/70 px-3 py-2.5 dark:border-neutral-800">
+            <span className="text-lg" aria-hidden>{t.icon}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">{t.name}</span>
+              <span className="block truncate text-xs text-neutral-500 dark:text-neutral-400">{t.description}</span>
+            </span>
+            <Button size="sm" variant="secondary" disabled={busy === t.key} onClick={() => void add(t.key)}>
+              {busy === t.key ? <Spinner className="h-3.5 w-3.5" /> : done[t.key] ? <Check size={14} /> : <Plus size={14} />}
+              {done[t.key] ? 'Added' : 'Add to workspace'}
+            </Button>
+          </li>
+        ))}
+      </ul>
     </Section>
   );
 }

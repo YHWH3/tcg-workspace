@@ -38,6 +38,8 @@ export class LocalDB extends Dexie {
   files!: Table<LocalRow, string>;
   moodboards!: Table<LocalRow, string>;
   mooditems!: Table<LocalRow, string>;
+  views!: Table<LocalRow, string>;
+  links!: Table<LocalRow, string>;
   users!: Table<PublicUser, string>;
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<{ key: string; value: unknown }, string>;

@@ -199,6 +199,18 @@ describe('template planner — Phase 1 databases/linking', () => {
     const pblk = plan.writes.find((w) => w.collection === 'blocks' && String(w.patch.text).startsWith('About'))!;
     expect(pblk.patch.text).toBe(`About @[rec:${maya.id}] and @[page:${plan.rootPageId}]`);
   });
+
+  it('stamps templateKey on copied rows and produces independent copies', () => {
+    const a = planTemplateInstantiation(dbSnap(), { templateId: 'tpl', templateKey: 'starter-people' }, { id, now })!;
+    expect(a.writes.filter((w) => w.collection === 'boards').every((w) => w.patch.templateKey === 'starter-people')).toBe(true);
+    expect(a.writes.filter((w) => w.collection === 'pages').every((w) => w.patch.templateKey === 'starter-people')).toBe(true);
+    const b = planTemplateInstantiation(dbSnap(), { templateId: 'tpl' }, { id, now })!;
+    const idsA = new Set(a.writes.map((w) => w.id));
+    for (const w of b.writes) expect(idsA.has(w.id)).toBe(false);
+    const mayaA = a.writes.find((w) => w.collection === 'tasks' && w.patch.title === 'Maya')!;
+    const linkB = b.writes.find((w) => w.collection === 'links' && w.patch.fieldId === 'f-org');
+    expect(linkB && linkB.patch.fromId !== mayaA.id).toBe(true);
+  });
 });
 
 describe('restampForServer (server-side timestamps)', () => {

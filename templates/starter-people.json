@@ -1,0 +1,94 @@
+{
+  "key": "starter-people",
+  "name": "People & Organizations",
+  "description": "CRM-style starter: People and Organizations databases linked two-way, with table/gallery views.",
+  "icon": "👥",
+  "root": "tpl-people-root",
+  "snapshot": {
+    "pages": {
+      "tpl-people-root": { "title": "People & Organizations", "icon": "👥", "parentId": null, "order": "", "isTemplate": true }
+    },
+    "blocks": {
+      "blk-intro": { "pageId": "tpl-people-root", "order": "a0", "type": "p", "text": "Track the humans and the orgs they belong to. Both databases below are linked — open a record to see the other side." },
+      "blk-people": { "pageId": "tpl-people-root", "order": "a1", "type": "tasks", "boardId": "db-people" },
+      "blk-orgs": { "pageId": "tpl-people-root", "order": "a2", "type": "tasks", "boardId": "db-orgs" }
+    },
+    "boards": {
+      "db-people": {
+        "name": "People",
+        "icon": "🧑",
+        "kind": "records",
+        "recordNoun": "Person",
+        "description": "Everyone you work with.",
+        "showBuiltins": { "assignee": false, "due": false, "priority": false },
+        "columns": [],
+        "defaultViewId": "view-people-all",
+        "fields": [
+          { "id": "f-roles", "name": "Roles", "type": "multi_select", "options": [
+            { "id": "r-vol", "name": "Volunteer", "color": "#4ade80" },
+            { "id": "r-mem", "name": "Member", "color": "#60a5fa" },
+            { "id": "r-col", "name": "Collaborator", "color": "#a78bfa" },
+            { "id": "r-art", "name": "Artist", "color": "#f472b6" },
+            { "id": "r-res", "name": "Researcher", "color": "#38bdf8" },
+            { "id": "r-far", "name": "Farmer", "color": "#84cc16" },
+            { "id": "r-cra", "name": "Craftsperson", "color": "#fb923c" },
+            { "id": "r-fil", "name": "Filmmaker", "color": "#e879f9" },
+            { "id": "r-fac", "name": "Facilitator", "color": "#facc15" },
+            { "id": "r-par", "name": "Partner contact", "color": "#34d399" },
+            { "id": "r-fun", "name": "Funder contact", "color": "#fbbf24" },
+            { "id": "r-spa", "name": "Space owner", "color": "#f87171" }
+          ] },
+          { "id": "f-skills", "name": "Skills", "type": "multi_select", "options": [] },
+          { "id": "f-loc", "name": "Location", "type": "text" },
+          { "id": "f-phone", "name": "Phone", "type": "text" },
+          { "id": "f-email", "name": "Email", "type": "url" },
+          { "id": "f-team", "name": "Team account", "type": "person" },
+          { "id": "f-status", "name": "Status", "type": "select", "options": [
+            { "id": "s-act", "name": "Active", "color": "#4ade80" },
+            { "id": "s-occ", "name": "Occasional", "color": "#facc15" },
+            { "id": "s-pas", "name": "Past", "color": "#94a3b8" }
+          ] },
+          { "id": "f-org", "name": "Organization", "type": "relation", "relation": { "target": "db-orgs", "pairedFieldId": "f-people", "single": false, "primary": true } }
+        ]
+      },
+      "db-orgs": {
+        "name": "Organizations",
+        "icon": "🏛️",
+        "kind": "records",
+        "recordNoun": "Organization",
+        "description": "Groups, institutions and spaces.",
+        "showBuiltins": { "assignee": false, "due": false, "priority": false },
+        "columns": [],
+        "defaultViewId": "view-orgs-all",
+        "fields": [
+          { "id": "f-otype", "name": "Type", "type": "select", "options": [
+            { "id": "o-uni", "name": "University", "color": "#60a5fa" },
+            { "id": "o-sch", "name": "School", "color": "#38bdf8" },
+            { "id": "o-ngo", "name": "NGO", "color": "#4ade80" },
+            { "id": "o-fou", "name": "Foundation", "color": "#fbbf24" },
+            { "id": "o-com", "name": "Company", "color": "#a78bfa" },
+            { "id": "o-gov", "name": "Government", "color": "#94a3b8" },
+            { "id": "o-cmu", "name": "Community", "color": "#f472b6" },
+            { "id": "o-spc", "name": "Space", "color": "#fb923c" }
+          ] },
+          { "id": "f-web", "name": "Website", "type": "url" },
+          { "id": "f-oloc", "name": "Location", "type": "text" },
+          { "id": "f-owner", "name": "Relationship owner", "type": "person" },
+          { "id": "f-ostatus", "name": "Status", "type": "select", "options": [
+            { "id": "os-act", "name": "Active", "color": "#4ade80" },
+            { "id": "os-pas", "name": "Past", "color": "#94a3b8" }
+          ] },
+          { "id": "f-people", "name": "People", "type": "relation", "relation": { "target": "db-people", "pairedFieldId": "f-org", "single": false, "primary": false } }
+        ]
+      }
+    },
+    "tasks": {},
+    "views": {
+      "view-people-all": { "databaseId": "db-people", "name": "All", "type": "table", "order": "a0", "config": {} },
+      "view-people-vol": { "databaseId": "db-people", "name": "Volunteers", "type": "table", "order": "a1", "config": { "filters": [{ "fieldId": "f-roles", "op": "contains", "value": "Volunteer" }] } },
+      "view-people-gal": { "databaseId": "db-people", "name": "Gallery", "type": "gallery", "order": "a2", "config": { "cover": "coverImageUrl" } },
+      "view-orgs-all": { "databaseId": "db-orgs", "name": "All", "type": "table", "order": "a0", "config": {} }
+    },
+    "links": {}
+  }
+}
