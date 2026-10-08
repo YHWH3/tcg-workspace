@@ -65,6 +65,11 @@ export class LocalDB extends Dexie {
       moodboards: 'id, order',
       mooditems: 'id, boardId, z',
     });
+    this.version(4).stores({
+      views: 'id, databaseId, order',
+      links: 'id, fromId, toId, kind, fieldId',
+      tasks: 'id, status, assigneeId, boardId, parentId, order, createdAt',
+    });
   }
 
   collection(name: Collection): Table<LocalRow, string> {
