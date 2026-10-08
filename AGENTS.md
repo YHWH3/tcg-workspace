@@ -76,7 +76,12 @@ Block type `embed` + `parseLinkUrl` in `shared/drive.ts` renders Google Drive fi
 - `mcpApiHandler` (`worker/mcp.ts`): per request, rejects if `props.userId` is gone (deleted user → 401), builds a fresh `McpServer` from `@modelcontextprotocol/server` via `agents/mcp/server` `createMcpHandler({route:'/mcp'})`, per-request Ctx holds lookup caches (never module state).
 - Writes go through `applyChanges(env, userId, changes, {serverTs:true})` in `worker/sync.ts` — same merge/upsert as `/api/sync/push`, but stamps `ts = max(now, max(field_ts)+1)` so server edits win; then `pokeLive()` so open UIs refresh. Max 500 records per tool call.
 - Markdown⇄blocks is `shared/markdown.ts` (`markdownToBlocks`, `blocksToMarkdown` — accepts `[[Page Title]]`/`@handle` resolved to `@[page:id]`/`@[user:id]` tokens; renders tokens back). Remote image/file URLs import via `worker/remotefile.ts` (https only, ≤20 MB, same chunk tables + `files` record as client uploads).
-- Activity attribution: MCP writes log `meta.via = clientName` — the Activity UI renders "via <client>".
+- Write safety (Phase 1): every mutating tool is wrapped by `reg()` (`worker/mcp.ts`) —
+  - **Revisions/conflicts**: `records.seq` is the row revision; write tools take `expectedRev` (the seq the caller read) and fail with a `WriteConflict` §4.3 error JSON when the stored seq differs — callers re-read and retry.
+  - **`requestId`**: optional idempotency key (1–64 chars). Re-sending the same requestId returns the stored result without re-applying the write.
+  - **`dryRun`**: `dryRun:true` returns the impact preview (rows that would be created/changed) without writing.
+  - **Change sets/undo**: each write call opens a changeset (`beginChangeset`/`commitChangeset` in `worker/changesets.ts`), recorded per-field for undo; results include `changesetId`. `GET /api/changes?mine=1` lists the last sets; `POST /api/changes/:id/undo` restores prior values (409 already-undone, 404 unknown). Activity entries carrying `meta.changesetId` show an Undo button; Settings → "Recent AI changes" lists the last 20 with Undo.
+- Activity attribution: MCP writes log `meta.via = clientName` and `meta.changesetId` — the Activity UI renders "via <client>", the "AI changes" filter chip selects them, and `meta.changesetId` rows offer Undo.
 - Grants: `GET/DELETE /api/oauth/grants[/:id]` (session auth) back the Settings → AI connectors list + Revoke.
 - Tool returns concise JSON text including the app URL of what was created (`/pages/:id`, `/boards/:id[/tasks/:id]`, `/moodboards/:id`, `/s/:token`).
 
