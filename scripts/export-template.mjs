@@ -1,83 +1,65 @@
 #!/usr/bin/env node
-// Export a workspace template page subtree to the bundled-template JSON format
-// (templates/*.json). Reads the LOCAL D1 via `wrangler d1 execute --local`.
-// Usage: node scripts/export-template.mjs <rootPageId> [key] [--remote]
-//   writes templates/<key>.json  (key defaults to the page id)
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+/**
+ * export-template.mjs — validate a bundled template JSON (default:
+ * templates/starter-people.json) or export a board to template form.
+ *
+ *   node scripts/export-template.mjs [--check] [path/to/template.json]
+ *
+ * Validation: databases have unique ids; relation fields pair correctly
+ * (each non-primary relation's pairedFieldId points at a primary relation on
+ * the target db); view FieldKeys (p_<fid>/rel_<fid>/built-ins) resolve to a
+ * field or built-in; pages reference only declared database ids.
+ */
+import { readFileSync } from 'node:fs';
 
-const rootId = process.argv[2];
-const key = process.argv[3] ?? rootId;
-const remote = process.argv.includes('--remote');
-if (!rootId) {
-  console.error('usage: node scripts/export-template.mjs <rootPageId> [key] [--remote]');
+const BUILTINS = new Set(['title', 'status', 'assigneeId', 'dueDate', 'priority', 'createdAt', 'createdBy']);
+const FIELDTYPES = new Set(['text', 'number', 'checkbox', 'select', 'multi_select', 'person', 'url', 'date', 'relation', 'rating']);
+const file = process.argv.filter((a) => !a.startsWith('--'))[2] ?? new URL('../templates/starter-people.json', import.meta.url).pathname;
+const tpl = JSON.parse(readFileSync(file, 'utf8'));
+const errors = [];
+const warn = [];
+
+const dbs = new Map();
+for (const d of tpl.databases ?? []) {
+  if (!d.id || !d.name) errors.push(`database missing id/name: ${JSON.stringify(d)}`);
+  if (dbs.has(d.id)) errors.push(`duplicate database id ${d.id}`);
+  dbs.set(d.id, d);
+}
+for (const d of tpl.databases ?? []) {
+  const fieldIds = new Set();
+  for (const f of d.fields ?? []) {
+    if (!f.id || !f.name || !FIELDTYPES.has(f.type)) errors.push(`db ${d.id}: bad field ${JSON.stringify(f)}`);
+    fieldIds.add(f.id);
+    if (f.type === 'relation') {
+      const r = f.relation;
+      if (!r || !dbs.has(r.target)) { errors.push(`db ${d.id}.${f.id}: relation target missing (${r?.target})`); continue; }
+      if (r.pairedFieldId) {
+        const paired = (dbs.get(r.target).fields ?? []).find((x) => x.id === r.pairedFieldId);
+        if (!paired || paired.type !== 'relation') errors.push(`db ${d.id}.${f.id}: pairedFieldId ${r.pairedFieldId} not a relation on ${r.target}`);
+        else if (paired.relation?.pairedFieldId !== f.id) errors.push(`db ${d.id}.${f.id}: pairing not reciprocal (${r.target}.${paired.id})`);
+        else if (r.primary !== true && paired.relation?.primary !== true) errors.push(`db ${d.id}.${f.id}: neither side is primary`);
+        else if (r.primary === true && paired.relation?.primary === true) errors.push(`db ${d.id}.${f.id}: both sides primary`);
+      }
+    }
+    if ((f.type === 'select' || f.type === 'multi_select') && !f.options?.length) warn.push(`db ${d.id}.${f.id}: ${f.type} has no options`);
+  }
+  for (const v of d.views ?? []) {
+    for (const key of v.config?.visible ?? []) {
+      if (BUILTINS.has(key)) continue;
+      const fid = key.startsWith('rel_') || key.startsWith('p_') ? key.slice(key.indexOf('_') + 1) : null;
+      if (!fid || !fieldIds.has(fid)) errors.push(`db ${d.id} view ${v.id}: visible key ${key} does not resolve`);
+    }
+  }
+}
+for (const pg of tpl.pages ?? []) {
+  for (const md of pg.blocks ?? []) {
+    const m = /^Embed:\s*(\S+)/.exec(md);
+    if (m && !dbs.has(m[1])) errors.push(`page ${pg.id}: Embed ${m[1]} is not a declared database`);
+  }
+}
+for (const w of warn) console.warn('warn:', w);
+if (errors.length) {
+  for (const e of errors) console.error('error:', e);
   process.exit(1);
 }
-
-const PERSIST = ['--persist-to', '.wrangler/state-e2e'];
-const q = (sql) => {
-  const out = execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', remote ? '--remote' : '--local', ...PERSIST, '--json', '--command', sql], { cwd: join(dirname(fileURLToPath(import.meta.url)), '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  const parsed = JSON.parse(out);
-  return (Array.isArray(parsed) ? parsed : [parsed]).flatMap((r) => r.results ?? []);
-};
-const esc = (s) => String(s).replace(/'/g, "''");
-
-const rows = (coll) =>
-  Object.fromEntries(
-    q(`SELECT id, data FROM records WHERE collection = '${coll}'`).map((r) => [r.id, JSON.parse(r.data)]),
-  );
-
-// page subtree (BFS)
-const pagesAll = rows('pages');
-const pages = {};
-const queue = [rootId];
-while (queue.length) {
-  const pid = queue.shift();
-  const p = pagesAll[pid];
-  if (!p || p.deleted || pages[pid]) continue;
-  pages[pid] = p;
-  for (const [cid, c] of Object.entries(pagesAll)) if (String(c.parentId ?? '') === pid) queue.push(cid);
-}
-if (!Object.keys(pages).length) {
-  console.error(`page ${rootId} not found (or deleted)`);
-  process.exit(1);
-}
-const pageSet = new Set(Object.keys(pages));
-
-const blocksAll = rows('blocks');
-const blocks = Object.fromEntries(Object.entries(blocksAll).filter(([, b]) => !b.deleted && pageSet.has(String(b.pageId ?? ''))));
-
-const boardsAll = rows('boards');
-const tasksAll = rows('tasks');
-const viewsAll = rows('views');
-const linksAll = rows('links');
-
-const boardIds = new Set(Object.values(blocks).filter((b) => b.type === 'tasks' && typeof b.boardId === 'string').map((b) => b.boardId));
-const boards = Object.fromEntries(Object.entries(boardsAll).filter(([id, b]) => boardIds.has(id) && !b.deleted));
-const tasks = Object.fromEntries(Object.entries(tasksAll).filter(([, t]) => !t.deleted && boardIds.has(String(t.boardId ?? ''))));
-const views = Object.fromEntries(Object.entries(viewsAll).filter(([, v]) => !v.deleted && boardIds.has(String(v.databaseId ?? ''))));
-const taskIds = new Set(Object.keys(tasks));
-const links = Object.fromEntries(
-  Object.entries(linksAll).filter(([, l]) => {
-    if (l.deleted) return false;
-    const inScope = (type, id) => (type === 'record' || type === 'task' ? taskIds.has(String(id)) : type === 'page' ? pageSet.has(String(id)) : false);
-    return inScope(l.fromType, l.fromId) && inScope(l.toType, l.toId);
-  }),
-);
-
-const meta = pages[rootId];
-const out = {
-  key,
-  name: meta.title ?? key,
-  description: `Exported from workspace page ${rootId}`,
-  icon: meta.icon ?? '📦',
-  root: rootId,
-  snapshot: { pages, blocks, boards, tasks, views, links },
-};
-const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'templates');
-mkdirSync(dir, { recursive: true });
-const file = join(dir, `${key}.json`);
-writeFileSync(file, JSON.stringify(out, null, 2) + '\n');
-console.log(`wrote ${file} — ${Object.keys(pages).length} pages, ${Object.keys(blocks).length} blocks, ${Object.keys(boards).length} boards, ${Object.keys(tasks).length} tasks, ${Object.keys(views).length} views, ${Object.keys(links).length} links`);
+console.log(`ok: ${tpl.name} — ${(tpl.databases ?? []).length} databases, ${(tpl.pages ?? []).length} pages`);

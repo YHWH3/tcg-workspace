@@ -4,7 +4,7 @@
  * renames propagate. All functions here are pure (unit-tested); the DOM glue
  * for contentEditable lives in `modules/pages/RichInput.tsx`.
  */
-export type MentionKind = 'page' | 'user';
+export type MentionKind = 'page' | 'user' | 'rec';
 
 export interface InlineText {
   t: 'text';
@@ -17,7 +17,7 @@ export interface InlineChip {
 }
 export type InlineNode = InlineText | InlineChip;
 
-const TOKEN_RE = /@\[(page|user):([A-Za-z0-9_-]{1,64})\]/g;
+const TOKEN_RE = /@\[(page|user|rec):([A-Za-z0-9_-]{1,64})\]/g;
 
 /** Stored text → inline nodes (chips become atomic units). */
 export function parseText(s: string): InlineNode[] {

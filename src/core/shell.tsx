@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { matchPath, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { Search, Settings, LogOut, Moon, Sun, Monitor, CloudOff, RefreshCw, Check, AlertTriangle, PanelLeft, Plus, Camera, X } from 'lucide-react';
 import { toastStore } from './files';
 import { modules } from '../modules';
@@ -10,6 +10,7 @@ import { InstallButton } from './install';
 import { CommandPalette, paletteStore } from './search';
 import { sendHere } from './live';
 import { PresenceDots } from './presence';
+import { BoardOrDb } from './views/DatabasePage';
 import { countLocalPending, flushAndCountPending, onlineStore, syncNow, syncStore } from './sync/engine';
 import { createStore, useStore } from './store';
 import { setTheme, themeStore } from './theme';
@@ -388,7 +389,17 @@ export function Shell() {
         )}
 
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-          <Outlet />
+          {matchPath('boards/:boardId/*', location.pathname) || matchPath('boards/:boardId', location.pathname) ? (
+            <Routes>
+              <Route path="boards/:boardId" element={<BoardOrDb />} />
+              <Route path="boards/:boardId/tasks/:taskId" element={<BoardOrDb />} />
+              <Route path="boards/:boardId/views/:viewId" element={<BoardOrDb />} />
+              <Route path="boards/:boardId/views/:viewId/records/:recordId" element={<BoardOrDb />} />
+              <Route path="boards/*" element={<BoardOrDb />} />
+            </Routes>
+          ) : (
+            <Outlet />
+          )}
         </main>
 
         {/* Mobile bottom tabs with a prominent center capture button */}

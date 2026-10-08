@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Activity as ActivityIcon, Inbox } from 'lucide-react';
+import { Activity as ActivityIcon, Inbox, Undo2 } from 'lucide-react';
+import { isAIChange, undoChangeset } from '../../core/activity';
 import { authStore } from '../../core/auth';
 import { db, type LocalRow } from '../../core/db';
-import { Avatar, Dot, EmptyState } from '../../core/ui';
+import { Avatar, Button, Dialog, Dot, EmptyState } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { cn, relTime } from '../../core/utils';
 import type { AppModule } from '../types';
@@ -15,7 +16,7 @@ export interface ActivityRow extends LocalRow {
   targetType?: string;
   targetId?: string;
   targetTitle?: string;
-  meta?: { assigneeId?: string | null; userId?: string; pageId?: string; boardId?: string; via?: string } | null;
+  meta?: { assigneeId?: string | null; userId?: string; pageId?: string; boardId?: string; via?: string; changesetId?: string } | null;
   createdAt?: number;
 }
 
@@ -69,7 +70,8 @@ function verbText(a: ActivityRow): string {
 }
 
 function ActivityPage() {
-  const [tab, setTab] = useState<'you' | 'all'>('you');
+  const [tab, setTab] = useState<'you' | 'all' | 'ai'>('you');
+  const [undoId, setUndoId] = useState<string | null>(null);
   const activity = useActivity();
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], []) ?? [];
   const users = useUsers();
@@ -90,7 +92,8 @@ function ActivityPage() {
     )
     .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0));
   const all = [...activity].sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0));
-  const list = tab === 'you' ? forYou : all;
+  const ai = all.filter((a) => isAIChange(a.meta));
+  const list = tab === 'you' ? forYou : tab === 'all' ? all : ai;
 
   return (
     <div className="mx-auto h-full max-w-2xl overflow-y-auto px-5 py-8">
@@ -100,6 +103,7 @@ function ActivityPage() {
           [
             ['you', 'For you'],
             ['all', 'All activity'],
+            ['ai', 'AI changes'],
           ] as const
         ).map(([v, label]) => (
           <button key={v} onClick={() => setTab(v)} className={cn('rounded-md px-3 py-1.5 font-medium transition-colors', tab === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-500')}>
@@ -138,12 +142,35 @@ function ActivityPage() {
                       <span className="text-neutral-500 dark:text-neutral-400"> → {resolveUser(a.meta.assigneeId, users, meUser)?.name ?? 'someone'}</span>
                     )}
                   </div>
+                  {a.meta?.changesetId && (
+                    <button
+                      type="button"
+                      aria-label="Undo this change"
+                      className="mt-0.5 flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setUndoId(String(a.meta!.changesetId));
+                      }}
+                    >
+                      <Undo2 size={12} /> Undo
+                    </button>
+                  )}
                   <span className="shrink-0 pt-0.5 text-[11px] text-neutral-400">{relTime(Number(a.createdAt ?? 0))}</span>
                 </Link>
               </li>
             );
           })}
         </ul>
+      )}
+      {undoId && (
+        <Dialog title="Undo AI change" onClose={() => setUndoId(null)}>
+          <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-300">Restore the state before this connector's change set? Newer edits to the same rows are skipped.</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setUndoId(null)}>Cancel</Button>
+            <Button onClick={() => void undoChangeset(undoId).then(() => setUndoId(null))}>Undo</Button>
+          </div>
+        </Dialog>
       )}
     </div>
   );

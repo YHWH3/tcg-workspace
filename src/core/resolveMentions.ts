@@ -9,8 +9,10 @@ export function useTokenResolver(): (kind: string, id: string) => string {
   const users = useUsers();
   const me = authStore.get().user;
   const pages = useLiveQuery(() => db.pages.toArray(), [], []) ?? [];
+  const tasks = useLiveQuery(() => db.tasks.toArray(), [], []) ?? [];
   return (kind, id) => {
     if (kind === 'page') return String(pages.find((p) => p.id === id)?.title ?? 'Untitled');
+    if (kind === 'rec') return String(tasks.find((t) => t.id === id)?.title ?? 'Record');
     return resolveUser(id, users, me)?.name ?? 'Someone';
   };
 }

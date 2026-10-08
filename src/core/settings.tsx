@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Copy, Plus, Trash2, Check } from 'lucide-react';
+import { Copy, Plus, Trash2, Check, Undo2 } from 'lucide-react';
 import type { PublicUser } from '../../shared/types';
 import { BUNDLED_TEMPLATES } from './bundledTemplates';
 import { instantiateTemplate } from '../modules/pages/api';
 import { api } from './api';
 import { authStore, changePassword, updateMe } from './auth';
+import { useChangesets, undoChangeset } from './activity';
 import { USER_COLORS } from './config';
 import { useStore } from './store';
 import { Avatar, Button, Field, Input, Spinner } from './ui';
@@ -35,6 +36,8 @@ export function SettingsPage() {
       <div className="flex flex-col gap-5">
         <ProfileSection user={user} />
         <AIConnectorsSection />
+        <RecentAIChangesSection />
+        <TemplateGallerySection />
         <StorageSection />
         <TemplateGallerySection />
         <PasswordSection />
@@ -425,3 +428,49 @@ function AIConnectorsSection() {
     </Section>
   );
 }
+
+/* ---------- Phase 1: recent AI change sets + template gallery ---------- */
+
+function RecentAIChangesSection() {
+  const { rows, error, reload } = useChangesets(20);
+  const [undoId, setUndoId] = useState<string | null>(null);
+  return (
+    <Section title="Recent AI changes">
+      <p className="mb-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+        The last 20 change sets made by connected AI apps. Undo restores the previous field values; edits made since are skipped.
+      </p>
+      {error && <p className="text-xs text-neutral-400">Change history unavailable on this server.</p>}
+      {rows !== null && rows.length === 0 && !error && <p className="text-xs text-neutral-400">No AI changes yet.</p>}
+      {rows && rows.length > 0 && (
+        <ul className="divide-y divide-neutral-100 rounded-xl border border-neutral-200/70 dark:divide-neutral-800 dark:border-neutral-800">
+          {rows.map((c) => (
+            <li key={c.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+              <div className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{c.summary || c.tool || 'Change'}</span>
+                <span className="text-[11px] text-neutral-400">
+                  {c.client_name ? `via ${c.client_name} · ` : ''}{c.item_count} item{c.item_count === 1 ? '' : 's'} · {new Date(c.created_at < 1e12 ? c.created_at * 1000 : c.created_at).toLocaleString()}
+                  {c.undone_by && ' · undone'}
+                </span>
+              </div>
+              {!c.undone_by && (
+                <Button variant="secondary" size="sm" onClick={() => setUndoId(c.id)}>
+                  <Undo2 size={12} /> Undo
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {undoId && (
+        <div className="mt-3 rounded-xl border border-neutral-200 p-3 text-sm dark:border-neutral-700">
+          <p className="mb-2 text-neutral-600 dark:text-neutral-300">Undo this change set?</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setUndoId(null)}>Cancel</Button>
+            <Button size="sm" onClick={() => void undoChangeset(undoId).then(() => { setUndoId(null); void reload(); })}>Undo</Button>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
