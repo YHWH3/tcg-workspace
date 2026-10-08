@@ -489,6 +489,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           rev: p.rev,
           text: blocksToMarkdown(blocks.map((b) => b.data), resolvers),
           url: pageUrl(ctx, rawId),
+          linked: await linkedFor(rawId),
           metadata: { type: 'page', parentId: p.data.parentId ?? null, isTemplate: !!p.data.isTemplate },
         });
       }
@@ -504,6 +505,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           rev: t.rev,
           text: `${t.data.description ?? ''}\n\nStatus: ${colName} · Board: ${String(board?.data.name ?? '')}\nPriority: ${t.data.priority ?? 'none'} · Due: ${t.data.dueDate ?? '—'}`.trim(),
           url: taskUrl(ctx, t),
+          linked: await linkedFor(rawId),
           metadata: { type: 'task', boardId: board?.id ?? null, status },
         });
       }
@@ -535,13 +537,15 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const [us, pages, boards, moods, items] = await Promise.all([
+      const [us, pages, boards, moods, items, viewRowsAll] = await Promise.all([
         users(ctx.env),
         recs(ctx.env, 'pages'),
         recs(ctx.env, 'boards'),
         recs(ctx.env, 'moodboards'),
         recs(ctx.env, 'mooditems'),
+        recs(ctx.env, 'views'),
       ]);
+      const viewRows = live(viewRowsAll);
       return txt({
         people: us.map((u) => ({ id: u.id, username: u.username, name: u.name })),
         pages: live(pages)
@@ -551,13 +555,36 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           id: b.id,
           name: b.data.name,
           rev: b.rev,
+          kind: b.data.kind ?? 'tasks',
+          recordNoun: b.data.recordNoun,
+          description: b.data.description,
+          defaultViewId: b.data.defaultViewId ?? null,
           columns: boardColumns(b).map((c) => ({ id: c.id, name: c.name })),
-          fields: fieldsOf(b.data).map((f) => ({ id: f.id, name: f.name, type: f.type, options: f.options?.map((o) => o.name) })),
+          fields: fieldsOf(b.data).map((f) => ({ id: f.id, name: f.name, type: f.type, options: f.options?.map((o) => o.name), relation: f.relation ? { target: f.relation.target, pairedFieldId: f.relation.pairedFieldId, single: f.relation.single, primary: f.relation.primary } : undefined })),
         })),
+        viewsByBoard: Object.fromEntries(
+          live(boards).map((b) => [b.id, viewRows.filter((v) => String(v.data.databaseId) === b.id).map((v) => ({ id: v.id, name: v.data.name, type: v.data.type, rev: v.rev }))]),
+        ),
         moodboards: live(moods).map((m) => ({ id: m.id, title: m.data.title, rev: m.rev, itemCount: live(items).filter((i) => String(i.data.boardId) === m.id).length })),
       });
     },
   );
+
+  /** Links touching an item (relations/related/blocks) + @[page|rec] mention backlinks summary. */
+  const linkedFor = async (id: string) => {
+    const ls = (await listCollection(ctx.env, 'links'));
+    const touching = ls.filter((l) => String(l.data.fromId) === id || String(l.data.toId) === id);
+    const titleOfRec = async (rid: string) => {
+      const t = await getRec(ctx.env, rid);
+      return t ? String(t.data.title ?? t.data.name ?? rid) : ctx.pageTitleById.get(rid) ?? rid;
+    };
+    const out = [];
+    for (const l of touching.slice(0, 50)) {
+      const other = String(l.data.fromId) === id ? String(l.data.toId) : String(l.data.fromId);
+      out.push({ linkId: l.id, kind: l.data.kind, fieldId: l.data.fieldId ?? null, direction: String(l.data.fromId) === id ? 'out' : 'in', id: other, title: await titleOfRec(other) });
+    }
+    return out;
+  };
 
   /* ---------- 4. get_page ---------- */
 
@@ -596,6 +623,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         blocks: blocks.map((b) => ({ id: b.id, type: b.data.type ?? 'p', text: b.data.text ?? '', rev: b.rev })),
         children: children.map((x) => ({ id: x.id, title: titleOf(x, 'Untitled'), icon: x.data.icon, rev: x.rev })),
         backlinks,
+        linked: await linkedFor(pageId),
         url: pageUrl(ctx, pageId),
       });
     },
@@ -1479,11 +1507,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
 
   /* ---------- 18. delete / restore ---------- */
 
-  const deleteTypes = z.enum(['page', 'task', 'board', 'moodboard', 'mooditem', 'comment', 'file', 'block']);
+  const deleteTypes = z.enum(['page', 'task', 'record', 'board', 'view', 'link', 'moodboard', 'mooditem', 'comment', 'file', 'block']);
   const typeToColl: Record<string, Collection> = {
     page: 'pages',
     task: 'tasks',
+    record: 'tasks',
     board: 'boards',
+    view: 'views',
+    link: 'links',
     moodboard: 'moodboards',
     mooditem: 'mooditems',
     comment: 'comments',
@@ -1512,7 +1543,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (r.data.deleted) return txt({ type, id, deleted: true, already: true });
 
       // ---- gather the rows a delete touches (targeted reads only) ----
-      const impType = (type === 'page' ? 'page' : type) as 'page' | 'board' | 'task' | 'comment' | 'file' | 'moodboard' | 'mooditem';
+      const impType = (type === 'page' ? 'page' : type === 'record' ? 'task' : type) as 'page' | 'board' | 'task' | 'comment' | 'file' | 'moodboard' | 'mooditem';
+      // record/task deletes cascade to sub-records (deletedVia = parent id)
+      const subRecordIds: string[] = [];
       let pages: ImpactRow[] = [{ id, collection, data: r.data }];
       const blocks: ImpactRow[] = [];
       const tasks: ImpactRow[] = [];
@@ -1564,6 +1597,16 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         comments.push(...(await listBy(ctx.env, 'comments', 'targetId', id)).map((x) => ({ id: x.id, collection: 'comments', data: x.data })));
         filesR.push(...(await listBy(ctx.env, 'files', 'parentId', id)).map((x) => ({ id: x.id, collection: 'files', data: x.data })));
         mooditems.push(...(await listBy(ctx.env, 'mooditems', 'taskId', id)).map((x) => ({ id: x.id, collection: 'mooditems', data: x.data })));
+        // sub-record cascade (deletedVia marks who removed them so restore can scope)
+        const dbId = String(r.data.boardId ?? '');
+        const all = live((await listBy(ctx.env, 'tasks', 'boardId', dbId)).map(toRec));
+        const parentOf = new Map(all.map((t) => [t.id, (t.data.parentId as string | null) ?? null]));
+        const { descendants } = await import('../shared/tree');
+        for (const d of descendants(parentOf, id)) {
+          subRecordIds.push(d);
+          const dRow = all.find((t) => t.id === d);
+          if (dRow) tasks.push({ id: d, collection: 'tasks', data: dRow.data });
+        }
       }
 
       const impact = planDeleteImpact({ pages, blocks, tasks, comments, files: filesR, mooditems, shares: shareCount, backlinks: backlinkCount }, impType, id);
@@ -1586,6 +1629,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       }
       if (impType === 'task') {
         for (const cm of impact.ids.comments ?? []) ops.push({ collection: 'comments', id: cm, patch: { deleted: true } });
+        for (const sid of subRecordIds) ops.push({ collection: 'tasks', id: sid, patch: { deleted: true, deletedVia: id } });
       }
       ops.push(activityOp(ctx.userId, ctx.clientName, 'deleted', type, id, String(r.data.title ?? r.data.name ?? type), ctx.cs?.id));
       await write(ctx, ops, { expect });
@@ -1606,7 +1650,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const r = await rec(ctx.env, collection, id);
       if (!r) return err(`${type} not found`);
       const expect = a.expectedRev !== undefined ? new Map([[id, a.expectedRev]]) : undefined;
-      await write(ctx, [{ collection, id, patch: { deleted: false } }], { expect });
+      const ops: WriteOp[] = [{ collection, id, patch: { deleted: false } }];
+      if (collection === 'tasks') {
+        for (const d of (await listBy(ctx.env, 'tasks', 'deletedVia', id))) ops.push({ collection: 'tasks', id: d.id, patch: { deleted: false, deletedVia: null } });
+      }
+      await write(ctx, ops, { expect });
       return txt({ type, id, restored: true, ...(a.expectedRev === undefined ? { unchecked: [id] } : {}) });
     },
   );
@@ -1733,9 +1781,13 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
 
   const fieldInputSchema = z.object({
     name: z.string(),
-    type: z.enum(['text', 'number', 'select', 'multi_select', 'person', 'date', 'url', 'checkbox']),
+    type: z.enum(['text', 'number', 'select', 'multi_select', 'person', 'date', 'url', 'checkbox', 'relation']),
     options: z.array(z.union([z.string(), z.object({ name: z.string(), color: z.string().optional() })])).optional(),
     showOnCard: z.boolean().optional(),
+    target: z.string().optional().describe("relation: target database id/name or 'pages'"),
+    twoWay: z.boolean().optional().describe('relation: create the reverse field on the target database'),
+    reverseName: z.string().optional(),
+    single: z.boolean().optional(),
   });
 
   const mkOptions = (raw: (string | { name: string; color?: string })[] | undefined, existing?: { id: string; name: string; color: string }[]) =>
@@ -1751,6 +1803,38 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async (a) => {
       const board = await boardOr404(a.boardId);
       if (!board) return err('board not found');
+      if (a.field.type === 'relation') {
+        const boards = live(await recs(ctx.env, 'boards'));
+        const targetBoard = a.field.target === 'pages' ? null : boards.find((b) => b.id === a.field.target || String(b.data.name ?? '').toLowerCase() === String(a.field.target ?? '').toLowerCase()) ?? null;
+        if (a.field.target !== 'pages' && !targetBoard) return err(`relation target database "${a.field.target}" not found`);
+        const fId = uuid().slice(0, 8);
+        const pId = a.field.twoWay ? uuid().slice(0, 8) : null;
+        const out = await casUpdate(ctx.env, 'boards', a.boardId, (data) => {
+          const fields = fieldsOf(data).map((f) => ({ ...f }));
+          const ex = fields.find((f) => f.name.toLowerCase() === a.field.name.toLowerCase());
+          if (ex) {
+            if (ex.type !== 'relation') throw new Error(`field "${a.field.name}" exists with type ${ex.type}`);
+            return null;
+          }
+          fields.push({ id: fId, name: a.field.name, type: 'relation', relation: { target: a.field.target === 'pages' ? 'pages' : targetBoard!.id, pairedFieldId: pId, single: a.field.single, primary: true } });
+          return { fields };
+        });
+        if ('conflict' in out) return err('concurrent board edits — retry');
+        if ('notFound' in out) return err('board not found');
+        if (ctx.cs) ctx.cs.items.push(...out.result.applied.filter((x) => x.collection !== 'activity'));
+        if (pId && targetBoard) {
+          const outB = await casUpdate(ctx.env, 'boards', targetBoard.id, (d) => {
+            const fs = fieldsOf(d).map((x) => ({ ...x }));
+            if (fs.some((x) => x.name.toLowerCase() === (a.field.reverseName ?? a.field.name).toLowerCase())) return null;
+            fs.push({ id: pId, name: a.field.reverseName ?? String(board.data.name ?? 'Related'), type: 'relation', relation: { target: a.boardId, pairedFieldId: fId, single: false, primary: false } });
+            return { fields: fs };
+          });
+          if ('conflict' in outB || 'notFound' in outB) ctx.warnings.push('reverse relation field failed on concurrent edit');
+          else if (ctx.cs) ctx.cs.items.push(...outB.result.applied.filter((x) => x.collection !== 'activity'));
+        }
+        const field = fieldsOf(out.row.data).find((f) => f.id === fId) ?? null;
+        return txt({ boardId: a.boardId, field, existed: !out.result.applied.length });
+      }
       const out = await casUpdate(ctx.env, 'boards', a.boardId, (data) => {
         const fields = fieldsOf(data).map((f) => ({ ...f, options: f.options ? [...f.options] : undefined }));
         const existing = fields.find((f) => f.name.toLowerCase() === a.field.name.toLowerCase());
@@ -1900,6 +1984,821 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const out = await undoChangeset(ctx.env, { id: ctx.userId, role: ctx.userRole } as AuthUser, a.changesetId);
       if (!out.ok) return err(out.error ?? 'undo failed');
       return txt({ undone: a.changesetId, undoChangesetId: out.undoChangesetId, restored: out.restored, skipped: out.skipped });
+    },
+  );
+
+  /* ---------- 21. Phase 1: databases, views, records, links ---------- */
+
+  const VIEW_TYPES = ['table', 'list', 'gallery', 'board'] as const;
+  const viewUrl = (dbId: string, viewId: string) => `${ctx.origin}/boards/${dbId}/views/${viewId}`;
+  const recordUrl = (dbId: string, recId: string) => `${ctx.origin}/boards/${dbId}/tasks/${recId}`;
+
+  const viewInput = z.object({
+    name: z.string(),
+    type: z.enum(VIEW_TYPES).optional(),
+    filters: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })).optional(),
+    sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(),
+    groupBy: z.string().optional(),
+    visible: z.array(z.string()).optional(),
+    cover: z.string().optional(),
+  });
+
+  const resolveFieldKey = (boardData: Record<string, unknown>, key: string): string => {
+    const f = fieldsOf(boardData).find((x) => x.id === key || x.name.toLowerCase() === key.toLowerCase());
+    if (f) return f.id;
+    return ['title', 'status', 'assignee', 'due', 'priority', 'createdAt'].includes(key.toLowerCase()) ? key.toLowerCase() : key;
+  };
+
+  const viewOps = async (dbId: string, views: { name: string; type?: string; filters?: { field: string; op: string; value?: unknown }[]; sorts?: { field: string; dir?: string }[]; groupBy?: string; visible?: string[]; cover?: string }[], boardData: Record<string, unknown>): Promise<WriteOp[]> => {
+    const ops: WriteOp[] = [];
+    let prevKey: string | null = null;
+    for (const v of views) {
+      prevKey = orderBetween(prevKey, null);
+      const id = uuid();
+      ops.push({
+        collection: 'views',
+        id,
+        patch: {
+          databaseId: dbId,
+          name: v.name,
+          type: (v.type ?? 'table'),
+          config: {
+            filters: (v.filters ?? []).map((f) => ({ fieldId: resolveFieldKey(boardData, f.field), op: f.op, value: f.value })),
+            sorts: (v.sorts ?? []).map((s) => ({ fieldId: resolveFieldKey(boardData, s.field), dir: s.dir ?? 'asc' })),
+            groupBy: v.groupBy ? resolveFieldKey(boardData, v.groupBy) : undefined,
+            visibleFields: v.visible?.map((f) => resolveFieldKey(boardData, f)),
+            cover: v.cover ? resolveFieldKey(boardData, v.cover) : undefined,
+          },
+          order: prevKey,
+          createdBy: ctx.userId,
+          createdAt: Date.now(),
+        },
+      });
+    }
+    return ops;
+  };
+
+  reg(
+    'create_database',
+    {
+      description: `Create a database (board). kind 'tasks' = task board with stages; kind 'records' = records database (stages optional). fields accepts type 'relation' with {target db id/name|'pages', twoWay?, reverseName?, single?}. views creates view rows.`,
+      inputSchema: z.object({
+        name: z.string(),
+        icon: z.string().optional(),
+        kind: z.enum(['tasks', 'records']).optional(),
+        recordNoun: z.string().optional(),
+        description: z.string().optional(),
+        stages: z.array(z.union([z.string(), z.object({ name: z.string(), color: z.string().optional() })])).optional().describe("Stage names/objects. Default: To do/Doing/Done for kind 'tasks'; none for 'records'"),
+        fields: z.array(
+          z.object({
+            name: z.string(),
+            type: z.enum(['text', 'number', 'select', 'multi_select', 'person', 'date', 'url', 'checkbox', 'relation']),
+            options: z.array(z.union([z.string(), z.object({ name: z.string(), color: z.string().optional() })])).optional(),
+            showOnCard: z.boolean().optional(),
+            target: z.string().optional().describe("relation: target database id/name or 'pages'"),
+            twoWay: z.boolean().optional().describe('relation: create the reverse field on the target database'),
+            reverseName: z.string().optional(),
+            single: z.boolean().optional(),
+          }),
+        ).optional(),
+        views: z.array(viewInput).optional(),
+        parentPageId: z.string().optional().describe('Append a tasks block embedding this database on the page'),
+      }),
+      annotations: { idempotentHint: false },
+    },
+    async (a) => {
+      const dbId = uuid();
+      const boards = live(await recs(ctx.env, 'boards')).sort(byOrder);
+      const kind = a.kind ?? 'tasks';
+      const stageList = a.stages ?? (kind === 'tasks' ? ['To do', 'Doing', 'Done'] : []);
+      const cols = stageList.map((c, i) => (typeof c === 'string' ? { id: uuid().slice(0, 8), name: c, color: COLUMN_COLORS[i % COLUMN_COLORS.length] } : { id: uuid().slice(0, 8), name: c.name, color: c.color ?? COLUMN_COLORS[i % COLUMN_COLORS.length] }));
+      const showBuiltins = kind === 'records' ? { assignee: false, due: false, priority: false } : undefined;
+      const data: Record<string, unknown> = { name: a.name, icon: a.icon ?? (kind === 'records' ? '🗃️' : '🗂️'), kind, recordNoun: a.recordNoun, description: a.description, showBuiltins, columns: cols, fields: [] as FieldDef[], order: orderBetween(boards.length ? String(boards[boards.length - 1].data.order ?? '') || null : null, null), createdBy: ctx.userId, createdAt: Date.now() };
+      const ops: WriteOp[] = [{ collection: 'boards', id: dbId, patch: data }];
+      // fields (relation handled post-commit via add_field semantics — two-way needs the target board row)
+      const relFields: { name: string; target: string; twoWay?: boolean; reverseName?: string; single?: boolean }[] = [];
+      const fieldDefs: FieldDef[] = [];
+      for (const f of a.fields ?? []) {
+        if (f.type === 'relation') {
+          relFields.push({ name: f.name, target: f.target ?? '', twoWay: f.twoWay, reverseName: f.reverseName, single: f.single });
+          continue;
+        }
+        fieldDefs.push({ id: uuid().slice(0, 8), name: f.name, type: f.type, showOnCard: f.showOnCard, options: isSelectType(f.type) ? mkOptions(f.options) : undefined });
+      }
+      data.fields = fieldDefs;
+      const dbData = data;
+      ops.push(...(await viewOps(dbId, a.views ?? [], dbData)));
+      if (a.parentPageId) {
+        const pg = await rec(ctx.env, 'pages', a.parentPageId);
+        if (!pg || pg.data.deleted) return err('parentPage not found');
+        const pgBlocks = (await listBy(ctx.env, 'blocks', 'pageId', a.parentPageId)).map(toRec);
+        ops.push({ collection: 'blocks', id: uuid(), patch: { pageId: a.parentPageId, order: orderBetween(pgBlocks.length ? String(pgBlocks.sort(byOrder)[pgBlocks.length - 1].data.order ?? '') || null : null, null), type: 'tasks', boardId: dbId } });
+      }
+      ops.push(activityOp(ctx.userId, ctx.clientName, 'created', 'board', dbId, a.name, ctx.cs?.id));
+      await write(ctx, ops);
+      // two-way relations: CAS each board after base write so both sides point at each other
+      const relResults: string[] = [];
+      for (const rf of relFields) {
+        const targetBoard = rf.target === 'pages' ? null : boards.find((b) => b.id === rf.target || String(b.data.name ?? '').toLowerCase() === rf.target.toLowerCase()) ?? null;
+        if (rf.target !== 'pages' && !targetBoard) {
+          ctx.warnings.push(`relation "${rf.name}": target database "${rf.target}" not found — skipped`);
+          continue;
+        }
+        const fId = uuid().slice(0, 8);
+        const pId = rf.twoWay ? uuid().slice(0, 8) : null;
+        const outA = await casUpdate(ctx.env, 'boards', dbId, (d) => {
+          const fs = fieldsOf(d).map((x) => ({ ...x }));
+          if (fs.some((x) => x.name.toLowerCase() === rf.name.toLowerCase())) return null;
+          fs.push({ id: fId, name: rf.name, type: 'relation', relation: { target: rf.target === 'pages' ? 'pages' : targetBoard!.id, pairedFieldId: pId, single: rf.single, primary: true } });
+          return { fields: fs };
+        });
+        if ('conflict' in outA || 'notFound' in outA) {
+          ctx.warnings.push(`relation "${rf.name}" failed on concurrent edit`);
+          continue;
+        }
+        if (ctx.cs) ctx.cs.items.push(...outA.result.applied.filter((x) => x.collection !== 'activity'));
+        if (pId && targetBoard) {
+          const outB = await casUpdate(ctx.env, 'boards', targetBoard.id, (d) => {
+            const fs = fieldsOf(d).map((x) => ({ ...x }));
+            if (fs.some((x) => x.name.toLowerCase() === (rf.reverseName ?? a.name).toLowerCase())) return null;
+            fs.push({ id: pId, name: rf.reverseName ?? a.name, type: 'relation', relation: { target: dbId, pairedFieldId: fId, single: false, primary: false } });
+            return { fields: fs };
+          });
+          if ('conflict' in outB || 'notFound' in outB) ctx.warnings.push(`reverse relation for "${rf.name}" failed on concurrent edit`);
+          else if (ctx.cs) ctx.cs.items.push(...outB.result.applied.filter((x) => x.collection !== 'activity'));
+        }
+        relResults.push(rf.name);
+      }
+      return txt({ id: dbId, url: boardUrl(ctx, dbId), kind, recordNoun: a.recordNoun, stages: cols.map((c) => c.name), fields: fieldDefs.map((f) => f.name).concat(relResults), views: (a.views ?? []).map((v) => v.name) });
+    },
+  );
+
+  reg(
+    'add_view',
+    {
+      description: 'Add a view to a database. Filter/sort/groupBy/visible take field NAMES (resolved server-side to ids).',
+      inputSchema: z.object({ databaseId: z.string(), name: z.string(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: z.string().optional(), visible: z.array(z.string()).optional(), cover: z.string().optional() }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const board = await rec(ctx.env, 'boards', a.databaseId);
+      if (!board || board.data.deleted) return err('database not found');
+      const existing = (await listBy(ctx.env, 'views', 'databaseId', a.databaseId)).map(toRec);
+      const dup = existing.find((v) => String(v.data.name ?? '').toLowerCase() === a.name.toLowerCase());
+      if (dup) return txt({ id: dup.id, url: viewUrl(a.databaseId, dup.id), existed: true });
+      const id = uuid();
+      const ops = await viewOps(a.databaseId, [{ name: a.name, type: a.type, filters: a.filters, sorts: a.sorts, groupBy: a.groupBy, visible: a.visible, cover: a.cover }], board.data);
+      await write(ctx, ops.map((o) => ({ ...o, id })).concat(activityOp(ctx.userId, ctx.clientName, 'created', 'board', a.databaseId, `view ${a.name}`, ctx.cs?.id)));
+      return txt({ id, url: viewUrl(a.databaseId, id) });
+    },
+  );
+
+  reg(
+    'update_view',
+    {
+      description: 'Update a view name/type/config.',
+      inputSchema: z.object({ viewId: z.string(), name: z.string().optional(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: z.string().optional(), visible: z.array(z.string()).optional(), cover: z.string().optional(), expectedRev: z.number().optional() }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const v = await rec(ctx.env, 'views', a.viewId);
+      if (!v || v.data.deleted) return err('view not found');
+      const board = await rec(ctx.env, 'boards', String(v.data.databaseId));
+      const cfg = (v.data.config ?? {}) as Record<string, unknown>;
+      const patch: Record<string, unknown> = {};
+      if (a.name !== undefined) patch.name = a.name;
+      if (a.type !== undefined) patch.type = a.type;
+      if (a.filters !== undefined) cfg.filters = a.filters.map((f) => ({ fieldId: resolveFieldKey(board?.data ?? {}, f.field), op: f.op, value: f.value }));
+      if (a.sorts !== undefined) cfg.sorts = a.sorts.map((s) => ({ fieldId: resolveFieldKey(board?.data ?? {}, s.field), dir: s.dir ?? 'asc' }));
+      if (a.groupBy !== undefined) cfg.groupBy = a.groupBy ? resolveFieldKey(board?.data ?? {}, a.groupBy) : undefined;
+      if (a.visible !== undefined) cfg.visibleFields = a.visible.map((f) => resolveFieldKey(board?.data ?? {}, f));
+      if (a.cover !== undefined) cfg.cover = a.cover ? resolveFieldKey(board?.data ?? {}, a.cover) : undefined;
+      patch.config = cfg;
+      const expect = a.expectedRev !== undefined ? new Map([[a.viewId, a.expectedRev]]) : undefined;
+      await write(ctx, [{ collection: 'views', id: a.viewId, patch }], { expect });
+      return txt({ id: a.viewId, url: viewUrl(String(v.data.databaseId), a.viewId) });
+    },
+  );
+
+  reg(
+    'remove_view',
+    {
+      description: 'Delete a view. Refuses to remove the database\u2019s last remaining view when it is the defaultViewId.',
+      inputSchema: z.object({ viewId: z.string(), expectedRev: z.number().optional() }),
+      annotations: { destructiveHint: true, idempotentHint: true },
+    },
+    async (a) => {
+      const v = await rec(ctx.env, 'views', a.viewId);
+      if (!v || v.data.deleted) return err('view not found');
+      const expect = a.expectedRev !== undefined ? new Map([[a.viewId, a.expectedRev]]) : undefined;
+      const ops: WriteOp[] = [{ collection: 'views', id: a.viewId, patch: { deleted: true } }];
+      const board = await rec(ctx.env, 'boards', String(v.data.databaseId));
+      if (board && board.data.defaultViewId === a.viewId) ops.push({ collection: 'boards', id: board.id, patch: { defaultViewId: null } });
+      await write(ctx, ops, { expect });
+      return txt({ removed: a.viewId });
+    },
+  );
+
+  const linkRec = async (kind: 'relation' | 'blocks' | 'related', fieldId: string, fromType: string, fromId: string, toType: string, toId: string): Promise<{ id: string; existed: boolean }> => {
+    const { linkId } = await import('../shared/linkid');
+    const id = linkId(kind, fieldId, fromId, toId);
+    const existing = await getRec(ctx.env, id);
+    if (existing && !existing.data.deleted) return { id, existed: true };
+    await write(ctx, [{ collection: 'links', id, patch: { fromType, fromId, toType, toId, kind, fieldId: fieldId || null, deleted: false, createdBy: ctx.userId, createdAt: Date.now() } }]);
+    return { id, existed: !!existing };
+  };
+
+  const resolveRecordRef = async (dbId: string, ref: string, byIdFirst = true): Promise<Rec | null> => {
+    if (byIdFirst) {
+      const r = await getRec(ctx.env, ref);
+      if (r && !r.data.deleted) return r;
+    }
+    const all = live((await listBy(ctx.env, 'tasks', 'boardId', dbId)).map(toRec));
+    return all.find((t) => String(t.data.title ?? '').toLowerCase() === ref.toLowerCase()) ?? null;
+  };
+
+  reg(
+    'link_items',
+    {
+      description: `Link two items. kind 'related' = see-also (any types); 'relation' = store a relation-field value (field = field id/name on the from-record's database; writes always normalise to the primary field); 'blocks' = dependency (use add_dependency for title resolution + cycle check).`,
+      inputSchema: z.object({
+        from: z.object({ type: z.enum(['record', 'page', 'mooditem', 'block']), id: z.string() }),
+        to: z.object({ type: z.enum(['record', 'page', 'mooditem', 'file']), id: z.string() }),
+        kind: z.enum(['related', 'blocks', 'relation']).optional(),
+        field: z.string().optional().describe('relation field id or name on the from-record\u2019s database'),
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const kind = a.kind ?? 'related';
+      let fieldId = '';
+      let fromId = a.from.id;
+      let toId = a.to.id;
+      if (kind === 'relation') {
+        const fromRec = await rec(ctx.env, 'tasks', a.from.id);
+        if (!fromRec || fromRec.data.deleted) return err('from record not found');
+        const board = await rec(ctx.env, 'boards', String(fromRec.data.boardId));
+        const f = fieldsOf(board?.data).find((x) => x.id === a.field || x.name.toLowerCase() === String(a.field ?? '').toLowerCase());
+        if (!f || f.type !== 'relation') return err(`relation field "${a.field}" not found on record's database`);
+        if (f.relation?.pairedFieldId && !f.relation.primary) {
+          // Reverse side: normalise to primary direction — swap endpoints, use paired (primary) field id.
+          const tmp = fromId; fromId = toId; toId = tmp;
+          fieldId = f.relation.pairedFieldId;
+        } else {
+          fieldId = f.id;
+        }
+        const toRec2 = await rec(ctx.env, 'tasks', toId);
+        if (f.relation && f.relation.target !== 'pages' && toRec2 && String(toRec2.data.boardId) !== f.relation.target) return err(`relation target mismatch: "${f.name}" points at database ${f.relation.target}`);
+        if (f.relation?.target === 'pages' && a.to.type !== 'page') return err(`"${f.name}" targets pages — to must be a page`);
+      }
+      const out = await linkRec(kind, fieldId, a.from.type, fromId, a.to.type, toId);
+      return txt({ linkId: out.id, existed: out.existed });
+    },
+  );
+
+  reg(
+    'create_records',
+    {
+      description: `Create up to ${MAX_TASKS_PER_CALL} records in a database. Extends create_tasks: parent (id|title), relations {fieldName:[id|title]}, blockedBy [id|title], body (markdown). Title refs resolve within the call first, then existing records. dedupe:'title' default.`,
+      inputSchema: z.object({
+        databaseId: z.string(),
+        records: z.array(
+          taskInput.omit({ status: true }).extend({
+            stage: z.string().optional().describe('Stage name or id'),
+            parent: z.string().optional().describe('Parent record id or title (same database)'),
+            relations: z.record(z.string(), z.array(z.string())).optional().describe('{fieldName: [record id|title|page id|title]}'),
+            blockedBy: z.array(z.string()).optional(),
+            body: z.string().optional().describe('Record body markdown'),
+          }),
+        ).min(1).max(100),
+        dedupe: z.enum(['none', 'title']).optional(),
+        dryRun: dryRunInput,
+      }),
+      annotations: { idempotentHint: false },
+    },
+    async (a) => {
+      const board = await rec(ctx.env, 'boards', a.databaseId);
+      if (!board || board.data.deleted) return err('database not found');
+      const isTasks = String(board.data.kind ?? 'tasks') === 'tasks';
+      if (!isTasks && !colsOf(board).length && a.records.some((r) => r.stage)) ctx.warnings.push('database has no stages — stage input ignored');
+      await fillCaches(ctx);
+      const allTasks = live((await listBy(ctx.env, 'tasks', 'boardId', a.databaseId)).map(toRec));
+      const ops: WriteOp[] = [];
+      const created: { id: string; title: string }[] = [];
+      const skipped: string[] = [];
+      let records = a.records;
+      if ((a.dedupe ?? 'title') === 'title') {
+        const seen = new Set(allTasks.map((t) => String(t.data.title ?? '').toLowerCase()));
+        records = records.filter((t) => {
+          const k = t.title.toLowerCase();
+          if (seen.has(k)) { skipped.push(t.title); return false; }
+          seen.add(k);
+          return true;
+        });
+      }
+      if (a.dryRun) return txt({ dryRun: true, summary: `create_records in ${a.databaseId}`, counts: { create: records.length, skipped: skipped.length }, warnings: [], impact: { skippedTitles: skipped } });
+      const idByTitle = new Map<string, string>();
+      for (const t of allTasks) idByTitle.set(String(t.data.title ?? '').toLowerCase(), t.id);
+      // first pass: create rows, collect deferred link/parent/body work
+      const pending: { id: string; t: (typeof records)[number] }[] = [];
+      let fields: FieldDef[] = fieldsOf(board.data).map((f) => ({ ...f, options: f.options ? [...f.options] : undefined }));
+      let fieldsMutated = false;
+      for (const t of records) {
+        const id = uuid();
+        idByTitle.set(t.title.toLowerCase(), id);
+        const colId = isTasks ? columnIdFor(board, t.stage ?? undefined) : colsOf(board)[0]?.id ?? 'todo';
+        const inCol = allTasks.filter((x) => columnIdFor(board, x.data.status) === colId).sort(byOrder);
+        const fp = t.fields ? coerceFieldsInput(fields, t.fields) : { patch: {} as Record<string, unknown>, fields };
+        fields = fp.fields;
+        if (JSON.stringify(fields) !== JSON.stringify(fieldsOf(board.data))) fieldsMutated = true;
+        const patch: Record<string, unknown> = {
+          title: t.title,
+          description: t.description ?? '',
+          boardId: a.databaseId,
+          status: colId,
+          priority: t.priority ?? 'none',
+          assigneeId: t.assignee ? resolveAssignee(ctx, t.assignee) : null,
+          dueDate: t.due ?? null,
+          pageId: null,
+          parentId: null,
+          order: orderBetween(inCol.length ? String(inCol[inCol.length - 1].data.order ?? '') || null : null, null),
+          createdBy: ctx.userId,
+          createdAt: Date.now(),
+          ...fp.patch,
+        };
+        ops.push({ collection: 'tasks', id, patch });
+        if (t.coverImageUrl) {
+          try {
+            const { fileId } = await importFileFromUrl(ctx.env, t.coverImageUrl, { parentType: 'task', parentId: id, userId: ctx.userId });
+            patch.coverFileId = fileId;
+          } catch (e) {
+            if (e instanceof RemoteFileError) return err(`coverImageUrl for "${t.title}": ${e.message}`);
+            throw e;
+          }
+        }
+        allTasks.push({ id, data: { boardId: a.databaseId, status: colId, order: patch.order, title: t.title }, rev: -1, updatedBy: null, updatedAt: null });
+        created.push({ id, title: t.title });
+        pending.push({ id, t });
+      }
+      // second pass: parents, body blocks
+      const parentOf = new Map(allTasks.map((t) => [t.id, (t.data.parentId as string | null) ?? null]));
+      const { wouldCreateCycle, depthOf, subtreeHeight, MAX_DEPTH } = await import('../shared/tree');
+      for (const { id, t } of pending) {
+        if (t.parent) {
+          const pid = idByTitle.get(t.parent.toLowerCase()) ?? t.parent;
+          const prow = allTasks.find((x) => x.id === pid);
+          if (!prow) ctx.warnings.push(`record "${t.title}": parent "${t.parent}" not found — skipped`);
+          else {
+            parentOf.set(id, null);
+            if (wouldCreateCycle(parentOf, id, pid)) ctx.warnings.push(`record "${t.title}": parent "${t.parent}" would create a cycle — skipped`);
+            else if (depthOf(parentOf, pid) + 1 + subtreeHeight(parentOf, id) > MAX_DEPTH) ctx.warnings.push(`record "${t.title}": parent "${t.parent}" exceeds max depth ${MAX_DEPTH} — skipped`);
+            else { ops.push({ collection: 'tasks', id, patch: { parentId: pid } }); parentOf.set(id, pid); }
+          }
+        }
+        if (t.body) ops.push(...(await blockOps(ctx, id, t.body, [])));
+      }
+      if (fieldsMutated) ops.unshift({ collection: 'boards', id: a.databaseId, patch: { fields } });
+      ops.push(...created.map((x) => activityOp(ctx.userId, ctx.clientName, 'created', 'task', x.id, x.title, ctx.cs?.id)));
+      await write(ctx, ops);
+      // third pass: relations + dependencies via link collection (after rows exist)
+      const relFieldDefs = fieldsOf(board.data).concat(fields).filter((f) => f.type === 'relation');
+      for (const { id, t } of pending) {
+        for (const [fname, refs] of Object.entries(t.relations ?? {})) {
+          const f = relFieldDefs.find((x) => x.name.toLowerCase() === fname.toLowerCase());
+          if (!f) { ctx.warnings.push(`relation field "${fname}" not found — skipped`); continue; }
+          const primary = f.relation?.primary !== false ? f : undefined;
+          const fid = f.relation?.pairedFieldId && !f.relation.primary ? f.relation.pairedFieldId : f.id;
+          const rev = !!(f.relation?.pairedFieldId && !f.relation.primary);
+          for (const ref of refs) {
+            let toId = idByTitle.get(ref.toLowerCase());
+            let toType: 'record' | 'page' = 'record';
+            if (!toId) {
+              const pr = await resolveRecordRef(String(f.relation?.target ?? ''), ref, true);
+              if (pr) toId = pr.id;
+            }
+            if (!toId && f.relation?.target === 'pages') {
+              const pg = (await getRec(ctx.env, ref)) ?? live(await recs(ctx.env, 'pages')).find((p) => String(p.data.title ?? '').toLowerCase() === ref.toLowerCase());
+              if (pg) { toId = pg.id; toType = 'page'; }
+            }
+            if (!toId) { ctx.warnings.push(`relation "${fname}": "${ref}" not found — skipped`); continue; }
+            if (f.relation && f.relation.target !== 'pages') {
+              const tr = await getRec(ctx.env, toId);
+              if (tr && String(tr.data.boardId ?? '') !== f.relation.target) { ctx.warnings.push(`relation "${fname}": "${ref}" is not in target database — skipped`); continue; }
+            }
+            const [fid2, to2] = rev ? [toId, id] : [id, toId];
+            const l = await linkRec('relation', fid, 'record', fid2, rev ? 'record' : toType, to2);
+            void primary;
+            void l;
+          }
+        }
+        for (const ref of t.blockedBy ?? []) {
+          const bid = idByTitle.get(ref.toLowerCase()) ?? (await resolveRecordRef(a.databaseId, ref))?.id;
+          if (!bid) { ctx.warnings.push(`blockedBy "${ref}" not found — skipped`); continue; }
+          await linkRec('blocks', '', 'record', bid, 'record', id);
+        }
+      }
+      return txt({ databaseId: a.databaseId, created, skipped, url: boardUrl(ctx, a.databaseId) });
+    },
+  );
+
+  reg(
+    'update_records',
+    {
+      description: 'Update records: title, stage, assignee, due, priority, fields by name, addRelations/removeRelations {fieldName:[id|title]}, parent (id|title|null, same database), move to database. expectedRev recommended per update.',
+      inputSchema: z.object({
+        updates: z.array(z.object({
+          recordId: z.string(),
+          expectedRev: z.number().optional(),
+          title: z.string().optional(),
+          stage: z.string().optional(),
+          description: z.string().optional(),
+          assignee: z.string().optional(),
+          due: z.string().optional(),
+          priority: z.enum(['none', 'low', 'medium', 'high', 'urgent']).optional(),
+          coverImageUrl: z.string().optional(),
+          fields: fieldInput.optional(),
+          addRelations: z.record(z.string(), z.array(z.string())).optional(),
+          removeRelations: z.record(z.string(), z.array(z.string())).optional(),
+          parent: z.string().nullable().optional(),
+          databaseId: z.string().optional().describe('Move to this database (lands in first stage)'),
+        })).min(1).max(100),
+        dryRun: dryRunInput,
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      await fillCaches(ctx);
+      if (a.dryRun) return txt({ dryRun: true, summary: 'update_records', counts: { updates: a.updates.length }, warnings: [], impact: { recordIds: a.updates.map((u) => u.recordId) } });
+      const ops: WriteOp[] = [];
+      const expect = new Map<string, number>();
+      const unchecked: string[] = [];
+      const boardsMutated = new Map<string, FieldDef[]>();
+      const relOps: { rid: string; board: Rec; fname: string; refs: string[]; remove: boolean }[] = [];
+      for (const u of a.updates) {
+        const task = await rec(ctx.env, 'tasks', u.recordId);
+        if (!task || task.data.deleted) return err(`record ${u.recordId} not found`);
+        if (u.expectedRev !== undefined) expect.set(u.recordId, u.expectedRev);
+        else unchecked.push(u.recordId);
+        const patch: Record<string, unknown> = {};
+        const dbId = String(task.data.boardId ?? 'board-default');
+        const board = await rec(ctx.env, 'boards', dbId);
+        const isTasks = String(board?.data.kind ?? 'tasks') === 'tasks';
+        if (u.title !== undefined) patch.title = u.title;
+        if (u.description !== undefined) patch.description = u.description;
+        if (u.stage !== undefined) {
+          if (!isTasks && !colsOf(board!).length) ctx.warnings.push(`record ${u.recordId}: database has no stages — stage ignored`);
+          else if (board) patch.status = columnIdFor(board, u.stage);
+        }
+        if (u.databaseId) {
+          const nb = await rec(ctx.env, 'boards', u.databaseId);
+          if (!nb || nb.data.deleted) return err(`database ${u.databaseId} not found`);
+          patch.boardId = u.databaseId;
+          patch.status = colsOf(nb)[0]?.id ?? 'todo';
+        }
+        if (u.assignee !== undefined) patch.assigneeId = resolveAssignee(ctx, u.assignee);
+        if (u.due !== undefined) patch.dueDate = u.due;
+        if (u.priority !== undefined) patch.priority = u.priority;
+        if (u.fields && board) {
+          const fields = boardsMutated.get(dbId) ?? fieldsOf(board.data).map((f) => ({ ...f, options: f.options ? [...f.options] : undefined }));
+          const fp = coerceFieldsInput(fields, u.fields);
+          boardsMutated.set(dbId, fp.fields);
+          Object.assign(patch, fp.patch);
+        }
+        if (u.coverImageUrl !== undefined) {
+          try {
+            const { fileId } = await importFileFromUrl(ctx.env, u.coverImageUrl, { parentType: 'task', parentId: u.recordId, userId: ctx.userId });
+            patch.coverFileId = fileId;
+          } catch (e) {
+            if (e instanceof RemoteFileError) return err(`coverImageUrl for record ${u.recordId}: ${e.message}`);
+            throw e;
+          }
+        }
+        if (u.parent !== undefined && board) {
+          const all = live((await listBy(ctx.env, 'tasks', 'boardId', dbId)).map(toRec));
+          const parentOf = new Map(all.map((t) => [t.id, (t.data.parentId as string | null) ?? null]));
+          const { wouldCreateCycle, depthOf, subtreeHeight, MAX_DEPTH } = await import('../shared/tree');
+          if (u.parent === null) patch.parentId = null;
+          else {
+            const prow = all.find((t) => t.id === u.parent || String(t.data.title ?? '').toLowerCase() === u.parent!.toLowerCase());
+            if (!prow) ctx.warnings.push(`record ${u.recordId}: parent "${u.parent}" not found — skipped`);
+            else if (String(prow.data.boardId ?? '') !== dbId) ctx.warnings.push(`record ${u.recordId}: cross-database parent — skipped`);
+            else if (wouldCreateCycle(parentOf, u.recordId, prow.id)) ctx.warnings.push(`record ${u.recordId}: parent "${u.parent}" creates a cycle — skipped`);
+            else if (depthOf(parentOf, prow.id) + 1 + subtreeHeight(parentOf, u.recordId) > MAX_DEPTH) ctx.warnings.push(`record ${u.recordId}: exceeds max depth ${MAX_DEPTH} — skipped`);
+            else patch.parentId = prow.id;
+          }
+        }
+        for (const [fname, refs] of Object.entries(u.addRelations ?? {})) relOps.push({ rid: u.recordId, board: board!, fname, refs, remove: false });
+        for (const [fname, refs] of Object.entries(u.removeRelations ?? {})) relOps.push({ rid: u.recordId, board: board!, fname, refs, remove: true });
+        ops.push({ collection: 'tasks', id: u.recordId, patch });
+      }
+      for (const [bid, fields] of boardsMutated) ops.push({ collection: 'boards', id: bid, patch: { fields } });
+      await write(ctx, ops, { expect });
+      const { linkId } = await import('../shared/linkid');
+      for (const r of relOps) {
+        const f = fieldsOf(r.board.data).find((x) => x.name.toLowerCase() === r.fname.toLowerCase());
+        if (!f || f.type !== 'relation') { ctx.warnings.push(`relation field "${r.fname}" not found on ${r.rid}`); continue; }
+        const rev = !!(f.relation?.pairedFieldId && !f.relation.primary);
+        const fid = rev ? f.relation!.pairedFieldId! : f.id;
+        for (const ref of r.refs) {
+          const targetDb = String(f.relation?.target ?? '');
+          let other: string | undefined;
+          const cand = targetDb !== 'pages' && targetDb ? await resolveRecordRef(targetDb, ref) : null;
+          other = cand?.id ?? undefined;
+          if (!other) {
+            const any = await getRec(ctx.env, ref);
+            if (any && !any.data.deleted) other = ref;
+          }
+          if (!other && targetDb !== 'pages') {
+            const tr = live((await listBy(ctx.env, 'tasks', 'boardId', targetDb)).map(toRec)).find((t) => String(t.data.title ?? '').toLowerCase() === ref.toLowerCase());
+            if (tr) other = tr.id;
+          }
+          if (!other && targetDb === 'pages') {
+            const pg = live(await recs(ctx.env, 'pages')).find((p) => p.id === ref || String(p.data.title ?? '').toLowerCase() === ref.toLowerCase());
+            if (pg) other = pg.id;
+          }
+          if (!other) { ctx.warnings.push(`relation "${r.fname}": "${ref}" not found — skipped`); continue; }
+          const [fromId, toId] = rev ? [other, r.rid] : [r.rid, other];
+          const lid = linkId('relation', fid, fromId, toId);
+          if (r.remove) await write(ctx, [{ collection: 'links', id: lid, patch: { deleted: true } }]);
+          else await linkRec('relation', fid, 'record', fromId, 'record', toId);
+        }
+      }
+      return txt({ updated: a.updates.length, ...(unchecked.length ? { unchecked } : {}) });
+    },
+  );
+
+  reg(
+    'unlink_items',
+    {
+      description: 'Remove a link by id, or by (from,to,kind,field) endpoints.',
+      inputSchema: z.object({
+        linkId: z.string().optional(),
+        from: z.string().optional(),
+        to: z.string().optional(),
+        kind: z.enum(['related', 'blocks', 'relation']).optional(),
+        fieldId: z.string().optional(),
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      let id = a.linkId;
+      if (!id && a.from && a.to) {
+        const { linkId } = await import('../shared/linkid');
+        id = linkId(a.kind ?? 'related', a.fieldId ?? '', a.from, a.to);
+      }
+      if (!id) return err('provide linkId or from+to');
+      const l = await getRec(ctx.env, id);
+      if (!l || l.data.deleted) return txt({ linkId: id, removed: true, existed: false });
+      await write(ctx, [{ collection: 'links', id, patch: { deleted: true } }]);
+      return txt({ linkId: id, removed: true });
+    },
+  );
+
+  reg(
+    'set_parent',
+    {
+      description: 'Set (or clear) a record\u2019s parent. Rejects cycles, depth > 3 and cross-database moves.',
+      inputSchema: z.object({ recordId: z.string(), parentId: z.string().nullable(), expectedRev: z.number().optional() }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const r = await rec(ctx.env, 'tasks', a.recordId);
+      if (!r || r.data.deleted) return err('record not found');
+      const dbId = String(r.data.boardId ?? '');
+      const { wouldCreateCycle, depthOf, subtreeHeight, MAX_DEPTH } = await import('../shared/tree');
+      if (a.parentId) {
+        const p = await rec(ctx.env, 'tasks', a.parentId);
+        if (!p || p.data.deleted) return err('parent record not found');
+        if (String(p.data.boardId ?? '') !== dbId) return err('cross-database parent is not allowed');
+        const all = live((await listBy(ctx.env, 'tasks', 'boardId', dbId)).map(toRec));
+        const parentOf = new Map(all.map((t) => [t.id, (t.data.parentId as string | null) ?? null]));
+        if (wouldCreateCycle(parentOf, r.id, a.parentId)) return err('cycle: parent is a descendant of this record');
+        const newDepth = depthOf(parentOf, a.parentId) + 1 + subtreeHeight(parentOf, r.id);
+        if (newDepth > MAX_DEPTH) return err(`depth ${newDepth} exceeds max depth ${MAX_DEPTH}`);
+      }
+      const expect = a.expectedRev !== undefined ? new Map([[r.id, a.expectedRev]]) : undefined;
+      await write(ctx, [{ collection: 'tasks', id: r.id, patch: { parentId: a.parentId ?? null } }], { expect });
+      return txt({ recordId: r.id, parentId: a.parentId ?? null });
+    },
+  );
+
+  reg(
+    'add_dependency',
+    {
+      description: '`blocker` must finish before `blocked`. Ids or titles within databaseId. Rejects cycles.',
+      inputSchema: z.object({ blocker: z.string(), blocked: z.string(), databaseId: z.string().optional() }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      let br: Rec | null = null;
+      let bd: Rec | null = null;
+      if (a.databaseId) {
+        br = await resolveRecordRef(a.databaseId, a.blocker);
+        bd = await resolveRecordRef(a.databaseId, a.blocked);
+      } else {
+        br = await rec(ctx.env, 'tasks', a.blocker);
+        bd = await rec(ctx.env, 'tasks', a.blocked);
+      }
+      if (!br || br.data.deleted) return err('blocker not found');
+      if (!bd || bd.data.deleted) return err('blocked record not found');
+      if (br.id === bd.id) return err('a record cannot block itself');
+      const links = (await listBy(ctx.env, 'links', 'toId', bd.id)).map(toRec).filter((l) => l.data.kind === 'blocks');
+      const edges: [string, string][] = links.map((l) => [String(l.data.fromId), String(l.data.toId)]);
+      const allLinks = (await listCollection(ctx.env, 'links')).filter((l) => l.data.kind === 'blocks');
+      const allEdges = allLinks.map((l) => [String(l.data.fromId), String(l.data.toId)] as [string, string]);
+      const { wouldCreateDependencyCycle } = await import('../shared/deps');
+      if (wouldCreateDependencyCycle([...allEdges, ...edges], br.id, bd.id)) return err('dependency cycle');
+      const out = await linkRec('blocks', '', 'record', br.id, 'record', bd.id);
+      return txt({ linkId: out.id, existed: out.existed });
+    },
+  );
+
+  reg(
+    'remove_dependency',
+    {
+      description: 'Remove a dependency (blocker no longer blocks blocked).',
+      inputSchema: z.object({ blocker: z.string(), blocked: z.string(), databaseId: z.string().optional() }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      let br: Rec | null = null;
+      let bd: Rec | null = null;
+      if (a.databaseId) {
+        br = await resolveRecordRef(a.databaseId, a.blocker);
+        bd = await resolveRecordRef(a.databaseId, a.blocked);
+      } else {
+        br = await rec(ctx.env, 'tasks', a.blocker);
+        bd = await rec(ctx.env, 'tasks', a.blocked);
+      }
+      if (!br || !bd) return err('record not found');
+      const { linkId } = await import('../shared/linkid');
+      const id = linkId('blocks', '', br.id, bd.id);
+      const l = await getRec(ctx.env, id);
+      if (!l || l.data.deleted) return txt({ removed: true, existed: false });
+      await write(ctx, [{ collection: 'links', id, patch: { deleted: true } }]);
+      return txt({ linkId: id, removed: true });
+    },
+  );
+
+  server.registerTool(
+    'query_records',
+    {
+      description: 'Query a database: filters/sorts use field NAMES. Returns rows with named field values + rev. limit ≤200, cursor paginates.',
+      inputSchema: z.object({
+        databaseId: z.string(),
+        filters: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })).optional(),
+        sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(),
+        limit: z.number().optional(),
+        cursor: z.string().optional(),
+        include: z.array(z.enum(['fields', 'relations', 'subrecords', 'deps'])).optional(),
+      }),
+      annotations: { readOnlyHint: true },
+    },
+    async (a) => {
+      const board = await rec(ctx.env, 'boards', a.databaseId);
+      if (!board || board.data.deleted) return err('database not found');
+      const limit = Math.min(a.limit ?? 100, 200);
+      const rows = live((await listBy(ctx.env, 'tasks', 'boardId', a.databaseId)).map(toRec));
+      const { applyView } = await import('../shared/views');
+      const fmap = new Map(fieldsOf(board.data).map((f) => [f.id, f]));
+      await fillCaches(ctx);
+      const relLinks = (await listCollection(ctx.env, 'links')).filter((l) => l.data.kind === 'relation' && l.data.fieldId);
+      const relationTitles = (recordId: string, fieldId: string) => {
+        const toIds = relLinks.filter((l) => l.data.fieldId === fieldId && String(l.data.fromId) === recordId).map((l) => String(l.data.toId));
+        return toIds.map((id) => ctx.pageTitleById.get(id) ?? id);
+      };
+      const view = {
+        filters: (a.filters ?? []).map((f) => ({ fieldId: resolveFieldKey(board.data, f.field), op: f.op, value: f.value })),
+        sorts: (a.sorts ?? []).map((s) => ({ fieldId: resolveFieldKey(board.data, s.field), dir: (s.dir ?? 'asc') as 'asc' | 'desc' })),
+      };
+      const startIdx = a.cursor ? rows.findIndex((r) => r.id === a.cursor) + 1 : 0;
+      const applied = applyView(rows.map((r) => r.data), view, { meId: ctx.userId, fieldsById: fmap, relationTitles, columnsById: new Map(boardColumns(board).map((c) => [c.id, c])) });
+      const page = applied.rows.slice(startIdx, startIdx + limit);
+      const include = new Set(a.include ?? ['fields']);
+      const allTasks = live(await recs(ctx.env, 'tasks'));
+      const depEdges = (await listCollection(ctx.env, 'links')).filter((l) => l.data.kind === 'blocks').map((l) => [String(l.data.fromId), String(l.data.toId)] as [string, string]);
+      const out = page.map((data) => {
+        const id = String(data.id ?? '');
+        const rec: Record<string, unknown> = { id, rev: undefined, title: data.title, status: data.status, url: recordUrl(a.databaseId, id) };
+        if (include.has('fields')) {
+          const fields: Record<string, unknown> = {};
+          for (const f of fieldsOf(board.data)) fields[f.name] = f.type === 'relation' ? relationTitles(id, f.id) : data[propKey(f.id)];
+          rec.fields = fields;
+        }
+        if (include.has('subrecords')) rec.children = allTasks.filter((t) => String(t.data.parentId ?? '') === id).map((t) => ({ id: t.id, title: t.data.title }));
+        if (include.has('deps')) {
+          rec.blockedBy = depEdges.filter(([, t]) => t === id).map(([f]) => f);
+          rec.blocking = depEdges.filter(([f]) => f === id).map(([, t]) => t);
+        }
+        return rec;
+      });
+      // fill revs
+      const rowByData = new Map(rows.map((r) => [r.data, r]));
+      for (const rec2 of out) {
+        const row = page.find((d) => rowByData.get(d)?.id === rec2.id);
+        if (row) rec2.rev = rowByData.get(row)?.rev;
+      }
+      const next = startIdx + limit < applied.rows.length ? applied.rows[startIdx + limit - 1]?.id ?? null : null;
+      return txt({ rows: out, count: out.length, nextCursor: next });
+    },
+  );
+
+  server.registerTool(
+    'get_record',
+    {
+      description: 'Read one record: fields by name, stage, relations (titles+ids), parent, children, dependencies, body markdown, backlinks, comment count, rev, URL.',
+      inputSchema: z.object({ recordId: z.string() }),
+      annotations: { readOnlyHint: true },
+    },
+    async ({ recordId }) => {
+      const r = await rec(ctx.env, 'tasks', recordId);
+      if (!r || r.data.deleted) return err('record not found');
+      await fillCaches(ctx);
+      const dbId = String(r.data.boardId ?? 'board-default');
+      const board = await rec(ctx.env, 'boards', dbId);
+      const fields: Record<string, unknown> = {};
+      const relations: Record<string, { id: string; title: string }[]> = {};
+      const relLinks = (await listCollection(ctx.env, 'links')).filter((l) => l.data.kind === 'relation' && l.data.fieldId);
+      const linkedIds = new Set<string>();
+      for (const f of fieldsOf(board?.data)) {
+        if (f.type === 'relation') {
+          const fw = f.relation?.primary !== false || !f.relation?.pairedFieldId;
+          const tos = relLinks.filter((l) => (fw ? l.data.fieldId === f.id && String(l.data.fromId) === recordId : l.data.fieldId === f.relation?.pairedFieldId && String(l.data.toId) === recordId));
+          const vals = tos.map((l) => {
+            const other = fw ? String(l.data.toId) : String(l.data.fromId);
+            linkedIds.add(other);
+            return { id: other, title: ctx.pageTitleById.get(other) ?? '' };
+          });
+          relations[f.name] = vals;
+        } else {
+          fields[f.name] = r.data[propKey(f.id)];
+        }
+      }
+      const allTasks = live(await recs(ctx.env, 'tasks'));
+      const children = allTasks.filter((t) => String(t.data.parentId ?? '') === recordId);
+      const parent = r.data.parentId ? allTasks.find((t) => t.id === r.data.parentId) : null;
+      const depLinks = (await listCollection(ctx.env, 'links')).filter((l) => l.data.kind === 'blocks');
+      const bodyBlocks = live((await listBy(ctx.env, 'blocks', 'pageId', recordId)).map(toRec)).sort(byOrder);
+      const titleOfRec = (id: string) => String(allTasks.find((t) => t.id === id)?.data.title ?? ctx.pageTitleById.get(id) ?? id);
+      const comments = (await listBy(ctx.env, 'comments', 'targetId', recordId)).filter((c) => c.data.targetType === 'task' || c.data.targetType === 'record');
+      const relRelated = (await listCollection(ctx.env, 'links')).filter((l) => l.data.kind === 'related' && (String(l.data.fromId) === recordId || String(l.data.toId) === recordId));
+      return txt({
+        record: {
+          id: r.id, rev: r.rev, url: recordUrl(dbId, r.id), databaseId: dbId, title: r.data.title, stage: r.data.status,
+          assignee: ctx.userNameById.get(String(r.data.assigneeId ?? '')), due: r.data.dueDate, priority: r.data.priority,
+          fields, relations,
+          parent: parent ? { id: parent.id, title: parent.data.title } : null,
+          children: children.map((c) => ({ id: c.id, title: c.data.title })),
+          blockedBy: depLinks.filter((l) => String(l.data.toId) === recordId).map((l) => ({ id: String(l.data.fromId), title: titleOfRec(String(l.data.fromId)) })),
+          blocking: depLinks.filter((l) => String(l.data.fromId) === recordId).map((l) => ({ id: String(l.data.toId), title: titleOfRec(String(l.data.toId)) })),
+          related: relRelated.map((l) => ({ linkId: l.id, other: String(l.data.fromId) === recordId ? String(l.data.toId) : String(l.data.fromId), title: titleOfRec(String(l.data.fromId) === recordId ? String(l.data.toId) : String(l.data.fromId)) })),
+          body: blocksToMarkdown(bodyBlocks.map((b) => ({ type: String(b.data.type ?? 'p'), text: String(b.data.text ?? ''), checked: !!b.data.checked })), { userName: (id) => ctx.userNameById.get(id), pageTitle: (id) => ctx.pageTitleById.get(id) }),
+          comments: comments.length,
+          updatedBy: r.updatedBy, updatedAt: r.updatedAt,
+        },
+      });
+    },
+  );
+
+  reg(
+    'edit_record_body',
+    {
+      description: 'Edit a record\u2019s body blocks — same shape as edit_page (appendMarkdown / markdown+insertAfterBlockId / replaceBlocks / deleteBlockIds). Destructive ops require expectedRev of the record.',
+      inputSchema: z.object({
+        recordId: z.string(),
+        expectedRev: z.number().optional(),
+        appendMarkdown: z.string().optional(),
+        markdown: z.string().optional(),
+        insertAfterBlockId: z.string().optional(),
+        replaceBlocks: z.array(z.object({ blockId: z.string(), markdown: z.string() })).optional(),
+        deleteBlockIds: z.array(z.string()).optional(),
+        dryRun: dryRunInput,
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const r = await rec(ctx.env, 'tasks', a.recordId);
+      if (!r || r.data.deleted) return err('record not found');
+      const destructive = (a.replaceBlocks?.length ?? 0) + (a.deleteBlockIds?.length ?? 0) > 0;
+      if (destructive && a.expectedRev === undefined) return err('expectedRev required when replacing or deleting blocks');
+      await fillCaches(ctx);
+      if (a.dryRun) return txt({ dryRun: true, summary: `edit_record_body ${a.recordId}`, counts: { appended: a.appendMarkdown ? markdownToBlocks(a.appendMarkdown).length : 0, replaced: a.replaceBlocks?.length ?? 0, deleted: a.deleteBlockIds?.length ?? 0 }, warnings: [], impact: { deleteBlockIds: a.deleteBlockIds ?? [] } });
+      const ops: WriteOp[] = [];
+      const existing = live((await listBy(ctx.env, 'blocks', 'pageId', a.recordId)).map(toRec));
+      for (const rr of a.replaceBlocks ?? []) {
+        const src = existing.find((b) => b.id === rr.blockId);
+        if (!src) return err(`block ${rr.blockId} not found`);
+        const parsed = markdownToBlocks(rr.markdown, { resolveUser: resolverFor(ctx, 'user'), resolvePage: resolverFor(ctx, 'page') });
+        const first = parsed[0];
+        if (!first) continue;
+        ops.push({ collection: 'blocks', id: rr.blockId, patch: { type: first.type, text: first.text ?? '', ...(first.type === 'todo' ? { checked: !!first.checked } : {}) } });
+      }
+      for (const id of a.deleteBlockIds ?? []) ops.push({ collection: 'blocks', id, patch: { deleted: true } });
+      if (a.markdown && a.insertAfterBlockId) ops.push(...(await blockOps(ctx, a.recordId, a.markdown, existing, a.insertAfterBlockId)));
+      if (a.appendMarkdown) ops.push(...(await blockOps(ctx, a.recordId, a.appendMarkdown, existing)));
+      const expect = a.expectedRev !== undefined ? new Map([[a.recordId, a.expectedRev]]) : undefined;
+      await write(ctx, ops, { expect });
+      return txt({ recordId: a.recordId, url: recordUrl(String(r.data.boardId ?? 'board-default'), a.recordId), updated: ops.length });
     },
   );
 

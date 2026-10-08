@@ -16,16 +16,15 @@ export interface FieldDef {
   options?: FieldOption[];
   /** render as a chip on board cards */
   showOnCard?: boolean;
-  /**
-   * Phase 1 §2.6 — `relation` fields store nothing on the record; values are
-   * `links` rows of kind 'relation' carrying this field's id. `pairedFieldId`
-   * points at the reverse field on the target database for two-way relations;
-   * `primary` marks the side whose fieldId the link rows store.
-   */
+  /** relation field config — values live in the `links` collection, never as p_ keys */
   relation?: {
-    target: string;              // databaseId, or 'pages' for any page
+    /** databaseId, or 'pages' for any page */
+    target: string;
+    /** two-way: the reverse field id on the target database */
     pairedFieldId?: string | null;
-    single?: boolean;            // UI hint: at most one linked item
+    /** UI hint: at most one linked item (not enforced in storage) */
+    single?: boolean;
+    /** true on the side created first — links store fieldId of the primary field */
     primary?: boolean;
   };
 }
@@ -107,7 +106,7 @@ export function coerceFieldValue(def: FieldDef, raw: unknown): unknown {
       return typeof raw === 'string' && raw ? raw : undefined;
     }
     case 'relation':
-      // Relation values live in `links` rows, never a p_<fieldId> key.
+      // Relation values live in the `links` collection — never stored as p_ keys.
       return undefined;
   }
 }
@@ -149,9 +148,6 @@ export function formatFieldValue(
     }
     case 'person':
       return lookups?.userName?.(String(value)) ?? String(value);
-    case 'relation':
-      // Caller passes already-resolved titles (string[] or string).
-      return Array.isArray(value) ? value.map(String).join(', ') : String(value);
     default:
       return String(value);
   }
