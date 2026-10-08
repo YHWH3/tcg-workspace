@@ -39,7 +39,6 @@ export function SettingsPage() {
         <RecentAIChangesSection />
         <TemplateGallerySection />
         <StorageSection />
-        <TemplateGallerySection />
         <PasswordSection />
         {user?.role === 'admin' && <AdminSection />}
       </div>

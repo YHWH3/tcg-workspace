@@ -81,7 +81,7 @@ function MoveToStage({ task, board }: { task: TaskRow; board: BoardRow }) {
       }
     >
       {(close) => (
-        <div>
+        <div onClick={(e) => e.stopPropagation()}>
           <Menu
             close={close}
             items={columns.map((c) => ({
