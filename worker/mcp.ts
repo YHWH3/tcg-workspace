@@ -2005,10 +2005,12 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     cover: z.string().optional(),
   });
 
-  const resolveFieldKey = (boardData: Record<string, unknown>, key: string): string => {
+  /** Field name/id → views.ts FieldKey ('title'|'status'|'assigneeId'|'dueDate'|'priority'|'createdAt'|'createdBy'|p_<fid>|rel_<fid>). */
+  const resolveFieldKey = (boardData: Record<string, unknown>, key: string): import('../shared/views').FieldKey => {
+    const BUILTINS: Record<string, string> = { title: 'title', status: 'status', stage: 'status', assignee: 'assigneeId', assigneeid: 'assigneeId', due: 'dueDate', duedate: 'dueDate', priority: 'priority', createdat: 'createdAt', createdby: 'createdBy', cover: 'cover' };
     const f = fieldsOf(boardData).find((x) => x.id === key || x.name.toLowerCase() === key.toLowerCase());
-    if (f) return f.id;
-    return ['title', 'status', 'assignee', 'due', 'priority', 'createdAt'].includes(key.toLowerCase()) ? key.toLowerCase() : key;
+    if (f) return (f.type === 'relation' ? `rel_${f.id}` : `p_${f.id}`) as import('../shared/views').FieldKey;
+    return (BUILTINS[key.toLowerCase()] ?? key) as import('../shared/views').FieldKey;
   };
 
   const viewOps = async (dbId: string, views: { name: string; type?: string; filters?: { field: string; op: string; value?: unknown }[]; sorts?: { field: string; dir?: string }[]; groupBy?: string; visible?: string[]; cover?: string }[], boardData: Record<string, unknown>): Promise<WriteOp[]> => {
@@ -2025,10 +2027,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           name: v.name,
           type: (v.type ?? 'table'),
           config: {
-            filters: (v.filters ?? []).map((f) => ({ fieldId: resolveFieldKey(boardData, f.field), op: f.op, value: f.value })),
-            sorts: (v.sorts ?? []).map((s) => ({ fieldId: resolveFieldKey(boardData, s.field), dir: s.dir ?? 'asc' })),
+            filters: (v.filters ?? []).map((f) => ({ key: resolveFieldKey(boardData, f.field), op: f.op, value: f.value })),
+            sorts: (v.sorts ?? []).map((s) => ({ key: resolveFieldKey(boardData, s.field), dir: s.dir ?? 'asc' })),
             groupBy: v.groupBy ? resolveFieldKey(boardData, v.groupBy) : undefined,
-            visibleFields: v.visible?.map((f) => resolveFieldKey(boardData, f)),
+            visible: v.visible?.map((f) => resolveFieldKey(boardData, f)),
             cover: v.cover ? resolveFieldKey(boardData, v.cover) : undefined,
           },
           order: prevKey,
@@ -2170,10 +2172,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const patch: Record<string, unknown> = {};
       if (a.name !== undefined) patch.name = a.name;
       if (a.type !== undefined) patch.type = a.type;
-      if (a.filters !== undefined) cfg.filters = a.filters.map((f) => ({ fieldId: resolveFieldKey(board?.data ?? {}, f.field), op: f.op, value: f.value }));
-      if (a.sorts !== undefined) cfg.sorts = a.sorts.map((s) => ({ fieldId: resolveFieldKey(board?.data ?? {}, s.field), dir: s.dir ?? 'asc' }));
+      if (a.filters !== undefined) cfg.filters = a.filters.map((f) => ({ key: resolveFieldKey(board?.data ?? {}, f.field), op: f.op, value: f.value }));
+      if (a.sorts !== undefined) cfg.sorts = a.sorts.map((s) => ({ key: resolveFieldKey(board?.data ?? {}, s.field), dir: s.dir ?? 'asc' }));
       if (a.groupBy !== undefined) cfg.groupBy = a.groupBy ? resolveFieldKey(board?.data ?? {}, a.groupBy) : undefined;
-      if (a.visible !== undefined) cfg.visibleFields = a.visible.map((f) => resolveFieldKey(board?.data ?? {}, f));
+      if (a.visible !== undefined) cfg.visible = a.visible.map((f) => resolveFieldKey(board?.data ?? {}, f));
       if (a.cover !== undefined) cfg.cover = a.cover ? resolveFieldKey(board?.data ?? {}, a.cover) : undefined;
       patch.config = cfg;
       const expect = a.expectedRev !== undefined ? new Map([[a.viewId, a.expectedRev]]) : undefined;
@@ -2670,11 +2672,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         return toIds.map((id) => ctx.pageTitleById.get(id) ?? id);
       };
       const view = {
-        filters: (a.filters ?? []).map((f) => ({ fieldId: resolveFieldKey(board.data, f.field), op: f.op, value: f.value })),
-        sorts: (a.sorts ?? []).map((s) => ({ fieldId: resolveFieldKey(board.data, s.field), dir: (s.dir ?? 'asc') as 'asc' | 'desc' })),
+        filters: (a.filters ?? []).map((f) => ({ key: resolveFieldKey(board.data, f.field), op: f.op as import('../shared/views').FilterOp, value: f.value })),
+        sorts: (a.sorts ?? []).map((s) => ({ key: resolveFieldKey(board.data, s.field), dir: (s.dir ?? 'asc') as 'asc' | 'desc' })),
       };
       const startIdx = a.cursor ? rows.findIndex((r) => r.id === a.cursor) + 1 : 0;
-      const applied = applyView(rows.map((r) => ({ ...r.data, id: r.id })), view, { meId: ctx.userId, fieldsById: fmap, relationTitles, columnsById: new Map(boardColumns(board).map((c) => [c.id, c])) });
+      const applied = applyView(rows.map((r) => ({ ...r.data, id: r.id })), view, { meId: ctx.userId, fieldsById: fmap, relationTitles, columnsById: new Map(boardColumns(board).map((c, i) => [c.id, i])) });
       const page = applied.rows.slice(startIdx, startIdx + limit);
       const include = new Set(a.include ?? ['fields']);
       const allTasks = live(await recs(ctx.env, 'tasks'));
