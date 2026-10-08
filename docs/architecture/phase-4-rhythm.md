@@ -4,6 +4,8 @@ Goal: the workspace prompts people at the right time and accepts input from outs
 
 Depends on Phase 0 (change sets) and Phase 1 (records, fields, links). Re-detail before building.
 
+Apply [cross-platform responsive web architecture](cross-platform-responsive-web.md). Notifications, forms, approvals and automation management must work in normal phone/tablet/desktop browser tabs. Push and installed-app entry points remain optional. Detail the following interfaces/failure handling with this phase before execution; they are not existing features.
+
 ---
 
 ## 1. Server event pipeline (foundation)
@@ -69,3 +71,15 @@ Pure: event derivation from `AppliedChange`, recurrence next-date, template stri
 
 ## 8. Acceptance
 People get timely, deduplicated Inbox items they can control; outsiders submit forms that become linked records; approvals and a small set of automations run reliably and are reviewable/undoable.
+
+## 9. Browser-first rhythm requirements and Definition of Done (re-detail before build)
+
+- Inbox is primary notification delivery: compact rows retain actor, reason, target, time, unread state and mark-read controls; grouped updates expandable, badges announced without excessive live-region chatter. Deep links open full record/page detail and Back restores Inbox position. Preferences/quiet digest use labeled stacked controls. Reconcile on foreground resume; suspended browser is not timely guaranteed delivery. Optional push follows platform §3, including iOS Home Screen/permission constraints; denied push or no installation never removes Inbox/reminders.
+- Reminder/recurrence semantics stay server-side. Display the configured schedule/timezone/date clearly; expired targets and repeat notifications do not crash compact detail. Offline preferences/read-state can follow authorized mutation semantics, but remote reminder creation/processing status must be represented truthfully.
+- `/f/:token` outside auth is a responsive, no-install external form: title/help/visible labels, input type/inputmode/autocomplete, required indicators, associated validation and error summary. Phone software keyboard, zoom/reflow, safe-area submit and native file picker work. Camera option always accompanied by chooser; 5MB upload validation before server send with usable Drive/text fallback. Don't ask outsiders to install or create accounts to submit.
+- Form drafts survive network/Turnstile error within a clear retention/privacy policy; public drafts must not leak into authenticated workspace Dexie or another visitor's session. Offline = retained draft with explicit retry, not background submission success. Expired/disabled token preserves an exportable text draft where appropriate and explains inability to submit. Turnstile uses documented test keys locally; permission/challenge expiry provides retry/help. Re-detail a bounded submission-id/receipt dedupe contract for lost-response retries without claiming exact-once delivery from an HTTP response alone.
+- Builder's compact field selection/label/required/help editor includes move up/down and phone preview. Form publish/disable/access scope confirmation stays visible; accessibility required for the builder and published result.
+- Approval request/decision/history uses compact summaries + linked target, approver, consequence, note and reachable Approve/Reject/Cancel. A decision that gates a stage is server-authoritative: offline user can prepare a note, but no final Approved state until server acknowledgement/revalidation. Retry after lost receipt must not produce duplicate decisions; permission/stale/revoked target errors preserve note.
+- Automation When/If/Then form works as stacked controls, searchable record/database pickers and ordered action rows with button reorder. Run failure detail and change-set preview/undo reuse Phase 0 compact review; no graph or desktop-only editor dependency.
+
+Definition of Done: three-engine 320/390px, split-tablet and desktop tests plus real iPhone/Android form submission in normal browser tabs with camera denied, text/file alternatives and keyboard open. Test slow/offline network, expired challenge/token, lost receipt/dedupe, no double record, readable validation, no auth/sync initialization on public route, and draft privacy. Browser Inbox with denied/unsupported push, resume after lock, mark-read across devices, reminder dedupe, approval gate UI+MCP and compact automation create/reorder/failure/undo all pass shared keyboard/AT gates. Provisioning test HTTPS/Turnstile configuration remains a separately authorized implementation step.

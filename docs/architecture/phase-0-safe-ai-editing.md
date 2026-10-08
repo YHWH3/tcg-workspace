@@ -4,6 +4,8 @@ Goal: several people can use Claude / ChatGPT / Gemini against the same workspac
 
 No UI redesign. No change to the client sync protocol. All changes are server-side plus one small Settings/Activity UI.
 
+Read [cross-platform responsive web architecture](cross-platform-responsive-web.md). New consent/authentication, Settings/Activity review and undo surfaces must satisfy its compact/tablet/desktop and accessibility contracts. Broader existing editor/sync/media foundations are assigned to Phase 1, canvas to Phase 2; they do not delay the independent §0.1 security fix. Requirements below are planned acceptance work, not an implemented compatibility claim.
+
 ---
 
 ## 1. Scope
@@ -132,7 +134,7 @@ The push route (`/api/sync/push`) never passes `expect` — client behaviour unc
 
 ### 4.3 Offline client after an AI edit (documented limitation)
 
-A phone that edited offline pushes later with older HLC timestamps; server-stamped AI edits (`serverTs`) are newer, so for the same field the AI edit wins even though the human typed later in wall-clock time. Accept for now; the change set (§7) shows both and undo restores. Do not change client timestamps.
+A phone may reconnect with pending edits whose HLC timestamps lose to newer server-stamped AI edits on the same field. Per-field LWW and the client sync protocol remain unchanged. The change set (§7) records the server-side AI before/after; it does **not** necessarily contain a later unpushed human draft. Undo cannot promise to recover that draft. Phase 1's platform foundation must preserve a local losing candidate before reconciliation and offer compare/copy/reapply through `mutate()` after explicit choice. Phase 5 adds durable shared history. Document this limitation in small-screen review/help; do not call LWW character-level concurrent editing or change client timestamps in Phase 0.
 
 ---
 
@@ -383,3 +385,15 @@ Regression: full baseline (README §7), including existing `verify-mcp.mjs` (upd
 - Every AI change appears as one undoable entry; undo never clobbers later human edits.
 - Destructive/bulk tools support preview; delete impact is reported.
 - Existing app behaviour, client sync protocol and all existing tests unchanged.
+
+## 15. Cross-platform safety surfaces and Definition of Done
+
+Implementation targets: existing `src/core/ui.tsx`, `settings.tsx`, `shell.tsx`, Activity module and `worker/oauth.ts` consent layout as needed for **these surfaces only**. Preserve server identity validation, PKCE and request-id semantics; no native-app handoff is required for workspace consent. Browser/host capability gaps link to the normal HTTPS workspace and an explicit retry/manual URL-copy path.
+
+- Settings recent changes and Activity detail: on compact screens show stacked actor/client/time, affected item links, field name and before/after; expand long text, label truncation, keep warnings/counts/skipped fields visible. Table-like desktop diffs must not force phone-wide horizontal scroll.
+- Undo/dry-run impact confirmation: bounded scrolling body with reachable Cancel/Review/Undo action row, readable skipped-field reason and focus restoration. Use shared accessible dialog/sheet behavior; when keyboard is open, no hidden confirmation button. Updating connectivity or preview results never moves focus unexpectedly.
+- MCP conflicts stay tool errors with current revisions/content as specified above; the host receives concise structured data and app URLs. Web review links expose authorized change-set information. Do not expand this phase into a general client-sync conflict UI. Small-screen review must distinguish stale/cached content from server-checked current revision; reconnect/re-read before retry, never auto-confirm destructive work.
+- Undo, grant revoke, consent and current-revision reads require the server. Offline review can show locally available activity but must label unavailable details and offer reconnect; it must not claim undo/revoke was applied. Retry a pending intended MCP action with the same requestId after uncertain acknowledgement.
+- Browser consent/login supports labels, password-manager/paste, 320px reflow, keyboard-visible submit, error announcement and denied/expired/cancelled authorization. Copy MCP URL has selectable-text fallback. Test Safari/Chrome phone browser-to-host return and macOS/Windows browsers; host return failure leaves a recoverable browser route, not forced installation.
+
+Acceptance: full Phase 0 runs the existing §12 scenarios plus Chromium/Firefox/WebKit review/undo/auth checks at phone, tablet and desktop widths, keyboard-only focus checks and real phone keyboard/VoiceOver or TalkBack review. Confirm A's mobile local edit against B's desktop/AI edit returns the right attribution and stale-revision conflict; confirm undo skips intervening edits and displays skips without clipping. Record baseline foundation gaps for Phase 1/2 under platform §8. The isolated §0.1 identity release needs its own identity regression immediately and is exempt from waiting for these UI additions; it is never whole-product browser sign-off.

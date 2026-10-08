@@ -4,6 +4,8 @@ Goal: make project management visual. Mood boards become linked canvases (live t
 
 Depends on Phase 0 (revs, change sets) and Phase 1 (records, links, views). Re-detail to Phase 0/1 level before building.
 
+Apply [cross-platform responsive web architecture](cross-platform-responsive-web.md), especially §5 canvas/date interactions and §§9–10 verification. This phase completes existing canvas platform gaps as well as adding new visual features. Requirements below remain architecture-level: detail gesture state, files, cancellation/undo and tests before implementation; current pan/pinch source is not proof of real-device parity.
+
 ---
 
 ## 1. Mood item model (extend `mooditems`)
@@ -72,7 +74,7 @@ Renderer: pure layout `shared/diagramLayout.ts` (simple layered layout: longest-
 - Live cards render from Dexie (title, stage chip, assignee avatar, cover thumb, blocked badge, sub-progress); deleted target → greyed "Deleted" card with Restore if permitted.
 - Selection: multi-select (shift/drag marquee), align/distribute, group into frame.
 - Keyboard (desktop): Delete, ⌘D duplicate, arrows nudge, ⌘G frame.
-- Mobile: pan/zoom/move/resize already; connector creation via "Connect" action on a selected item then tap target.
+- Existing source includes pointer pan/pinch/move/resize; supported-device acceptance is still required. Compact connector creation uses "Connect" then tap target **or** searchable item picker; cancel, direction, label and removal available without dragging.
 - Performance: render only items intersecting viewport (+margin) when >300 items.
 
 ---
@@ -126,3 +128,14 @@ Phase 2 adds optional read-only public canvas: `shares` gains `target_type ('pag
 
 ## 9. Acceptance
 AI can build a canvas of live linked task/page cards with frames and arrows that the team then edits by hand; SVGs are safe; calendar and timeline views work on databases; dependencies are visible on timeline and canvas.
+
+## 10. Cross-platform visual interaction requirements (re-detail before build)
+
+- Canvas has explicit Browse/Pan and Select/Edit state. One-finger background pan, selected-item move/resize, two-pointer pinch transition and pen/mouse handling must not compete with document scroll or text selection. Limit touch-action suppression to canvas interaction surface. Pointercancel/lost capture/rotation/Escape restore transient geometry without an accidental write; successful release commits once. Scope wheel handling so browser zoom/navigation remains available outside the canvas.
+- Resize/move/connection hit areas stay usable in screen pixels at all zoom levels (44px touch goal). Selected-item inspector includes numeric position/size, layer, duplicate/delete, frame membership, align/distribute and related target search. Zoom/fit/pan buttons and an accessible item list provide parity without pinch, marquee or drag. Multi-select uses checklist as well as shift/marquee. Selection never depends on pressure/tilt/Pencil; stylus is optional equivalent pointer input.
+- Connectors choose source and target through tap or labeled search, with clear direction and actual link effect. Frame membership edited in a list, frame movement follows existing record writes. Diagrams expose labeled node/edge list, endpoints, text, linked records and auto-layout; outline/list usable with keyboard/AT. Public canvas has readable item/connection list and zoom, no edit path. Preserve SVG sanitization irrespective of device.
+- Canvas text/detail editor adapts to full-screen/inspector when keyboard opens; actions and caret visible. Rotation/resized iPad window retains selected item, viewport and unsaved draft. Semantic focus survives culling; render viewport + margin above the existing >300-item threshold and keep offscreen selected items discoverable through the list.
+- Calendar phone/small embedded block = agenda + date navigation + unscheduled list; adding/rescheduling uses date editor, no drag required. Tablet month grid only if usable cells fit. Timeline compact = grouped date-range rows with start/end edit and textual blockers/conflict warnings; wide bars retain date-dialog alternative to drag/resize. Preserve view/filter config on resize. Date-only values do not shift across timezones.
+- In-chat canvas remains optional: browser app URL supports the whole operation when host UI/bridge is absent, narrow or incompatible. Capability detection cannot remove normal web editing.
+
+Definition of Done: §8 functional tests run across Chromium/Firefox/WebKit compact/tablet/desktop contexts and shared platform gates. Verify pan→pinch on background and selected item, cancelled move/resize, tap/search Connect, inspector/keyboard equivalents, frame movement, diagram outline editing and timeline/agenda reschedule; assert expected writes and no writes from mere scrolling/cancel. Real iPhone Safari/Chrome, iPad portrait/landscape/split window with touch/keyboard and optional Pencil, Android Chrome/Firefox with touch complete the focused checklist. Measure 350-item canvas on a lower-powered device, selection stability under culling and browser zoom/reflow alternatives. Engine-emulated pinch alone cannot close the gesture gate.

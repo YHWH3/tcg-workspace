@@ -4,6 +4,8 @@ Goal: turn boards into general-purpose **databases** (any kind of record, not on
 
 Depends on Phase 0 (revisions, change sets, CAS ops, targeted reads). Every new MCP write tool follows Phase 0 conventions: `requestId`, `expectedRev` where applicable, `dryRun` for bulk/destructive, change sets, `warnings`.
 
+Also owns completion of the non-canvas platform foundations in [cross-platform responsive web architecture](cross-platform-responsive-web.md) §§3–7. Responsive database CRUD, mobile editing/linking and existing page/media/offline recovery are acceptance requirements of this phase. Existing schema and shared-logic plans below remain authoritative; the platform additions do not introduce a second data model or native application.
+
 ---
 
 ## 1. Naming (UI vs code)
@@ -201,7 +203,7 @@ interface FileRow { kind?: 'image' | 'video' | 'audio' | 'pdf' | 'file' | 'link'
 | View | Component | Notes |
 |---|---|---|
 | Board | existing `Board.tsx` | groupBy status (default) or select/person field; drag between groups writes that field; sub-records hidden unless `showSubrecords`; card shows sub-progress "2/5" and blocked badge |
-| Table | new `TableView.tsx` | sticky title column; cells use existing `FieldValue` editors + relation picker; header click = sort; add row at bottom; row expand → record detail; nested sub-records with disclosure; >300 rows → windowed rendering; mobile → renders as `ListView` |
+| Table | new `TableView.tsx` | sticky title column; cells use existing `FieldValue` editors + relation picker; header click = sort; add row at bottom; row expand → record detail; nested sub-records with disclosure; >300 rows → windowed rendering; narrow container → compact list presentation of the **same table view/config** with all properties available in record detail (no persisted view change on resize) |
 | List | existing list mode, extracted to `ListView.tsx` | compact rows + chips |
 | Gallery | new `GalleryView.tsx` | grid of cover cards (`cover` from config), title + up to 3 props |
 
@@ -340,6 +342,51 @@ Regression baseline (README §7) + `verify-mcp-multiuser.mjs` from Phase 0.
 - Any database can hold non-task records with their own fields, views and page bodies.
 - Relations, sub-records, dependencies and related links work in the app and via MCP, are visible from both sides, and are merge-safe under concurrent edits.
 - Table, list, gallery and board views with filter/sort/group work on desktop; mobile is usable.
+- Every database/record/property/view/relation/sub-record/dependency operation works on compact/tablet/desktop with equivalent keyboard/touch actions as detailed in §12; this replaces an undefined interpretation of "mobile is usable".
 - Drive links embed and never consume D1 storage.
 - People & Organizations installable from the template gallery; nothing TCG-specific hardcoded.
 - All prior behaviour and tests intact.
+
+## 12. Responsive interactions and platform foundation (implementation requirements)
+
+### 12.1 Concrete frontend ownership
+
+Use existing core UI/shell/mobile/search/auth/files/recorder/sync/service-worker owners for shared foundation work; database shell and view components for data presentation; existing page `BlockEditor`/`RichInput` for page and record bodies. Keep `useIsMobile` in core and cross-module integration through slots. Work is additive to this phase; no new backend permission model is introduced before Phase 5.
+
+Platform implementation file/test plan (planned additions, no files created by this review):
+
+| Owner | Required contract | Tests |
+|---|---|---|
+| `src/core/ui.tsx`, `mobile.ts`, `shell.tsx`, `search.tsx`, `src/index.css` | Shared adaptive overlays, coherent layout thresholds, focus lifecycle, safe areas, viewport observation, compact nav/visible sync; semantic search and tree controls. | Platform runner: keyboard/zoom/rotation/resize and no-hover menu reachability in all engines. |
+| New `src/core/drafts.ts`; `BlockEditor.tsx`, `RichInput.tsx`, `TaskDetail.tsx`, `Capture.tsx`, `auth.ts`, `sync/engine.ts` | Account-owned local recovery envelopes in existing Dexie `meta`, keyed `draft:<userId>:<collection>:<id>` (capture uses a stable draft id); envelope contains owner, target, candidate values, base field timestamps and local update time, never tokens. Canonical records still write only via mutate. Persist completed text input promptly; composition draft is recoverable without rebuilding live IME DOM. Capture references pending local file bytes; do not embed large blobs into meta. Mark Saved locally only after acknowledged local transaction. | Draft survives reload, storage error remains unsaved, original-account recovery after login; same-field AI win preserves candidate and different-field merge needs no warning. |
+| New pure `shared/editorHistory.ts` + `tests/editorHistory.test.ts`, client adapter `src/core/editorHistory.ts` | Per-editor inverse field patches for typing groups and structural operations, stable ids/order and caret bookmarks. Capture touched-field timestamps; undo/redo checks current values/timestamps before applying inverse through mutate. If remote intervened, preserve candidate and ask review rather than overwrite; no whole-DB snapshot rollback. Native text undo and structural history have one ordered user-visible sequence. | Split/merge/insert/delete/reorder roundtrip, remote changed-field refusal, redo invalidated by new local edit; real native paste/composition/selection undo in all engines. |
+| `files.ts`, `recorder.tsx`, `fileui.tsx`, `sw.ts`, `main.tsx` | Media pending/retry/format/fallback state, local quota/cache protection, explicit recording gestures/lifecycle cleanup, safe shell readiness/update. Existing blob table and byte limits remain; choose measured cache budgets without deleting unsent bytes. | Actual-format playback, lost chunk ACK, partial local attachment, low quota, old-tab/new-SW, failed shell asset install. |
+| Boards view/detail/picker components and `pages/api.ts` | Compact view presentations with shared semantic queries; page parent/order move helpers through mutate and shared cycle validation; all configuration/link actions have keyboard/tap path. | Same data/results across views, searchable move/relation/dependency, cycle rejection, no status/order write from scrolling. |
+
+Keep a draft candidate until successful pull reconciliation confirms its values or exposes a newer winning field; deleting an acknowledged push entry alone is not evidence that its field won LWW. Recovery compare/copy/reapply is explicit and uses fresh mutate timestamps. After confirmed save/reconciliation remove redundant draft envelopes. Pending recovery/drafts must not be evicted by cache cleanup; retention/export limits for unresolved candidates are a documented implementation choice, and quota failure cannot be hidden. Editor adapters and local recovery may evolve client metadata without changing server protocol or synced collection schemas.
+
+### 12.2 Database and record operations
+
+- View tabs remain scrollable with active state and visible view-menu/+ View affordance; keyboard navigation has a defined tab model. Filter/Sort/Group/Properties show active settings/count; compact edits use a labeled sheet with apply/cancel/clear, same `shared/views.ts` results as desktop. Resize does not mutate view type/config or reset scroll/draft.
+- Create Database from compact navigation/menu; stages/fields/options editing includes add/rename/reorder/delete via buttons. Table compact rows/cards display title + selected property summary; every field, row add, sort/filter and bulk Select action remains in full-screen detail or toolbar. Gallery grid fits actual container width. Empty stages/kind records follow existing rules.
+- Detail pane only when surrounding content meets platform minimums; otherwise route-backed full-screen long-form detail. Brief property/status edits may use sheets. Labels and native input types, clearing null values, validation and save state available with software keyboard. Stage, owner, due, priority, custom fields, body, attachments and comments never disappear for width reasons.
+- Relation picker: searchable target database/pages, target/path subtitle, selected chips/list, explicit add/remove/replace/clear and inline Create; keyboard + tap selection, announced matches. Single relation UI replaces explicitly; server/storage semantics stay §2.6. Ambiguity, missing/deleted target and wrong database errors shown, not silently coerced. Reverse relation direction normalized before writing as already specified.
+- Sub-record parent breadcrumb/Back, add/complete/open and Move up/down/Move under/Detach actions; cycle/depth/cross-database errors visible. Dependencies expose Blocked by/Blocking and searchable add/remove with direction and cycle explanation. Related/backlink navigation remains accessible without drag or chip hover.
+- Kanban status selector and Move to stage/database/position actions support full management without drag. Use dedicated lift/move affordance and cancellation for touch drag; scrolling must not write status/order. Bulk selection uses checkboxes and an action sheet. Native selects/date fields retain labels and keyboard paths.
+
+### 12.3 Existing pages, media and local-first baseline
+
+- Complete platform §5 page/editor interactions: explicit Insert/block actions/move controls, composition/beforeinput-aware editing, native touch selection/paste, accessible mention/slash picker, local typing + structural undo/redo, caret/scroll preservation and keyboard-visible toolbar. Reuse for `parentType:'record'` bodies with no separate mobile editor. Page tree has semantic links/disclosures and visible nested-page/move actions; required reparent/order helper details stay within existing pages records and fractional keys.
+- Complete §3 capability fallbacks and §7 recovery: guard storage, truthful local/server/media status, acknowledge local draft persistence before Saved, preserve losing local candidates under LWW, bounded network retries and foreground resume/pageshow. Retain HLC/rebase and client wire protocol. Losing candidate review is local recovery, not new server conflict/history functionality.
+- Protect pending drafts/outbox/bytes during logout/account replacement and stop stale tabs sending under a new identity. Include uploads in pending counts; quota/unavailable-storage path offers retry/recovery export with explicit limits. No automatic destructive reset presented as harmless sign-in.
+- Media: explicit camera/mic gestures, permission denial/cancel fallback to files/text; actual recorded MIME/extension, capture interruption cleanup and recoverable completed segments; unsupported codec/photo/PDF preview → original open/download or Drive card. Transcription remains server-only and separately pending/failed. User media needs author-provided text alternative/caption path; auto transcript must be reviewable rather than assumed accurate.
+- Preserve 20MB/file and 450MB server limit; origin quota warning separate. Protect unsent bytes during bounded cache cleanup; release object URLs/bitmaps; recover partial attachment save. SW offline readiness/update handles failed assets and old tabs safely, APIs network-only and classic-script format retained.
+- Drive embeds are optional on capable wide/tablet containers, phone link card default. Always offer Open in Drive; access/third-party cookie/iframe restriction does not trap the user or falsely imply workspace permissions grant Drive access.
+
+### 12.4 Cross-platform tests and Definition of Done
+
+Extend §9 scenarios with the platform §9 matrix and locally runnable three-engine runner. Test 320/390/430px CRUD/property/relate/filter/sort/view/configure plus 512px split tablet and wide table; compare record ids/results and writes across presentations. All fields accessible through compact detail. Relation replace/remove and sub-record/dependency reorder complete by tap and keyboard. Native date/timezone handling, long field names, bulk selection and no-stages database covered.
+
+Real iPhone/iPad Safari + Chrome and Android Chrome/Firefox checks: soft keyboard long body, selection/paste/IME/undo, touch board scrolling, camera/mic deny/cancel, actual audio exchange/playback, gallery/HEIC/PDF/download and rotation. Test offline page/record/relation edits → reload/reopen → foreground reconnect → second user's and same user's second device; inject lost ACK/chunk failure, quota/storage denial, SW partial update, stale auth and account change with pending bytes. Every locally acknowledged edit survives reload while storage exists; explicit limits after eviction are displayed. Keyboard, zoom/reflow, VoiceOver/TalkBack and Windows NVDA gates apply.
+
+Phase 1 is incomplete while a named non-canvas foundation gap in platform §8 prevents these workflows; canvas retrofits remain Phase 2. Do not count Chromium phone screenshots alone as mobile functional acceptance.

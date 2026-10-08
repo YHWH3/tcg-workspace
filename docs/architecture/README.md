@@ -2,6 +2,8 @@
 
 These documents are the build spec for evolving the existing Workspace app into the organisational operating layer for The Common Ground (TCG). They are written for an implementation model: follow them phase by phase, in order.
 
+**Permanent product requirement:** one fully responsive, browser-first HTTPS application on Windows, macOS, iPhone, iPad, Android phones/tablets and other capable browsers. Installation is optional. Mobile must support all operations delivered by a phase through appropriate touch/keyboard alternatives. Read [Cross-platform responsive web architecture](cross-platform-responsive-web.md) alongside every phase: it contains the source review, browser/capability contract, responsive interaction model, phase-impact matrix and reproducible verification strategy. It is a cross-cutting specification, not an eighth phase or evidence that compatibility has already been implemented.
+
 | Doc | Scope | Detail level |
 |---|---|---|
 | [phase-0-safe-ai-editing.md](phase-0-safe-ai-editing.md) | MCP identity fix, revisions/conflicts, idempotency, change sets + undo, dry-run, targeted reads | **Implementation-ready** |
@@ -14,6 +16,8 @@ These documents are the build spec for evolving the existing Workspace app into 
 
 Before starting any phase: read `AGENTS.md` (repo root), this file, and the phase doc. Re-detail phases 2–6 into the Phase 0/1 level (exact schemas, files, tests) immediately before building them, against the code as it then exists.
 
+Also read the platform specification. Its Phase 0/1 additions are implementation acceptance requirements; its Phase 2–6 additions remain architecture-level and must be re-detailed with those phases. No phase may defer its mobile workflows to a later responsive redesign. Keep the independent Phase 0 §0.1 identity security fix first; its isolated release does not wait for unrelated platform work. Shared non-canvas foundations complete with Phase 1, canvas foundations with Phase 2; new/touched Phase 0 surfaces already follow the platform contract.
+
 ---
 
 ## 1. Decisions already made (by the owner)
@@ -23,6 +27,7 @@ Before starting any phase: read `AGENTS.md` (repo root), this file, and the phas
 - Large media lives in **Google Drive**; the app stores links + previews. The 20 MB / 450 MB D1 file store stays for photos, voice memos and small files.
 - Keep the product generic: TCG-specific structure is **configuration (templates/databases)**, never hardcoded modules.
 - Free infrastructure (Cloudflare Workers, D1, KV, Durable Objects, Workers AI).
+- Browser-first, one responsive codebase, mobile functional parity and optional PWA installation. Capability detection and progressive enhancement replace native-app dependencies; retain the existing stack and phase order.
 
 ## 2. Current system (baseline, as of commit `76222f3`)
 
@@ -43,6 +48,8 @@ Before starting any phase: read `AGENTS.md` (repo root), this file, and the phas
 6. **Every server-side (non-client) write is attributable and undoable.** MCP, automations, forms → change sets (Phase 0).
 7. **Progressive disclosure UI.** New capability = contextual action or view option, not a new top-level screen, unless it is a primitive (Inbox, Search).
 8. **Backward compatibility.** Missing new fields mean old behaviour. No data migrations of existing records unless a phase doc says so.
+9. **Cross-platform acceptance is part of architecture.** Content-driven layouts, container-adaptive embedded views and equivalent touch/keyboard actions apply to every feature. WCAG 2.2 AA is the target; dragging/hover/shortcuts cannot be the only way to complete an operation.
+10. **Honest local-first reliability.** Distinguish in-memory drafts, acknowledged local saves, pending records/media and server synchronization. Browser storage and background execution are not guaranteed; specify recovery, foreground retry and capability fallbacks.
 
 ## 4. Canonical data model (target, all phases)
 
@@ -104,6 +111,10 @@ Phase 4's event pipeline hooks into the Phase 0 change-set/`applyChanges` path. 
 
 `npx tsc --noEmit`, `npm run build`, `npx vitest run`, `bash scripts/smoke.sh`, `node scripts/verify-v4.mjs`, `node scripts/verify-mcp.mjs` (against `wrangler dev --port 8788` running the built app), plus the phase's own tests. Deploy to a temporary staging Worker + D1 + KV first; production checks are read-only. Never write data or sign up on production.
 
+For future phase execution, also follow [platform verification §§9–10](cross-platform-responsive-web.md#9-reproducible-verification-strategy): local Playwright Chromium/Firefox/WebKit, phone/tablet/desktop functional and visual checks, keyboard/accessibility, offline/reconnect and multi-device scenarios, plus focused real Safari/iPhone/iPad/Android checks. Engine emulation does not verify operating-system keyboards, permissions, media formats, storage eviction or suspension. Tests run locally without paid infrastructure or a GitHub Actions dependency; real-device HTTPS setup must be authorized separately if it provisions staging infrastructure.
+
+Every phase has a cross-platform Definition of Done. Record exact engines/devices/builds and distinguish passed, failed, fallback and not run. Desktop Chromium success alone cannot establish feature completion. Existing scripts currently cover Chromium and selected phone emulation; the proposed multi-engine platform runner is not implemented. The architecture-only review adds no test results or deployment authorization. The unchanged staging rollout requirement above applies when an implementation phase is separately authorized.
+
 ## 8. Open items to verify during implementation (do not assume)
 
 - D1 `batch()` transactional semantics (relied on in Phase 0 §4.2 — confirm in current Cloudflare D1 docs).
@@ -112,3 +123,4 @@ Phase 4's event pipeline hooks into the Phase 0 change-set/`applyChanges` path. 
 - Google Drive `/preview` iframe embedding behaviour for files shared "anyone with link" vs restricted (Phase 1 §8).
 - MCP Apps (in-chat UI) support per host: documented for Claude; ChatGPT uses its own Apps SDK; Gemini unconfirmed (Phase 2 §7).
 - Cloudflare Cron Triggers on the free plan (Phase 4).
+- Exact supported browser/OS builds, editor input/undo on real software keyboards, recording/playback codecs, quota/cache/update recovery and Phase 5 offline permission freshness (platform specification §11). No universal Safari retention period or background sync guarantee.

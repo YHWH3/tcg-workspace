@@ -4,6 +4,8 @@ Goal: fast search across everything; access control so collaborators, volunteers
 
 **This phase changes the sync model and needs a design review before implementation.** Treat this doc as the proposal to review.
 
+Apply [cross-platform responsive web architecture](cross-platform-responsive-web.md), particularly account ownership, offline revocation limits, search/cache recovery and multi-device tests. The following decisions must be re-detailed in this phase's existing permission/sync design review; no new permission schema or runtime changes are implemented by the platform review.
+
 ---
 
 ## 1. Server search
@@ -56,4 +58,16 @@ Space switcher in sidebar; space settings (members, roles, default access); "Sha
 - Offline edits by a user whose access was revoked while offline (server rejects; client shows "changes couldn't be saved — access removed").
 
 ## 6. Acceptance
-Guests see and edit only what's shared; revoked access disappears from devices; search is fast across all permitted content; every change has history.
+Guests see and edit only what's shared; revoked access disappears after a device successfully reconciles permissions (disconnected cached access cannot be remotely wiped immediately); search is fast across all permitted content; every change has history.
+
+## 7. Multi-device access, responsive search and Definition of Done (design-review inputs)
+
+- Define session controls for same user on phone/tablet/desktop: active session list/device labels, current-device sign-out, revoke chosen/other sessions and reauthentication. Test multiple tabs sharing localStorage; old-tab sync, live socket and rendered content must stop or reconcile when account/session changes. Cross-device online session revocation goes through server validation, not a client-only display toggle.
+- Build on Phase 1 protected pending-work logout. Shared-device sign-out offers clear local cache retention/clearing choice appropriate to privacy, accounts for drafts/outbox/pending bytes, and never silently destroys them. Any allowed recovery export is scoped to current user and permission policy. Retained work cannot upload under another account; cleared work requires explicit discard acknowledgement.
+- Re-detail offline permission freshness/lease policy with owner: bounded permitted offline access versus guaranteed offline availability is a tradeoff. No instant revocation claim for disconnected browsers, screenshots/downloads or exports. Server rejects unauthorized writes regardless of cached permission, and revocation is processed before UI/search reuse on successful reconnect. Resume never displays restricted data just because a previous browser cache had it.
+- Eviction feed must cover revoked membership, moved records and stale/rejoined devices/cursors. Clear revoked records, inherited blocks/comments/links, pending unauthorized operations, downloaded thumbnails/blobs, object URLs, mounted UI state and local/server search results. Existing API network-only rule remains. A stale eviction marker must not wrongly hide newly regranted data: detail snapshot/reset/rejoin behavior before implementation.
+- Rejected offline edits are not retried forever and must not use current app's unconditional successful-HTTP queue deletion as recovery. Show per-item reason, target and allowed recover/discard outcome. Whether text export is permitted after revocation, and whether drafts are held only transiently or quarantined, is an explicit privacy decision; never retain hidden restricted data indefinitely to enable recovery.
+- Mobile search uses full-screen keyboard-aware field/results with type/database/space filters and snippets, accessible pagination/virtualization, clear local vs server results/loading/offline state. Merge/dedupe only authorized results. Restricted backlinks/relations use neutral Restricted item labels; no title/snippet/thumbnail leaks. History/restore has compact field before/after and server-checked revisions/permissions.
+- Guest invite/auth/space switch/settings works at 320px, software keyboard and screen reader. Read-only/commenter/editor capability labels and error reasons consistent in every mode; installed PWA and normal tabs reconcile identical rights. Cache budgets/lazy archives preserve unsynced allowed work and explain uncached offline targets.
+
+Definition of Done: review approves session/offline-freshness/retention choices before build. Test same user on physical phone + desktop and independent engine contexts, two guest roles, revoke while offline, rejected push, space move, regrant after stale cursor, remote logout and account B login while A has pending bytes/old tab open. Reconnect removes unauthorized data from every listed cache/render/search path before reuse; cached offline behavior matches documented lease limits. Compact search/history/guest CRUD rights pass Chromium/Firefox/WebKit and real Safari/Android plus keyboard/VoiceOver/TalkBack/NVDA. Report disconnected-device and already-exported-data limits explicitly; no remote-wipe promise.

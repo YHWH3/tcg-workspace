@@ -4,6 +4,8 @@ Goal: give TCG a ready workspace built **only from configuration** (databases, r
 
 Depends on Phases 1–2 (databases, relations, views incl. calendar/timeline).
 
+Follow [cross-platform responsive web architecture](cross-platform-responsive-web.md). Adaptive dashboards and offline phone field operations are required product behavior, not a reduced companion mode. The interaction additions below remain architecture-level and must be detailed with the template/block implementation before build.
+
 ---
 
 ## 1. Generic product features in this phase
@@ -71,3 +73,13 @@ Pack installs into an empty workspace and into a workspace with Phase 1 starter 
 
 ## 5. Acceptance
 Leadership questions in the brief ("what is blocked", "which grants are due", "what happened at Parambu") are answerable from the installed dashboards and searchable records, with every number clicking through to records.
+
+## 6. Adaptive operations and Definition of Done (re-detail before build)
+
+- Dashboard blocks adapt to their **container**, including narrow embeds on a wide page. Metrics wrap into one-column/compact groups, labels and units remain readable; database blocks retain Phase 1 compact presentation and every property/action in record detail. Unified calendar becomes agenda, mywork/activity wrap long titles with reachable target links. No hidden operational data to preserve a desktop grid.
+- Leadership/Home, program/project, experiment and finance views retain source drill-down at every width. Clicking a metric opens its filtered records with readable filter scope and Back restores dashboard scroll; phone users can update owner/status/date/related record and return. Project Review template's long questions/body and linked tasks/decisions/media use the same Phase 1 editor, not a phone-only summary.
+- Field Context is a searchable page/record picker showing selected context and capture destination before Save. Quick actions, observation/expense/experiment log and project tracking use labeled fields, proper keyboards and Phase 1 relation/property sheets. Context/target unavailable or deleted → preserve draft and request a new destination; never silently file under an unrelated default.
+- Persist note/context/target/media drafts using Phase 1 local recovery; distinguish local save, queued relation/metadata, bytes and transcript. Offline cached context/database can receive capture; uncached context search explains online requirement. Camera/voice deny/unavailable → file/photo chooser or text note, Drive URL remains a text/link workflow. Retain normal browser Capture/Create entry points when OS share target/shortcuts unsupported.
+- Template gallery/install preview shows intended databases/views/links, dedupe/reuse warnings and progress in a compact sheet/full-screen flow. Operational actions remain generic config; don't introduce platform-specific TCG modules. Large template installation cannot freeze the phone UI or show completion before local writes finish.
+
+Definition of Done: install the pack on existing and empty local fixtures, render each dashboard at 320/390px, tablet portrait/landscape/split window and desktop, and verify identical metric totals/source ids across modes. Phone user completes project review, experiment observation with photo/voice fallback, related operational-record navigation and field context change offline→reopen→sync→second device; deleted context preserves draft. Run three engines plus real Safari/Android keyboard/media and keyboard/AT gates; measure heavy dashboard aggregates on the lower-powered fixture. No-install browser mode passes all field and leadership workflows.
