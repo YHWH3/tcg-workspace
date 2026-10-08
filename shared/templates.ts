@@ -1,8 +1,13 @@
 /* Pure template-instantiation planner. Turns a snapshot of records + options
  * into the list of record patches that create the copy — the client applies
- * them through mutate(), the worker through applyChanges(). One source. */
+ * them through mutate(), the worker through applyChanges(). One source.
+ *
+ * Phase 1 §3.5: copies board kind/recordNoun/showBuiltins/description, views of
+ * copied databases, links whose both ends are inside the copied set, record
+ * parentId + record body blocks, and remaps @[page:]/@[rec:] mention tokens. */
 
 import { cmpOrder, orderBetween } from './order';
+import { linkId } from './linkid';
 import type { FieldDef } from './fields';
 
 export interface RecSnapshot {
@@ -10,6 +15,8 @@ export interface RecSnapshot {
   blocks: Record<string, Record<string, unknown>>;
   boards: Record<string, Record<string, unknown>>;
   tasks: Record<string, Record<string, unknown>>;
+  views?: Record<string, Record<string, unknown>>;
+  links?: Record<string, Record<string, unknown>>;
 }
 
 export interface TemplateOpts {
@@ -22,7 +29,7 @@ export interface TemplateOpts {
 }
 
 export interface PlannedWrite {
-  collection: 'pages' | 'blocks' | 'boards' | 'tasks' | 'moodboards' | 'mooditems';
+  collection: 'pages' | 'blocks' | 'boards' | 'tasks' | 'moodboards' | 'mooditems' | 'views' | 'links';
   id: string;
   patch: Record<string, unknown>;
 }
@@ -38,7 +45,8 @@ export function substituteVars(text: unknown, vars: Record<string, string>): str
   return s.replace(/\{\{\s*([A-Za-z0-9_ -]+?)\s*\}\}/g, (m, name: string) => vars[name] ?? m);
 }
 
-const PAGE_TOKEN_RE = /@\[page:([^\]]+)\]/g;
+/** Mention tokens that can point into the copied set: pages and records. Users stay literal. */
+const MENTION_TOKEN_RE = /@\[(page|rec):([^\]]+)\]/g;
 
 /** Collect the template page + all descendants (BFS). */
 function subtreeIds(pages: RecSnapshot['pages'], rootId: string): string[] {
@@ -105,42 +113,81 @@ export function planTemplateInstantiation(
     });
   }
 
-  // --- boards + tasks referenced by copied `tasks` blocks ---
+  // --- boards + records ---
+  // Blocks owned by a copied page, or by a copied record (record body blocks
+  // have pageId = record id + parentType 'record').
   const boardMap = new Map<string, string>();
-  const planBoard = (srcBoardId: string): string => {
-    const known = boardMap.get(srcBoardId);
-    if (known) return known;
+  const taskMap = new Map<string, string>();
+  const srcBoardIds: string[] = [];
+  const ownedByCopiedSet = (b: Record<string, unknown>): boolean =>
+    !b.deleted && (pageMap.has(String(b.pageId ?? '')) || taskMap.has(String(b.pageId ?? '')));
+
+  // Fixpoint: a `tasks` block in a copied page/record pulls in its database;
+  // each copied database's records pull in their own body blocks, which may
+  // embed further databases. All board ids are allocated before ANY board
+  // patch is written so relation targets between copied databases remap.
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [, b] of Object.entries(snap.blocks)) {
+      if (!ownedByCopiedSet(b)) continue;
+      if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId && !boardMap.has(b.boardId)) {
+        boardMap.set(b.boardId, deps.id());
+        srcBoardIds.push(b.boardId);
+        grew = true;
+        for (const [tid, t] of Object.entries(snap.tasks)) {
+          if (!t.deleted && String(t.boardId ?? 'board-default') === b.boardId && !taskMap.has(tid)) {
+            taskMap.set(tid, deps.id());
+          }
+        }
+      }
+    }
+  }
+
+  const remapField = (f: FieldDef): FieldDef => ({
+    ...f,
+    options: Array.isArray(f.options) ? f.options.map((o) => ({ ...o })) : undefined,
+    // Relation targets pointing at another copied database get remapped;
+    // pairedFieldId stays — field ids are copied unchanged.
+    relation: f.relation ? { ...f.relation, target: boardMap.get(f.relation.target) ?? f.relation.target } : undefined,
+  });
+
+  for (const srcBoardId of srcBoardIds) {
     const src = snap.boards[srcBoardId];
-    const newId = deps.id();
-    boardMap.set(srcBoardId, newId);
+    const newId = boardMap.get(srcBoardId)!;
     const order = String(deps.now); // moodboards/boards use timestamp-ish order strings; keep consistent ordering
     const patch: Record<string, unknown> = {
       name: substituteVars(src?.name ?? 'Board', vars),
       icon: src?.icon ?? '🗂️',
       columns: Array.isArray(src?.columns) ? src.columns.map((c) => ({ ...(c as object) })) : undefined,
-      fields: Array.isArray(src?.fields) ? (src.fields as FieldDef[]).map((f) => ({ ...f, options: Array.isArray(f.options) ? f.options.map((o) => ({ ...o })) : undefined })) : undefined,
+      fields: Array.isArray(src?.fields) ? (src.fields as FieldDef[]).map(remapField) : undefined,
       order,
       createdBy: opts.actorId ?? null,
       createdAt: deps.now,
     };
+    for (const k of ['kind', 'recordNoun', 'showBuiltins', 'templateKey'] as const) {
+      if (src?.[k] !== undefined) patch[k] = src[k];
+    }
+    if (src?.description !== undefined) patch.description = substituteVars(src.description, vars);
     writes.push({ collection: 'boards', id: newId, patch });
-    if (!src) return newId;
-    // Copy non-deleted tasks on that board.
+
+    // Copy non-deleted records on that board (parentId remapped via taskMap).
     const tasks = Object.entries(snap.tasks)
-      .filter(([, t]) => !t.deleted && String(t.boardId ?? 'board-default') === srcBoardId)
+      .filter(([tid, t]) => taskMap.has(tid) && String(t.boardId ?? 'board-default') === srcBoardId)
       .sort((a, b) => cmpOrder(a[1].order, b[1].order));
-    for (const [, t] of tasks) {
+    for (const [tid, t] of tasks) {
       const props: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(t)) if (k.startsWith('p_')) props[k] = v;
       writes.push({
         collection: 'tasks',
-        id: deps.id(),
+        id: taskMap.get(tid)!,
         patch: {
           title: substituteVars(t.title, vars),
           description: substituteVars(t.description, vars),
           boardId: newId,
           status: t.status ?? null,
           priority: t.priority ?? 'none',
+          parentId: t.parentId != null ? (taskMap.get(String(t.parentId)) ?? null) : null,
           order: t.order ?? null,
           createdBy: opts.actorId ?? null,
           createdAt: deps.now,
@@ -148,28 +195,76 @@ export function planTemplateInstantiation(
         },
       });
     }
-    return newId;
-  };
+  }
 
-  // --- blocks ---
-  const blockEntries = Object.entries(snap.blocks).filter(([, b]) => !b.deleted && pageMap.has(String(b.pageId ?? '')));
-  for (const [, b] of blockEntries) {
-    const newPageId = pageMap.get(String(b.pageId))!;
+  // --- views of copied databases (field keys p_<id> stay valid: ids unchanged) ---
+  for (const [, v] of Object.entries(snap.views ?? {})) {
+    if (v.deleted) continue;
+    const newDbId = boardMap.get(String(v.databaseId ?? ''));
+    if (!newDbId) continue;
+    writes.push({
+      collection: 'views',
+      id: deps.id(),
+      patch: {
+        databaseId: newDbId,
+        name: substituteVars(v.name ?? 'View', vars),
+        type: v.type ?? 'table',
+        order: v.order ?? null,
+        config: v.config !== undefined ? (JSON.parse(JSON.stringify(v.config)) as unknown) : undefined,
+        createdBy: opts.actorId ?? null,
+        createdAt: deps.now,
+      },
+    });
+  }
+
+  // --- links whose BOTH ends are inside the copied set ---
+  const remapRef = (id: unknown): string | null => pageMap.get(String(id ?? '')) ?? taskMap.get(String(id ?? '')) ?? null;
+  for (const [, l] of Object.entries(snap.links ?? {})) {
+    if (l.deleted) continue;
+    const fromId = remapRef(l.fromId);
+    const toId = remapRef(l.toId);
+    if (!fromId || !toId) continue;
+    const kind = String(l.kind ?? 'related');
+    const fieldId = typeof l.fieldId === 'string' ? l.fieldId : null;
+    writes.push({
+      collection: 'links',
+      id: linkId(kind, fieldId, fromId, toId),
+      patch: {
+        ...(l.fromType !== undefined ? { fromType: l.fromType } : {}),
+        fromId,
+        ...(l.toType !== undefined ? { toType: l.toType } : {}),
+        toId,
+        kind,
+        fieldId,
+        createdBy: opts.actorId ?? null,
+        createdAt: deps.now,
+      },
+    });
+  }
+
+  // --- blocks (page bodies AND copied-record bodies) ---
+  for (const [, b] of Object.entries(snap.blocks).filter(([, blk]) => ownedByCopiedSet(blk))) {
+    const newOwnerId = pageMap.get(String(b.pageId)) ?? taskMap.get(String(b.pageId))!;
     let text = substituteVars(b.text, vars);
-    // Page mentions inside the template re-point at the copied pages.
-    text = text.replace(PAGE_TOKEN_RE, (m, pid: string) => (pageMap.has(pid) ? `@[page:${pageMap.get(pid)}]` : m));
+    // Page/record mentions inside the template re-point at the copies.
+    text = text.replace(MENTION_TOKEN_RE, (m, kind: string, tid: string) => {
+      const mapped = kind === 'page' ? pageMap.get(tid) : taskMap.get(tid);
+      return mapped ? `@[${kind}:${mapped}]` : m;
+    });
     const patch: Record<string, unknown> = {
-      pageId: newPageId,
+      pageId: newOwnerId,
       order: b.order ?? null,
       type: b.type ?? 'p',
       text,
       ...(b.checked !== undefined ? { checked: b.checked } : {}),
+      ...(b.parentType !== undefined ? { parentType: b.parentType } : {}),
       ...(b.fileId ? { fileId: b.fileId } : {}),
       ...(b.caption ? { caption: substituteVars(b.caption, vars) } : {}),
       ...(b.width !== undefined ? { width: b.width } : {}),
+      ...(b.type === 'embed' && b.url ? { url: b.url, provider: b.provider ?? 'link' } : {}),
     };
     if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId) {
-      patch.boardId = planBoard(b.boardId);
+      patch.boardId = boardMap.get(b.boardId) ?? b.boardId;
     }
     writes.push({ collection: 'blocks', id: deps.id(), patch });
   }

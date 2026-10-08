@@ -1,6 +1,6 @@
 /* Pure custom-field model for boards — shared by client UI, worker/MCP tools and tests. */
 
-export type FieldType = 'text' | 'number' | 'select' | 'multi_select' | 'person' | 'date' | 'url' | 'checkbox';
+export type FieldType = 'text' | 'number' | 'select' | 'multi_select' | 'person' | 'date' | 'url' | 'checkbox' | 'relation';
 
 export interface FieldOption {
   id: string;
@@ -16,6 +16,18 @@ export interface FieldDef {
   options?: FieldOption[];
   /** render as a chip on board cards */
   showOnCard?: boolean;
+  /**
+   * Phase 1 §2.6 — `relation` fields store nothing on the record; values are
+   * `links` rows of kind 'relation' carrying this field's id. `pairedFieldId`
+   * points at the reverse field on the target database for two-way relations;
+   * `primary` marks the side whose fieldId the link rows store.
+   */
+  relation?: {
+    target: string;              // databaseId, or 'pages' for any page
+    pairedFieldId?: string | null;
+    single?: boolean;            // UI hint: at most one linked item
+    primary?: boolean;
+  };
 }
 
 export const FIELD_TYPES: { id: FieldType; label: string }[] = [
@@ -27,6 +39,7 @@ export const FIELD_TYPES: { id: FieldType; label: string }[] = [
   { id: 'date', label: 'Date' },
   { id: 'url', label: 'URL' },
   { id: 'checkbox', label: 'Checkbox' },
+  { id: 'relation', label: 'Relation' },
 ];
 
 const SELECT_TYPES: FieldType[] = ['select', 'multi_select'];
@@ -93,6 +106,9 @@ export function coerceFieldValue(def: FieldDef, raw: unknown): unknown {
       // Caller validates the id against workspace users; here we only shape it.
       return typeof raw === 'string' && raw ? raw : undefined;
     }
+    case 'relation':
+      // Relation values live in `links` rows, never a p_<fieldId> key.
+      return undefined;
   }
 }
 
@@ -133,6 +149,9 @@ export function formatFieldValue(
     }
     case 'person':
       return lookups?.userName?.(String(value)) ?? String(value);
+    case 'relation':
+      // Caller passes already-resolved titles (string[] or string).
+      return Array.isArray(value) ? value.map(String).join(', ') : String(value);
     default:
       return String(value);
   }
