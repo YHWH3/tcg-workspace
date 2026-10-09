@@ -92,6 +92,12 @@ export function MoodCanvas() {
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<Gesture>(null);
   const movedSinceDown = useRef(false);
+  /** Tap = select is resolved on pointer release (pointer capture retargets the
+   * `click` event to the canvas, so item onClick cannot be relied on).
+   * `suppressItemClick` keeps the residual click — when one does arrive — from
+   * toggling selection a second time. */
+  const pendingTap = useRef<{ id: string; additive: boolean } | null>(null);
+  const suppressItemClick = useRef(false);
   const spaceDown = useRef(false);
 
   const maxZ = useMemo(() => Math.max(0, ...items.map((i) => Number(i.z ?? 0))), [items]);
@@ -138,6 +144,7 @@ export function MoodCanvas() {
   /** Restore draft geometry and drop the gesture — never commits. */
   const cancelGesture = useCallback(() => {
     gesture.current = null;
+    pendingTap.current = null;
     setDrafts({});
     setMarquee(null);
   }, []);
@@ -275,9 +282,11 @@ export function MoodCanvas() {
   /** Item pointer-down. In edit mode it starts a pending move; in browse it
    * bubbles to the canvas (drag = pan, tap = select). */
   const itemDown = (item: MoodItem, e: React.PointerEvent) => {
+    if (e.button !== undefined && e.button > 0) return;
+    if (pointers.current.size === 0)
+      pendingTap.current = { id: item.id, additive: e.shiftKey || e.metaKey || e.ctrlKey };
     if (mode === 'browse') return; // bubbles up → pan
     e.stopPropagation();
-    if (e.button !== undefined && e.button > 0) return;
     (e.currentTarget as HTMLElement).focus?.();
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     ref.current?.setPointerCapture?.(e.pointerId);
@@ -289,7 +298,8 @@ export function MoodCanvas() {
     }
     if (gesture.current) return;
     if (connectMode) {
-      // Connect mode: taps pick endpoints, never start drags.
+      // Connect mode: taps pick endpoints, never start drags and never select.
+      pendingTap.current = null;
       setConnectFrom((from) => {
         if (!from) return item.id;
         setConnectPair({ from, to: item.id });
@@ -380,11 +390,24 @@ export function MoodCanvas() {
     } else if (pointers.current.size === 0) {
       gesture.current = null;
     }
+    // Tap (press with no drag) selects — the click event cannot be trusted to
+    // reach the item once pointer capture is set on the canvas.
+    if (pendingTap.current) {
+      if (!movedSinceDown.current && pointers.current.size === 0 && g?.kind !== 'pinch' && !connectMode) {
+        const it = items.find((i) => i.id === pendingTap.current!.id);
+        if (it) {
+          selectItem(it, pendingTap.current.additive);
+          suppressItemClick.current = true;
+        }
+      }
+      pendingTap.current = null;
+    }
   };
 
   /** pointercancel / lostpointercapture → cancel, restore, never commit. */
   const onCancel = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
+    pendingTap.current = null;
     const g = gesture.current;
     if (!g) return;
     if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'marquee' || g.kind === 'press') {
@@ -434,6 +457,11 @@ export function MoodCanvas() {
 
   const itemClick = (item: MoodItem, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (suppressItemClick.current) {
+      // Click that trails a tap-select already handled on pointer release.
+      suppressItemClick.current = false;
+      return;
+    }
     if (movedSinceDown.current) return;
     if (connectMode) return; // handled in itemDown
     selectItem(item, e.shiftKey || e.metaKey || e.ctrlKey);
@@ -573,18 +601,24 @@ export function MoodCanvas() {
     async (dx: number, dy: number) => {
       const ids = new Set<string>();
       for (const s of selItems) for (const id of moveSet(s.id)) ids.add(id);
+      // Read committed geometry from Dexie (not React state) so rapid repeated
+      // nudges accumulate instead of all reading the same stale position.
+      const finals = new Map<string, { x: number; y: number }>();
       for (const id of ids) {
-        const it = items.find((i) => i.id === id);
+        const it = (await db.mooditems.get(id)) as MoodItem | undefined;
         if (!it || it.type === 'connector') continue;
-        await mutate('mooditems', id, { x: Number(it.x ?? 0) + dx, y: Number(it.y ?? 0) + dy });
+        const g = { x: Number(it.x ?? 0) + dx, y: Number(it.y ?? 0) + dy };
+        finals.set(id, g);
+        await mutate('mooditems', id, g);
       }
       for (const s of selItems) {
         if (s.type !== 'frame' && s.type !== 'connector') {
-          await settleItemDrop(s, { ...geomOf(s), x: Number(s.x ?? 0) + dx, y: Number(s.y ?? 0) + dy });
+          const f = finals.get(s.id);
+          if (f) await settleItemDrop(s, { ...geomOf(s), x: f.x, y: f.y });
         }
       }
     },
-    [items, selItems, moveSet, settleItemDrop],
+    [selItems, moveSet, settleItemDrop],
   );
 
   const deleteSel = useCallback(() => {

@@ -263,26 +263,28 @@ async function loginPage(context, user) {
 }
 
 const canvas = (page) => page.locator('[data-testid="mood-canvas"]');
-/** DOM-level click — bypasses the product bug where MoodCanvas.onDown captures
- * the pointer before the onBg check, so real pointer clicks on canvas-internal
- * buttons/items never reach their onClick handlers (see report). */
+/** DOM-level click — canvas item selection is resolved on pointer release
+ * (pointer capture retargets `click` to the canvas), so helpers below do a
+ * real down/up; dispatched clicks remain for canvas-internal buttons. */
 const uiClick = (page, sel) => page.locator(sel).first().dispatchEvent('click');
 const uiClickShift = (page, sel) => page.locator(sel).first().dispatchEvent('click', { shiftKey: true });
 
 const itemEl = (page, id) => page.locator(`[data-mooditem="${id}"]`);
 const canvasBox = async (page) => await canvas(page).boundingBox();
 
-// Selection helper: a real pointerdown/up on the item resets movedSinceDown
-// (itemClick ignores clicks right after a drag), then dispatchEvent('click')
-// fires the product's own itemClick→selectItem handler. A full real mouse click
-// cannot be used: itemDown captures the pointer to the canvas, so the click's
-// target becomes the canvas and selection never happens (product bug, reported).
+// Selection helper: selection happens on pointer release of a real down/up
+// (tap = select). The trailing dispatched click is kept as a fallback for
+// paths that only fire click (it is suppressed inside the product when the
+// release already handled selection). Hold Shift during the real press for
+// additive toggles so the release-path sees the modifier.
 const selectItemEl = async (page, id, additive = false) => {
   const b = await itemEl(page, id).boundingBox();
   if (b) {
+    if (additive) await page.keyboard.down('Shift');
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
     await page.mouse.down();
     await page.mouse.up();
+    if (additive) await page.keyboard.up('Shift');
     await sleep(150);
   }
   await itemEl(page, id).dispatchEvent('click', additive ? { shiftKey: true } : {});
