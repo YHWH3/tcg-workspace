@@ -11,7 +11,7 @@ import type { OutboxEntry } from '../db';
 import { liveConnected, startPresence } from '../live';
 import { countDrafts, ensurePersistentStorage, reconcileDraft } from '../drafts';
 
-export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'idle';
+export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'idle' | 'rejected';
 
 interface SyncState {
   status: SyncStatus;
@@ -52,7 +52,12 @@ async function updatePending() {
   const n = all.filter((e) => (e.state ?? 'pending') === 'pending').length;
   const rej = all.length - n;
   const media = await db.blobs.where('state').anyOf('pending', 'failed').count();
-  syncStore.set((s) => (s.pending === n && s.pendingMedia === media && s.rejected === rej ? s : { ...s, pending: n, pendingMedia: media, rejected: rej }));
+  syncStore.set((s) => {
+    // Rejected rows are unsynced work — never allow 'synced' while any
+    // remain; clear the flag once they're retried/exported (review S3).
+    const status = rej > 0 && s.status === 'synced' ? 'rejected' : rej === 0 && s.status === 'rejected' ? 'synced' : s.status;
+    return s.pending === n && s.pendingMedia === media && s.rejected === rej && s.status === status ? s : { ...s, status, pending: n, pendingMedia: media, rejected: rej };
+  });
 }
 
 /** Re-count pending work (records + media) — safe to call after any write path. */
@@ -274,7 +279,9 @@ export async function syncNow(): Promise<void> {
     const { uploadPendingBlobs } = await import('../files');
     await uploadPendingBlobs();
     await updatePending();
-    syncStore.set((s) => ({ ...s, status: 'synced', lastSyncedAt: Date.now() }));
+    // Rejected rows mean work was NOT accepted — 'synced' must never be
+    // reported while any remain (review S3).
+    syncStore.set((s) => ({ ...s, status: s.rejected > 0 ? 'rejected' : 'synced', lastSyncedAt: Date.now() }));
     if (!persistenceRequested) {
       persistenceRequested = true;
       // Best-effort durability hint after real storage use (platform §3).

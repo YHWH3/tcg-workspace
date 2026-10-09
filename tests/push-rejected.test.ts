@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { planPushOutcome } from '../src/core/sync/engine';
+import 'fake-indexeddb/auto';
+import { planPushOutcome, refreshPending, syncStore } from '../src/core/sync/engine';
 import type { OutboxEntry } from '../src/core/db';
 
 /* Review B5 — the client must only delete server-ACKNOWLEDGED outbox entries.
@@ -43,5 +44,27 @@ describe('pushOutbox server-rejection handling (review B5)', () => {
     const { acked, refused } = planPushOutcome(entries, [{ id: 'a', collection: 'tasks', reason: 'x' }]);
     expect(acked.map((x) => x.collection)).toEqual(['boards']);
     expect(refused.map((x) => x.collection)).toEqual(['tasks']);
+  });
+});
+
+describe('rejected-only queue surfaces as unsynced (review S3)', () => {
+  it('a queue with ONLY rejected rows must not report synced', async () => {
+    const { db } = await import('../src/core/db');
+    await db.open();
+    // Only rejected entries — zero pending, zero media.
+    await db.outbox.add({ id: 'rej1', collection: 'tasks', patch: { title: 'x' }, ts: 1, state: 'rejected', rejectReason: 'invalid_mutation' });
+    syncStore.set((s) => ({ ...s, status: 'synced' }));
+    refreshPending();
+    await new Promise((r) => setTimeout(r, 30)); // let updatePending land
+    const s1 = syncStore.get();
+    expect(s1.rejected).toBe(1);
+    expect(s1.pending).toBe(0);
+    expect(s1.status).toBe('rejected'); // never 'synced' with rejected rows
+    // Clearing the queue restores 'synced'.
+    await db.outbox.clear();
+    refreshPending();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(syncStore.get().status).toBe('synced');
+    expect(syncStore.get().rejected).toBe(0);
   });
 });

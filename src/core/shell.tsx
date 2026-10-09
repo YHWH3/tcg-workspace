@@ -6,6 +6,7 @@ import { modules } from '../modules';
 import type { AppModule } from '../modules/types';
 import { authStore, resolveAccountSwitch, signOut } from './auth';
 import { accountSwitchStore } from './accountSwitch';
+import { legacyRecoveryStore, resolveLegacyRecovery } from './legacyMigration';
 import { APP_NAME } from './config';
 import { InstallButton } from './install';
 import { CommandPalette, paletteStore } from './search';
@@ -22,10 +23,23 @@ export { useIsMobile } from './mobile';
 import { useIsMobile } from './mobile';
 
 function SyncIndicator() {
-  const { status, pending, pendingMedia } = useStore(syncStore);
+  const { status, pending, pendingMedia, rejected } = useStore(syncStore);
   const online = useStore(onlineStore);
   const total = pending + pendingMedia;
 
+  // Server-rejected writes are unsynced work — never show 'Synced' (S3).
+  if (status === 'rejected' || rejected > 0) {
+    return (
+      <button
+        onClick={() => void retryRejected()}
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
+        title="Changes rejected by the server, kept locally — click to retry"
+      >
+        <AlertTriangle size={13} />
+        <span>{rejected} rejected · retry</span>
+      </button>
+    );
+  }
   if (status === 'error') {
     return (
       <button
@@ -303,6 +317,47 @@ export function AccountSwitchGate() {
         </Button>
         <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => choose('cancel')}>
           {busy === 'cancel' ? 'Cancelling…' : 'Cancel — keep my data'}
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
+/* Legacy-store recovery (S1): pre-uid 'workspace' data whose owner can't be
+ * proven — copy/export only after explicit human choice; 'leave' keeps the
+ * store untouched. Foreign-owned data never offers copy. */
+export function LegacyRecoveryGate() {
+  const r = useStore(legacyRecoveryStore);
+  const [busy, setBusy] = useState<string | null>(null);
+  if (!r) return null;
+  const { records, outbox, drafts, blobs } = r.counts;
+  const parts = [
+    records ? `${records} record${records === 1 ? '' : 's'}` : '',
+    outbox ? `${outbox} unsynced change${outbox === 1 ? '' : 's'}` : '',
+    drafts ? `${drafts} draft${drafts === 1 ? '' : 's'}` : '',
+    blobs ? `${blobs} upload${blobs === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  const choose = (c: 'copy' | 'export' | 'leave') => {
+    setBusy(c);
+    void resolveLegacyRecovery(c, r).catch(() => setBusy(null));
+  };
+  return (
+    <Dialog title="Recover data from a previous version?" onClose={() => choose('leave')} guard={() => busy === null}>
+      <p className="text-sm text-neutral-600 dark:text-neutral-300">
+        This device holds {parts.join(', ')} stored by an older version of the app
+        {r.foreign ? ' — but it appears to belong to a different account.' : ' — the owning account could not be confirmed.'}
+      </p>
+      <div className="mt-4 flex flex-col gap-2">
+        {!r.foreign && (
+          <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('copy')}>
+            {busy === 'copy' ? 'Copying…' : 'Copy it into this account'}
+          </Button>
+        )}
+        <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('export')}>
+          {busy === 'export' ? 'Exporting…' : 'Export as a backup file'}
+        </Button>
+        <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => choose('leave')}>
+          {busy === 'leave' ? 'Closing…' : 'Leave it alone'}
         </Button>
       </div>
     </Dialog>
