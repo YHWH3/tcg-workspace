@@ -22,6 +22,7 @@ import { Board } from '../../modules/boards/Board';
 import { BoardPage } from '../../modules/boards/BoardPage';
 import { FieldsEditor } from '../../modules/boards/FieldsEditor';
 import { useBoard, useTasks, boardTasks, deleteBoard, type BoardRow } from '../../modules/boards/api';
+import { fieldsOf } from '../../modules/boards/model';
 import {
   availableFieldKeys,
   createRecord,
@@ -51,6 +52,10 @@ import { ListView } from './ListView';
 import { GalleryView } from './GalleryView';
 import { GroupBoard } from './GroupBoard';
 import { RecordDetail } from './RecordDetail';
+import { CalendarView } from '../../modules/boards/views/CalendarView';
+import { TimelineView } from '../../modules/boards/views/TimelineView';
+import { fieldKeyOf } from '../records';
+import type { DateFieldKey } from '../../../shared/views';
 
 const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3 };
 
@@ -163,28 +168,17 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
             }
           >
             {(close) => (
-              <div className="w-40 p-1 text-sm">
-                {(['table', 'list', 'gallery', 'board'] as ViewType[])
-                  .filter((t) => t !== 'board' || cols.length > 0)
-                  .map((t) => {
-                    const Icon = VIEW_ICONS[t];
-                    return (
-                      <button
-                        key={t}
-                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                        onClick={() => {
-                          close();
-                          void createView(board.id, t).then((id) => {
-                            rememberView(board.id, id);
-                            navigate(`/boards/${board.id}/views/${id}`);
-                          });
-                        }}
-                      >
-                        <Icon size={14} className="text-neutral-400" /> {VIEW_TYPE_LABELS[t]}
-                      </button>
-                    );
-                  })}
-              </div>
+              <NewViewMenu
+                board={board}
+                cols={cols}
+                onCreate={(t, cfg) => {
+                  close();
+                  void createView(board.id, t, undefined, cfg).then((id) => {
+                    rememberView(board.id, id);
+                    navigate(`/boards/${board.id}/views/${id}`);
+                  });
+                }}
+              />
             )}
           </Popover>
           <span className="flex-1" />
@@ -233,6 +227,8 @@ function renderView(board: BoardRow, view: ViewRow, records: ReturnType<typeof u
   }
   if (type === 'list') return <ListView board={board} view={view} records={records} />;
   if (type === 'gallery') return <GalleryView board={board} view={view} records={records} />;
+  if (type === 'calendar') return <CalendarView board={board} view={view} records={records} />;
+  if (type === 'timeline') return <TimelineView board={board} view={view} records={records} />;
   return <TableView board={board} view={view} records={records} />;
 }
 
@@ -437,7 +433,93 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
           </div>
         )}
       </Popover>
+      {(view.type === 'calendar' || view.type === 'timeline') && (
+        <>
+          <Select
+            value={cfg.dateKey ?? 'dueDate'}
+            onChange={(e) => setCfg({ dateKey: e.target.value as DateFieldKey })}
+            className="h-8 w-auto max-w-32 text-xs"
+            aria-label="Date field"
+            title="Date field"
+          >
+            {dateFieldKeys(board).map((k) => (
+              <option key={k} value={k}>
+                {fieldKeyLabel(board, k)}
+              </option>
+            ))}
+          </Select>
+          {view.type === 'timeline' && (
+            <Select
+              value={cfg.endDateKey ?? ''}
+              onChange={(e) => setCfg({ endDateKey: (e.target.value || null) as DateFieldKey | null })}
+              className="h-8 w-auto max-w-32 text-xs"
+              aria-label="End date field"
+              title="End date field"
+            >
+              <option value="">No end date</option>
+              {dateFieldKeys(board).map((k) => (
+                <option key={k} value={k}>
+                  {fieldKeyLabel(board, k)}
+                </option>
+              ))}
+            </Select>
+          )}
+        </>
+      )}
       {noun && <span className="hidden" />}
+    </div>
+  );
+}
+
+/** dueDate + every date-type custom field — the calendar/timeline bucketing keys. */
+function dateFieldKeys(board: BoardRow): DateFieldKey[] {
+  const keys: DateFieldKey[] = ['dueDate'];
+  for (const f of fieldsOf(board)) if (f.type === 'date') keys.push(fieldKeyOf(f) as DateFieldKey);
+  return keys;
+}
+
+/** New-view menu: type list; calendar/timeline ask for the date field first. */
+function NewViewMenu({ board, cols, onCreate }: { board: BoardRow; cols: { id: string }[]; onCreate: (t: ViewType, cfg?: ViewConfig) => void }) {
+  const [pending, setPending] = useState<ViewType | null>(null);
+  const [dateKey, setDateKey] = useState<DateFieldKey>('dueDate');
+  if (pending === 'calendar' || pending === 'timeline') {
+    return (
+      <div className="w-56 p-2 text-sm">
+        <p className="px-1 pb-1.5 text-xs font-semibold text-neutral-500">{VIEW_TYPE_LABELS[pending]} — date field</p>
+        <Select value={dateKey} onChange={(e) => setDateKey(e.target.value as DateFieldKey)} className="mb-2 w-full text-xs">
+          {dateFieldKeys(board).map((k) => (
+            <option key={k} value={k}>
+              {fieldKeyLabel(board, k)}
+            </option>
+          ))}
+        </Select>
+        <div className="flex justify-end gap-1">
+          <Button size="sm" variant="ghost" onClick={() => setPending(null)}>
+            Back
+          </Button>
+          <Button size="sm" variant="primary" onClick={() => onCreate(pending, { dateKey })}>
+            Create
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="w-40 p-1 text-sm">
+      {(['table', 'list', 'gallery', 'board', 'calendar', 'timeline'] as ViewType[])
+        .filter((t) => t !== 'board' || cols.length > 0)
+        .map((t) => {
+          const Icon = VIEW_ICONS[t];
+          return (
+            <button
+              key={t}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              onClick={() => (t === 'calendar' || t === 'timeline' ? setPending(t) : onCreate(t))}
+            >
+              <Icon size={14} className="text-neutral-400" /> {VIEW_TYPE_LABELS[t]}
+            </button>
+          );
+        })}
     </div>
   );
 }
