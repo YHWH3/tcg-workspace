@@ -54,20 +54,26 @@ export async function commitChangeset(env: Env, cs: ChangesetCtx): Promise<strin
 export interface UndoOutcome {
   ok: boolean;
   error?: string;
+  /** HTTP status the error maps to (403/404/409) — callers must not guess. */
+  status?: number;
   changesetId?: string;
   undoChangesetId?: string;
   skipped?: { id: string; field: string; reason: string }[];
   restored?: number;
+  conflicts?: { id: string; collection: string; expectedRev: number; currentRev: number | null }[];
 }
 
 export async function undoChangeset(env: Env, user: AuthUser, changesetId: string): Promise<UndoOutcome> {
   const cs = await env.DB.prepare('SELECT id, user_id, undone_by, tool FROM changesets WHERE id = ?').bind(changesetId).first<{ id: string; user_id: string; undone_by: string | null; tool: string }>();
-  if (!cs) return { ok: false, error: 'changeset not found' };
+  if (!cs) return { ok: false, status: 404, error: 'changeset not found' };
+  // Authorization lives here, not in callers: every path (HTTP route, MCP
+  // undo_change) enforces owner-or-admin. Phase 0 §7 — members undo own only.
+  if (user.role !== 'admin' && cs.user_id !== user.id) return { ok: false, status: 403, error: 'forbidden' };
   if (cs.undone_by) {
     const undone = await env.DB.prepare('SELECT undoes FROM changesets WHERE id = ?').bind(cs.undone_by).first<{ undoes: string | null }>();
     // undo-of-undo is a redo — allowed only through that changeset's own undo
-    if (undone) return { ok: false, error: 'already undone' };
-    return { ok: false, error: 'already undone' };
+    if (undone) return { ok: false, status: 409, error: 'already undone' };
+    return { ok: false, status: 409, error: 'already undone' };
   }
   const { results } = await env.DB.prepare('SELECT collection, record_id, created, before, after, field_ts FROM changeset_items WHERE changeset_id = ? ORDER BY idx').bind(changesetId).all<{ collection: string; record_id: string; created: number; before: string; after: string; field_ts: string }>();
   const items: ChangesetItem[] = results.map((r) => ({ collection: r.collection, record_id: r.record_id, created: r.created, before: JSON.parse(r.before), after: JSON.parse(r.after), field_ts: JSON.parse(r.field_ts) }));
@@ -125,6 +131,6 @@ changesApi.get('/:id', async (c) => {
 changesApi.post('/:id/undo', async (c) => {
   const user = c.get('user');
   const out = await undoChangeset(c.env, user, c.req.param('id'));
-  if (!out.ok) return c.json({ error: out.error }, out.error === 'changeset not found' ? 404 : 409);
+  if (!out.ok) return c.json({ error: out.error, conflicts: out.conflicts }, (out.status ?? 409) as 403 | 404 | 409);
   return c.json(out);
 });

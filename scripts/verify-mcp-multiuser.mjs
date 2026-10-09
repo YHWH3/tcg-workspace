@@ -154,6 +154,37 @@ check('every activity row attributes to its caller (actorId)', actOk, detail.sli
 const bRead = await B.call('workspace_overview', {});
 check('B can still read after interleaved writes', Array.isArray(bRead.data.pages));
 
+/* ================= review B1: undo authorization ================= */
+console.log('\n== 2. undo changeset authorization (review B1) ==');
+
+const bobLogin = await api('/api/auth/login', { method: 'POST', body: { username: USER_B, password: PASS } });
+check('bob session login', !!bobLogin.data.token, bobLogin.text.slice(0, 160));
+
+const cpForUndo = await A.call('create_page', { title: `${RUN}-UNDO-TARGET`, markdown: 'keep me' });
+check('A create_page for undo target', !cpForUndo.isError && !!cpForUndo.data.id && !!cpForUndo.data.changesetId, cpForUndo.text.slice(0, 160));
+const undoTargetId = cpForUndo.data.id;
+const undoTargetCs = cpForUndo.data.changesetId;
+
+// B via MCP — must be refused, and the page must stay.
+const bUndoMcp = await B.call('undo_change', { changesetId: undoTargetCs });
+check('B undo_change of A changeset → forbidden', bUndoMcp.isError && /forbidden/.test(bUndoMcp.text), bUndoMcp.text.slice(0, 160));
+
+// B via HTTP — same rule on the REST path.
+const bUndoHttp = await api(`/api/changes/${undoTargetCs}/undo`, { method: 'POST', token: bobLogin.data.token });
+check('B POST /api/changes/:id/undo → 403', bUndoHttp.status === 403, `status=${bUndoHttp.status} ${bUndoHttp.text.slice(0, 120)}`);
+
+const allAfterDeny = await pullAll(adminLogin.data.token);
+const pageAfterDeny = allAfterDeny.get(undoTargetId);
+check('page untouched after denied undos', !!pageAfterDeny && pageAfterDeny.data.deleted !== true && pageAfterDeny.data.title === `${RUN}-UNDO-TARGET`);
+const csAfterDeny = await api(`/api/changes/${undoTargetCs}`, { token: adminLogin.data.token });
+check('changeset not marked undone (zero undo writes)', csAfterDeny.status === 200 && csAfterDeny.data.changeset?.undone_by === null, csAfterDeny.text.slice(0, 160));
+
+// A's own undo still works (owner path stays healthy).
+const aUndo = await A.call('undo_change', { changesetId: undoTargetCs });
+check('A undo_change of own changeset → ok', !aUndo.isError && aUndo.data.restored !== undefined, aUndo.text.slice(0, 160));
+const allAfterUndo = await pullAll(adminLogin.data.token);
+check('page deleted by owner undo', allAfterUndo.get(undoTargetId)?.data?.deleted === true);
+
 /* ================= later Phase 0 scenarios land here ================= */
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed`);
