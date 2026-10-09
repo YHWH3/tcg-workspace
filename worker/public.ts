@@ -1,14 +1,19 @@
 import { Hono } from 'hono';
 import type { Env } from './auth';
-import { ID_RE, concatRows, type FileRow } from './files';
+import { ID_RE, concatRows, svgHeaders, type FileRow } from './files';
 import {
+  allowedCanvasFiles,
   allowedFileIds,
+  canServeBoardShare,
   canServeFile,
   canServePage,
   descendantIds,
   expandThumbs,
+  publicCanvasItem,
   type PubBlock,
+  type PubCanvasCard,
   type PubFileMeta,
+  type PubMoodItem,
   type PubPage,
 } from './publicAccess';
 
@@ -19,6 +24,7 @@ const MENTION_RE = /@\[(page|user):([A-Za-z0-9_-]+)\]/g;
 interface ShareRow {
   token: string;
   page_id: string;
+  target_type: string;
 }
 
 interface PageRec extends PubPage {
@@ -26,8 +32,8 @@ interface PageRec extends PubPage {
   icon?: string;
 }
 
-async function shareFor(db: D1Database, token: string): Promise<ShareRow | null> {
-  return db.prepare('SELECT token, page_id FROM shares WHERE token = ?').bind(token).first<ShareRow>();
+async function shareFor(db: D1Database, token: string, targetType: 'page' | 'moodboard'): Promise<ShareRow | null> {
+  return db.prepare('SELECT token, page_id, target_type FROM shares WHERE token = ? AND target_type = ?').bind(token, targetType).first<ShareRow>();
 }
 
 /** All pages (id/title/icon/parent/deleted) + the set of ids inside the share tree. */
@@ -104,7 +110,7 @@ async function allowedFiles(db: D1Database, tree: Set<string>): Promise<{ allowe
 }
 
 publicApi.get('/:token', async (c) => {
-  const share = await shareFor(c.env.DB, c.req.param('token'));
+  const share = await shareFor(c.env.DB, c.req.param('token'), 'page');
   if (!share) return c.json({ error: 'inactive' }, 404);
   const { pages, tree } = await pageTree(c.env.DB, share.page_id);
   const root = pages.find((p) => p.id === share.page_id);
@@ -113,7 +119,7 @@ publicApi.get('/:token', async (c) => {
 });
 
 publicApi.get('/:token/pages/:pageId', async (c) => {
-  const share = await shareFor(c.env.DB, c.req.param('token'));
+  const share = await shareFor(c.env.DB, c.req.param('token'), 'page');
   if (!share) return c.json({ error: 'inactive' }, 404);
   const pageId = c.req.param('pageId');
   const { pages, tree } = await pageTree(c.env.DB, share.page_id);
@@ -204,7 +210,7 @@ publicApi.get('/:token/pages/:pageId', async (c) => {
 });
 
 publicApi.get('/:token/files/:fileId', async (c) => {
-  const share = await shareFor(c.env.DB, c.req.param('token'));
+  const share = await shareFor(c.env.DB, c.req.param('token'), 'page');
   if (!share) return c.json({ error: 'inactive' }, 404);
   const fileId = c.req.param('fileId');
   if (!ID_RE.test(fileId)) return c.json({ error: 'invalid file id' }, 400);
@@ -220,6 +226,122 @@ publicApi.get('/:token/files/:fileId', async (c) => {
       'Content-Type': meta.mime ?? 'application/octet-stream',
       'Content-Length': String(out.byteLength),
       'Cache-Control': 'public, max-age=31536000, immutable',
+      ...svgHeaders(meta.mime),
+    },
+  });
+});
+
+/* ---------- Public moodboard (canvas) shares (Phase 2 §6) ---------- */
+
+interface CanvasItemRow extends PubMoodItem {
+  data: string;
+  rev: number;
+}
+
+/** Live mooditems of one board, as parsed records. */
+async function canvasItems(db: D1Database, boardId: string): Promise<{ row: CanvasItemRow; data: Record<string, unknown> }[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, data, seq AS rev FROM records WHERE collection = 'mooditems'
+         AND json_extract(data, '$.boardId') = ? AND COALESCE(json_extract(data, '$.deleted'), 0) = 0`,
+    )
+    .bind(boardId)
+    .all<{ id: string; data: string; rev: number }>();
+  return results.map((r) => ({ row: { id: r.id, data: r.data, rev: r.rev }, data: JSON.parse(r.data) as Record<string, unknown> }));
+}
+
+/** Minimal {title, stage} for a card ref — never body/custom fields/links. */
+async function cardInfo(db: D1Database, ref: { type?: unknown; id?: unknown }, boards: Map<string, Map<string, string>>): Promise<PubCanvasCard> {
+  const id = typeof ref?.id === 'string' ? ref.id : '';
+  const type = ref?.type === 'page' ? 'pages' : 'tasks';
+  if (!id) return { title: null, stage: null };
+  const row = await db
+    .prepare(`SELECT data FROM records WHERE collection = ? AND id = ? AND COALESCE(json_extract(data, '$.deleted'), 0) = 0`)
+    .bind(type, id)
+    .first<{ data: string }>();
+  if (!row) return { title: null, stage: null };
+  const d = JSON.parse(row.data) as Record<string, unknown>;
+  const title = typeof d.title === 'string' && d.title ? d.title : 'Untitled';
+  let stage: string | null = null;
+  if (type === 'tasks') {
+    const boardId = typeof d.boardId === 'string' && d.boardId ? d.boardId : 'board-default';
+    let cols = boards.get(boardId);
+    if (!cols) {
+      cols = new Map();
+      const b = await db.prepare(`SELECT data FROM records WHERE collection = 'boards' AND id = ?`).bind(boardId).first<{ data: string }>();
+      const list = b ? ((JSON.parse(b.data).columns ?? []) as { id: string; name: string }[]) : [];
+      for (const col of list) cols.set(col.id, col.name);
+      boards.set(boardId, cols);
+    }
+    const status = typeof d.status === 'string' ? d.status : '';
+    stage = cols.get(status) ?? (status || null);
+  }
+  return { title, stage };
+}
+
+publicApi.get('/canvas/:token', async (c) => {
+  const share = await shareFor(c.env.DB, c.req.param('token'), 'moodboard');
+  if (!share) return c.json({ error: 'inactive' }, 404);
+  if (!canServeBoardShare(share, share.page_id)) return c.json({ error: 'inactive' }, 404);
+  const board = await c.env.DB
+    .prepare(`SELECT data FROM records WHERE collection = 'moodboards' AND id = ? AND COALESCE(json_extract(data, '$.deleted'), 0) = 0`)
+    .bind(share.page_id)
+    .first<{ data: string }>();
+  if (!board) return c.json({ error: 'inactive' }, 404);
+  const bd = JSON.parse(board.data) as Record<string, unknown>;
+
+  const items = await canvasItems(c.env.DB, share.page_id);
+  const boards = new Map<string, Map<string, string>>();
+  const out: Record<string, unknown>[] = [];
+  for (const it of items) {
+    const data = it.data;
+    data.id = it.row.id;
+    let card: PubCanvasCard | null = null;
+    if (data.type === 'card') card = await cardInfo(c.env.DB, (data.ref as { type?: unknown; id?: unknown }) ?? { type: 'record', id: data.taskId }, boards);
+    out.push(publicCanvasItem(data, card));
+  }
+
+  const { results: files } = await c.env.DB
+    .prepare(`SELECT id, json_extract(data, '$.thumbId') AS thumbId FROM records WHERE collection = 'files'`)
+    .all<PubFileMeta>();
+  const allowed = allowedCanvasFiles(items.map((i) => i.row).map((r) => ({ id: r.id, ...JSON.parse(r.data) } as PubMoodItem)), share.page_id, files);
+  const meta: Record<string, unknown> = {};
+  if (allowed.size) {
+    const { results } = await c.env.DB
+      .prepare(`SELECT id, data FROM records WHERE collection = 'files' AND id IN (${[...allowed].map(() => '?').join(',')})`)
+      .bind(...[...allowed])
+      .all<{ id: string; data: string }>();
+    for (const r of results) {
+      const d = JSON.parse(r.data) as Record<string, unknown>;
+      meta[r.id] = { id: r.id, name: d.name ?? '', mime: d.mime ?? '', kind: d.kind ?? 'file', size: d.size ?? 0, thumbId: d.thumbId ?? null, width: d.width ?? null, height: d.height ?? null, duration: d.duration ?? null };
+    }
+  }
+
+  return c.json({ board: { id: share.page_id, name: (bd.title as string) ?? (bd.name as string) ?? 'Moodboard' }, items: out, files: meta });
+});
+
+publicApi.get('/canvas/:token/files/:fileId', async (c) => {
+  const share = await shareFor(c.env.DB, c.req.param('token'), 'moodboard');
+  if (!share) return c.json({ error: 'inactive' }, 404);
+  const fileId = c.req.param('fileId');
+  if (!ID_RE.test(fileId)) return c.json({ error: 'invalid file id' }, 400);
+  const items = await canvasItems(c.env.DB, share.page_id);
+  const { results: files } = await c.env.DB
+    .prepare(`SELECT id, json_extract(data, '$.thumbId') AS thumbId FROM records WHERE collection = 'files'`)
+    .all<PubFileMeta>();
+  const pubItems = items.map((i) => ({ id: i.row.id, ...i.data } as PubMoodItem));
+  const allowed = allowedCanvasFiles(pubItems, share.page_id, files);
+  if (!canServeFile(fileId, allowed, files)) return c.json({ error: 'not found' }, 404);
+  const meta = await c.env.DB.prepare('SELECT mime, complete FROM files WHERE id = ?').bind(fileId).first<FileRow>();
+  if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
+  const { results } = await c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(fileId).all<{ data: unknown }>();
+  const out = concatRows(results);
+  return new Response(out, {
+    headers: {
+      'Content-Type': meta.mime ?? 'application/octet-stream',
+      'Content-Length': String(out.byteLength),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      ...svgHeaders(meta.mime),
     },
   });
 });
