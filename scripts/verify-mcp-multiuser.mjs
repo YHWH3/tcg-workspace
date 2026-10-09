@@ -232,6 +232,15 @@ check('retry with fresh revs succeeds', !atomicRetry.isError, atomicRetry.text.s
 const allAtomic2 = await pullAll(adminLogin.data.token);
 check('retry wrote all three records', allAtomic2.get(r1)?.data?.title === `${RUN}-R1-byA` && allAtomic2.get(r2)?.data?.title === `${RUN}-R2-byA` && allAtomic2.get(r3)?.data?.title === `${RUN}-R3-byA`);
 
+// VERIFY-B2: on real D1, the atomic batch lands as ONE committed changeset
+// containing exactly the three writes — and the earlier conflicted call
+// committed nothing for these ids.
+check('atomic retry committed a changeset', !!atomicRetry.data?.changesetId, JSON.stringify(atomicRetry.data ?? atomicRetry.text).slice(0, 160));
+const csAtomic = await api(`/api/changes/${atomicRetry.data?.changesetId}`, { token: adminLogin.data.token });
+const atomicItemIds = new Set((csAtomic.data?.items ?? []).map((i) => i.record_id));
+check('changeset contains exactly the 3 batch writes', csAtomic.status === 200 && atomicItemIds.size === 3 && [r1, r2, r3].every((id) => atomicItemIds.has(id)), JSON.stringify(csAtomic.data?.items?.map((i) => i.record_id) ?? []));
+check('changeset actor is A', csAtomic.data?.changeset?.user_id === idA, `user_id=${csAtomic.data?.changeset?.user_id}`);
+
 /* ================= review B3: block-level rev guards ================= */
 console.log('\n== 4. block-level rev guards (review B3) ==');
 
