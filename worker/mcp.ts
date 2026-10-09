@@ -15,7 +15,7 @@ import { cmpOrder, orderBetween, uuid } from '../shared/order';
 import { blocksToMarkdown, markdownToBlocks, renderMentionText, resolveMentionText } from '../shared/markdown';
 import { planTemplateInstantiation, type RecSnapshot } from '../shared/templates';
 import { coerceFieldValue, fieldsOf, formatFieldValue, isSelectType, optionByName, propKey, type FieldDef } from '../shared/fields';
-import { normalizeItem, cardRef, DEFAULT_ITEM_SIZE, itemBounds, type MoodItem, type ItemRef } from '../shared/mooditems';
+import { normalizeItem, cardRef, connectorRetiresLink, DEFAULT_ITEM_SIZE, itemBounds, type MoodItem, type ItemRef } from '../shared/mooditems';
 import { layoutBoard, type CanvasLayoutAlgorithm } from '../shared/canvasLayout';
 import { validateDiagramSpec } from '../shared/diagramLayout';
 import { sanitizeSvg, SVG_MAX_BYTES } from '../shared/svgSanitize';
@@ -1314,6 +1314,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         if (!rf || !rt || rf.type !== 'record' || rt.type !== 'record') throw new Error('linkKind connectors need both endpoints to be record cards');
         const lid = linkId(data.linkKind, '', rf.id, rt.id);
         data.linkId = lid;
+        const existingLink = await getRec(ctx.env, lid);
+        data.linkOwned = !existingLink || existingLink.data.deleted === true;
         extraOps.push(linkOpFor(data.linkKind, rf.id, rt.id));
       }
       ops.push({ collection: 'mooditems', id, patch: data });
@@ -1438,20 +1440,62 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const ops: WriteOp[] = [];
       const expect = new Map<string, number>();
       const skipped: string[] = [];
+      // Connector lifecycle bookkeeping: linkId/linkKind/from/to are connector
+      // shape — retarget or re-mirror via connect_items, never by raw patch.
+      // A delete/undelete (or type change away) reconciles the mirrored links
+      // row in the same batch when this connector solely owns it.
+      const beingDeleted = new Set<string>();
+      const connectorsByBoard = new Map<string, MoodItem[]>();
+      const boardConnectors = async (boardId: string): Promise<MoodItem[]> => {
+        let list = connectorsByBoard.get(boardId);
+        if (!list) {
+          list = (await boardItems(boardId)).map((i) => ({ id: i.id, ...(i.data as Record<string, unknown>) }) as MoodItem);
+          connectorsByBoard.set(boardId, list);
+        }
+        return list;
+      };
       for (const upd of a.items) {
         const row = found.get(upd.id);
-        if (!row || row.collection !== 'mooditems' || row.data.deleted === true) {
-          skipped.push(upd.id);
-          ctx.warnings.push(`mooditem ${upd.id} not found — skipped`);
-          continue;
-        }
         const { id: _id, expectedRev, patch: patchObj, ...flat } = upd;
         void _id;
         const patch: Record<string, unknown> = { ...flat, ...(patchObj ?? {}) };
         for (const k of Object.keys(patch)) if (!ITEM_PATCH_FIELDS.has(k)) delete patch[k];
+        if (!row || row.collection !== 'mooditems' || (row.data.deleted === true && patch.deleted !== false)) {
+          skipped.push(upd.id);
+          ctx.warnings.push(`mooditem ${upd.id} not found — skipped`);
+          continue;
+        }
         if (!Object.keys(patch).length) {
           skipped.push(upd.id);
           continue;
+        }
+        const isConnector = row.data.type === 'connector' || patch.type === 'connector';
+        if (isConnector && (patch.from !== undefined || patch.to !== undefined || patch.linkKind !== undefined || patch.linkId !== undefined || patch.linkOwned !== undefined)) {
+          return err(`connector ${upd.id}: linkId/linkKind/from/to/linkOwned are lifecycle fields — use connect_items / delete+recreate`);
+        }
+        if (!isConnector) {
+          delete patch.linkId;
+          delete patch.linkKind;
+          delete patch.linkOwned;
+          delete patch.from;
+          delete patch.to;
+        }
+        const deletesItem = patch.deleted === true || (patch.type !== undefined && patch.type !== 'connector');
+        if (isConnector && deletesItem && typeof row.data.linkId === 'string') {
+          const siblings = (await boardConnectors(String(row.data.boardId))).filter((c) => c.id !== upd.id && !beingDeleted.has(c.id));
+          if (connectorRetiresLink(row.data as MoodItem, siblings, upd.id)) {
+            ops.push({ collection: 'links', id: String(row.data.linkId), patch: { deleted: true } });
+          }
+          if (patch.deleted === true) beingDeleted.add(upd.id);
+        }
+        const restoresItem = isConnector && patch.deleted === false && typeof row.data.linkId === 'string';
+        if (restoresItem) {
+          // Restore an owned mirror — only when no other live connector now
+          // references it (a shared/adopted row is left alone).
+          const siblings = (await boardConnectors(String(row.data.boardId))).filter((c) => c.id !== upd.id);
+          if ((row.data as MoodItem).linkOwned === true && !siblings.some((c) => !c.deleted && c.linkId === row.data.linkId)) {
+            ops.push({ collection: 'links', id: String(row.data.linkId), patch: { deleted: false } });
+          }
         }
         if (patch.svg !== undefined) {
           const s = sanitizeSvg(patch.svg);
@@ -1539,6 +1583,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           patch.linkKind = w2.linkKind;
           patch.linkId = lid;
           const existing = await getRec(ctx.env, lid);
+          patch.linkOwned = !existing || existing.data.deleted === true;
           ops.push({ collection: 'links', id: lid, patch: { fromType: 'record', fromId: rf.id, toType: 'record', toId: rt.id, kind: w2.linkKind, fieldId: null, deleted: false, createdBy: ctx.userId, createdAt: existing?.data.createdAt ?? Date.now() } });
         }
         ops.push({ collection: 'mooditems', id, patch });

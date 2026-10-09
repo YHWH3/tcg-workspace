@@ -3,11 +3,12 @@ import { db, type LocalRow } from '../../core/db';
 import { addFile } from '../../core/files';
 import { mutate } from '../../core/sync/engine';
 import { uuid } from '../../core/utils';
-import { link, unlink } from '../../core/links';
+import { link, linkId, unlink } from '../../core/links';
 import { sanitizeSvg } from '../../../shared/svgSanitize';
 import { validateDiagramSpec } from '../../../shared/diagramLayout';
 import {
   cardRef,
+  connectorRetiresLink,
   itemBounds,
   normalizeItem,
   type ItemRef,
@@ -138,36 +139,47 @@ export async function addConnector(
   const to = items.find((i) => i.id === opts.to);
   const linkKind = opts.linkKind ?? null;
   let mirrorId: string | null = null;
+  let owned = false;
   const fromRef = from ? cardRef(from) : null;
   const toRef = to ? cardRef(to) : null;
   if (linkKind && fromRef?.type === 'record' && toRef?.type === 'record') {
+    const lid = linkId(linkKind, '', fromRef.id, toRef.id);
+    const existing = await db.collection('links').get(lid);
+    owned = !existing || existing.deleted === true;
     mirrorId = await link({ type: 'record', id: fromRef.id }, { type: 'record', id: toRef.id }, linkKind, null);
   }
-  return addMoodItem(boardId, {
-    type: 'connector',
-    from: opts.from,
-    to: opts.to,
-    label: opts.label ?? '',
-    style: opts.style ?? 'solid',
-    arrow: opts.arrow ?? 'end',
-    linkKind: mirrorId ? linkKind : null,
-    linkId: mirrorId,
-  });
+  try {
+    return await addMoodItem(boardId, {
+      type: 'connector',
+      from: opts.from,
+      to: opts.to,
+      label: opts.label ?? '',
+      style: opts.style ?? 'solid',
+      arrow: opts.arrow ?? 'end',
+      linkKind: mirrorId ? linkKind : null,
+      linkId: mirrorId,
+      linkOwned: mirrorId ? owned : undefined,
+    });
+  } catch (err) {
+    // Item write failed after the mirror went in — retire only a row this
+    // connector would own, never a pre-existing one.
+    if (mirrorId && owned) await unlink(mirrorId).catch(() => {});
+    throw err;
+  }
 }
 
-/** Soft-delete an item; connectors also retire their mirrored links row. */
+/** Soft-delete an item; connectors retire a mirrored links row they solely own. */
 export async function removeItem(item: MoodItem): Promise<void> {
-  if (item.type === 'connector' && item.linkId) {
+  const all = (await db.mooditems.where('boardId').equals(String(item.boardId)).toArray()) as MoodItem[];
+  if (item.type === 'connector' && item.linkId && connectorRetiresLink(item, all.filter((c) => c.type === 'connector'), item.id)) {
     await unlink(String(item.linkId));
   }
   // Detach members when a frame goes away (they keep their geometry).
   if (item.type === 'frame') {
-    const members = await db.mooditems.where('boardId').equals(String(item.boardId)).toArray();
-    for (const m of members) if (m.parentFrameId === item.id) await mutate('mooditems', m.id, { parentFrameId: null });
+    for (const m of all) if (m.parentFrameId === item.id) await mutate('mooditems', m.id, { parentFrameId: null });
   }
   // Dangling connectors whose endpoint is deleted are removed too.
   if (item.type !== 'connector') {
-    const all = (await db.mooditems.where('boardId').equals(String(item.boardId)).toArray()) as MoodItem[];
     for (const c of all) {
       if (c.type === 'connector' && !c.deleted && (c.from === item.id || c.to === item.id)) await removeItem(c);
     }
@@ -183,6 +195,7 @@ export async function duplicateItem(boardId: string, item: MoodItem): Promise<st
   if (item.type === 'connector') {
     delete patch.linkId;
     delete patch.linkKind; // mirrored link is unique per endpoint pair — don't clone it
+    delete patch.linkOwned;
   }
   return addMoodItem(boardId, patch);
 }

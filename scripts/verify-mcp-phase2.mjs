@@ -285,5 +285,115 @@ check('undo_change undoes add_svg', !und.error && und.restored >= 1, JSON.string
 const gm6 = j(await call('get_moodboard', { moodboardId: mb.id }));
 check('undone svg gone from board', !gm6.items.some((i) => i.id === undoTarget.id));
 
+/* ---------- R2: connector↔link lifecycle atomicity ---------- */
+// Oracle for links-row liveness: a sync pull exposes every row's `deleted`.
+const pullRow = async (id) => {
+  const pr = await api('/api/sync/pull?since=0&limit=500', { token: session });
+  return (pr.data?.records ?? []).find((r) => r.id === id);
+};
+
+// c1's connector adopted the dependency row seeded by add_dependency — same
+// (kind,from,to) → same deterministic linkId, never owned.
+check('connector adopted pre-existing link → linkOwned=false', conn?.linkOwned === false && conn.linkId === dep.linkId, JSON.stringify(conn));
+
+// A second item pair pointing at the same records shares the same links row.
+const pair2 = j(await call('add_mood_items', { moodboardId: mb.id, items: [
+  { type: 'card', ref: { type: 'record', id: recId('Card A') }, x: 1400, y: 0 },
+  { type: 'card', ref: { type: 'record', id: recId('Card B') }, x: 1700, y: 0 },
+] }));
+check('second card pair added', pair2.added === 2, JSON.stringify(pair2).slice(0, 160));
+const gmP2 = j(await call('get_moodboard', { moodboardId: mb.id }));
+const newCardIds = gmP2.items.filter((i) => i.type === 'card' && !cardIds.includes(i.id)).map((i) => i.id);
+const cShare = j(await call('connect_items', { moodboardId: mb.id, from: newCardIds[0], to: newCardIds[1], linkKind: 'blocks' }));
+const gmP3 = j(await call('get_moodboard', { moodboardId: mb.id }));
+const connShared = gmP3.items.find((i) => i.type === 'connector' && i.from === newCardIds[0]);
+check('shared-link connector → same linkId, not owner', connShared?.linkId === conn.linkId && connShared.linkOwned === false, JSON.stringify(connShared));
+
+// Delete the shared second connector: the link row must survive (conn1 still references it).
+const delShared = j(await call('update_mood_items', { items: [{ id: connShared.id, patch: { deleted: true } }] }));
+check('delete shared connector', delShared.updated === 1, JSON.stringify(delShared).slice(0, 160));
+const linkAfterShared = await pullRow(conn.linkId);
+check('shared link survives connector delete', linkAfterShared && linkAfterShared.data.deleted !== true, JSON.stringify(linkAfterShared?.data).slice(0, 120));
+
+// Delete conn1 (adopted, sole referrer now): link STILL survives — it predates
+// the connectors (add_dependency) and is not owned, so it is never retired.
+const delC1 = j(await call('update_mood_items', { items: [{ id: conn.id, patch: { deleted: true } }] }));
+check('delete adopted-link connector', delC1.updated === 1, JSON.stringify(delC1).slice(0, 160));
+const linkAfterAdopted = await pullRow(conn.linkId);
+check('adopted link survives ownerless delete', linkAfterAdopted && linkAfterAdopted.data.deleted !== true, JSON.stringify(linkAfterAdopted?.data).slice(0, 120));
+
+// Fresh pair D/E → connector owns its brand-new mirror row.
+const recs2 = j(await call('create_records', { databaseId: db.id, records: [{ title: 'Card D' }, { title: 'Card E' }] }));
+const deIds = (recs2.created ?? []).map((r) => r.id);
+const cardsDE = j(await call('add_mood_items', { moodboardId: mb.id, items: deIds.map((id) => ({ type: 'card', ref: { type: 'record', id }, x: 2000, y: 0 })) }));
+check('D/E cards added', cardsDE.added === 2, JSON.stringify(cardsDE).slice(0, 160));
+const gmDE = j(await call('get_moodboard', { moodboardId: mb.id }));
+const deCardIds = gmDE.items.filter((i) => i.type === 'card' && deIds.includes(i.ref?.id)).map((i) => i.id);
+const cOwn = j(await call('connect_items', { moodboardId: mb.id, from: deCardIds[0], to: deCardIds[1], linkKind: 'related' }));
+const gmOwn = j(await call('get_moodboard', { moodboardId: mb.id }));
+const connOwn = gmOwn.items.find((i) => i.type === 'connector' && i.from === deCardIds[0]);
+check('fresh connector owns its mirror', connOwn?.linkOwned === true && !!connOwn.linkId, JSON.stringify(connOwn));
+
+// Lifecycle fields cannot be forged through update_mood_items.
+const forgeLink = j(await call('update_mood_items', { items: [{ id: connOwn.id, patch: { linkId: 'forged', linkKind: 'blocks' } }] }));
+check('linkId patch rejected on connector', !!forgeLink.error && /lifecycle/.test(forgeLink.error), JSON.stringify(forgeLink).slice(0, 160));
+const forgeEnds = j(await call('update_mood_items', { items: [{ id: connOwn.id, patch: { from: newCardIds[0] } }] }));
+check('from/to patch rejected on connector', !!forgeEnds.error && /lifecycle/.test(forgeEnds.error), JSON.stringify(forgeEnds).slice(0, 160));
+const afterForge = j(await call('get_moodboard', { moodboardId: mb.id }));
+const connStill = afterForge.items.find((i) => i.id === connOwn.id);
+check('rejected patch left connector intact', connStill?.linkId === connOwn.linkId && connStill.dangling === false, JSON.stringify(connStill));
+
+// MCP delete on a solely-owned connector retires the mirror in the same batch…
+const delOwn = j(await call('update_mood_items', { items: [{ id: connOwn.id, patch: { deleted: true } }] }));
+check('delete owned connector (batch = item+link ops)', delOwn.updated === 2 && !!delOwn.changesetId, JSON.stringify(delOwn).slice(0, 160));
+const linkDead = await pullRow(connOwn.linkId);
+check('owned mirror retired with connector', linkDead?.data.deleted === true, JSON.stringify(linkDead?.data).slice(0, 120));
+
+// …and undoing the changeset restores BOTH rows.
+const undConn = j(await call('undo_change', { changesetId: delOwn.changesetId }));
+check('undo restores connector+link batch', !undConn.error, JSON.stringify(undConn).slice(0, 160));
+const linkRevived = await pullRow(connOwn.linkId);
+const connRevived = await pullRow(connOwn.id);
+// live = deleted!==true (undo may restore "field absent" rather than false)
+check('undo: link+connector live again', linkRevived?.data.deleted !== true && connRevived?.data.deleted !== true, `link=${JSON.stringify(linkRevived?.data)} conn=${JSON.stringify(connRevived?.data).slice(0, 120)}`);
+
+// Delete again then restore via deleted:false — the owned mirror comes back too.
+const delOwn2 = j(await call('update_mood_items', { items: [{ id: connOwn.id, patch: { deleted: true } }] }));
+const resOwn = j(await call('update_mood_items', { items: [{ id: connOwn.id, patch: { deleted: false } }] }));
+check('restore deleted connector', resOwn.updated === 2 && !delOwn2.error, JSON.stringify(resOwn).slice(0, 160));
+const linkRestored = await pullRow(connOwn.linkId);
+check('owned mirror restored with connector', linkRestored?.data.deleted !== true, JSON.stringify(linkRestored?.data).slice(0, 120));
+
+/* ---------- R1+R3: public canvas media honors board lifecycle + revocation ---------- */
+// R3: token-scoped media must never be immutable.
+const hdrCheck = await api(`/api/public/canvas/${shr.token}/files/${fid}`, { raw: true });
+check('canvas media Cache-Control no-store', (hdrCheck.headers.get('cache-control') ?? '').includes('no-store'), hdrCheck.headers.get('cache-control') ?? '');
+
+// R1: soft-deleting the board must take its media down with the metadata.
+const delBoard = await api('/api/sync/push', { method: 'POST', token: session, body: { changes: [{ id: mb.id, collection: 'moodboards', patch: { deleted: true }, ts: Date.now() }] } });
+check('board soft-delete pushed', delBoard.status === 200, `status=${delBoard.status} ${delBoard.text?.slice(0, 120)}`);
+const pubDead = await api(`/api/public/canvas/${shr.token}`);
+check('deleted board: metadata 404', pubDead.status === 404, `status=${pubDead.status}`);
+const fileDead = await api(`/api/public/canvas/${shr.token}/files/${fid}`);
+check('deleted board: media 404 (R1)', fileDead.status === 404, `status=${fileDead.status}`);
+
+// Restore → both routes serve again.
+const resBoard = await api('/api/sync/push', { method: 'POST', token: session, body: { changes: [{ id: mb.id, collection: 'moodboards', patch: { deleted: false }, ts: Date.now() + 1 }] } });
+check('board restore pushed', resBoard.status === 200);
+const pubBack = await api(`/api/public/canvas/${shr.token}`);
+const fileBack = await api(`/api/public/canvas/${shr.token}/files/${fid}`);
+check('restored board: metadata + media 200', pubBack.status === 200 && fileBack.status === 200, `meta=${pubBack.status} file=${fileBack.status}`);
+
+// R3 post-revocation regression: deleting the share kills both routes.
+const revoke = await api(`/api/shares/${mb.id}`, { method: 'DELETE', token: session });
+check('share revoke', revoke.status === 200 || revoke.status === 204, `status=${revoke.status}`);
+const pubRev = await api(`/api/public/canvas/${shr.token}`);
+const fileRev = await api(`/api/public/canvas/${shr.token}/files/${fid}`);
+check('revoked share: metadata + media 404', pubRev.status === 404 && fileRev.status === 404, `meta=${pubRev.status} file=${fileRev.status}`);
+const reShare = await api('/api/shares', { method: 'POST', token: session, body: { moodboardId: mb.id } });
+check('share re-created (fresh token after revoke)', !!reShare.data?.token && reShare.data.token !== shr.token, JSON.stringify(reShare.data));
+const pubNew = await api(`/api/public/canvas/${reShare.data.token}`);
+check('new token serves canvas again', pubNew.status === 200, `status=${pubNew.status}`);
+
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed ==`);
 process.exit(FAIL_COUNT ? 1 : 0);

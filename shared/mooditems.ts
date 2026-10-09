@@ -47,6 +47,10 @@ export interface MoodItem {
   arrow?: 'end' | 'both' | 'none';
   linkKind?: 'blocks' | 'related' | null;
   linkId?: string | null;
+  /** False when the connector adopted a `links` row that already existed —
+   * deleting/restoring it must not touch the shared row. Legacy rows have no
+   * flag: they are treated as owners (see `connectorRetiresLink`). */
+  linkOwned?: boolean;
   // membership (computed on drop, stored)
   parentFrameId?: string | null;
   [key: string]: unknown;
@@ -296,6 +300,19 @@ export function normalizeItem(item: Partial<MoodItem> & { id: string }): MoodIte
     out.shape = 'rect';
   }
   return out;
+}
+
+/**
+ * Whether deleting/restoring `connector` should also retire/restore its
+ * mirrored `links` row. True only when the connector owns the row
+ * (`linkOwned !== false`) AND no *other* live connector on the board
+ * references the same linkId — a link a user created first, or one shared
+ * by a second connector, must survive.
+ */
+export function connectorRetiresLink(connector: Pick<MoodItem, 'linkId' | 'linkOwned'>, otherConnectors: readonly Pick<MoodItem, 'id' | 'linkId' | 'deleted'>[], connectorId: string): boolean {
+  if (!connector.linkId) return false;
+  if (connector.linkOwned === false) return false;
+  return !otherConnectors.some((c) => c.id !== connectorId && !c.deleted && c.linkId === connector.linkId);
 }
 
 /**
