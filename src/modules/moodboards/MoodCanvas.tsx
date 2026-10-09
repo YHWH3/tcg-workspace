@@ -260,7 +260,10 @@ export function MoodCanvas() {
   const onDown = (e: React.PointerEvent) => {
     (e.currentTarget as HTMLElement).focus();
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    ref.current?.setPointerCapture?.(e.pointerId);
+    // setPointerCapture can throw (e.g. WebKit rejects capture for pointers it
+    // does not consider active) — capture is an optimization, never abort the
+    // gesture over it.
+    try { ref.current?.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
     movedSinceDown.current = false;
     if (pointers.current.size >= 2) {
       // Second pointer: any item gesture is cancelled and its draft restored.
@@ -294,7 +297,7 @@ export function MoodCanvas() {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).focus?.();
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    ref.current?.setPointerCapture?.(e.pointerId);
+    try { ref.current?.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
     movedSinceDown.current = false;
     if (pointers.current.size >= 2) {
       if (gesture.current && gesture.current.kind !== 'pinch') cancelGesture();
