@@ -284,7 +284,7 @@ await mpage.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'networkidle' });
 await sleep(1000);
 await mpage.locator('button[aria-label="Block options"]').first().click();
 await sleep(400);
-await mpage.locator('text=Comments').first().click();
+await mpage.locator('[role="dialog"]').getByRole('button', { name: 'Comments' }).click();
 await sleep(600);
 await mpage.locator('input[placeholder="Add a comment…"]').last().fill('mobile reply');
 await mpage.getByRole('button', { name: 'Post', exact: true }).last().click();
