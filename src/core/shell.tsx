@@ -323,12 +323,14 @@ export function AccountSwitchGate() {
   );
 }
 
-/* Legacy-store recovery (S1): pre-uid 'workspace' data whose owner can't be
- * proven — copy/export only after explicit human choice; 'leave' keeps the
- * store untouched. Foreign-owned data never offers copy. */
+/* Legacy-store recovery (S1/T1): pre-uid 'workspace' data whose owner can't
+ * be exclusively proven — copy needs an explicit choice, and stores holding
+ * other users' data additionally need the informed-confirm step. The export
+ * covers only unsynced changes & uploads (T3); 'leave' keeps the store. */
 export function LegacyRecoveryGate() {
   const r = useStore(legacyRecoveryStore);
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirmImport, setConfirmImport] = useState(false);
   if (!r) return null;
   const { records, outbox, drafts, blobs } = r.counts;
   const parts = [
@@ -337,27 +339,55 @@ export function LegacyRecoveryGate() {
     drafts ? `${drafts} draft${drafts === 1 ? '' : 's'}` : '',
     blobs ? `${blobs} upload${blobs === 1 ? '' : 's'}` : '',
   ].filter(Boolean);
-  const choose = (c: 'copy' | 'export' | 'leave') => {
+  // Copying foreign/mixed stores imports other users' data — that path is
+  // only reachable through an explicit informed second step (T1).
+  const tainted = r.foreign || r.mixed;
+  const choose = (c: 'copy' | 'export' | 'leave', allowForeign = false) => {
     setBusy(c);
-    void resolveLegacyRecovery(c, r).catch(() => setBusy(null));
+    void resolveLegacyRecovery(c, r, { allowForeign }).catch(() => setBusy(null));
   };
   return (
     <Dialog title="Recover data from a previous version?" onClose={() => choose('leave')} guard={() => busy === null}>
       <p className="text-sm text-neutral-600 dark:text-neutral-300">
         This device holds {parts.join(', ')} stored by an older version of the app
-        {r.foreign ? ' — but it appears to belong to a different account.' : ' — the owning account could not be confirmed.'}
+        {r.foreign
+          ? ' — but it appears to belong to a different account.'
+          : r.mixed
+            ? ' — and it contains data belonging to more than one account.'
+            : ' — the owning account could not be confirmed.'}
       </p>
       <div className="mt-4 flex flex-col gap-2">
-        {!r.foreign && (
+        {!tainted && (
           <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('copy')}>
             {busy === 'copy' ? 'Copying…' : 'Copy it into this account'}
           </Button>
         )}
+        {tainted && !confirmImport && (
+          <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => setConfirmImport(true)}>
+            Import anyway…
+          </Button>
+        )}
+        {tainted && confirmImport && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              This store holds data belonging to {r.mixed ? 'your account and other users' : 'a different account'}.
+              Copying will import all of it — including other users' drafts, records and uploads — into your account.
+            </p>
+            <div className="mt-2 flex gap-2">
+              <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('copy', true)}>
+                {busy === 'copy' ? 'Copying…' : 'Import it anyway'}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => setConfirmImport(false)}>
+                Back
+              </Button>
+            </div>
+          </div>
+        )}
         <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('export')}>
-          {busy === 'export' ? 'Exporting…' : 'Export as a backup file'}
+          {busy === 'export' ? 'Exporting…' : 'Export unsynced changes & uploads'}
         </Button>
         <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => choose('leave')}>
-          {busy === 'leave' ? 'Closing…' : 'Leave it alone'}
+          {busy === 'leave' ? 'Closing…' : 'Keep it on this device'}
         </Button>
       </div>
     </Dialog>

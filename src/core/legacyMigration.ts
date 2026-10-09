@@ -24,8 +24,11 @@ export interface LegacyRecovery {
   uid: string;
   /** What the legacy store holds — shown so the choice is informed. */
   counts: { records: number; outbox: number; drafts: number; blobs: number };
-  /** 'foreign' = drafts prove a different account; only export is offered. */
+  /** 'foreign' = drafts prove only OTHER accounts; 'mixed' = this account's
+   * drafts coexist with other users' drafts — either way, importing means
+   * bringing someone else's data in and needs explicit informed confirm. */
   foreign: boolean;
+  mixed: boolean;
 }
 
 /** Non-null → blocking recovery dialog over everything (ambiguous owner). */
@@ -110,8 +113,9 @@ async function copyAndVerify(legacy: LocalDB, uid: string): Promise<LegacyVerdic
     await copyStore(legacy, target);
     if (!(await verifyCopy(legacy, target))) return 'failed';
     await setMaint(`${DONE_PREFIX}${uid}`, Date.now());
-    // Verified — the legacy store retires via the deferred pass (retained
-    // until now; blocked deletes just retry next boot).
+    // Verified — queue the legacy store for MANUAL deletion only (T2): the
+    // marker lets Settings offer "clear local data"; nothing deletes it
+    // automatically, and the copy keeps it recoverable until then.
     await markDatabaseForDeletion(LEGACY_NAME);
     return 'migrated';
   } finally {
@@ -144,12 +148,16 @@ export async function migrateLegacyStore(uid: string): Promise<LegacyVerdict> {
       await markDatabaseForDeletion(LEGACY_NAME);
       return 'migrated';
     }
-    const foreign = owners.size > 0 && !owners.has(uid);
-    if (foreign || owners.size === 0) {
-      // Not provably this account's — hand the decision to a human.
+    // Exclusive affirmative proof ONLY (T1): auto-copy iff the sole proven
+    // owner is this account. Mixed ownership (drafts for this AND other
+    // accounts) is just as ambiguous as foreign/unknown — never auto-copy.
+    const soleOwner = owners.size === 1 && owners.has(uid);
+    if (!soleOwner) {
+      const foreign = owners.size > 0 && !owners.has(uid);
+      const mixed = owners.size > 1 && owners.has(uid);
       await setMaint(`${CONFIRM_PREFIX}${uid}`, 'pending');
-      legacyRecoveryStore.set({ uid, counts, foreign });
-      return foreign ? 'foreign' : 'needs-confirm';
+      legacyRecoveryStore.set({ uid, counts, foreign, mixed });
+      return foreign || mixed ? 'foreign' : 'needs-confirm';
     }
     return await copyAndVerify(legacy, uid);
   } finally {
@@ -157,13 +165,24 @@ export async function migrateLegacyStore(uid: string): Promise<LegacyVerdict> {
   }
 }
 
-/** Resolve the recovery dialog. 'copy' runs the verified copy; 'export'
- * downloads a full archive of the legacy store and leaves it untouched;
+/** Resolve the recovery dialog. 'copy' runs the verified copy — when the
+ * legacy store's known owners include other users (foreign/mixed), the
+ * caller MUST pass allowForeign:true, which only the dialog's explicit
+ * informed-confirm step sets; anything less refuses with 'needs-confirm'.
+ * 'export' writes the unsynced subset to a file and closes WITHOUT
+ * persisting a decision (the store — and this gate — stay recoverable);
  * 'leave' marks the decision so the dialog stops re-asking. */
-export async function resolveLegacyRecovery(choice: 'copy' | 'export' | 'leave', r: LegacyRecovery): Promise<LegacyVerdict> {
+export async function resolveLegacyRecovery(
+  choice: 'copy' | 'export' | 'leave',
+  r: LegacyRecovery,
+  opts: { allowForeign?: boolean } = {},
+): Promise<LegacyVerdict> {
   const legacy = new LocalDB(LEGACY_NAME);
   try {
     if (choice === 'copy') {
+      const owners = await draftOwnerIds(legacy);
+      const hasForeign = owners.size > 1 || (owners.size > 0 && !owners.has(r.uid));
+      if (hasForeign && !opts.allowForeign) return 'needs-confirm'; // refuse silent foreign import
       const out = await copyAndVerify(legacy, r.uid);
       if (out === 'migrated') legacyRecoveryStore.set(null);
       return out;
@@ -175,7 +194,8 @@ export async function resolveLegacyRecovery(choice: 'copy' | 'export' | 'leave',
         return rows.filter((row) => row.key.startsWith('draft:')).map((row) => row.value as DraftEnvelope);
       });
       await saveBackupFile(backup);
-      await setMaint(`${CONFIRM_PREFIX}${r.uid}`, 'leave');
+      // NOT 'leave': the export only covers unsynced changes/uploads (T3) —
+      // the legacy store stays untouched and this gate re-offers recovery.
       legacyRecoveryStore.set(null);
       return 'none';
     }
