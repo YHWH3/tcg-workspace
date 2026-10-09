@@ -391,17 +391,21 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         ctx.toolName = name;
         try {
           const res = await handler(args);
-          const csId = res.isError ? null : await commitChangeset(ctx.env, ctx.cs);
+          // Commit even on error results: any write that already landed must
+          // stay undoable — no successful write without a change set (§4.2).
+          const csId = await commitChangeset(ctx.env, ctx.cs);
           const decorated = decorate(res, ctx, csId);
           return { text: decorated.content[0].text, isError: res.isError === true };
         } catch (e) {
-          if (e instanceof WriteConflict) {
-            return {
-              text: JSON.stringify({ error: 'conflict', conflicts: e.conflicts.map((cc) => ({ type: 'stale_rev', id: cc.id, collection: cc.collection, expectedRev: cc.expectedRev, currentRev: cc.currentRev, current: cc.current, changedBy: cc.updatedBy, changedAt: cc.updatedAt })) }),
-              isError: true,
-            };
-          }
-          return { text: JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), isError: true };
+          // Same guarantee on the throw path (e.g. casUpdate landed, then a
+          // later step failed): commit whatever applied so it stays undoable.
+          const csId = await commitChangeset(ctx.env, ctx.cs).catch(() => null);
+          const payload: Record<string, unknown> =
+            e instanceof WriteConflict
+              ? { error: 'conflict', conflicts: e.conflicts.map((cc) => ({ type: 'stale_rev', id: cc.id, collection: cc.collection, expectedRev: cc.expectedRev, currentRev: cc.currentRev, current: cc.current, changedBy: cc.updatedBy, changedAt: cc.updatedAt })) }
+              : { error: e instanceof Error ? e.message : String(e) };
+          if (csId) payload.changesetId = csId;
+          return { text: JSON.stringify(payload), isError: true };
         } finally {
           ctx.cs = null;
         }

@@ -185,6 +185,53 @@ check('A undo_change of own changeset → ok', !aUndo.isError && aUndo.data.rest
 const allAfterUndo = await pullAll(adminLogin.data.token);
 check('page deleted by owner undo', allAfterUndo.get(undoTargetId)?.data?.deleted === true);
 
+/* ================= review B2: atomic expectedRev ================= */
+console.log('\n== 3. atomic expectedRev gate (review B2) ==');
+
+const adb = await A.call('create_database', { name: `${RUN}-Atomic`, kind: 'records' });
+check('create_database for atomic test', !adb.isError && !!adb.data.id, adb.text.slice(0, 160));
+const aRecs = await A.call('create_records', { databaseId: adb.data.id, records: [{ title: `${RUN}-R1` }, { title: `${RUN}-R2` }, { title: `${RUN}-R3` }] });
+const [r1, r2, r3] = (aRecs.data.created ?? []).map((c) => c.id);
+check('create_records x3', !!r1 && !!r2 && !!r3, aRecs.text.slice(0, 160));
+
+const g1 = await A.call('get_record', { recordId: r1 });
+const g2 = await A.call('get_record', { recordId: r2 });
+const rev1 = g1.data.record?.rev;
+const rev2 = g2.data.record?.rev;
+check('read revs for r1/r2', Number.isFinite(rev1) && Number.isFinite(rev2));
+
+// B edits r2 in between → r2's stored rev moves past what A read.
+const bBump = await B.call('update_records', { updates: [{ recordId: r2, title: `${RUN}-R2-byB` }] });
+check('B writes r2 (forced interleave)', !bBump.isError, bBump.text.slice(0, 160));
+
+// A calls update_records: 2 expected revs (r1 fresh, r2 stale) + 1 non-expected op (r3).
+const atomicRes = await A.call('update_records', {
+  updates: [
+    { recordId: r1, expectedRev: rev1, title: `${RUN}-R1-byA` },
+    { recordId: r2, expectedRev: rev2, title: `${RUN}-R2-byA` },
+    { recordId: r3, title: `${RUN}-R3-byA` },
+  ],
+});
+check('stale expectedRev in batch → conflict error', atomicRes.isError && /conflict/.test(atomicRes.text), atomicRes.text.slice(0, 200));
+
+const allAtomic = await pullAll(adminLogin.data.token);
+check('no partial apply: r1 untouched', allAtomic.get(r1)?.data?.title === `${RUN}-R1`, String(allAtomic.get(r1)?.data?.title));
+check('no partial apply: r2 kept B write', allAtomic.get(r2)?.data?.title === `${RUN}-R2-byB`, String(allAtomic.get(r2)?.data?.title));
+check('no partial apply: non-expected r3 skipped', allAtomic.get(r3)?.data?.title === `${RUN}-R3`, String(allAtomic.get(r3)?.data?.title));
+
+// Retry with fresh revs lands all three atomically.
+const g2b = await A.call('get_record', { recordId: r2 });
+const atomicRetry = await A.call('update_records', {
+  updates: [
+    { recordId: r1, expectedRev: rev1, title: `${RUN}-R1-byA` },
+    { recordId: r2, expectedRev: g2b.data.record?.rev, title: `${RUN}-R2-byA` },
+    { recordId: r3, title: `${RUN}-R3-byA` },
+  ],
+});
+check('retry with fresh revs succeeds', !atomicRetry.isError, atomicRetry.text.slice(0, 160));
+const allAtomic2 = await pullAll(adminLogin.data.token);
+check('retry wrote all three records', allAtomic2.get(r1)?.data?.title === `${RUN}-R1-byA` && allAtomic2.get(r2)?.data?.title === `${RUN}-R2-byA` && allAtomic2.get(r3)?.data?.title === `${RUN}-R3-byA`);
+
 /* ================= later Phase 0 scenarios land here ================= */
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed`);

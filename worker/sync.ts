@@ -240,6 +240,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
 
   // expectedRev precheck (§4.2): fail fast, return current content.
   const expected = new Set(opts.expect?.keys() ?? []);
+  if (opts.expect && expected.size > MAX_EXPECTED) throw new Error(`at most ${MAX_EXPECTED} expected ids per call`);
   if (opts.expect && expected.size) {
     const conflicts = checkExpectations(existing, opts.expect);
     if (conflicts.length && opts.atomic !== false) {
@@ -253,23 +254,65 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     if (conflicts.length) {
       // Non-atomic: drop the failed ids, write the rest.
       for (const c of conflicts) plans.delete(c.id);
-      const result = await flushPlans(env, userId, plans, expected, now, opts.expect);
+      const result = await flushPlans(env, userId, plans, expected, now, opts.expect, opts.atomic);
       result.rejected += rejected;
       result.conflicts = conflicts;
       return result;
     }
   }
 
-  const result = await flushPlans(env, userId, plans, expected, now, opts.expect);
+  const result = await flushPlans(env, userId, plans, expected, now, opts.expect, opts.atomic);
   result.rejected += rejected;
   return result;
 }
 
+/** Extract the fields that changed on a written row for change-set recording. */
+function makeApplied(p: Plan, row: RecordRow): AppliedChange {
+  const fields = Object.keys(p.field_ts).filter((f) => p.beforeTs[f] !== p.field_ts[f] || p.beforeData[f] !== p.data[f]);
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+  const fieldTs: Record<string, number> = {};
+  for (const f of fields) {
+    before[f] = p.beforeData[f];
+    after[f] = p.data[f];
+    fieldTs[f] = p.field_ts[f];
+  }
+  return { id: p.id, collection: p.collection, created: Object.keys(p.beforeTs).length === 0 && !p.beforeData.id, fields, before, after, fieldTs, rev: row.seq };
+}
+
+function hydrateConflicts(conflicts: ConflictInfo[], fresh: Map<string, RecordRow>): void {
+  for (const c of conflicts) {
+    const row = fresh.get(c.id);
+    c.currentRev = row?.seq ?? null;
+    c.current = row ? (JSON.parse(row.data) as Record<string, unknown>) : null;
+    c.updatedBy = row?.updated_by ?? null;
+    c.updatedAt = row?.updated_at ?? null;
+  }
+}
+
+/**
+ * Poison-pill SELECT: returns 1 when every `id → expectedRev` pair in the
+ * bound JSON map still matches `records.seq`; raises a malformed-JSON error
+ * otherwise. Placed FIRST in the expected batch it makes the batch truly
+ * all-or-nothing — a CAS miss inside a D1 batch is meta.changes=0, not an
+ * error, so without this guard earlier statements would still commit.
+ */
+function expectationGuard(db: D1Database, expect: Map<string, number>): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT CASE WHEN (
+         SELECT COUNT(*) FROM records r JOIN json_each(?) e ON r.id = e.key WHERE r.seq <> e.value
+       ) = 0 THEN 1 ELSE json_extract('{', '$') END`,
+    )
+    .bind(JSON.stringify(Object.fromEntries(expect)));
+}
+
 /** Write the planned merges with seq CAS, retries and applied-change capture. */
-async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, expected: Set<string>, now: number, expect?: Map<string, number>): Promise<ApplyResult> {
+async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, expected: Set<string>, now: number, expect?: Map<string, number>, atomic?: boolean): Promise<ApplyResult> {
   const db = env.DB;
   const conflicts: ConflictInfo[] = [];
   const applied: AppliedChange[] = [];
+  const isAtomic = atomic !== false && expected.size > 0;
 
   // Expected ids go first and in a single batch (atomic group); the rest
   // follow in 100-statement chunks with the normal re-merge retry loop.
@@ -292,8 +335,34 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
       .bind(p.id, p.collection, JSON.stringify(p.data), JSON.stringify(p.field_ts), userId, now, p.baseSeq);
 
   if (expectedPlans.length) {
-    const results = await db.batch(expectedPlans.map(stmtFor));
-    results.forEach((r, j) => {
+    let results: D1Result<Record<string, unknown>>[] | null;
+    if (isAtomic && expect) {
+      try {
+        // The guard verifies every expectation INSIDE the batch transaction;
+        // a violation poisons the first statement and rolls the whole batch
+        // back — nothing commits, expected or not.
+        results = await db.batch([expectationGuard(db, expect), ...expectedPlans.map(stmtFor)]);
+      } catch (e) {
+        // The guard's poison pill is the only malformed-JSON error this batch
+        // can produce — treat it as a raced expectation, rethrow the rest.
+        if (!(e instanceof Error && /malformed JSON/i.test(e.message))) throw e;
+        results = null;
+      }
+    } else {
+      results = await db.batch(expectedPlans.map(stmtFor));
+    }
+    if (results === null) {
+      // Guard aborted the batch: zero statements committed. Every expected
+      // write is a conflict and ALL other writes are skipped (§4.2 atomic).
+      const fresh = await readRows(db, expectedPlans.map((p) => p.id));
+      for (const p of expectedPlans) {
+        conflicts.push({ id: p.id, collection: p.collection, expectedRev: expect?.get(p.id) ?? p.baseSeq, currentRev: null, current: null, updatedBy: null, updatedAt: null });
+      }
+      hydrateConflicts(conflicts, fresh);
+      return { rejected: expectedPlans.length + freePlans.length, changed: 0, conflicts, applied: [] };
+    }
+    const writeResults = isAtomic ? results.slice(1) : results;
+    writeResults.forEach((r, j) => {
       const p = expectedPlans[j];
       if (!r.success || (r.meta.changes ?? 0) === 0) {
         // Expected-id CAS miss: record a conflict, NEVER re-merge (the row
@@ -311,13 +380,18 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
     });
     if (conflicts.length) {
       // Hydrate the raced conflicts with current content for the response.
-      const fresh = await readRows(db, conflicts.map((c) => c.id));
-      for (const c of conflicts) {
-        const row = fresh.get(c.id);
-        c.currentRev = row?.seq ?? null;
-        c.current = row ? (JSON.parse(row.data) as Record<string, unknown>) : null;
-        c.updatedBy = row?.updated_by ?? null;
-        c.updatedAt = row?.updated_at ?? null;
+      hydrateConflicts(conflicts, await readRows(db, conflicts.map((c) => c.id)));
+      if (isAtomic) {
+        // All-or-nothing: skip every other write in this call. Anything that
+        // already committed (only reachable via a defensive CAS miss after
+        // the guard passed) is still reported faithfully in `applied`.
+        const landed = expectedPlans.filter((p) => !conflicts.some((c) => c.id === p.id));
+        const landedRows = landed.length ? await readRows(db, landed.map((p) => p.id)) : new Map<string, RecordRow>();
+        for (const p of landed) {
+          const row = landedRows.get(p.id);
+          if (row) applied.push(makeApplied(p, row));
+        }
+        return { rejected: conflicts.length + freePlans.length, changed: 0, conflicts, applied };
       }
     }
   }
