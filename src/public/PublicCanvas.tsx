@@ -157,7 +157,7 @@ export function PublicCanvas() {
     <div className="flex h-dvh flex-col bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       <header className="flex items-center gap-2 border-b border-neutral-200/70 px-4 py-2.5 dark:border-neutral-800/70">
         <span className="text-lg leading-none">{board?.icon ?? '🎨'}</span>
-        <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{board?.name ?? board?.title ?? 'Shared canvas'}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{(board as { name?: string } | undefined)?.name ?? board?.title ?? 'Shared canvas'}</h1>
         <div className="flex items-center gap-0.5">
           <button className={btn} title="Zoom out" onClick={() => setView((v) => ({ ...v, z: clampZ(v.z / 1.25) }))}>
             <Minus size={15} />
