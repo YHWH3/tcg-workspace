@@ -85,6 +85,9 @@ export class LocalDB extends Dexie {
       links: 'id, fromId, toId, kind, fieldId',
       tasks: 'id, status, assigneeId, boardId, parentId, order, createdAt',
     });
+    // v5: identical schema — gives the purge probe a harmless upgrade
+    // version to detect foreign holders with (see isHeldElsewhere).
+    this.version(5).stores({});
   }
 
   collection(name: Collection): Table<LocalRow, string> {
@@ -101,6 +104,55 @@ export const db = new LocalDB();
  * rejection as abort, not proceed. */
 export async function dropDatabaseFor(userId: string, timeoutMs = 4000): Promise<void> {
   await dropDatabaseByName(`workspace-${userId}`, timeoutMs);
+}
+
+/**
+ * Non-destructive probe: is this store held open by another connection?
+ * Issues an upgrade-open at SCHEMA_VERSION (a no-op schema) — `onblocked`
+ * fires iff another connection holds the db. If the probe request is
+ * itself left pending it only completes a schema-identical bump when the
+ * holders close — never destructive. Lets the purge detect 'held' WITHOUT
+ * arming an uncancellable deleteDatabase request (T2).
+ */
+export async function isHeldElsewhere(name: string, timeoutMs = 1500): Promise<boolean> {
+  // Read the raw on-disk version (fake-indexeddb and real engines can store
+  // different raw values, so it must be read, not assumed).
+  const version = await new Promise<number>((resolve, reject) => {
+    const r = indexedDB.open(name);
+    r.onsuccess = () => {
+      const v = r.result.version;
+      r.result.close();
+      resolve(v);
+    };
+    r.onerror = () => reject(r.error);
+  }).catch(() => -1);
+  if (version < 0) return true; // unknown → treat as held (safe)
+  return await new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(true), timeoutMs); // unknown → held (safe)
+    const req = indexedDB.open(name, version + 1);
+    req.onblocked = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    // Never actually upgrade: abort rolls the bump back — this probe is
+    // non-destructive AND non-mutating even when left pending.
+    req.onupgradeneeded = () => {
+      try {
+        req.transaction?.abort();
+      } catch {
+        /* best effort */
+      }
+    };
+    req.onsuccess = () => {
+      clearTimeout(timer);
+      req.result.close();
+      resolve(false);
+    };
+    req.onerror = () => {
+      clearTimeout(timer);
+      resolve(false); // aborted upgrade / non-block failure → not held
+    };
+  });
 }
 
 /** Raw-name variant — also covers the pre-uid 'workspace' legacy store. */

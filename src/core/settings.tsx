@@ -39,6 +39,7 @@ export function SettingsPage() {
         <RecentAIChangesSection />
         <TemplateGallerySection />
         <StorageSection />
+        <LocalDataSection user={user} />
         <PasswordSection />
         {user?.role === 'admin' && <AdminSection />}
       </div>
@@ -139,6 +140,69 @@ function StorageSection() {
         </div>
       ) : (
         <p className="text-xs text-neutral-400">Storage usage is unavailable while offline.</p>
+      )}
+    </Section>
+  );
+}
+
+/* Quarantined local stores (account-switch 'discard' choices + migrated
+ * legacy 'workspace' data). Deletion runs ONLY here, behind an explicit
+ * two-step confirm — nothing auto-deletes at login (T2). */
+function LocalDataSection({ user }: { user: PublicUser | null }) {
+  const [queued, setQueued] = useState<string[] | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(async () => {
+    const { pendingStoreDrops } = await import('./maintenance');
+    const active = user ? `workspace-${user.id}` : null;
+    setQueued((await pendingStoreDrops()).filter((n) => n !== active));
+  }, [user?.id]);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+  if (!queued || queued.length === 0) return null;
+  const purge = async () => {
+    setBusy(true);
+    try {
+      const { runConfirmedDrops } = await import('./maintenance');
+      await runConfirmedDrops(user ? `workspace-${user.id}` : null);
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+      await refresh();
+    }
+  };
+  return (
+    <Section title="Local data">
+      <p className="text-xs text-neutral-400">
+        Offline data kept on this device from other accounts or earlier versions.
+      </p>
+      <ul className="mt-2 space-y-1">
+        {queued.map((n) => (
+          <li key={n} className="flex items-center justify-between text-sm">
+            <span className="font-mono text-xs text-neutral-600 dark:text-neutral-300">{n}</span>
+          </li>
+        ))}
+      </ul>
+      {!confirming ? (
+        <Button variant="secondary" size="sm" className="mt-3" onClick={() => setConfirming(true)}>
+          Delete permanently…
+        </Button>
+      ) : (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-950/30">
+          <p className="text-xs text-red-600 dark:text-red-400">
+            This permanently erases the listed local data — including any unsynced changes, drafts and uploads still inside it.
+            There is no cancel or reclaim once it starts.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => void purge()}>
+              {busy ? <Spinner size={13} /> : 'Yes, delete it all'}
+            </Button>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirming(false)}>
+              Keep it
+            </Button>
+          </div>
+        </div>
       )}
     </Section>
   );

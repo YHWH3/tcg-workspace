@@ -31,9 +31,10 @@ export function dropSession() {
   authStore.set({ status: 'unauthed', user: null });
 }
 
-/** Post-login maintenance: recover the pre-uid 'workspace' store (S1), then
- * run queued destructive deletes in the controlled pass (S2). Runs before the
- * sync engine starts so the migrated sync cursor/outbox are in place. */
+/** Post-login maintenance: recover the pre-uid 'workspace' store (S1) and
+ * rescue the signed-in account's store from the deletion queue (T2).
+ * NO automatic deletion happens at login — queued drops are consumed only
+ * by the explicitly-confirmed Settings flow. */
 async function postLoginMaintenance(uid: string) {
   try {
     const { migrateLegacyStore } = await import('./legacyMigration');
@@ -42,14 +43,12 @@ async function postLoginMaintenance(uid: string) {
     console.warn('legacy migration failed — will retry next sign-in', e);
   }
   try {
-    const { runDeferredDrops, clearMaint } = await import('./maintenance');
+    const { clearMaint } = await import('./maintenance');
     // Re-adopting this account rescues its store from the deletion queue —
-    // the active connection would block any stray delete while the app is
-    // open, but the marker must not linger.
+    // the marker must not linger so a manual purge can't reclaim-adopted data.
     await clearMaint(`drop:workspace-${uid}`);
-    await runDeferredDrops(`workspace-${uid}`);
   } catch (e) {
-    console.warn('deferred drops failed — will retry next boot', e);
+    console.warn('drop-queue rescue failed', e);
   }
 }
 
