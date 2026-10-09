@@ -94,10 +94,10 @@ export function MoodCanvas() {
   const movedSinceDown = useRef(false);
   /** Tap = select is resolved on pointer release (pointer capture retargets the
    * `click` event to the canvas, so item onClick cannot be relied on).
-   * `suppressItemClick` keeps the residual click — when one does arrive — from
-   * toggling selection a second time. */
+   * `lastReleaseSelect` dedupes the residual click — suppressed only on the
+   * same item within a short window, so programmatic/AT clicks still work. */
   const pendingTap = useRef<{ id: string; additive: boolean } | null>(null);
-  const suppressItemClick = useRef(false);
+  const lastReleaseSelect = useRef<{ id: string; t: number } | null>(null);
   const spaceDown = useRef(false);
 
   const maxZ = useMemo(() => Math.max(0, ...items.map((i) => Number(i.z ?? 0))), [items]);
@@ -397,7 +397,7 @@ export function MoodCanvas() {
         const it = items.find((i) => i.id === pendingTap.current!.id);
         if (it) {
           selectItem(it, pendingTap.current.additive);
-          suppressItemClick.current = true;
+          lastReleaseSelect.current = { id: it.id, t: Date.now() };
         }
       }
       pendingTap.current = null;
@@ -457,9 +457,9 @@ export function MoodCanvas() {
 
   const itemClick = (item: MoodItem, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (suppressItemClick.current) {
-      // Click that trails a tap-select already handled on pointer release.
-      suppressItemClick.current = false;
+    // Click that trails a release-select on the same item — handled already.
+    if (lastReleaseSelect.current && lastReleaseSelect.current.id === item.id && Date.now() - lastReleaseSelect.current.t < 800) {
+      lastReleaseSelect.current = null;
       return;
     }
     if (movedSinceDown.current) return;

@@ -9,7 +9,7 @@
 // Usage: node scripts/verify-v7.mjs            — full run (servers managed)
 //        node scripts/verify-v7.mjs --no-spawn — reuse a wrangler dev already up
 import { spawn, execSync } from 'node:child_process';
-import { mkdtempSync, existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, mkdirSync, writeFileSync, readFileSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, firefox, webkit } from 'playwright';
@@ -61,8 +61,17 @@ if (!NO_SPAWN) {
   // stale wrangler on :8788 poisons the fresh-D1 assumption — kill it first
   try { execSync("lsof -ti:8788 | xargs -r kill -9; pkill -9 -f 'wrangler-dist/cli.j[s] de[v]'; pkill -9 -f 'worker[d]-linux'", { stdio: 'ignore' }); } catch {}
   await sleep(300);
-  if (!existsSync('dist/client/index.html')) {
-    console.log('dist missing — building…');
+  // rebuild when dist is missing OR any shipped source is newer than the bundle
+  const distIndex = 'dist/client/index.html';
+  const stale = !existsSync(distIndex) || (() => {
+    const built = statSync(distIndex).mtimeMs;
+    const newer = (dir) => readdirSync(dir, { recursive: true, withFileTypes: true })
+      .some((d) => d.isFile() && /\.(ts|tsx|js|css|html)$/.test(d.name) &&
+        statSync(join(d.parentPath ?? dir, d.name)).mtimeMs > built);
+    return ['src', 'shared', 'worker', 'public'].some((d) => existsSync(d) && newer(d));
+  })();
+  if (stale) {
+    console.log('dist missing or stale — building…');
     await new Promise((res, rej) => {
       const p = spawn('npm', ['run', 'build'], { stdio: 'inherit' });
       p.on('exit', (c) => (c === 0 ? res() : rej(new Error('build failed'))));
@@ -278,15 +287,19 @@ const canvasBox = async (page) => await canvas(page).boundingBox();
 // release already handled selection). Hold Shift during the real press for
 // additive toggles so the release-path sees the modifier.
 const selectItemEl = async (page, id, additive = false) => {
-  const b = await itemEl(page, id).boundingBox();
-  if (b) {
+  // Real tap at an uncovered point — overlapping higher-z items must win the
+  // hit test, so we never force-click a hidden center.
+  const pt = await uncoveredPoint(page, id);
+  if (pt) {
     if (additive) await page.keyboard.down('Shift');
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.mouse.move(pt.x, pt.y);
     await page.mouse.down();
     await page.mouse.up();
     if (additive) await page.keyboard.up('Shift');
     await sleep(150);
   }
+  // Fallback for fully-covered items; the product dedupes this click when the
+  // release already handled selection on the same item.
   await itemEl(page, id).dispatchEvent('click', additive ? { shiftKey: true } : {});
   await sleep(250);
 };
