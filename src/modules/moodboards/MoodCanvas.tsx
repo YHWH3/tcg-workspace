@@ -260,10 +260,6 @@ export function MoodCanvas() {
   const onDown = (e: React.PointerEvent) => {
     (e.currentTarget as HTMLElement).focus();
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    // setPointerCapture can throw (e.g. WebKit rejects capture for pointers it
-    // does not consider active) — capture is an optimization, never abort the
-    // gesture over it.
-    try { ref.current?.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
     movedSinceDown.current = false;
     if (pointers.current.size >= 2) {
       // Second pointer: any item gesture is cancelled and its draft restored.
@@ -275,6 +271,11 @@ export function MoodCanvas() {
     const el = e.target as HTMLElement;
     const onBg = e.target === e.currentTarget || el.dataset.canvas === 'bg' || el.dataset.marquee === 'bg';
     if (!onBg) return;
+    // Capture only for real canvas gestures — capturing every pointerdown
+    // inside the canvas subtree retargets the trailing click to this element
+    // and kills toolbar/overlay button clicks (setPointerCapture can throw
+    // e.g. WebKit NotFoundError — never abort the gesture over it).
+    try { ref.current?.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
     if (mode === 'edit' && !spaceDown.current) {
       const w = toWorld(e.clientX, e.clientY);
       gesture.current = { kind: 'marquee', sx: w.x, sy: w.y, additive: e.shiftKey, base: [...sel] };

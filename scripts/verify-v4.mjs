@@ -115,16 +115,17 @@ await pageA.waitForURL(/\/moodboards\//);
 const mbId = pageA.url().split('/moodboards/')[1];
 await sleep(600);
 
-// add note via toolbar
-await pageA.locator('button[title="Sticky note"]').click();
+// add note via Add item menu
+await pageA.locator('button[title="Add item"]').click();
+await pageA.locator('button:has-text("Sticky note")').first().click();
 await sleep(500);
 await pageA.keyboard.type('weave textures', { delay: 15 });
 await pageA.locator('body').click({ position: { x: 30, y: 30 } });
 await sleep(400);
 check('note item added', (await pageA.locator('[data-mooditem]').count()) === 1);
 
-// add color swatch
-await pageA.locator('button[title="Color swatch"]').click();
+// add color swatch via Add item menu
+await pageA.locator('button[title="Add item"]').click();
 await sleep(300);
 await pageA.locator('input[type="color"]').evaluate((el) => {
   el.value = '#12a594';
@@ -135,7 +136,8 @@ await pageA.getByRole('button', { name: 'Add', exact: true }).click();
 await sleep(400);
 check('color item added', (await pageA.locator('[data-mooditem]').count()) === 2);
 
-// add image via toolbar input
+// add image via Add item menu file input (inside the open popover)
+await pageA.locator('button[title="Add item"]').click();
 await pageA.locator('input[type="file"][accept="image/*"]').setInputFiles(`${FIXTURES}/photo.png`);
 await sleep(1200);
 check('image item added', (await pageA.locator('[data-mooditem]').count()) === 3);
