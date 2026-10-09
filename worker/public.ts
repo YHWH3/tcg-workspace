@@ -225,7 +225,8 @@ publicApi.get('/:token/files/:fileId', async (c) => {
     headers: {
       'Content-Type': meta.mime ?? 'application/octet-stream',
       'Content-Length': String(out.byteLength),
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      // Token-scoped media must respect revocation/deletion — never immutable.
+      'Cache-Control': 'no-store',
       ...svgHeaders(meta.mime),
     },
   });
@@ -348,7 +349,7 @@ publicApi.get('/canvas/:token/files/:fileId', async (c) => {
     headers: {
       'Content-Type': meta.mime ?? 'application/octet-stream',
       'Content-Length': String(out.byteLength),
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cache-Control': 'no-store',
       ...svgHeaders(meta.mime),
     },
   });
