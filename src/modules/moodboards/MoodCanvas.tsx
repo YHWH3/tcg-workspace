@@ -10,6 +10,7 @@ import { useIsMobile } from '../../core/mobile';
 import { PresenceStack } from '../../core/presence';
 import { mutate } from '../../core/sync/engine';
 import { Popover } from '../../core/ui';
+import { SharePopover } from '../pages/Share';
 import { cn } from '../../core/utils';
 import { modules } from '..';
 import { Slot } from '../slots';
@@ -497,7 +498,9 @@ export function MoodCanvas() {
 
   const center = () => {
     const r = ref.current!.getBoundingClientRect();
-    return { x: (r.width / 2 - view.x) / view.z, y: (r.height / 2 - view.y) / view.z };
+    // Cascade successive spawns so items don't pile at the exact center.
+    const off = (items.length % 8) * 28;
+    return { x: (r.width / 2 - view.x) / view.z + off, y: (r.height / 2 - view.y) / view.z + off };
   };
 
   const addImages = useCallback(
@@ -515,7 +518,7 @@ export function MoodCanvas() {
         i += 1;
       }
     },
-    [boardId, view],
+    [boardId, view, items],
   );
 
   const addNote = async () => {
@@ -792,6 +795,7 @@ export function MoodCanvas() {
           onChange={(e) => void mutate('moodboards', boardId, { title: e.target.value })}
         />
         <PresenceStack path={`/moodboards/${boardId}`} />
+        <SharePopover moodboardId={boardId} />
       </div>
 
       <div

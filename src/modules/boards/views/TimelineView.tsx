@@ -159,12 +159,14 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
                 {g.bars.map((b) => {
                   const conflict = conflicts.has(b.id);
                   return (
-                    <div key={b.id} className={cn('flex items-center gap-2 border-b border-neutral-100 px-3 py-2 dark:border-neutral-800/60', conflict && 'border-l-2 border-l-red-500')}>
-                      <button className="min-w-0 flex-1 truncate text-left text-sm" onClick={() => open(b.record as TaskRow)}>
+                    <div key={b.id} className={cn('border-b border-neutral-100 px-3 py-2 dark:border-neutral-800/60', conflict && 'border-l-2 border-l-red-500')}>
+                      <button className="w-full truncate text-left text-sm" onClick={() => open(b.record as TaskRow)}>
                         {recordTitle(b.record as TaskRow)}
                       </button>
-                      <Input type="date" value={b.start} className="h-7 w-32 text-xs" aria-label="Start date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, e.target.value, endKey ? b.end : null)} />
-                      {endKey && <Input type="date" value={b.end} className="h-7 w-32 text-xs" aria-label="End date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, b.start, e.target.value)} />}
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <Input type="date" value={b.start} className="h-7 flex-1 text-xs" aria-label="Start date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, e.target.value, endKey ? b.end : null)} />
+                        {endKey && <Input type="date" value={b.end} className="h-7 flex-1 text-xs" aria-label="End date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, b.start, e.target.value)} />}
+                      </div>
                     </div>
                   );
                 })}

@@ -9,12 +9,15 @@ import { cn } from '../../core/utils';
 interface Share {
   token: string;
   page_id: string;
+  target_type?: string;
   created_by: string;
   created_at: number;
 }
 
-/** "Publish to web" popover for a page. */
-export function SharePopover({ pageId }: { pageId: string }) {
+/** "Publish to web" popover — for a page (`/s/:token`) or a mood board (`/s/canvas/:token`). */
+export function SharePopover({ pageId, moodboardId }: { pageId?: string; moodboardId?: string }) {
+  const targetId = pageId ?? moodboardId ?? '';
+  const targetType = moodboardId ? 'moodboard' : 'page';
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -24,18 +27,18 @@ export function SharePopover({ pageId }: { pageId: string }) {
   useEffect(() => {
     if (!open || !online) return;
     void api<Share[]>('/api/shares')
-      .then((rows) => setToken(rows.find((s) => s.page_id === pageId)?.token ?? null))
+      .then((rows) => setToken(rows.find((s) => s.page_id === targetId && (s.target_type ?? 'page') === targetType)?.token ?? null))
       .catch(() => {});
-  }, [open, online, pageId]);
+  }, [open, online, targetId, targetType]);
 
   const toggle = async (on: boolean) => {
     setBusy(true);
     try {
       if (on) {
-        const res = await api<{ token: string }>('/api/shares', { method: 'POST', body: { pageId } });
+        const res = await api<{ token: string }>('/api/shares', { method: 'POST', body: moodboardId ? { moodboardId } : { pageId } });
         setToken(res.token);
       } else {
-        await api(`/api/shares/${pageId}`, { method: 'DELETE' });
+        await api(`/api/shares/${targetId}`, { method: 'DELETE' });
         setToken(null);
       }
     } catch {
@@ -44,7 +47,7 @@ export function SharePopover({ pageId }: { pageId: string }) {
     setBusy(false);
   };
 
-  const link = token ? `${location.origin}/s/${token}` : '';
+  const link = token ? `${location.origin}${moodboardId ? '/s/canvas/' : '/s/'}${token}` : '';
   return (
     <Popover
       open={open}
@@ -74,7 +77,7 @@ export function SharePopover({ pageId }: { pageId: string }) {
               </button>
             </span>
           </div>
-          <p className="mt-2 text-xs text-neutral-400">Anyone with the link can view this page and its sub-pages.</p>
+          <p className="mt-2 text-xs text-neutral-400">{moodboardId ? 'Anyone with the link can view this canvas read-only.' : 'Anyone with the link can view this page and its sub-pages.'}</p>
           {token && (
             <div className="mt-3 flex items-center gap-2">
               <input
