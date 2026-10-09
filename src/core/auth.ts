@@ -1,6 +1,7 @@
 import type { PublicUser } from '../../shared/types';
 import { api, ApiError, getToken } from './api';
 import { createStore } from './store';
+import { accountSwitchStore, runAccountSwitch, type SwitchDeps } from './accountSwitch';
 
 interface AuthState {
   status: 'loading' | 'authed' | 'unauthed';
@@ -48,20 +49,82 @@ export async function initAuth() {
   }
 }
 
+function applyIdentity(token: string, user: PublicUser) {
+  localStorage.setItem('ws_token', token);
+  localStorage.setItem('ws_uid', user.id);
+  cacheUser(user);
+}
+
+/** Serialize the previous account's local-only data (outbox + drafts + pending
+ * blob metadata) to a downloadable JSON file (§12.3 'keep' choice). */
+async function exportLocalBackup(prevId: string): Promise<void> {
+  const { db } = await import('./db');
+  const { listDrafts } = await import('./drafts');
+  const [outbox, drafts, blobs] = await Promise.all([
+    db.outbox.toArray(),
+    listDrafts(prevId),
+    db.blobs.where('state').anyOf('pending', 'failed').toArray(),
+  ]);
+  const payload = {
+    exportedAt: Date.now(),
+    userId: prevId,
+    outbox: outbox.map(({ autoId: _autoId, ...e }) => e),
+    drafts,
+    // Blob bytes stay behind — listed so nothing is silently forgotten.
+    blobs: blobs.map((b) => ({ id: b.id, mime: b.mime ?? null, state: b.state, error: b.error ?? null })),
+  };
+  const file = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `workspace-backup-${prevId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const switchDeps: SwitchDeps = {
+  exportBackup: exportLocalBackup,
+  wipeLocal: async () => {
+    const { db } = await import('./db');
+    db.close();
+    await db.delete();
+  },
+  commitIdentity: (userId, token, user) => applyIdentity(token, { ...user, id: userId }),
+  revokeToken: async (token) => {
+    await fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+  },
+  reload: () => location.reload(),
+};
+
+/** Dialog button handler — resolves the pending account-switch decision. */
+export async function resolveAccountSwitch(choice: 'cancel' | 'keep' | 'destroy') {
+  const d = accountSwitchStore.get();
+  if (!d) return;
+  await runAccountSwitch(choice, d, switchDeps);
+}
+
 async function finishLogin(token: string, user: PublicUser) {
   const prevId = localStorage.getItem('ws_uid');
-  localStorage.setItem('ws_token', token);
-  cacheUser(user);
   if (prevId && prevId !== user.id) {
-    // Different user on this device: wipe local DB (including outbox), then reload clean.
-    localStorage.setItem('ws_uid', user.id);
+    // Account switch on this device: if the previous account has unacknowledged
+    // local data (outbox, uploads, drafts), block on an explicit choice — never
+    // a silent wipe (§12.3, review B4). ws_uid/token stay untouched until then
+    // so a stale tab still writing under the old identity is caught.
+    const { countLocalPending } = await import('./sync/engine');
+    const pending = await countLocalPending();
+    if (pending.records + pending.media + pending.drafts > 0) {
+      accountSwitchStore.set({ prevId, newUser: user, token, pending });
+      return;
+    }
+    // Nothing pending: the switch is harmless — wipe for a clean slate anyway.
+    applyIdentity(token, user);
     const { db } = await import('./db');
     db.close();
     await db.delete();
     location.reload();
     return;
   }
-  localStorage.setItem('ws_uid', user.id);
+  applyIdentity(token, user);
   authStore.set({ status: 'authed', user });
 }
 

@@ -4,14 +4,15 @@ import { Search, Settings, LogOut, Moon, Sun, Monitor, CloudOff, RefreshCw, Chec
 import { toastStore } from './files';
 import { modules } from '../modules';
 import type { AppModule } from '../modules/types';
-import { authStore, signOut } from './auth';
+import { authStore, resolveAccountSwitch, signOut } from './auth';
+import { accountSwitchStore } from './accountSwitch';
 import { APP_NAME } from './config';
 import { InstallButton } from './install';
 import { CommandPalette, paletteStore } from './search';
 import { sendHere } from './live';
 import { PresenceDots } from './presence';
 import { BoardOrDb } from './views/DatabasePage';
-import { countLocalPending, flushAndCountPending, onlineStore, syncNow, syncStore } from './sync/engine';
+import { countLocalPending, flushAndCountPending, onlineStore, retryRejected, serializeRejected, syncNow, syncStore } from './sync/engine';
 import { createStore, useStore } from './store';
 import { setTheme, themeStore } from './theme';
 import { Avatar, Button, Dialog, Menu, Popover, Sheet } from './ui';
@@ -209,7 +210,18 @@ export function reportError(text: string): void {
 
 function DurableError() {
   const err = useStore(durableErrorStore);
-  if (!err) return null;
+  const rejected = useStore(syncStore).rejected;
+  const downloadRejected = async () => {
+    const payload = await serializeRejected();
+    const file = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workspace-rejected-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  if (!err && !rejected) return null;
   return (
     <div
       role="alert"
@@ -218,18 +230,69 @@ function DurableError() {
       <AlertTriangle size={14} className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1">
         <p className="font-semibold">Needs attention</p>
-        <p className="mt-0.5 break-words">{err.text}</p>
-        <button
-          className="mt-1.5 font-medium underline decoration-red-300 underline-offset-2 hover:decoration-red-500"
-          onClick={() => void syncNow()}
-        >
-          Retry sync
-        </button>
+        {err && <p className="mt-0.5 break-words">{err.text}</p>}
+        {rejected > 0 && (
+          <p className="mt-0.5 break-words">
+            {rejected} change{rejected === 1 ? '' : 's'} rejected by the server and kept locally — nothing was lost.
+          </p>
+        )}
+        <span className="mt-1.5 flex gap-3">
+          <button
+            className="font-medium underline decoration-red-300 underline-offset-2 hover:decoration-red-500"
+            onClick={() => (rejected ? void retryRejected() : void syncNow())}
+          >
+            {rejected ? 'Retry rejected' : 'Retry sync'}
+          </button>
+          {rejected > 0 && (
+            <button className="font-medium underline decoration-red-300 underline-offset-2 hover:decoration-red-500" onClick={() => void downloadRejected()}>
+              Export JSON
+            </button>
+          )}
+        </span>
       </div>
       <button aria-label="Dismiss" className="shrink-0 rounded-md p-0.5 hover:bg-red-100 dark:hover:bg-red-900/50" onClick={() => durableErrorStore.set(null)}>
         <X size={13} />
       </button>
     </div>
+  );
+}
+
+/* Blocking account-switch surface (§12.3, review B4): renders above login and
+ * shell alike — the previous account's unsynced data can't be signed away
+ * without an explicit choice. Escape/outside-click and the X all mean the
+ * safe option (cancel), never a silent wipe. */
+export function AccountSwitchGate() {
+  const d = useStore(accountSwitchStore);
+  const [busy, setBusy] = useState<null | 'cancel' | 'keep' | 'destroy'>(null);
+  if (!d) return null;
+  const { records, media, drafts } = d.pending;
+  const parts = [
+    records ? `${records} unsynced change${records === 1 ? '' : 's'}` : '',
+    media ? `${media} upload${media === 1 ? '' : 's'} pending or failed` : '',
+    drafts ? `${drafts} unsent draft${drafts === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  const choose = (c: 'cancel' | 'keep' | 'destroy') => {
+    setBusy(c);
+    void resolveAccountSwitch(c).catch(() => setBusy(null));
+  };
+  return (
+    <Dialog title={`Sign in as ${d.newUser.name}?`} onClose={() => choose('cancel')} guard={() => busy === null}>
+      <p className="text-sm text-neutral-600 dark:text-neutral-300">
+        This device has {parts.join(', ')} belonging to the previous account that the server never confirmed. Switching accounts
+        normally erases everything locally.
+      </p>
+      <div className="mt-4 flex flex-col gap-2">
+        <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('keep')}>
+          {busy === 'keep' ? 'Exporting…' : 'Download a backup, then switch'}
+        </Button>
+        <Button variant="danger" size="sm" disabled={busy !== null} onClick={() => choose('destroy')}>
+          {busy === 'destroy' ? 'Switching…' : `Erase ${records + drafts} item${records + drafts === 1 ? '' : 's'} and switch`}
+        </Button>
+        <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => choose('cancel')}>
+          {busy === 'cancel' ? 'Cancelling…' : 'Cancel — keep my data'}
+        </Button>
+      </div>
+    </Dialog>
   );
 }
 
