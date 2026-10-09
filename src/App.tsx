@@ -3,7 +3,7 @@ import { createBrowserRouter, RouterProvider, Navigate } from 'react-router';
 import { authStore, initAuth } from './core/auth';
 import { AuthScreen } from './core/authscreen';
 import { SettingsPage } from './core/settings';
-import { AccountSwitchGate, Shell } from './core/shell';
+import { AccountSwitchGate, LegacyRecoveryGate, Shell } from './core/shell';
 import { Spinner } from './core/ui';
 import { startSyncEngine } from './core/sync/engine';
 import { initTheme } from './core/theme';
@@ -63,6 +63,7 @@ export default function App() {
     <>
       {/* Blocks every route when an account switch needs a decision (§12.3). */}
       <AccountSwitchGate />
+      <LegacyRecoveryGate />
       <RouterProvider router={router} />
     </>
   );

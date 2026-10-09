@@ -58,8 +58,8 @@ export class LocalDB extends Dexie {
   meta!: Table<{ key: string; value: unknown }, string>;
   blobs!: Table<BlobRow, string>;
 
-  constructor() {
-    super(databaseName());
+  constructor(name: string = databaseName()) {
+    super(name);
     this.version(1).stores({
       pages: 'id, parentId, order',
       blocks: 'id, pageId, order',
@@ -100,7 +100,11 @@ export const db = new LocalDB();
  * backstop for browsers that swallow the event — the caller MUST treat a
  * rejection as abort, not proceed. */
 export async function dropDatabaseFor(userId: string, timeoutMs = 4000): Promise<void> {
-  const name = `workspace-${userId}`;
+  await dropDatabaseByName(`workspace-${userId}`, timeoutMs);
+}
+
+/** Raw-name variant — also covers the pre-uid 'workspace' legacy store. */
+export async function dropDatabaseByName(name: string, timeoutMs = 4000): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`deleting ${name} timed out`)), timeoutMs);
     const req = indexedDB.deleteDatabase(name);
