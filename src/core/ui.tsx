@@ -159,11 +159,16 @@ export function Popover({
       const r = triggerRef.current?.getBoundingClientRect();
       if (!r) return;
       const minW = 176; // min-w-44
-      let left = align === 'right' ? r.right - Math.max(minW, r.width) : align === 'center' ? r.left + r.width / 2 - Math.max(minW, r.width) / 2 : r.left;
-      left = Math.max(8, Math.min(left, window.innerWidth - minW - 8));
+      // Clamp against the panel's real rendered width (w-80 etc.), not just
+      // minW — otherwise right-anchored panels overflow the viewport.
+      const panelW = Math.max(minW, panelRef.current?.offsetWidth ?? r.width);
+      let left = align === 'right' ? r.right - panelW : align === 'center' ? r.left + r.width / 2 - panelW / 2 : r.left;
+      left = Math.max(8, Math.min(left, window.innerWidth - panelW - 8));
       setPos({ left, top: r.bottom + 4, width: Math.max(minW, r.width) });
     };
     update();
+    // First update runs before the panel exists — re-measure once it mounts.
+    const raf = requestAnimationFrame(update);
     window.addEventListener('resize', update);
     document.addEventListener('scroll', update, true);
     const onDown = (e: MouseEvent) => {
@@ -177,6 +182,7 @@ export function Popover({
     document.addEventListener('keydown', onKey, true);
     return () => {
       removeLayer(layerId.current);
+      cancelAnimationFrame(raf);
       window.removeEventListener('resize', update);
       document.removeEventListener('scroll', update, true);
       document.removeEventListener('mousedown', onDown);

@@ -47,12 +47,11 @@ export function PublicCanvas() {
       try {
         const res = await fetch(`/api/public/canvas/${token}`);
         if (cancelled) return;
-        if (res.status === 404) {
-          setState('missing');
-          return;
-        }
-        if (res.status === 410) {
-          setState('inactive');
+        if (res.status === 404 || res.status === 410) {
+          // The API signals revoked/absent shares as 404 {"error":"inactive"}
+          // — read the body like PublicView does instead of trusting status.
+          const j = (await res.json().catch(() => null)) as { error?: string } | null;
+          setState(res.status === 410 || j?.error === 'inactive' ? 'inactive' : 'missing');
           return;
         }
         if (!res.ok) {
