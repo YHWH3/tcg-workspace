@@ -167,8 +167,6 @@ export function Popover({
       setPos({ left, top: r.bottom + 4, width: Math.max(minW, r.width) });
     };
     update();
-    // First update runs before the panel exists — re-measure once it mounts.
-    const raf = requestAnimationFrame(update);
     window.addEventListener('resize', update);
     document.addEventListener('scroll', update, true);
     const onDown = (e: MouseEvent) => {
@@ -182,7 +180,6 @@ export function Popover({
     document.addEventListener('keydown', onKey, true);
     return () => {
       removeLayer(layerId.current);
-      cancelAnimationFrame(raf);
       window.removeEventListener('resize', update);
       document.removeEventListener('scroll', update, true);
       document.removeEventListener('mousedown', onDown);
@@ -192,6 +189,16 @@ export function Popover({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, sheetMode]);
+  // Once the panel exists, re-clamp left against its real rendered width —
+  // the first measure only knows minW, so wide panels could overflow right.
+  useEffect(() => {
+    if (!isOpen || !pos) return;
+    const w = panelRef.current?.offsetWidth ?? 0;
+    if (!w) return;
+    const maxLeft = Math.max(8, window.innerWidth - w - 8);
+    if (pos.left > maxLeft) setPos((p) => (p ? { ...p, left: maxLeft } : p));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, pos]);
   return (
     <div ref={ref} className="relative inline-block">
       <span
