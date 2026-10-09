@@ -316,13 +316,17 @@ export async function flushAndCountPending(): Promise<number> {
  * Everything locally owned that a sign-out/account switch could strand:
  * unsent record writes, pending/failed uploads, and unsent draft envelopes.
  */
-export async function countLocalPending(): Promise<{ records: number; media: number; drafts: number }> {
+export async function countLocalPending(): Promise<{ records: number; rejected: number; media: number; drafts: number }> {
   const [all, media, drafts] = await Promise.all([
     db.outbox.toArray(),
     db.blobs.where('state').anyOf('pending', 'failed').count(),
     countDrafts(),
   ]);
-  return { records: all.filter((e) => (e.state ?? 'pending') === 'pending').length, media, drafts };
+  // EVERY outbox row is unacknowledged server-side (pending, rejected, any
+  // future state) — sign-out and account-switch protection must count them
+  // all, not just 'pending' (review R2: rejected-only users were wiped).
+  const rejected = all.filter((e) => (e.state ?? 'pending') === 'rejected').length;
+  return { records: all.length, rejected, media, drafts };
 }
 
 export function startSyncEngine() {
