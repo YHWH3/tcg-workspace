@@ -232,6 +232,54 @@ check('retry with fresh revs succeeds', !atomicRetry.isError, atomicRetry.text.s
 const allAtomic2 = await pullAll(adminLogin.data.token);
 check('retry wrote all three records', allAtomic2.get(r1)?.data?.title === `${RUN}-R1-byA` && allAtomic2.get(r2)?.data?.title === `${RUN}-R2-byA` && allAtomic2.get(r3)?.data?.title === `${RUN}-R3-byA`);
 
+/* ================= review B3: block-level rev guards ================= */
+console.log('\n== 4. block-level rev guards (review B3) ==');
+
+const pg3 = await A.call('create_page', { title: `${RUN}-B3`, markdown: 'block one\n\nblock two' });
+check('create page for block-rev test', !pg3.isError && !!pg3.data.id, pg3.text.slice(0, 160));
+const gp0 = await A.call('get_page', { pageId: pg3.data.id });
+const b1 = gp0.data.blocks?.[0];
+check('get_page exposes per-block rev', !!b1 && Number.isFinite(b1.rev), gp0.text.slice(0, 160));
+
+// correct-rev success
+const okRep = await A.call('edit_page', { pageId: pg3.data.id, replaceBlocks: [{ blockId: b1.id, markdown: 'block one edited', expectedRev: b1.rev }] });
+check('correct block rev → success', !okRep.isError, okRep.text.slice(0, 160));
+
+// stale-block conflict: B bumps b1, then A writes with the pre-bump rev.
+const gp1 = await A.call('get_page', { pageId: pg3.data.id });
+const b1v2 = gp1.data.blocks[0];
+const bBlock = await B.call('edit_page', { pageId: pg3.data.id, replaceBlocks: [{ blockId: b1.id, markdown: 'B concurrent edit', expectedRev: b1v2.rev }] });
+check('B edits same block (fresh rev)', !bBlock.isError, bBlock.text.slice(0, 160));
+const staleBlock = await A.call('edit_page', { pageId: pg3.data.id, replaceBlocks: [{ blockId: b1.id, markdown: 'A stale edit', expectedRev: b1v2.rev }] });
+check('stale block rev → conflict', staleBlock.isError && /conflict/.test(staleBlock.text), staleBlock.text.slice(0, 200));
+const gp2 = await A.call('get_page', { pageId: pg3.data.id });
+check('block kept B write (no clobber)', gp2.data.blocks[0].text === 'B concurrent edit', gp2.data.blocks[0].text);
+
+// page-vs-block interleave: block moved, but A edits page FIELDS at the
+// current page rev → allowed (block and page revs guard different rows).
+const pageRevNow = gp2.data.page.rev;
+const titleOk = await A.call('edit_page', { pageId: pg3.data.id, title: `${RUN}-B3-renamed`, expectedRev: pageRevNow });
+check('page-field edit at page rev after block bump → ok', !titleOk.isError, titleOk.text.slice(0, 160));
+const staleTitle = await A.call('edit_page', { pageId: pg3.data.id, title: 'another title', expectedRev: pageRevNow });
+check('stale page rev on fields → conflict', staleTitle.isError && /conflict/.test(staleTitle.text), staleTitle.text.slice(0, 160));
+
+// unguarded legacy shape refused
+const legacyDel = await A.call('edit_page', { pageId: pg3.data.id, deleteBlockIds: ['whatever'] });
+check('deleteBlockIds rejected (needs per-block rev)', legacyDel.isError && /deleteBlocks/.test(legacyDel.text), legacyDel.text.slice(0, 160));
+
+// edit_record_body: same stale-block flow via bodyBlocks revs
+const erbRec = await A.call('create_records', { databaseId: adb.data.id, records: [{ title: `${RUN}-ERB`, body: 'first body line' }] });
+const erbId = erbRec.data.created?.[0]?.id;
+const grb = await A.call('get_record', { recordId: erbId });
+const rb1 = grb.data.record?.bodyBlocks?.[0];
+check('get_record exposes bodyBlocks revs', !!rb1 && Number.isFinite(rb1.rev), grb.text.slice(0, 160));
+const recBump = await B.call('edit_record_body', { recordId: erbId, replaceBlocks: [{ blockId: rb1.id, markdown: 'B body edit', expectedRev: rb1.rev }] });
+check('B edits record body block', !recBump.isError, recBump.text.slice(0, 160));
+const recStale = await A.call('edit_record_body', { recordId: erbId, replaceBlocks: [{ blockId: rb1.id, markdown: 'A stale body', expectedRev: rb1.rev }] });
+check('stale record-block rev → conflict', recStale.isError && /conflict/.test(recStale.text), recStale.text.slice(0, 200));
+const grb2 = await A.call('get_record', { recordId: erbId });
+check('record body kept B write', /B body edit/.test(grb2.data.record?.body ?? ''), String(grb2.data.record?.body ?? '').slice(0, 80));
+
 /* ================= later Phase 0 scenarios land here ================= */
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed`);

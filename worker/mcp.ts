@@ -700,10 +700,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'edit_page',
     {
-      description: 'Edit a page: rename/retitle/icon/parent/template flag, append markdown, insert after a block, replace or delete blocks. replaceBlocks/deleteBlockIds require the page\'s expectedRev.',
+      description: 'Edit a page: rename/retitle/icon/parent/template flag, append markdown, insert after a block, replace or delete blocks. replaceBlocks/deleteBlocks guard on EACH block\'s own rev (get_page returns per-block rev); page expectedRev guards page fields only.',
       inputSchema: z.object({
         pageId: z.string(),
-        expectedRev: z.number().optional().describe('Page rev from get_page/fetch — REQUIRED when deleting or replacing blocks'),
+        expectedRev: z.number().optional().describe('Page rev from get_page — guards title/icon/parent/isTemplate changes'),
         title: z.string().optional(),
         icon: z.string().optional(),
         parentId: z.string().nullable().optional(),
@@ -711,8 +711,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         appendMarkdown: z.string().optional().describe('Append markdown blocks at the end'),
         insertAfterBlockId: z.string().optional().describe('Insert `markdown` after this block id'),
         markdown: z.string().optional().describe('Used with insertAfterBlockId'),
-        replaceBlocks: z.array(z.object({ blockId: z.string(), markdown: z.string() })).optional().describe('Replace each block\'s text with the parsed markdown lines'),
-        deleteBlockIds: z.array(z.string()).optional(),
+        replaceBlocks: z.array(z.object({ blockId: z.string(), markdown: z.string(), expectedRev: z.number().describe("That block's own rev from get_page blocks[]") })).optional().describe('Replace each block\'s text with the parsed markdown lines'),
+        deleteBlocks: z.array(z.object({ blockId: z.string(), expectedRev: z.number().describe("That block's own rev from get_page blocks[]") })).optional(),
+        deleteBlockIds: z.array(z.string()).optional().describe('DEPRECATED unguarded — use deleteBlocks (per-block expectedRev)'),
         dryRun: dryRunInput,
       }),
       annotations: { idempotentHint: true },
@@ -720,16 +721,15 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async (a) => {
       const p = await rec(ctx.env, 'pages', a.pageId);
       if (!p || p.data.deleted) return err('page not found');
-      const destructive = (a.replaceBlocks?.length ?? 0) + (a.deleteBlockIds?.length ?? 0) > 0;
-      if (destructive && a.expectedRev === undefined) return err('expectedRev is required when deleting or replacing blocks — read the page first (get_page returns rev)');
+      if (a.deleteBlockIds?.length) return err('deleteBlockIds cannot be rev-guarded — pass deleteBlocks:[{blockId, expectedRev}] (get_page returns each block\'s rev)');
       await fillCaches(ctx);
       if (a.dryRun) {
         return txt({
           dryRun: true,
           summary: `edit_page ${a.pageId}`,
-          counts: { pageFields: Object.keys({ t: a.title, i: a.icon, p: a.parentId, t2: a.isTemplate }).length, appended: a.appendMarkdown ? markdownToBlocks(a.appendMarkdown).length : 0, replaced: a.replaceBlocks?.length ?? 0, deleted: a.deleteBlockIds?.length ?? 0 },
+          counts: { pageFields: Object.keys({ t: a.title, i: a.icon, p: a.parentId, t2: a.isTemplate }).length, appended: a.appendMarkdown ? markdownToBlocks(a.appendMarkdown).length : 0, replaced: a.replaceBlocks?.length ?? 0, deleted: a.deleteBlocks?.length ?? 0 },
           warnings: ctx.warnings.length ? ctx.warnings : [],
-          impact: { deleteBlockIds: a.deleteBlockIds ?? [], replaceBlockIds: (a.replaceBlocks ?? []).map((r) => r.blockId) },
+          impact: { deleteBlockIds: (a.deleteBlocks ?? []).map((d) => d.blockId), replaceBlockIds: (a.replaceBlocks ?? []).map((r) => r.blockId) },
         });
       }
       const ops: WriteOp[] = [];
@@ -745,13 +745,15 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         if (a.expectedRev !== undefined) expect.set(a.pageId, a.expectedRev);
         else unchecked.push(a.pageId);
       }
-      if (destructive) expect.set(a.pageId, a.expectedRev!);
 
       const existing = live((await listBy(ctx.env, 'blocks', 'pageId', a.pageId)).map(toRec));
       const splitReplaces: string[] = [];
       for (const r of a.replaceBlocks ?? []) {
         const src = existing.find((b) => b.id === r.blockId);
         if (!src) return err(`block ${r.blockId} not found`);
+        // Guard the block at ITS OWN read rev — the page's rev can't see
+        // concurrent block edits (review B3).
+        expect.set(r.blockId, r.expectedRev);
         const parsed = markdownToBlocks(r.markdown, {
           resolveUser: resolverFor(ctx, 'user'),
           resolvePage: resolverFor(ctx, 'page'),
@@ -777,7 +779,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           splitReplaces.push(r.blockId);
         }
       }
-      for (const id of a.deleteBlockIds ?? []) ops.push({ collection: 'blocks', id, patch: { deleted: true } });
+      for (const d of a.deleteBlocks ?? []) {
+        if (!existing.some((b) => b.id === d.blockId)) return err(`block ${d.blockId} not found`);
+        expect.set(d.blockId, d.expectedRev);
+        ops.push({ collection: 'blocks', id: d.blockId, patch: { deleted: true } });
+      }
       if (a.markdown && a.insertAfterBlockId) ops.push(...(await blockOps(ctx, a.pageId, a.markdown, existing, a.insertAfterBlockId)));
       if (a.appendMarkdown) ops.push(...(await blockOps(ctx, a.pageId, a.appendMarkdown, existing)));
       await resolveImageSrcs(ctx, ops);
@@ -2761,6 +2767,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           blocking: depLinks.filter((l) => String(l.data.fromId) === recordId).map((l) => ({ id: String(l.data.toId), title: titleOfRec(String(l.data.toId)) })),
           related: relRelated.map((l) => ({ linkId: l.id, other: String(l.data.fromId) === recordId ? String(l.data.toId) : String(l.data.fromId), title: titleOfRec(String(l.data.fromId) === recordId ? String(l.data.toId) : String(l.data.fromId)) })),
           body: blocksToMarkdown(bodyBlocks.map((b) => ({ type: String(b.data.type ?? 'p'), text: String(b.data.text ?? ''), checked: !!b.data.checked })), { userName: (id) => ctx.userNameById.get(id), pageTitle: (id) => ctx.pageTitleById.get(id) }),
+          bodyBlocks: bodyBlocks.map((b) => ({ id: b.id, type: b.data.type ?? 'p', text: b.data.text ?? '', rev: b.rev })),
           comments: comments.length,
           updatedBy: r.updatedBy, updatedAt: r.updatedAt,
         },
@@ -2771,15 +2778,15 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'edit_record_body',
     {
-      description: 'Edit a record\u2019s body blocks — same shape as edit_page (appendMarkdown / markdown+insertAfterBlockId / replaceBlocks / deleteBlockIds). Destructive ops require expectedRev of the record.',
+      description: 'Edit a record\u2019s body blocks — same shape as edit_page (appendMarkdown / markdown+insertAfterBlockId / replaceBlocks / deleteBlocks). replaceBlocks/deleteBlocks guard on EACH block\'s own rev (get_record returns bodyBlocks with per-block rev).',
       inputSchema: z.object({
         recordId: z.string(),
-        expectedRev: z.number().optional(),
         appendMarkdown: z.string().optional(),
         markdown: z.string().optional(),
         insertAfterBlockId: z.string().optional(),
-        replaceBlocks: z.array(z.object({ blockId: z.string(), markdown: z.string() })).optional(),
-        deleteBlockIds: z.array(z.string()).optional(),
+        replaceBlocks: z.array(z.object({ blockId: z.string(), markdown: z.string(), expectedRev: z.number().describe("That block's own rev from get_record bodyBlocks[]") })).optional(),
+        deleteBlocks: z.array(z.object({ blockId: z.string(), expectedRev: z.number().describe("That block's own rev from get_record bodyBlocks[]") })).optional(),
+        deleteBlockIds: z.array(z.string()).optional().describe('DEPRECATED unguarded — use deleteBlocks (per-block expectedRev)'),
         dryRun: dryRunInput,
       }),
       annotations: { idempotentHint: true },
@@ -2787,24 +2794,29 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async (a) => {
       const r = await rec(ctx.env, 'tasks', a.recordId);
       if (!r || r.data.deleted) return err('record not found');
-      const destructive = (a.replaceBlocks?.length ?? 0) + (a.deleteBlockIds?.length ?? 0) > 0;
-      if (destructive && a.expectedRev === undefined) return err('expectedRev required when replacing or deleting blocks');
+      if (a.deleteBlockIds?.length) return err('deleteBlockIds cannot be rev-guarded — pass deleteBlocks:[{blockId, expectedRev}] (get_record returns each body block\'s rev)');
       await fillCaches(ctx);
-      if (a.dryRun) return txt({ dryRun: true, summary: `edit_record_body ${a.recordId}`, counts: { appended: a.appendMarkdown ? markdownToBlocks(a.appendMarkdown).length : 0, replaced: a.replaceBlocks?.length ?? 0, deleted: a.deleteBlockIds?.length ?? 0 }, warnings: [], impact: { deleteBlockIds: a.deleteBlockIds ?? [] } });
+      if (a.dryRun) return txt({ dryRun: true, summary: `edit_record_body ${a.recordId}`, counts: { appended: a.appendMarkdown ? markdownToBlocks(a.appendMarkdown).length : 0, replaced: a.replaceBlocks?.length ?? 0, deleted: a.deleteBlocks?.length ?? 0 }, warnings: [], impact: { deleteBlockIds: (a.deleteBlocks ?? []).map((d) => d.blockId) } });
       const ops: WriteOp[] = [];
+      const expect = new Map<string, number>();
       const existing = live((await listBy(ctx.env, 'blocks', 'pageId', a.recordId)).map(toRec));
       for (const rr of a.replaceBlocks ?? []) {
         const src = existing.find((b) => b.id === rr.blockId);
         if (!src) return err(`block ${rr.blockId} not found`);
+        // Guard the block at ITS OWN read rev (review B3).
+        expect.set(rr.blockId, rr.expectedRev);
         const parsed = markdownToBlocks(rr.markdown, { resolveUser: resolverFor(ctx, 'user'), resolvePage: resolverFor(ctx, 'page') });
         const first = parsed[0];
         if (!first) continue;
         ops.push({ collection: 'blocks', id: rr.blockId, patch: { type: first.type, text: first.text ?? '', ...(first.type === 'todo' ? { checked: !!first.checked } : {}) } });
       }
-      for (const id of a.deleteBlockIds ?? []) ops.push({ collection: 'blocks', id, patch: { deleted: true } });
+      for (const d of a.deleteBlocks ?? []) {
+        if (!existing.some((b) => b.id === d.blockId)) return err(`block ${d.blockId} not found`);
+        expect.set(d.blockId, d.expectedRev);
+        ops.push({ collection: 'blocks', id: d.blockId, patch: { deleted: true } });
+      }
       if (a.markdown && a.insertAfterBlockId) ops.push(...(await blockOps(ctx, a.recordId, a.markdown, existing, a.insertAfterBlockId)));
       if (a.appendMarkdown) ops.push(...(await blockOps(ctx, a.recordId, a.appendMarkdown, existing)));
-      const expect = a.expectedRev !== undefined ? new Map([[a.recordId, a.expectedRev]]) : undefined;
       await write(ctx, ops, { expect });
       return txt({ recordId: a.recordId, url: recordUrl(String(r.data.boardId ?? 'board-default'), a.recordId), updated: ops.length });
     },
