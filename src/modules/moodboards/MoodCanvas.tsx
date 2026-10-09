@@ -98,6 +98,11 @@ export function MoodCanvas() {
    * same item within a short window, so programmatic/AT clicks still work. */
   const pendingTap = useRef<{ id: string; additive: boolean } | null>(null);
   const lastReleaseSelect = useRef<{ id: string; t: number } | null>(null);
+  /** Set when a real pointer sequence ends with movement — used to suppress the
+   * browser click that trails a drag, but only for a short window so later
+   * programmatic/assistive clicks (which have no pointerdown to reset the flag)
+   * are not silently eaten. */
+  const dragEndedAt = useRef(0);
   const spaceDown = useRef(false);
 
   const maxZ = useMemo(() => Math.max(0, ...items.map((i) => Number(i.z ?? 0))), [items]);
@@ -370,6 +375,7 @@ export function MoodCanvas() {
 
   const onUp = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
+    if (movedSinceDown.current) dragEndedAt.current = Date.now();
     const g = gesture.current;
     if (g?.kind === 'move' || g?.kind === 'resize') {
       const final = { ...drafts };
@@ -462,7 +468,7 @@ export function MoodCanvas() {
       lastReleaseSelect.current = null;
       return;
     }
-    if (movedSinceDown.current) return;
+    if (movedSinceDown.current && Date.now() - dragEndedAt.current < 120) return;
     if (connectMode) return; // handled in itemDown
     selectItem(item, e.shiftKey || e.metaKey || e.ctrlKey);
   };
