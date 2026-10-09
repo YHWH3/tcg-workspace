@@ -85,11 +85,27 @@ export async function undoChangeset(env: Env, user: AuthUser, changesetId: strin
     return { ok: true, changesetId, skipped: plan.skipped, restored: 0 };
   }
   const undoCs = beginChangeset({ userId: user.id, tool: 'undo_change', summary: `Undo ${cs.tool}`, source: 'undo', undoes: changesetId });
-  const res = await applyChanges(env, user.id, plan.patches.map((p) => ({ id: p.id, collection: p.collection, patch: p.patch, ts: Date.now() })), { serverTs: true });
+  // Review C1: every inverse write is CAS-guarded at the rev THIS undo read
+  // (the same read planUndo planned from). A row written concurrently lands in
+  // `conflicts` instead of being clobbered — plan-level field skips can't see
+  // writes that arrive between the read and the apply.
+  const expect = new Map<string, number>();
+  for (const p of plan.patches) {
+    const cur = current.get(p.id);
+    if (cur) expect.set(p.id, cur.rev);
+  }
+  const res = await applyChanges(env, user.id, plan.patches.map((p) => ({ id: p.id, collection: p.collection, patch: p.patch, ts: Date.now() })), { serverTs: true, expect, atomic: false });
   undoCs.items = res.applied;
+  const conflicts = (res.conflicts ?? []).map((c) => ({ id: c.id, collection: c.collection, expectedRev: c.expectedRev, currentRev: c.currentRev }));
+  if (!res.applied.length) {
+    // Nothing landed under the guards — leave the change set undoable so the
+    // caller can re-read and retry; report what raced.
+    if (conflicts.length) return { ok: false, status: 409, error: 'undo raced with newer writes — nothing restored', changesetId, conflicts, skipped: plan.skipped };
+    return { ok: true, changesetId, skipped: plan.skipped, restored: 0 };
+  }
   const undoId = await commitChangeset(env, undoCs);
   await env.DB.prepare('UPDATE changesets SET undone_by = ? WHERE id = ?').bind(undoId ?? undoCs.id, changesetId).run();
-  return { ok: true, changesetId, undoChangesetId: undoId ?? undoCs.id, skipped: plan.skipped, restored: res.applied.length };
+  return { ok: true, changesetId, undoChangesetId: undoId ?? undoCs.id, skipped: plan.skipped, restored: res.applied.length, ...(conflicts.length ? { conflicts } : {}) };
 }
 
 /* ---- HTTP API (session auth; members undo own, admins any) ---- */
