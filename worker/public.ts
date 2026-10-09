@@ -323,6 +323,14 @@ publicApi.get('/canvas/:token', async (c) => {
 publicApi.get('/canvas/:token/files/:fileId', async (c) => {
   const share = await shareFor(c.env.DB, c.req.param('token'), 'moodboard');
   if (!share) return c.json({ error: 'inactive' }, 404);
+  // Same live-board check as the metadata route: a soft-deleted board must
+  // take its media down with it (R1).
+  if (!canServeBoardShare(share, share.page_id)) return c.json({ error: 'inactive' }, 404);
+  const board = await c.env.DB
+    .prepare(`SELECT data FROM records WHERE collection = 'moodboards' AND id = ? AND COALESCE(json_extract(data, '$.deleted'), 0) = 0`)
+    .bind(share.page_id)
+    .first<{ data: string }>();
+  if (!board) return c.json({ error: 'inactive' }, 404);
   const fileId = c.req.param('fileId');
   if (!ID_RE.test(fileId)) return c.json({ error: 'invalid file id' }, 400);
   const items = await canvasItems(c.env.DB, share.page_id);
