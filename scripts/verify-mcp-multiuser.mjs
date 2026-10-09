@@ -280,6 +280,68 @@ check('stale record-block rev → conflict', recStale.isError && /conflict/.test
 const grb2 = await A.call('get_record', { recordId: erbId });
 check('record body kept B write', /B body edit/.test(grb2.data.record?.body ?? ''), String(grb2.data.record?.body ?? '').slice(0, 80));
 
+/* ================= review C2: casUpdate attribution ================= */
+console.log('\n== 5. casUpdate attribution + undo field-skip (review C2/C1) ==');
+
+const c2db = await A.call('create_database', { name: `${RUN}-C2DB` });
+check('create_database for C2', !c2db.isError && !!c2db.data.id, c2db.text.slice(0, 160));
+const c2dbId = c2db.data.id;
+const gb0 = await B.call('get_board', { boardId: c2dbId });
+const boardRev0 = gb0.data.board.rev;
+
+// B mutates the board through the CAS path (add_stage → casUpdate).
+const stageAdd = await B.call('add_stage', { boardId: c2dbId, name: 'Bob Stage' });
+check('B add_stage (casUpdate path) ok', !stageAdd.isError && !!stageAdd.data.changesetId, stageAdd.text.slice(0, 160));
+
+// The board row's updated_by must be B's user id — surfaced via a stale-rev
+// conflict's changedBy (and not the literal string 'mcp').
+const staleRename = await A.call('update_board', { boardId: c2dbId, name: 'A rename', expectedRev: boardRev0 });
+const changedBy = staleRename.text.includes('conflicts') ? (JSON.parse(staleRename.text).conflicts?.[0]?.changedBy ?? null) : null;
+check('stale board write → conflict', staleRename.isError && /conflict/.test(staleRename.text), staleRename.text.slice(0, 200));
+check('updated_by attributes to B (not "mcp")', changedBy === idB, `changedBy=${changedBy} want ${idB}`);
+
+// The casUpdate changeset itself is also B-owned.
+const csB = await api(`/api/changes/${stageAdd.data.changesetId}`, { token: adminLogin.data.token });
+check('casUpdate changeset actor is B', csB.data?.changeset?.user_id === idB, `user_id=${csB.data?.changeset?.user_id}`);
+
+// Undo skip (C1's e2e face): B rewrites the SAME field A's changeset wrote —
+// the undo must skip it rather than clobber B's edit.
+const c1rec = await A.call('create_records', { databaseId: c2dbId, records: [{ title: `${RUN}-C1`, body: 'x' }] });
+const c1rid = c1rec.data.created?.[0]?.id;
+const titleChange = await A.call('update_records', { updates: [{ recordId: c1rid, title: 'A wrote this' }] });
+check('A update_records title (has changeset)', !titleChange.isError && !!titleChange.data.changesetId, titleChange.text.slice(0, 160));
+const bTitle = await B.call('update_records', { updates: [{ recordId: c1rid, title: 'B won this field' }] });
+check('B update_records same field', !bTitle.isError, bTitle.text.slice(0, 160));
+const undoOut = await A.call('undo_change', { changesetId: titleChange.data.changesetId });
+check('undo of title change ok', !undoOut.isError, undoOut.text.slice(0, 200));
+check('undo reported the skipped field', JSON.stringify(undoOut.data?.skipped ?? '').includes('title'), JSON.stringify(undoOut.data?.skipped ?? null)?.slice(0, 160));
+const gr1 = await A.call('get_record', { recordId: c1rid });
+check('undo kept B title (no clobber)', gr1.data.record?.title === 'B won this field', String(gr1.data.record?.title));
+
+/* ================= review C3: idempotency retry-after-failure ================= */
+console.log('\n== 6. idempotency retry-after-failure (review C3) ==');
+
+const RID = `rid-${RUN}`;
+// 1) deterministic failure: stage that does not exist yet → stored 'failed'.
+const failCall = await A.call('update_stage', { boardId: c2dbId, stage: 'nosuch', name: 'Renamed Stage', requestId: RID });
+check('update_stage missing stage → error (stored failed)', failCall.isError, failCall.text.slice(0, 160));
+// 2) world state changes: the stage now exists.
+const addSt = await B.call('add_stage', { boardId: c2dbId, name: 'nosuch' });
+check('B add_stage nosuch', !addSt.isError, addSt.text.slice(0, 160));
+// 3) retry SAME requestId+args: guarded takeover re-runs, not a replay.
+const retryCall = await A.call('update_stage', { boardId: c2dbId, stage: 'nosuch', name: 'Renamed Stage', requestId: RID });
+check('retry after failure re-runs and succeeds', !retryCall.isError, retryCall.text.slice(0, 160));
+const gbC2 = await A.call('get_board', { boardId: c2dbId });
+check('retried write landed (stage renamed)', (gbC2.data.columns ?? []).some((c) => c.name === 'Renamed Stage'), JSON.stringify(gbC2.data.columns ?? []).slice(0, 200));
+// 4) 'done' replay protection: identical requestId returns the stored result.
+const doneRid = `rid2-${RUN}`;
+const firstDone = await A.call('update_stage', { boardId: c2dbId, stage: 'Renamed Stage', color: '#123456', requestId: doneRid });
+const replay = await A.call('update_stage', { boardId: c2dbId, stage: 'Renamed Stage', color: '#123456', requestId: doneRid });
+check('done requestId replays stored result', !firstDone.isError && !replay.isError && /"replayed":\s*true/.test(replay.text), replay.text.slice(0, 200));
+// 5) same requestId with different args → refused.
+const collided = await A.call('update_stage', { boardId: c2dbId, stage: 'Renamed Stage', name: 'Different Name', requestId: doneRid });
+check('requestId+new args → collision error', collided.isError && /different arguments/.test(collided.text), collided.text.slice(0, 160));
+
 /* ================= later Phase 0 scenarios land here ================= */
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed`);
