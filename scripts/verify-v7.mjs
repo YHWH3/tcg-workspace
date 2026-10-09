@@ -444,8 +444,9 @@ async function canvasSuite(page, E, V, uid) {
     await page.mouse.up();
     await sleep(400);
   }
-  const moved = await dexieGet(page, 'mooditems', 'v7_i_note', uid);
-  N('canvas: move item via pointer drag', moved && moved.x === 180 && moved.y === 140 ? 'PASS' : `FAIL (x=${moved?.x},y=${moved?.y})`);
+  let lastMove;
+  const movedOk = await poll(async () => (lastMove = await dexieGet(page, 'mooditems', 'v7_i_note', uid)) && lastMove.x === 180 && lastMove.y === 140, 6000);
+  N('canvas: move item via pointer drag', movedOk ? 'PASS' : `FAIL (x=${lastMove?.x},y=${lastMove?.y})`);
 
   await selectItemEl(page, 'v7_i_note2');
   await sleep(400);
@@ -458,8 +459,9 @@ async function canvasSuite(page, E, V, uid) {
     await page.mouse.up();
     await sleep(400);
   }
-  const resized = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
-  N('canvas: resize via resize-handle', resized && resized.w > 221 && resized.h > 161 ? 'PASS' : `FAIL (w=${resized?.w},h=${resized?.h})`);
+  let lastRes;
+  const resizedOk = await poll(async () => (lastRes = await dexieGet(page, 'mooditems', 'v7_i_note2', uid)) && lastRes.w > 221 && lastRes.h > 161, 6000);
+  N('canvas: resize via resize-handle', resizedOk ? 'PASS' : `FAIL (w=${lastRes?.w},h=${lastRes?.h})`);
 
   // commit-on-release: reload → geometry persists in Dexie + DOM
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -1305,9 +1307,9 @@ async function coreSubset(page, E, V, uid, token) {
     await page.mouse.down();
     await page.mouse.move(b.x + 90, b.y + 50, { steps: 5 });
     await page.mouse.up();
-    await sleep(400);
-    const post = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
-    N('core: pointer move updates geometry', post && pre && post.x === pre.x + 70 ? 'PASS' : `FAIL (${pre?.x}→${post?.x})`);
+    let lastPost;
+    const postOk = pre && await poll(async () => (lastPost = await dexieGet(page, 'mooditems', 'v7_i_note2', uid)) && lastPost.x === pre.x + 70, 6000);
+    N('core: pointer move updates geometry', postOk ? 'PASS' : `FAIL (${pre?.x}→${lastPost?.x})`);
   }
 
   // keyboard arrow
@@ -1429,6 +1431,10 @@ console.log('\n==================== RESULTS ====================');
 for (const g of ['physical iOS Safari device run', 'physical Android device run', 'assistive technology (VoiceOver/TalkBack) audit'])
   note('manual', 'device', g, 'NOT RUN');
 const byStatus = { PASS: 0, FAIL: 0, 'NOT RUN': 0 };
-for (const r of results) { byStatus[r.status] = (byStatus[r.status] ?? 0) + 1; console.log(`${r.status.padEnd(8)} [${r.engine}/${r.viewport}] ${r.check}`); }
+for (const r of results) {
+  const bucket = r.status === 'PASS' ? 'PASS' : r.status === 'NOT RUN' ? 'NOT RUN' : 'FAIL';
+  byStatus[bucket] += 1;
+  console.log(`${r.status.padEnd(8)} [${r.engine}/${r.viewport}] ${r.check}`);
+}
 console.log(`\nTOTAL: ${byStatus.PASS} PASS / ${byStatus.FAIL} FAIL / ${byStatus['NOT RUN']} NOT RUN`);
 process.exit(byStatus.FAIL ? 1 : 0);
