@@ -15,6 +15,10 @@ export interface OutboxEntry {
   collection: Collection;
   patch: Record<string, unknown>;
   ts: number;
+  /** 'rejected' rows are kept (never silently dropped) until retried/exported —
+   * absent on older rows, treat as 'pending' (review B5). */
+  state?: 'pending' | 'rejected';
+  rejectReason?: string;
 }
 
 export type BlobState = 'pending' | 'uploaded' | 'cached' | 'failed';

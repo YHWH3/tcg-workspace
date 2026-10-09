@@ -119,9 +119,18 @@ export interface AppliedChange {
   rev: number;
 }
 
+export interface RejectedItem {
+  id: string;
+  collection: string;
+  reason: string;
+}
+
 export interface ApplyResult {
   rejected: number;
   changed: number;
+  /** Per-item disposition for rejected changes — clients keep these locally
+   * instead of treating an HTTP 200 as universal success (review B5). */
+  rejectedItems?: RejectedItem[];
   /** Filled on hard conflict after retries — caller turns it into a 409. */
   conflict?: boolean;
   /** expectedRev mismatches — nothing written for those ids. */
@@ -184,9 +193,14 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   const now = Date.now();
 
   let rejected = 0;
+  const rejectedItems: RejectedItem[] = [];
+  const reject = (id: unknown, collection: unknown, reason: string) => {
+    rejected++;
+    rejectedItems.push({ id: typeof id === 'string' ? id : '', collection: typeof collection === 'string' ? collection : '', reason });
+  };
   let incoming = (changes as unknown[]).filter((ch): ch is Mutation => {
     if (!validChange(ch)) {
-      rejected++;
+      reject((ch as { id?: unknown })?.id, (ch as { collection?: unknown })?.collection, 'invalid_mutation');
       return false;
     }
     return true;
@@ -216,7 +230,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
       plans.set(ch.id, plan);
     }
     if (plan.collection !== ch.collection) {
-      rejected++;
+      reject(ch.id, ch.collection, 'collection_mismatch');
       continue;
     }
     plan.patches.push({ patch: ch.patch, ts: ch.ts });
@@ -231,7 +245,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
       plan.baseSeq = row.seq;
       plan.data = JSON.parse(row.data);
       plan.field_ts = JSON.parse(row.field_ts);
-      rejected += plan.patches.length;
+      for (let i = 0; i < plan.patches.length; i++) reject(plan.id, plan.collection, 'collection_mismatch');
       plans.delete(plan.id);
       continue;
     }
@@ -244,7 +258,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   if (opts.expect && expected.size) {
     const conflicts = checkExpectations(existing, opts.expect);
     if (conflicts.length && opts.atomic !== false) {
-      return { rejected: rejected + expected.size, changed: 0, conflicts, applied: [] };
+      return { rejected: rejected + expected.size, rejectedItems, changed: 0, conflicts, applied: [] };
     }
     // Pin expected ids to the caller's rev so a concurrent bump fails the
     // CAS instead of merging into a newer row.
@@ -263,6 +277,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
 
   const result = await flushPlans(env, userId, plans, expected, now, opts.expect, opts.atomic);
   result.rejected += rejected;
+  if (rejectedItems.length) result.rejectedItems = [...rejectedItems, ...(result.rejectedItems ?? [])];
   return result;
 }
 
@@ -468,7 +483,7 @@ sync.post('/push', async (c) => {
 
   pokeLive(c.env, c.executionCtx);
 
-  return c.json({ ok: true, serverTime: Date.now(), rejected: result.rejected });
+  return c.json({ ok: true, serverTime: Date.now(), rejected: result.rejected, rejectedItems: result.rejectedItems ?? [] });
 });
 
 sync.get('/pull', async (c) => {
