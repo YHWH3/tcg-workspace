@@ -419,6 +419,12 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     });
   }
 
+  /* Review C2: CAS read-modify-write that threads the real userId (updated_by
+   * attribution) and records landed writes into the change set inside
+   * casUpdate itself — nothing can land unrecorded before a later push. */
+  const cas = (collection: string, id: string, mutate: Parameters<typeof casUpdate>[4]) =>
+    casUpdate(ctx.env, ctx.userId, collection, id, mutate, { recordTo: ctx.cs?.items ?? undefined });
+
   /* ---------- 1-2. search / fetch (ChatGPT connector contract) ---------- */
 
   server.registerTool(
@@ -1710,7 +1716,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async (a) => {
       const board = await boardOr404(a.boardId);
       if (!board) return err('board not found');
-      const out = await casUpdate(ctx.env, 'boards', a.boardId, (data) => {
+      const out = await cas('boards', a.boardId, (data) => {
         const cols = Array.isArray(data.columns) ? [...(data.columns as { id: string; name: string; color: string }[])] : [];
         if (cols.some((c) => c.name.toLowerCase() === a.name.toLowerCase())) return null; // idempotent no-op
         cols.push({ id: uuid().slice(0, 8), name: a.name, color: a.color ?? COLUMN_COLORS[cols.length % COLUMN_COLORS.length] });
@@ -1720,7 +1726,6 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if ('notFound' in out) return err('board not found');
       const cols = colsOf({ id: board.id, data: out.row.data, rev: out.row.rev, updatedBy: null, updatedAt: null });
       const added = cols.find((c) => c.name.toLowerCase() === a.name.toLowerCase());
-      if (ctx.cs) ctx.cs.items.push(...out.result.applied.filter((x) => x.collection !== 'activity'));
       return txt({ boardId: a.boardId, stage: added, existed: !out.result.applied.length });
     },
   );
@@ -1735,7 +1740,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async (a) => {
       const board = await boardOr404(a.boardId);
       if (!board) return err('board not found');
-      const out = await casUpdate(ctx.env, 'boards', a.boardId, (data) => {
+      const out = await cas('boards', a.boardId, (data) => {
         const cols = Array.isArray(data.columns) ? [...(data.columns as { id: string; name: string; color: string }[])] : [];
         const col = cols.find((c) => c.id === a.stage || c.name.toLowerCase() === a.stage.toLowerCase());
         if (!col) throw new Error(`stage ${a.stage} not found`);
@@ -1745,7 +1750,6 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       });
       if ('conflict' in out) return err('concurrent board edits — retry');
       if ('notFound' in out) return err('board not found');
-      if (ctx.cs) ctx.cs.items.push(...out.result.applied.filter((x) => x.collection !== 'activity'));
       return txt({ boardId: a.boardId, stage: a.stage, updated: true });
     },
   );
@@ -1775,7 +1779,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (!target) return err(`moveTasksTo ${a.moveTasksTo} not found among remaining stages`);
       const affected = (a.boardId === 'board-default' ? (await listDefaultBoardTasks(ctx.env)).map(toRec) : (await listBy(ctx.env, 'tasks', 'boardId', a.boardId)).map(toRec)).filter((t) => String(t.data.status ?? '') === col.id);
       if (a.dryRun) return txt({ dryRun: true, summary: `remove stage "${col.name}" from board ${a.boardId}`, counts: { tasksMoved: affected.length }, warnings: affected.length ? [`${affected.length} task(s) move to "${target.name}"`] : [], impact: { tasks: affected.map((t) => t.id), toStage: target.id } });
-      const out = await casUpdate(ctx.env, 'boards', a.boardId, (data) => {
+      const out = await cas('boards', a.boardId, (data) => {
         const cur = Array.isArray(data.columns) ? (data.columns as { id: string; name: string; color: string }[]) : [];
         if (!cur.some((c) => c.id === col.id)) return null;
         return { columns: cur.filter((c) => c.id !== col.id) };
@@ -1784,7 +1788,6 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if ('notFound' in out) return err('board not found');
       const ops: WriteOp[] = affected.map((t) => ({ collection: 'tasks' as Collection, id: t.id, patch: { status: target.id } }));
       if (ops.length) await write(ctx, ops);
-      if (ctx.cs) ctx.cs.items.push(...out.result.applied.filter((x) => x.collection !== 'activity'));
       return txt({ boardId: a.boardId, removed: col.id, tasksMoved: affected.length, movedTo: target.id });
     },
   );
@@ -1819,7 +1822,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         if (a.field.target !== 'pages' && !targetBoard) return err(`relation target database "${a.field.target}" not found`);
         const fId = uuid().slice(0, 8);
         const pId = a.field.twoWay ? uuid().slice(0, 8) : null;
-        const out = await casUpdate(ctx.env, 'boards', a.boardId, (data) => {
+        const out = await cas('boards', a.boardId, (data) => {
           const fields = fieldsOf(data).map((f) => ({ ...f }));
           const ex = fields.find((f) => f.name.toLowerCase() === a.field.name.toLowerCase());
           if (ex) {
@@ -1831,22 +1834,20 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         });
         if ('conflict' in out) return err('concurrent board edits — retry');
         if ('notFound' in out) return err('board not found');
-        if (ctx.cs) ctx.cs.items.push(...out.result.applied.filter((x) => x.collection !== 'activity'));
         if (pId && targetBoard) {
-          const outB = await casUpdate(ctx.env, 'boards', targetBoard.id, (d) => {
+          const outB = await cas('boards', targetBoard.id, (d) => {
             const fs = fieldsOf(d).map((x) => ({ ...x }));
             if (fs.some((x) => x.name.toLowerCase() === (a.field.reverseName ?? a.field.name).toLowerCase())) return null;
             fs.push({ id: pId, name: a.field.reverseName ?? String(board.data.name ?? 'Related'), type: 'relation', relation: { target: a.boardId, pairedFieldId: fId, single: false, primary: false } });
             return { fields: fs };
           });
           if ('conflict' in outB || 'notFound' in outB) ctx.warnings.push('reverse relation field failed on concurrent edit');
-          else if (ctx.cs) ctx.cs.items.push(...outB.result.applied.filter((x) => x.collection !== 'activity'));
         }
         const fresh = await rec(ctx.env, 'boards', a.boardId);
         const field = fresh ? fieldsOf(fresh.data).find((f) => f.id === fId) ?? null : null;
         return txt({ boardId: a.boardId, field, existed: !out.result.applied.length });
       }
-      const out = await casUpdate(ctx.env, 'boards', a.boardId, (data) => {
+      const out = await cas('boards', a.boardId, (data) => {
         const fields = fieldsOf(data).map((f) => ({ ...f, options: f.options ? [...f.options] : undefined }));
         const existing = fields.find((f) => f.name.toLowerCase() === a.field.name.toLowerCase());
         if (existing) {
@@ -1858,7 +1859,6 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       });
       if ('conflict' in out) return err('concurrent board edits — retry');
       if ('notFound' in out) return err('board not found');
-      if (ctx.cs) ctx.cs.items.push(...out.result.applied.filter((x) => x.collection !== 'activity'));
       const fresh2 = await rec(ctx.env, 'boards', a.boardId);
       const field = fresh2 ? fieldsOf(fresh2.data).find((f) => f.name.toLowerCase() === a.field.name.toLowerCase()) : undefined;
       return txt({ boardId: a.boardId, field, existed: !out.result.applied.length });
@@ -1884,7 +1884,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async (a) => {
       const board = await boardOr404(a.boardId);
       if (!board) return err('board not found');
-      const out = await casUpdate(ctx.env, 'boards', a.boardId, (data) => {
+      const out = await cas('boards', a.boardId, (data) => {
         const fields = fieldsOf(data).map((f) => ({ ...f, options: f.options ? [...f.options] : undefined }));
         const f = fields.find((x) => x.id === a.field || x.name.toLowerCase() === a.field.toLowerCase());
         if (!f) throw new Error(`field ${a.field} not found`);
@@ -1911,7 +1911,6 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       });
       if ('conflict' in out) return err('concurrent board edits — retry');
       if ('notFound' in out) return err('board not found');
-      if (ctx.cs) ctx.cs.items.push(...out.result.applied.filter((x) => x.collection !== 'activity'));
       const field = fieldsOf(out.row.data).find((x) => x.id === a.field || x.name === a.field);
       return txt({ boardId: a.boardId, field });
     },
@@ -1932,14 +1931,13 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const tasks = (a.boardId === 'board-default' ? (await listDefaultBoardTasks(ctx.env)).map(toRec) : (await listBy(ctx.env, 'tasks', 'boardId', a.boardId)).map(toRec));
       const withValue = tasks.filter((t) => t.data[propKey(f.id)] !== undefined).length;
       if (a.dryRun) return txt({ dryRun: true, summary: `remove field "${f.name}" from board ${a.boardId}`, counts: { tasksWithValue: withValue }, warnings: withValue ? [`${withValue} task(s) keep their stored value (hidden)`] : [], impact: { fieldId: f.id } });
-      const out = await casUpdate(ctx.env, 'boards', a.boardId, (data) => {
+      const out = await cas('boards', a.boardId, (data) => {
         const fields = fieldsOf(data);
         if (!fields.some((x) => x.id === f.id)) return null;
         return { fields: fields.filter((x) => x.id !== f.id) };
       });
       if ('conflict' in out) return err('concurrent board edits — retry');
       if ('notFound' in out) return err('board not found');
-      if (ctx.cs) ctx.cs.items.push(...out.result.applied.filter((x) => x.collection !== 'activity'));
       return txt({ boardId: a.boardId, removed: f.id, tasksWithValue: withValue });
     },
   );
@@ -2120,7 +2118,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         }
         const fId = uuid().slice(0, 8);
         const pId = rf.twoWay ? uuid().slice(0, 8) : null;
-        const outA = await casUpdate(ctx.env, 'boards', dbId, (d) => {
+        const outA = await cas('boards', dbId, (d) => {
           const fs = fieldsOf(d).map((x) => ({ ...x }));
           if (fs.some((x) => x.name.toLowerCase() === rf.name.toLowerCase())) return null;
           fs.push({ id: fId, name: rf.name, type: 'relation', relation: { target: rf.target === 'pages' ? 'pages' : targetBoard!.id, pairedFieldId: pId, single: rf.single, primary: true } });
@@ -2130,16 +2128,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           ctx.warnings.push(`relation "${rf.name}" failed on concurrent edit`);
           continue;
         }
-        if (ctx.cs) ctx.cs.items.push(...outA.result.applied.filter((x) => x.collection !== 'activity'));
         if (pId && targetBoard) {
-          const outB = await casUpdate(ctx.env, 'boards', targetBoard.id, (d) => {
+          const outB = await cas('boards', targetBoard.id, (d) => {
             const fs = fieldsOf(d).map((x) => ({ ...x }));
             if (fs.some((x) => x.name.toLowerCase() === (rf.reverseName ?? a.name).toLowerCase())) return null;
             fs.push({ id: pId, name: rf.reverseName ?? a.name, type: 'relation', relation: { target: dbId, pairedFieldId: fId, single: false, primary: false } });
             return { fields: fs };
           });
           if ('conflict' in outB || 'notFound' in outB) ctx.warnings.push(`reverse relation for "${rf.name}" failed on concurrent edit`);
-          else if (ctx.cs) ctx.cs.items.push(...outB.result.applied.filter((x) => x.collection !== 'activity'));
         }
         relResults.push(rf.name);
       }

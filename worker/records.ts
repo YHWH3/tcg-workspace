@@ -1,7 +1,7 @@
 /* Targeted reads for the MCP surface (Phase 0 §3). Every read carries
  * `rev` (records.seq) so AI callers can issue expectedRev writes. */
 
-import { applyChanges, type ApplyResult } from './sync';
+import { applyChanges, type AppliedChange, type ApplyResult } from './sync';
 import type { Env } from './auth';
 
 export interface RecRow {
@@ -80,10 +80,11 @@ export async function listCollection(env: Env, collection: string, opts: { inclu
  */
 export async function casUpdate(
   env: Env,
+  userId: string,
   collection: string,
   id: string,
   mutate: (data: Record<string, unknown>, rev: number) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>,
-  opts: { attempts?: number } = {},
+  opts: { attempts?: number; recordTo?: AppliedChange[] } = {},
 ): Promise<{ row: RecRow; result: ApplyResult } | { conflict: true } | { notFound: true }> {
   const attempts = opts.attempts ?? 5;
   for (let i = 0; i < attempts; i++) {
@@ -91,8 +92,13 @@ export async function casUpdate(
     if (!row || row.collection !== collection || row.data.deleted === true) return { notFound: true };
     const patch = await mutate(row.data, row.rev);
     if (patch === null) return { row, result: { rejected: 0, changed: 0, applied: [] } };
-    const result = await applyChanges(env, 'mcp', [{ id, collection, patch, ts: Date.now() }], { serverTs: true, expect: new Map([[id, row.rev]]) });
-    if (!result.conflicts?.length) return { row, result };
+    const result = await applyChanges(env, userId, [{ id, collection, patch, ts: Date.now() }], { serverTs: true, expect: new Map([[id, row.rev]]) });
+    if (!result.conflicts?.length) {
+      // Record landed writes into the caller's change set synchronously — no
+      // write can be stranded by a later failure in the tool call (§4.2).
+      if (opts.recordTo) opts.recordTo.push(...result.applied.filter((x) => x.collection !== 'activity'));
+      return { row, result };
+    }
   }
   return { conflict: true };
 }
