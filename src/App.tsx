@@ -10,6 +10,7 @@ import { initTheme } from './core/theme';
 import { useStore } from './core/store';
 import { modules } from './modules';
 import { PublicView } from './public/PublicView';
+import { PublicCanvas } from './public/PublicCanvas';
 
 function Loading() {
   return (
@@ -29,6 +30,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 const router = createBrowserRouter([
   // Public share links live entirely outside the auth shell — no sync engine,
   // no login redirect.
+  { path: 's/canvas/:token', element: <PublicCanvas /> },
   { path: 's/:token', element: <PublicView /> },
   { path: 's/:token/:pageId', element: <PublicView /> },
   {
