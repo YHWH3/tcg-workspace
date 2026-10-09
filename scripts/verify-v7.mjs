@@ -1300,16 +1300,18 @@ async function coreSubset(page, E, V, uid, token) {
   const added = await poll(async () => (await boardItems(page, uid, MB)).some((i) => !before.has(i.id) && i.type === 'note'));
   N('core: add note via add menu', added ? 'PASS' : 'FAIL');
 
-  const b = await itemEl(page, 'v7_i_note2').boundingBox();
+  const b = await uncoveredPoint(page, 'v7_i_note2');
   if (b) {
     const pre = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
-    await page.mouse.move(b.x + 20, b.y + 20);
+    await page.mouse.move(b.x, b.y);
     await page.mouse.down();
-    await page.mouse.move(b.x + 90, b.y + 50, { steps: 5 });
+    await page.mouse.move(b.x + 70, b.y + 30, { steps: 5 });
     await page.mouse.up();
     let lastPost;
     const postOk = pre && await poll(async () => (lastPost = await dexieGet(page, 'mooditems', 'v7_i_note2', uid)) && lastPost.x === pre.x + 70, 6000);
     N('core: pointer move updates geometry', postOk ? 'PASS' : `FAIL (${pre?.x}→${lastPost?.x})`);
+  } else {
+    N('core: pointer move updates geometry', 'FAIL (item fully covered — no hittable point)');
   }
 
   // keyboard arrow
