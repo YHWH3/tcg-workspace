@@ -10,7 +10,7 @@
  */
 import { useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { ArrowUpDown, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users } from 'lucide-react';
+import { ArrowUpDown, BarChart3, Calendar, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users } from 'lucide-react';
 import { authStore } from '../auth';
 import { useIsMobile } from '../mobile';
 import { PresenceStack } from '../presence';
@@ -52,7 +52,7 @@ import { GalleryView } from './GalleryView';
 import { GroupBoard } from './GroupBoard';
 import { RecordDetail } from './RecordDetail';
 
-const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon };
+const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3 };
 
 /* ============ dispatcher for the legacy routes ============ */
 

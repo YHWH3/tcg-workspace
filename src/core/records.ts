@@ -77,6 +77,8 @@ export const VIEW_TYPE_LABELS: Record<ViewType, string> = {
   table: 'Table',
   list: 'List',
   gallery: 'Gallery',
+  calendar: 'Calendar',
+  timeline: 'Timeline',
 };
 
 export function useViews(databaseId: string | undefined): DbViewRow[] {
