@@ -55,39 +55,21 @@ function applyIdentity(token: string, user: PublicUser) {
   cacheUser(user);
 }
 
-/** Serialize the previous account's local-only data (outbox + drafts + pending
- * blob metadata) to a downloadable JSON file (§12.3 'keep' choice). */
-async function exportLocalBackup(prevId: string): Promise<void> {
-  const { db } = await import('./db');
-  const { listDrafts } = await import('./drafts');
-  const [outbox, drafts, blobs] = await Promise.all([
-    db.outbox.toArray(),
-    listDrafts(prevId),
-    db.blobs.where('state').anyOf('pending', 'failed').toArray(),
-  ]);
-  const payload = {
-    exportedAt: Date.now(),
-    userId: prevId,
-    outbox: outbox.map(({ autoId: _autoId, ...e }) => e),
-    drafts,
-    // Blob bytes stay behind — listed so nothing is silently forgotten.
-    blobs: blobs.map((b) => ({ id: b.id, mime: b.mime ?? null, state: b.state, error: b.error ?? null })),
-  };
-  const file = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `workspace-backup-${prevId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 const switchDeps: SwitchDeps = {
-  exportBackup: exportLocalBackup,
-  wipeLocal: async () => {
+  // Full archive — outbox + drafts + pending/failed blob BYTES (R1).
+  exportBackup: async (prevId) => {
+    const { db } = await import('./db');
+    const { buildLocalBackup, saveBackupFile } = await import('./localBackup');
+    const { listDrafts } = await import('./drafts');
+    return saveBackupFile(await buildLocalBackup(db, prevId, listDrafts));
+  },
+  closeLocal: async () => {
     const { db } = await import('./db');
     db.close();
-    await db.delete();
+  },
+  dropLocal: async (prevId) => {
+    const { dropDatabaseFor } = await import('./db');
+    await dropDatabaseFor(prevId);
   },
   commitIdentity: (userId, token, user) => applyIdentity(token, { ...user, id: userId }),
   revokeToken: async (token) => {
@@ -97,7 +79,7 @@ const switchDeps: SwitchDeps = {
 };
 
 /** Dialog button handler — resolves the pending account-switch decision. */
-export async function resolveAccountSwitch(choice: 'cancel' | 'keep' | 'destroy') {
+export async function resolveAccountSwitch(choice: 'cancel' | 'keep' | 'keep-confirmed' | 'destroy') {
   const d = accountSwitchStore.get();
   if (!d) return;
   await runAccountSwitch(choice, d, switchDeps);
@@ -116,15 +98,24 @@ async function finishLogin(token: string, user: PublicUser) {
       accountSwitchStore.set({ prevId, newUser: user, token, pending });
       return;
     }
-    // Nothing pending: the switch is harmless — wipe for a clean slate anyway.
-    applyIdentity(token, user);
+    // Nothing unacknowledged: isolation-first — close A's store BEFORE B's
+    // identity commits (R3); A's per-account database stays quarantined on
+    // disk, B opens workspace-<B> after reload.
     const { db } = await import('./db');
     db.close();
-    await db.delete();
+    applyIdentity(token, user);
     location.reload();
     return;
   }
   applyIdentity(token, user);
+  // Reload so the Dexie store reopens under this account's name (per-uid
+  // databases, R3) — module init reads ws_uid once.
+  const { db } = await import('./db');
+  if (db.name !== `workspace-${user.id}`) {
+    db.close();
+    location.reload();
+    return;
+  }
   authStore.set({ status: 'authed', user });
 }
 

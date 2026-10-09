@@ -32,6 +32,15 @@ export interface BlobRow {
   error?: string;
 }
 
+/** One IndexedDB database per account id (§12.3, review R3): an account
+ * switch can never expose or clobber the previous account's store — B gets
+ * `workspace-<B>` while A's `workspace-<A>` stays quarantined on disk.
+ * Falls back to a stable anonymous name before any identity exists. */
+function databaseName(): string {
+  const uid = typeof localStorage === 'undefined' ? null : localStorage.getItem('ws_uid');
+  return uid ? `workspace-${uid}` : 'workspace-anon';
+}
+
 export class LocalDB extends Dexie {
   pages!: Table<LocalRow, string>;
   blocks!: Table<LocalRow, string>;
@@ -50,7 +59,7 @@ export class LocalDB extends Dexie {
   blobs!: Table<BlobRow, string>;
 
   constructor() {
-    super('workspace');
+    super(databaseName());
     this.version(1).stores({
       pages: 'id, parentId, order',
       blocks: 'id, pageId, order',
@@ -84,6 +93,31 @@ export class LocalDB extends Dexie {
 }
 
 export const db = new LocalDB();
+
+/** Delete the on-disk store belonging to `userId` (destroy choice on account
+ * switch). Uses the raw deleteDatabase request: `onblocked` rejects as soon
+ * as another connection is holding the store open, with `timeoutMs` as a
+ * backstop for browsers that swallow the event — the caller MUST treat a
+ * rejection as abort, not proceed. */
+export async function dropDatabaseFor(userId: string, timeoutMs = 4000): Promise<void> {
+  const name = `workspace-${userId}`;
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`deleting ${name} timed out`)), timeoutMs);
+    const req = indexedDB.deleteDatabase(name);
+    req.onsuccess = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    req.onerror = () => {
+      clearTimeout(timer);
+      reject(req.error ?? new Error(`could not delete ${name}`));
+    };
+    req.onblocked = () => {
+      clearTimeout(timer);
+      reject(new Error(`deleting ${name} is blocked by another tab`));
+    };
+  });
+}
 
 export async function getMeta<T>(key: string): Promise<T | undefined> {
   const row = await db.meta.get(key);

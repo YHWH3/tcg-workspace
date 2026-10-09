@@ -257,36 +257,49 @@ function DurableError() {
   );
 }
 
-/* Blocking account-switch surface (§12.3, review B4): renders above login and
- * shell alike — the previous account's unsynced data can't be signed away
- * without an explicit choice. Escape/outside-click and the X all mean the
- * safe option (cancel), never a silent wipe. */
+/* Blocking account-switch surface (§12.3, reviews B4/R1/R2/R3): renders above
+ * login and shell alike — the previous account's unsynced data can't be
+ * signed away without an explicit choice. Escape/outside-click and the X all
+ * mean the safe option (cancel), never a silent wipe. The backup path is
+ * two-step when the download can't be verified: the file must be confirmed
+ * saved before the switch proceeds. */
 export function AccountSwitchGate() {
   const d = useStore(accountSwitchStore);
-  const [busy, setBusy] = useState<null | 'cancel' | 'keep' | 'destroy'>(null);
+  const [busy, setBusy] = useState<null | 'cancel' | 'keep' | 'keep-confirmed' | 'destroy'>(null);
   if (!d) return null;
-  const { records, media, drafts } = d.pending;
+  const { records, rejected, media, drafts } = d.pending;
   const parts = [
-    records ? `${records} unsynced change${records === 1 ? '' : 's'}` : '',
+    records ? `${records} unsynced change${records === 1 ? '' : 's'}${rejected ? ` (${rejected} rejected by the server, kept locally)` : ''}` : '',
     media ? `${media} upload${media === 1 ? '' : 's'} pending or failed` : '',
     drafts ? `${drafts} unsent draft${drafts === 1 ? '' : 's'}` : '',
   ].filter(Boolean);
-  const choose = (c: 'cancel' | 'keep' | 'destroy') => {
+  const choose = (c: 'cancel' | 'keep' | 'keep-confirmed' | 'destroy') => {
     setBusy(c);
     void resolveAccountSwitch(c).catch(() => setBusy(null));
   };
+  const backupDone = d.backup === 'verified' || d.backup === 'downloaded-unconfirmed';
   return (
     <Dialog title={`Sign in as ${d.newUser.name}?`} onClose={() => choose('cancel')} guard={() => busy === null}>
       <p className="text-sm text-neutral-600 dark:text-neutral-300">
-        This device has {parts.join(', ')} belonging to the previous account that the server never confirmed. Switching accounts
-        normally erases everything locally.
+        This device has {parts.join(', ')} belonging to the previous account that the server never confirmed.
       </p>
+      {d.backup === 'downloaded-unconfirmed' && (
+        <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          A backup file was downloaded — check your Downloads folder and confirm it saved, then finish switching.
+        </p>
+      )}
       <div className="mt-4 flex flex-col gap-2">
-        <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('keep')}>
-          {busy === 'keep' ? 'Exporting…' : 'Download a backup, then switch'}
-        </Button>
+        {backupDone ? (
+          <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('keep-confirmed')}>
+            {busy === 'keep-confirmed' ? 'Switching…' : 'Backup saved — switch now'}
+          </Button>
+        ) : (
+          <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('keep')}>
+            {busy === 'keep' ? 'Exporting backup…' : 'Back up everything, then switch'}
+          </Button>
+        )}
         <Button variant="danger" size="sm" disabled={busy !== null} onClick={() => choose('destroy')}>
-          {busy === 'destroy' ? 'Switching…' : `Erase ${records + drafts} item${records + drafts === 1 ? '' : 's'} and switch`}
+          {busy === 'destroy' ? 'Deleting…' : `Discard ${records + media + drafts} item${records + media + drafts === 1 ? '' : 's'} and switch anyway`}
         </Button>
         <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => choose('cancel')}>
           {busy === 'cancel' ? 'Cancelling…' : 'Cancel — keep my data'}

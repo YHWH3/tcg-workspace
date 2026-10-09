@@ -1,16 +1,28 @@
-/* Account-switch protection (§12.3, review B4). finishLogin must never
- * silently erase a previous account's unacknowledged local data — unsent
- * outbox writes, pending/failed uploads, unsent drafts. When the new login's
- * identity differs from the device's, the counts are surfaced through a
- * blocking dialog and NOTHING about the device identity is committed until
- * the user chooses. `ws_uid` only moves after the decision so a sibling tab
- * still writing under the old identity is caught by assertSameAccount. */
+/* Account-switch protection (§12.3, reviews B4 + R1/R2/R3). finishLogin must
+ * never silently erase a previous account's unacknowledged local data —
+ * unsent outbox writes (ANY state, including server-rejected), pending/failed
+ * uploads, unsent drafts. The blocking dialog lists the counts and NOTHING
+ * about the device identity is committed until the user chooses:
+ *
+ *   cancel  → revoke the new token; local data + identity untouched
+ *   keep    → FULL backup (blob bytes included) saved + verified/confirmed,
+ *             then the old store is closed and B's identity commits. With
+ *             per-account databases the old store stays quarantined on disk.
+ *   destroy → old account's database is deleted FIRST, and only if that
+ *             succeeds is B's identity committed; a blocked delete aborts
+ *             the switch with A fully intact.
+ *
+ * `ws_uid` only moves after the decision so a sibling tab still writing under
+ * the old identity is caught by assertSameAccount. */
 
 import type { PublicUser } from '../../shared/types';
 import { createStore } from './store';
 
 export interface PendingCounts {
+  /** All unacknowledged outbox rows (pending + rejected + any other state). */
   records: number;
+  /** Of `records`, how many were server-rejected (kept locally per B5). */
+  rejected: number;
   media: number;
   drafts: number;
 }
@@ -23,18 +35,24 @@ export interface SwitchDecision {
   /** Session token for newUser — NOT stored until the user decides. */
   token: string;
   pending: PendingCounts;
+  /** Set once a backup archive has been produced in this session. */
+  backup?: 'verified' | 'downloaded-unconfirmed';
 }
 
 /** Non-null → the app renders the blocking switch dialog over everything. */
 export const accountSwitchStore = createStore<SwitchDecision | null>(null);
 
-export type SwitchChoice = 'cancel' | 'keep' | 'destroy';
+export type SwitchChoice = 'cancel' | 'keep' | 'keep-confirmed' | 'destroy';
 
 export interface SwitchDeps {
-  /** Serialize the previous account's local-only data to a downloadable file. */
-  exportBackup(prevId: string): Promise<void>;
-  /** Wipe the local database. */
-  wipeLocal(): Promise<void>;
+  /** Build + save the full archive (blob bytes included). 'verified' means a
+   * confirmed write (FS Access API); 'clicked' means the download was
+   * triggered but cannot be verified — requires an explicit user confirm. */
+  exportBackup(prevId: string): Promise<'verified' | 'clicked'>;
+  /** Close the current local DB connection (never throws). */
+  closeLocal(): Promise<void>;
+  /** Delete the previous account's on-disk store; rejects when blocked. */
+  dropLocal(prevId: string): Promise<void>;
   /** Persist the new identity (ws_token, ws_user, ws_uid). */
   commitIdentity(userId: string, token: string, user: PublicUser): void;
   /** Best-effort server logout for a token we never stored. */
@@ -42,10 +60,21 @@ export interface SwitchDeps {
   reload(): void;
 }
 
+async function finishSwitch(d: SwitchDecision, deps: SwitchDeps): Promise<void> {
+  // Isolation-first (R3): the old store is closed/removed BEFORE B's identity
+  // commits — a failure here must leave A's session and data fully intact.
+  await deps.closeLocal();
+  accountSwitchStore.set(null);
+  deps.commitIdentity(d.newUser.id, d.token, d.newUser);
+  deps.reload();
+}
+
 /**
- * Resolve the switch decision. 'keep' exports a backup BEFORE wiping; a failed
- * export aborts the switch and leaves the dialog open so nothing is lost.
- * 'cancel' discards the new session server-side and keeps everything local.
+ * Resolve the switch decision.
+ *  - 'keep' produces the archive; 'clicked' saves surface as a confirm step —
+ *    the identity is NOT committed until the user sends 'keep-confirmed'.
+ *  - 'destroy' deletes A's store BEFORE committing B; a blocked delete
+ *    propagates and aborts, leaving A's identity/data untouched.
  */
 export async function runAccountSwitch(choice: SwitchChoice, d: SwitchDecision, deps: SwitchDeps): Promise<SwitchChoice> {
   if (choice === 'cancel') {
@@ -54,18 +83,31 @@ export async function runAccountSwitch(choice: SwitchChoice, d: SwitchDecision, 
     return 'cancel';
   }
   if (choice === 'keep') {
-    try {
-      await deps.exportBackup(d.prevId);
-    } catch (e) {
-      // Export failed → stay open; wipe/commit haven't run.
-      throw e;
+    if (d.backup !== 'verified' && d.backup !== 'downloaded-unconfirmed') {
+      const how = await deps.exportBackup(d.prevId);
+      if (how === 'clicked') {
+        // Download triggered, not verifiable — require explicit confirmation.
+        accountSwitchStore.set({ ...d, backup: 'downloaded-unconfirmed' });
+        return 'keep';
+      }
+      accountSwitchStore.set({ ...d, backup: 'verified' });
     }
+    await finishSwitch(d, deps);
+    return 'keep';
   }
+  if (choice === 'keep-confirmed') {
+    if (!d.backup) throw new Error('no backup was produced yet');
+    await finishSwitch(d, deps);
+    return 'keep';
+  }
+  // destroy: explicit destructive switch — delete A's store first; commit B
+  // only if that fully succeeds.
   accountSwitchStore.set(null);
+  await deps.closeLocal();
+  await deps.dropLocal(d.prevId);
   deps.commitIdentity(d.newUser.id, d.token, d.newUser);
-  await deps.wipeLocal();
   deps.reload();
-  return choice;
+  return 'destroy';
 }
 
 /**
