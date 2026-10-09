@@ -24,7 +24,7 @@ function makeDeps(): { deps: SwitchDeps; calls: string[] } {
     deps: {
       exportBackup: vi.fn(async () => (calls.push('export'), 'verified' as const)),
       closeLocal: vi.fn(async () => void calls.push('close')),
-      dropLocal: vi.fn(async () => void calls.push('drop')),
+      markForDeletion: vi.fn(async () => void calls.push('mark')),
       commitIdentity: vi.fn(() => void calls.push('commit')),
       revokeToken: vi.fn(async () => void calls.push('revoke')),
       reload: vi.fn(() => void calls.push('reload')),
@@ -46,7 +46,7 @@ describe('account-switch protocol ordering (R3)', () => {
     accountSwitchStore.set(decision);
     await runAccountSwitch('keep', decision, deps);
     expect(calls).toEqual(['export', 'close', 'commit', 'reload']);
-    expect(deps.dropLocal).not.toHaveBeenCalled(); // quarantined, not wiped
+    expect(deps.markForDeletion).not.toHaveBeenCalled(); // quarantined, not wiped
     expect(deps.commitIdentity).toHaveBeenCalledWith('user-B', 'tok-B', decision.newUser);
   });
 
@@ -62,21 +62,22 @@ describe('account-switch protocol ordering (R3)', () => {
     expect(calls).toEqual(['export', 'close', 'commit', 'reload']);
   });
 
-  it('destroy: close → drop(A) → commit → reload; drop failure aborts with B uncommitted', async () => {
+  it('destroy: close → mark(A) → commit → reload; mark failure aborts with B uncommitted', async () => {
     const { deps, calls } = makeDeps();
     accountSwitchStore.set(decision);
     await runAccountSwitch('destroy', decision, deps);
-    expect(calls).toEqual(['close', 'drop', 'commit', 'reload']);
+    // No live delete request is issued during the switch — only the durable
+    // marker (S2): the actual delete runs in the controlled startup pass.
+    expect(calls).toEqual(['close', 'mark', 'commit', 'reload']);
 
-    // Blocked delete → propagation: identity NOT committed, nothing reloaded.
     const { deps: d2, calls: c2 } = makeDeps();
-    d2.dropLocal = vi.fn(async () => {
-      c2.push('drop');
-      throw new Error('deleting workspace-user-A is blocked by another tab');
+    d2.markForDeletion = vi.fn(async () => {
+      c2.push('mark');
+      throw new Error('marker write failed');
     });
     accountSwitchStore.set(decision);
-    await expect(runAccountSwitch('destroy', decision, d2)).rejects.toThrow(/blocked by another tab/);
-    expect(c2).toEqual(['close', 'drop']);
+    await expect(runAccountSwitch('destroy', decision, d2)).rejects.toThrow(/marker write failed/);
+    expect(c2).toEqual(['close', 'mark']);
     expect(d2.commitIdentity).not.toHaveBeenCalled();
     expect(d2.reload).not.toHaveBeenCalled();
   });

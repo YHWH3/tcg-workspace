@@ -8,9 +8,12 @@
  *   keep    → FULL backup (blob bytes included) saved + verified/confirmed,
  *             then the old store is closed and B's identity commits. With
  *             per-account databases the old store stays quarantined on disk.
- *   destroy → old account's database is deleted FIRST, and only if that
- *             succeeds is B's identity committed; a blocked delete aborts
- *             the switch with A fully intact.
+ *   destroy → the old account's store is QUARANTINED and queued for
+ *             deferred deletion (maintenance pass retries every boot) — no
+ *             deleteDatabase request is ever issued while a blocking tab
+ *             could still veto it, so 'aborted' can never coexist with a
+ *             live pending delete (S2). Commit only happens after the mark
+ *             is durably written.
  *
  * `ws_uid` only moves after the decision so a sibling tab still writing under
  * the old identity is caught by assertSameAccount. */
@@ -51,8 +54,9 @@ export interface SwitchDeps {
   exportBackup(prevId: string): Promise<'verified' | 'clicked'>;
   /** Close the current local DB connection (never throws). */
   closeLocal(): Promise<void>;
-  /** Delete the previous account's on-disk store; rejects when blocked. */
-  dropLocal(prevId: string): Promise<void>;
+  /** Durably mark the previous account's store for deferred deletion (S2 —
+   * the actual delete runs only in the controlled startup pass). */
+  markForDeletion(prevId: string): Promise<void>;
   /** Persist the new identity (ws_token, ws_user, ws_uid). */
   commitIdentity(userId: string, token: string, user: PublicUser): void;
   /** Best-effort server logout for a token we never stored. */
@@ -73,8 +77,9 @@ async function finishSwitch(d: SwitchDecision, deps: SwitchDeps): Promise<void> 
  * Resolve the switch decision.
  *  - 'keep' produces the archive; 'clicked' saves surface as a confirm step —
  *    the identity is NOT committed until the user sends 'keep-confirmed'.
- *  - 'destroy' deletes A's store BEFORE committing B; a blocked delete
- *    propagates and aborts, leaving A's identity/data untouched.
+ *  - 'destroy' quarantines A's store and durably marks it for deferred
+ *    deletion BEFORE committing B; a failed mark aborts, leaving A's
+ *    identity/data untouched.
  */
 export async function runAccountSwitch(choice: SwitchChoice, d: SwitchDecision, deps: SwitchDeps): Promise<SwitchChoice> {
   if (choice === 'cancel') {
@@ -100,11 +105,14 @@ export async function runAccountSwitch(choice: SwitchChoice, d: SwitchDecision, 
     await finishSwitch(d, deps);
     return 'keep';
   }
-  // destroy: explicit destructive switch — delete A's store first; commit B
-  // only if that fully succeeds.
-  accountSwitchStore.set(null);
+  // destroy: explicit destructive switch. The previous store is quarantined
+  // and durably marked for deferred deletion — B's identity commits after the
+  // mark lands, and the actual delete runs in the controlled startup pass
+  // (retried on later boots until it succeeds). If marking fails the switch
+  // aborts with A's identity and data fully intact — never a half-delete.
   await deps.closeLocal();
-  await deps.dropLocal(d.prevId);
+  await deps.markForDeletion(d.prevId);
+  accountSwitchStore.set(null);
   deps.commitIdentity(d.newUser.id, d.token, d.newUser);
   deps.reload();
   return 'destroy';

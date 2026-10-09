@@ -31,6 +31,28 @@ export function dropSession() {
   authStore.set({ status: 'unauthed', user: null });
 }
 
+/** Post-login maintenance: recover the pre-uid 'workspace' store (S1), then
+ * run queued destructive deletes in the controlled pass (S2). Runs before the
+ * sync engine starts so the migrated sync cursor/outbox are in place. */
+async function postLoginMaintenance(uid: string) {
+  try {
+    const { migrateLegacyStore } = await import('./legacyMigration');
+    await migrateLegacyStore(uid);
+  } catch (e) {
+    console.warn('legacy migration failed — will retry next sign-in', e);
+  }
+  try {
+    const { runDeferredDrops, clearMaint } = await import('./maintenance');
+    // Re-adopting this account rescues its store from the deletion queue —
+    // the active connection would block any stray delete while the app is
+    // open, but the marker must not linger.
+    await clearMaint(`drop:workspace-${uid}`);
+    await runDeferredDrops(`workspace-${uid}`);
+  } catch (e) {
+    console.warn('deferred drops failed — will retry next boot', e);
+  }
+}
+
 export async function initAuth() {
   const token = getToken();
   const user = cachedUser();
@@ -44,8 +66,10 @@ export async function initAuth() {
     const { user: fresh } = await api<{ user: PublicUser }>('/api/me');
     cacheUser(fresh);
     authStore.set({ status: 'authed', user: fresh });
+    await postLoginMaintenance(fresh.id);
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) dropSession();
+    else if (user) await postLoginMaintenance(user.id); // offline open — still migrate
   }
 }
 
@@ -67,9 +91,9 @@ const switchDeps: SwitchDeps = {
     const { db } = await import('./db');
     db.close();
   },
-  dropLocal: async (prevId) => {
-    const { dropDatabaseFor } = await import('./db');
-    await dropDatabaseFor(prevId);
+  markForDeletion: async (prevId) => {
+    const { markStoreForDeletion } = await import('./maintenance');
+    await markStoreForDeletion(prevId);
   },
   commitIdentity: (userId, token, user) => applyIdentity(token, { ...user, id: userId }),
   revokeToken: async (token) => {
