@@ -1,0 +1,32 @@
+import { chromium } from 'playwright';
+const BASE = 'http://localhost:8788';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const browser = await chromium.launch();
+const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+await page.goto(BASE + '/login');
+await page.fill('input[name="username"], input[autocomplete="username"], input[type="text"]', 'admin');
+await page.fill('input[type="password"]', 'password123');
+await page.click('button[type="submit"]');
+await sleep(2500);
+// use latest moodboard (v4 created 'Untitled board')
+await page.goto(BASE + '/moodboards');
+await sleep(1500);
+await page.locator('a[href*="/moodboards/"]').last().click();
+await sleep(2500);
+const ids = await page.evaluate(() => [...document.querySelectorAll('[data-mooditem]')].map(e => ({ id: e.getAttribute('data-mooditem'), type: e.getAttribute('data-itemtype') || '?', hasImg: !!e.querySelector('img'), rect: e.getBoundingClientRect().toJSON() })));
+console.log('items:', JSON.stringify(ids, null, 1).slice(0, 1400));
+const img = page.locator('[data-mooditem]:has(img)').first();
+const box0 = await img.boundingBox();
+console.log('img box:', JSON.stringify(box0));
+// what is at its center?
+const top = await page.evaluate(([x, y]) => { const t = document.elementFromPoint(x, y); const it = t?.closest?.('[data-mooditem]'); return `${t?.tagName}.${String(t?.className).slice(0, 30)} item=${it?.getAttribute('data-mooditem')}`; }, [box0.x + box0.width / 2, box0.y + box0.height / 2]);
+console.log('at center:', top);
+await page.mouse.move(box0.x + box0.width / 2, box0.y + box0.height / 2);
+await page.mouse.down();
+await page.mouse.move(box0.x + box0.width / 2 + 160, box0.y + box0.height / 2 + 120, { steps: 8 });
+await page.mouse.up();
+await sleep(600);
+const box1 = await img.boundingBox();
+console.log('box after:', JSON.stringify(box1), 'moved:', Math.abs(box1.x - box0.x), Math.abs(box1.y - box0.y));
+await page.screenshot({ path: '/tmp/imgdrag.png' });
+await browser.close();

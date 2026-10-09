@@ -141,6 +141,10 @@ await pageA.locator('button[title="Add item"]').click();
 await pageA.locator('input[type="file"][accept="image/*"]').setInputFiles(`${FIXTURES}/photo.png`);
 await sleep(1200);
 check('image item added', (await pageA.locator('[data-mooditem]').count()) === 3);
+// ctxA advertises a coarse pointer (hasTouch) → the canvas opens in browse
+// mode; a real touch user taps Edit for drag/resize gestures.
+await pageA.locator('button[title*="click to edit"]').click();
+await sleep(200);
 await pageA.screenshot({ path: `${OUT}/moodboard-desktop.png`, fullPage: false });
 
 // drag the image: pointer on item → move → drop; position commits on drop.
@@ -170,7 +174,10 @@ if (hb) {
 const box2 = await img.boundingBox();
 check('resize grows item', box2.width > box1.width + 30);
 
-// pan the canvas by dragging empty space
+// pan the canvas by dragging empty space — back in browse mode (edit-mode
+// background drags are marquee-select instead)
+await pageA.locator('button[title*="click to browse"]').click();
+await sleep(200);
 const world0 = await pageA.locator('[data-mooditem]').first().boundingBox();
 await pageA.mouse.move(1300, 800);
 await pageA.mouse.down();
