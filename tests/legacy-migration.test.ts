@@ -1,9 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
 import { LocalDB } from '../src/core/db';
-import { migrateLegacyStore, legacyRecoveryStore, LEGACY_NAME } from '../src/core/legacyMigration';
-import { markStoreForDeletion, pendingStoreDrops, runDeferredDrops, clearAllMaint } from '../src/core/maintenance';
+import { migrateLegacyStore, legacyRecoveryStore, resolveLegacyRecovery, LEGACY_NAME } from '../src/core/legacyMigration';
+import { markStoreForDeletion, pendingStoreDrops, runConfirmedDrops, clearAllMaint, clearMaint, getMaint } from '../src/core/maintenance';
+
+// The export path's file download is mocked — recovery-flow semantics are the
+// point; byte-level archive fidelity is covered by account-switch.test.ts.
+vi.mock('../src/core/localBackup', () => ({
+  buildLocalBackup: vi.fn(async () => ({ v: 1, uid: 'legacy', outbox: [], drafts: [], blobs: [] })),
+  saveBackupFile: vi.fn(async () => 'clicked' as const),
+}));
 
 /* S1: seeded legacy 'workspace' store → per-account store, verified byte-for-
  * byte, then legacy retires via deferred drop. Ownership is proven by draft
@@ -104,10 +111,59 @@ describe('legacy store migration (S1)', () => {
     target.close();
     legacyRecoveryStore.set(null);
   });
+
+  it('T1: mixed owners (drafts for A AND B) → ZERO cross-account auto-copy', async () => {
+    await cleanup();
+    const legacy = new LocalDB(LEGACY_NAME);
+    await legacy.open();
+    await legacy.pages.put({ id: 'pA', title: 'A page', _ts: {} });
+    await legacy.pages.put({ id: 'pB', title: 'B page', _ts: {} });
+    await legacy.meta.put({ key: 'draft:user-A:tasks:a', value: { v: 1, userId: 'user-A', collection: 'tasks', id: 'a', values: {}, baseTs: {}, updatedAt: 1, source: 'edit' } });
+    await legacy.meta.put({ key: 'draft:user-B:tasks:b', value: { v: 1, userId: 'user-B', collection: 'tasks', id: 'b', values: {}, baseTs: {}, updatedAt: 1, source: 'edit' } });
+    legacy.close();
+
+    // Login as A: mixed ownership is ambiguous — no automatic copy at all.
+    expect(await migrateLegacyStore('user-A')).toBe('foreign');
+    const r = legacyRecoveryStore.get();
+    expect(r?.mixed).toBe(true);
+    const target = await freshTarget('user-A');
+    await target.open();
+    expect(await target.pages.count()).toBe(0);
+    expect(await target.meta.count()).toBe(0);
+
+    // Manual copy also refuses without explicit informed confirm.
+    expect(await resolveLegacyRecovery('copy', r!)).toBe('needs-confirm');
+    expect(await target.pages.count()).toBe(0);
+
+    // With allowForeign the full import runs and verifies.
+    expect(await resolveLegacyRecovery('copy', r!, { allowForeign: true })).toBe('migrated');
+    expect(await target.pages.count()).toBe(2);
+    target.close();
+  });
+
+  it("T3: export writes the unsynced subset and does NOT claim 'leave' — store stays recoverable", async () => {
+    await cleanup();
+    await seedLegacy('user-A', false); // offline page + outbox + blob, no drafts → ambiguous
+    await migrateLegacyStore('user-A');
+    const r = legacyRecoveryStore.get();
+    expect(r).toBeTruthy();
+
+    const { saveBackupFile } = await import('../src/core/localBackup');
+    const verdict = await resolveLegacyRecovery('export', r!);
+    expect(saveBackupFile).toHaveBeenCalled();
+    expect(verdict).toBe('none');
+    // Decision NOT persisted: next sign-in re-offers recovery, store intact.
+    expect(await getMaint(`legacy-confirm:${'user-A'}`)).not.toBe('leave');
+    const legacy = new LocalDB(LEGACY_NAME);
+    await legacy.open();
+    expect((await legacy.pages.get('p1'))?.title).toBe('offline page');
+    expect(await legacy.outbox.count()).toBe(2);
+    legacy.close();
+  });
 });
 
-describe('deferred deletion — the only delete path (S2)', () => {
-  it('blocked drop attempt leaves data AND marker; deletes after unblock', async () => {
+describe('confirmed-only deletion (S2/T2)', () => {
+  it('blocked confirmed purge leaves data AND marker; deletes after unblock', async () => {
     await cleanup();
     const uid = `u${Math.random().toString(36).slice(2)}`;
     const name = `workspace-${uid}`;
@@ -130,7 +186,7 @@ describe('deferred deletion — the only delete path (S2)', () => {
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
     });
-    const first = await runDeferredDrops('workspace-other');
+    const first = await runConfirmedDrops('workspace-other');
     expect(first.dropped).not.toContain(name);
     expect(first.remaining).toContain(name);
     expect(await pendingStoreDrops()).toContain(name); // marker survives the block
@@ -146,9 +202,43 @@ describe('deferred deletion — the only delete path (S2)', () => {
     // abandoned request from the blocked attempt may also land on close —
     // either way deletion only completes via the controlled pass's intent,
     // never during a switch where an "abort" could have been reported.)
-    const second = await runDeferredDrops('workspace-other');
+    const second = await runConfirmedDrops('workspace-other');
     expect(second.dropped).toContain(name);
     expect(await pendingStoreDrops()).not.toContain(name);
+  });
+
+  it('T2: re-adopted store survives blocked-then-unblocked — no auto delete', async () => {
+    await cleanup();
+    const uid = `u${Math.random().toString(36).slice(2)}`;
+    const name = `workspace-${uid}`;
+    const store = new LocalDB(name);
+    await store.open();
+    await store.meta.put({ key: 'k', value: 'v' });
+    store.close();
+
+    // Destroy choice queued it; a held tab blocks a purge attempt…
+    await markStoreForDeletion(uid);
+    const holder = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open(name);
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    const blocked = await runConfirmedDrops('workspace-other');
+    expect(blocked.dropped).not.toContain(name);
+    expect(await pendingStoreDrops()).toContain(name);
+
+    // …then the user signs back into A: adoption rescues the marker.
+    await clearMaint(`drop:${name}`);
+    expect(await pendingStoreDrops()).not.toContain(name);
+
+    // Blocker closes, we wait — nothing auto-runs: store + data survive.
+    holder.close();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await Dexie.exists(name)).toBe(true);
+    const reopened = new LocalDB(name);
+    await reopened.open();
+    expect(await reopened.meta.get('k')).toEqual({ key: 'k', value: 'v' });
+    reopened.close();
   });
 
   it('never deletes the currently-active store even when marked', async () => {
@@ -159,7 +249,7 @@ describe('deferred deletion — the only delete path (S2)', () => {
     await store.meta.put({ key: 'k', value: 'v' });
     store.close();
     await markStoreForDeletion(uid);
-    const res = await runDeferredDrops(`workspace-${uid}`); // active name
+    const res = await runConfirmedDrops(`workspace-${uid}`); // active name
     expect(res.dropped).toEqual([]);
     expect(await Dexie.exists(`workspace-${uid}`)).toBe(true);
   });
