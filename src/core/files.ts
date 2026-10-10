@@ -48,8 +48,8 @@ export type LinkFileRow = Omit<FileRow, 'kind'> & {
  * blob, so `uploadPendingBlobs` skips it naturally. `url` + `provider` let
  * renders offer the Drive iframe preview or a plain external card.
  */
-export async function addLink(url: string, opts: { parentType: ParentType; parentId: string; name?: string }): Promise<string> {
-  const id = uuid();
+export async function addLink(url: string, opts: { parentType: ParentType; parentId: string; name?: string; id?: string }): Promise<string> {
+  const id = opts.id ?? uuid();
   const me = authStore.get().user;
   const ref = driveEmbed(url);
   await mutate('files', id, {
@@ -149,8 +149,8 @@ async function putBlobRow(row: BlobRow): Promise<boolean> {
   }
 }
 
-export async function addFile(input: Blob | File, opts: { parentType: ParentType; parentId: string; name?: string; transcriptState?: 'pending' }): Promise<string> {
-  const id = uuid();
+export async function addFile(input: Blob | File, opts: { parentType: ParentType; parentId: string; name?: string; transcriptState?: 'pending'; id?: string }): Promise<string> {
+  const id = opts.id ?? uuid();
   const me = authStore.get().user;
   const originalName = opts.name ?? (input instanceof File ? input.name : undefined) ?? 'file';
   const mime = input.type || 'application/octet-stream';
@@ -169,7 +169,7 @@ export async function addFile(input: Blob | File, opts: { parentType: ParentType
       width = full.width;
       height = full.height;
       const thumb = await toWebp(bmp, 480, 0.8);
-      const tid = uuid();
+      const tid = `${id}t`; // deterministic thumb id — retries hit the same row
       if (await putBlobRow({ id: tid, blob: thumb.blob, state: 'pending', uploadedChunks: 0, mime: thumb.blob.type })) thumbId = tid;
       bmp.close();
     } catch {
@@ -181,7 +181,7 @@ export async function addFile(input: Blob | File, opts: { parentType: ParentType
       width = bmp.width;
       height = bmp.height;
       const thumb = await toWebp(bmp, 480, 0.8);
-      const tid = uuid();
+      const tid = `${id}t`; // deterministic thumb id — retries hit the same row
       if (await putBlobRow({ id: tid, blob: thumb.blob, state: 'pending', uploadedChunks: 0, mime: thumb.blob.type })) thumbId = tid;
       bmp.close();
     } catch {

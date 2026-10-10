@@ -204,6 +204,50 @@ export interface CaptureDraft extends CaptureForm {
   /** Media can't live in the meta envelope — presence is noted for restore UX. */
   photoCount?: number;
   hasVoice?: boolean;
+  /** P3-R2 staged save: the destination record id, minted once and reused on
+   * every retry so a mid-save failure never creates a duplicate record. */
+  recordId?: string;
+  /** Save progress for truthful partial state reporting. */
+  stage?: 'record' | 'files' | 'links' | 'done';
+}
+
+/* ---------- staged capture save (P3-R2) ----------
+ * Stable ids derived from the draft's recordId make every sub-operation of
+ * save() idempotent: retry after a mid-save failure re-issues the same upserts
+ * instead of creating a second record or duplicate attachments. */
+export function captureId(recordId: string, role: string): string {
+  return `cap_${fnvHex(`${recordId}:${role}`)}`;
+}
+
+function fnvHex(input: string): string {
+  // 64-bit FNV-1a — same constant/shape as shared/linkid.ts, kept local so
+  // fieldMode stays dependency-free (no shared/ imports).
+  let h = 0xcbf29ce484222325n;
+  for (let i = 0; i < input.length; i++) {
+    h ^= BigInt(input.charCodeAt(i));
+    h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return h.toString(16).padStart(16, '0');
+}
+
+export interface CapturePlanIds {
+  recordId: string;
+  photoIds: string[];
+  docIds: string[];
+  voiceId: string;
+  linkFileId: string;
+}
+
+/** All ids a capture save touches, derived deterministically from recordId.
+ * Stable across retries and reloads — regenerate with the same inputs. */
+export function capturePlanIds(recordId: string, counts: { photos: number; docs: number; hasVoice: boolean; hasLink: boolean }): CapturePlanIds {
+  return {
+    recordId,
+    photoIds: Array.from({ length: counts.photos }, (_, i) => captureId(recordId, `p${i}`)),
+    docIds: Array.from({ length: counts.docs }, (_, i) => captureId(recordId, `d${i}`)),
+    voiceId: captureId(recordId, 'v'),
+    linkFileId: captureId(recordId, 'l'),
+  };
 }
 
 const asStr = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -214,6 +258,7 @@ export function cleanDraft(raw: unknown): CaptureDraft | undefined {
   if (!d || typeof d !== 'object') return undefined;
   const kind: CaptureKind =
     typeof d.kind === 'string' && (BASE_CAPTURE_KINDS as readonly string[]).includes(d.kind) ? (d.kind as CaptureKind) : 'text';
+  const stage = d.stage === 'record' || d.stage === 'files' || d.stage === 'links' || d.stage === 'done' ? d.stage : undefined;
   return {
     v: 1,
     kind,
@@ -232,6 +277,8 @@ export function cleanDraft(raw: unknown): CaptureDraft | undefined {
     driveUrl: asStr(d.driveUrl),
     photoCount: typeof d.photoCount === 'number' && d.photoCount > 0 ? Math.floor(d.photoCount) : undefined,
     hasVoice: d.hasVoice === true ? true : undefined,
+    recordId: asStr(d.recordId),
+    stage,
   };
 }
 
