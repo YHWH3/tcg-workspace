@@ -370,22 +370,58 @@ async function dashboardSuite(page, E, V, packRoot) {
 }
 
 /* ==================== J4: project review ==================== */
-async function reviewSuite(page, E, V, compact = false) {
+async function reviewSuite(page, E, V, compact = false, packRoot = null) {
   const N = (check, status) => note(E, V, check, status);
-  // "+" → template picker must list pack templates (17 template:true pages)
+  // "+" → template picker lists pack templates (17 template:true pages) — only
+  // assertable when this run actually installed the pack (chromium leg in the
+  // full matrix). --only=non-chromium runs have seed dbs but no pack pages.
   await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
   // compact layouts hide the sidebar behind the Menu sheet
   if (!(await page.locator('[aria-label="New page"]').first().isVisible().catch(() => false))) {
     await page.locator('[aria-label="Menu"]').first().dispatchEvent('click').catch(() => {});
     await sleep(700);
   }
+  let tplRows = 0;
+  if (!packRoot) {
+    N('J4: Project Review template appears in new-page picker (pack not installed this run)', 'NOT RUN');
+  } else {
   await page.locator('[aria-label="New page"]').first().dispatchEvent('click');
-  await sleep(600);
-  const tplRows = await page.locator('button:has-text("Project Review"), button:has-text("review")').count();
+  // Poll, not fixed sleep: the picker lists Dexie-hydrated isTemplate pages and
+  // WebKit hydration outlasts a 600ms wait (picker would open with only
+  // "Blank page"). Re-open once if the list isn't there yet.
+  const tplPoll = async () => { tplRows = await page.locator('button:has-text("Project Review"), button:has-text("review")').count(); return tplRows > 0; };
+  if (!(await poll(tplPoll, 8000))) {
+    await page.keyboard.press('Escape');
+    await sleep(800);
+    await page.locator('[aria-label="New page"]').first().dispatchEvent('click');
+    await poll(tplPoll, 10000).catch(() => {});
+  }
+  if (tplRows === 0) {
+    const expanded = await page.locator('[aria-haspopup="true"][aria-expanded="true"]').count();
+    const blank = await page.locator('button:has-text("Blank page")').count();
+    const bodyTxt = (await page.locator('body').innerText()).slice(0, 300);
+    console.log(`    [debug] J4 picker: expanded=${expanded} blankBtn=${blank} body=${JSON.stringify(bodyTxt)}`);
+    const idbPages = await page.evaluate(async () => {
+      try {
+        const dbs = await indexedDB.databases();
+        for (const { name } of dbs) {
+          const db = await new Promise((res, rej) => { const r = indexedDB.open(name); r.onsuccess = () => res(r.result); r.onerror = rej; });
+          if (!db.objectStoreNames.contains('pages')) { db.close(); continue; }
+          const rows = await new Promise((res, rej) => { const rq = db.transaction('pages').objectStore('pages').getAll(); rq.onsuccess = () => res(rq.result); rq.onerror = rej; });
+          db.close();
+          const tpl = rows.filter((p) => p?.data?.isTemplate === true || p?.isTemplate === true);
+          return `pages=${rows.length} templates=${tpl.length} sample=${tpl.slice(0, 3).map((t) => t?.data?.title ?? t?.title).join('|')}`;
+        }
+        return 'no pages store';
+      } catch (e) { return `err ${e}`; }
+    });
+    console.log(`    [debug] J4 idb: ${idbPages}`);
+  }
   N('J4: Project Review template appears in new-page picker', tplRows >= 1 ? 'PASS' : 'FAIL');
   await page.keyboard.press('Escape');
   if (tplRows >= 1) {
     // full flow would instantiate + check the 8 question sections — only when present
+  }
   }
   // fallback partial: record detail reopens at compact width with links intact
   await page.goto(`${BASE}/boards/${DB_PROJ}/tasks/v8_proj_1`, { waitUntil: 'domcontentloaded' });
@@ -497,11 +533,12 @@ async function convertSuite(page, E, V) {
     for (const m of menus.slice(0, 4)) { await m.dispatchEvent('click').catch(() => {}); await sleep(300); if (/convert/i.test(await page.locator('body').innerText())) { convertHit = true; break; } }
     await page.keyboard.press('Escape');
   }
-  N('J6: Idea→Project conversion affordance exists in record UI', convertHit ? 'PASS' : 'FAIL');
-  if (!convertHit) {
-    N('J6: conversion idempotent retry in UI', 'NOT RUN');
-    N('J6: conversion undo in UI', 'NOT RUN');
-  }
+  // Spec §H delivers conversion as MCP ops only — a client affordance is not
+  // required, so absence is NOT RUN, not FAIL. J6's conversion coverage
+  // (stage/link/idempotency/undo/expectedRev) lives in verify-mcp-phase3.
+  N('J6: Idea→Project conversion affordance in record UI (optional; MCP is the delivered surface)', convertHit ? 'PASS' : 'NOT RUN');
+  N('J6: conversion idempotent retry in UI', 'NOT RUN');
+  N('J6: conversion undo in UI', 'NOT RUN');
 }
 
 /* ==================== J7: archive ==================== */
@@ -716,7 +753,7 @@ for (const name of runEngines) {
       const st = await run('installSuite', async () => await installSuite(page, name, 'desktop'));
       shared.packRoot = st?.packRoot ?? null;
       await run('dashboardSuite', () => dashboardSuite(page, name, 'desktop', shared.packRoot));
-      await run('reviewSuite', () => reviewSuite(page, name, 'desktop', false));
+      await run('reviewSuite', () => reviewSuite(page, name, 'desktop', false, shared.packRoot));
       await run('convertSuite', () => convertSuite(page, name, 'desktop'));
       await run('archiveSuite', () => archiveSuite(page, name, 'desktop'));
       await run('fieldOpsSuite', () => fieldOpsSuite(browser, page, name, 'desktop'));
@@ -725,7 +762,7 @@ for (const name of runEngines) {
     } else {
       await run('fieldOpsSuite', () => fieldOpsSuite(browser, page, name, 'desktop'));
       await run('archiveSuite', () => archiveSuite(page, name, 'desktop'));
-      await run('reviewSuite', () => reviewSuite(page, name, 'desktop', false));
+      await run('reviewSuite', () => reviewSuite(page, name, 'desktop', false, shared.packRoot));
       await run('perfSuite', () => perfSuite(page, name, 'desktop'));
     }
     await ctx.close();
@@ -737,7 +774,7 @@ for (const name of runEngines) {
     const page = await loginPage(ctx, admin);
     if (name === 'chromium') {
       await run('archiveSuite-compact', () => archiveSuite(page, name, 'compact'));
-      await run('reviewSuite-compact', () => reviewSuite(page, name, 'compact', true));
+      await run('reviewSuite-compact', () => reviewSuite(page, name, 'compact', true, shared.packRoot));
       await run('fieldOpsSuite-compact', () => fieldOpsSuite(browser, page, name, 'compact'));
     } else {
       await run('fieldOpsSuite-compact', () => fieldOpsSuite(browser, page, name, 'compact'));

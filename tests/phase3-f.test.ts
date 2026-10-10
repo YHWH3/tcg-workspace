@@ -5,7 +5,7 @@
  * conversion planner, archive patch, and dashboard-block config pass-through. */
 
 import { describe, expect, it } from 'vitest';
-import { aggregate, applyView, evalFilter, type Filter, type ViewCtx, type ViewRecord } from '../shared/views';
+import { aggregate, applyView, type Filter, type ViewCtx, type ViewRecord } from '../shared/views';
 import { archivePatch, isArchived, ARCHIVED_LABEL } from '../shared/archive';
 import { planConversion } from '../shared/conversion';
 import { planTemplateInstantiation } from '../shared/templates';
