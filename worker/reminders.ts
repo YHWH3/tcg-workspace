@@ -144,7 +144,7 @@ async function runDueReminders(env: { DB: D1Database }, today: string): Promise<
       targetType: 'task',
       targetId: rec.id,
       title: kind === 'overdue' ? `"${title}" is overdue` : `"${title}" is due ${dueLabel(row.date, today)}`,
-      body: `Due ${row.date}${row.field_key !== 'due' ? ` (${row.field_key})` : ''}`,
+      body: `Due ${row.date}${row.field_key !== 'dueDate' ? ` (${row.field_key})` : ''}`,
       url: `/tasks/${rec.id}`,
     });
     sent++;
@@ -293,8 +293,9 @@ export async function recurrencesForEvent(env: { DB: D1Database }, semantic: Sem
       if (!isDone(boardColumns(board ?? undefined), ev.to)) continue;
 
       const recurrence = rec.data.recurrence as Recurrence | undefined;
-      const srcDue = typeof rec.data.due === 'string' ? rec.data.due : null;
-      if (!recurrence || !srcDue) continue;
+      if (!recurrence || typeof recurrence !== 'object') continue;
+      // From the record's own date when present, else today (spec §5.5).
+      const srcDue = typeof rec.data.dueDate === 'string' ? rec.data.dueDate : todayUtc();
       const next = nextDate(recurrence, srcDue);
       if (!next) continue;
       await spawnNextOccurrence(env, ctx.userId, rec, board ?? null, next);
@@ -331,7 +332,7 @@ export async function spawnNextOccurrence(
   delete patch.archived;
   delete patch.deletedVia;
   patch.status = cols[0]?.id ?? patch.status;
-  patch.due = nextDue;
+  patch.dueDate = nextDue;
   patch.recurrenceFrom = src.id;
 
   const mutations: Mutation[] = [{ id: spawnId, collection: 'tasks', patch, ts: now }];

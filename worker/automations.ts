@@ -26,7 +26,7 @@ import {
 } from '../shared/automations';
 import type { ViewCtx } from '../shared/views';
 import { coerceFieldValue, fieldsOf, type FieldDef } from '../shared/fields';
-import { addDays, isDone, nextDate, todayUtc, type Recurrence } from '../shared/recurrence';
+import { addDays, todayUtc } from '../shared/recurrence';
 import { linkId } from '../shared/linkid';
 import { planTemplateInstantiation, type RecSnapshot } from '../shared/templates';
 import { uuid } from '../shared/order';
@@ -303,77 +303,6 @@ export async function runDateOffsetAutomations(env: Env, today: string = todayUt
   }
 }
 
-/** Recurrence (§5.5): stage → done with `recurrence` spawns the next occurrence.
- * Deterministic ids (`rec_<src>_<nextDue>`, `rec_..._b<i>`) make replays and
- * concurrent completions collapse onto the same rows. */
-async function spawnNextOccurrence(env: Env, ev: SemanticEvent, ctx: EventCtx): Promise<void> {
-  const rec = await getRec(env, ev.recordId);
-  if (!rec || rec.collection !== 'tasks') return;
-  const recurrence = rec.data.recurrence as Recurrence | undefined;
-  if (!recurrence || typeof recurrence !== 'object') return;
-  const board = (await getRec(env, String(rec.data.boardId ?? 'board-default')))?.data;
-  if (!isDone(Array.isArray(board?.columns) ? (board!.columns as { id: string }[]) : [], ev.to)) return;
-  const srcDue = typeof rec.data.dueDate === 'string' ? rec.data.dueDate : todayUtc();
-  const next = nextDate(recurrence, srcDue);
-  if (!next) return;
-
-  const newId = `rec_${rec.id}_${next}`;
-  const patch: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(rec.data)) {
-    if (k.startsWith('p_') || ['title', 'priority', 'assigneeId', 'boardId', 'recurrence'].includes(k)) patch[k] = v;
-  }
-  patch.status = firstColumnId(board);
-  patch.dueDate = next;
-  patch.recurrenceFrom = rec.id;
-  patch.createdAt = Date.now();
-  delete patch.deleted;
-
-  const ops: Mutation[] = [{ id: newId, collection: 'tasks', patch, ts: Date.now() }];
-  // Relation/related links follow the occurrence (deterministic link ids).
-  const { results: links } = await env.DB.prepare(
-    `SELECT id, data FROM records WHERE collection = 'links' AND COALESCE(json_extract(data,'$.deleted'),0) != 1
-       AND (json_extract(data,'$.fromId') = ? OR json_extract(data,'$.toId') = ?)`
-  ).bind(rec.id, rec.id).all<{ id: string; data: string }>();
-  for (const l of links) {
-    try {
-      const d = JSON.parse(l.data) as { kind?: string; fieldId?: string | null; fromId?: string; toId?: string; fromType?: string; toType?: string };
-      const kind = d.kind ?? 'related';
-      if (kind !== 'relation' && kind !== 'related') continue;
-      const fid = d.fieldId ?? null;
-      const [fromId, toId] = d.fromId === rec.id ? [newId, d.toId!] : [d.fromId!, newId];
-      ops.push({
-        id: linkId(kind, fid, fromId, toId),
-        collection: 'links',
-        patch: { fromId, fromType: d.fromId === rec.id ? 'record' : (d.fromType ?? 'record'), toId, toType: d.toId === rec.id ? 'record' : (d.toType ?? 'record'), kind, fieldId: fid, createdAt: Date.now() },
-        ts: Date.now(),
-      });
-    } catch {
-      /* malformed link row — skip */
-    }
-  }
-  // Body blocks ride along (meetings keep their agenda template).
-  const { results: blocks } = await env.DB.prepare(
-    `SELECT id, data FROM records WHERE collection = 'blocks' AND json_extract(data,'$.pageId') = ? AND COALESCE(json_extract(data,'$.deleted'),0) != 1 ORDER BY json_extract(data,'$.order')`
-  ).bind(rec.id).all<{ id: string; data: string }>();
-  blocks.forEach((b, j) => {
-    try {
-      const d = JSON.parse(b.data) as Record<string, unknown>;
-      const { pageId: _p, ...rest } = d;
-      ops.push({ id: `rec_${rec.id}_${next}_b${j}`, collection: 'blocks', patch: { ...rest, pageId: newId }, ts: Date.now() });
-    } catch {
-      /* skip malformed block */
-    }
-  });
-
-  const cs = beginChangeset({ userId: ctx.userId, tool: 'recurrence', summary: `Recurrence → ${next}`, source: 'automation' });
-  const res = await applyChanges(env, ctx.userId, ops, {
-    serverTs: true,
-    event: { source: 'automation', ctx: { waitUntil: (p) => void p.catch(() => {}) }, changesetId: cs.id },
-  });
-  cs.items = res.applied;
-  await commitChangeset(env, cs);
-}
-
 /** One (automation, event) run: dedupe → validate → plan → single batch. */
 async function runOneAutomation(
   env: Env,
@@ -478,9 +407,6 @@ export async function runAutomationsForEvent(
   let autos: AutomationRow[] | null = null;
   for (const ev of semantic) {
     try {
-      if (ev.kind === 'record.stage_changed') {
-        await spawnNextOccurrence(env as Env, ev, ctx).catch(() => {});
-      }
       autos ??= await enabledAutomations(env as Env);
       for (const auto of autos) {
         // boardId is absent from update events (after = touched fields only):
