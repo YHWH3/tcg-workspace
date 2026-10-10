@@ -48,8 +48,8 @@ export type LinkFileRow = Omit<FileRow, 'kind'> & {
  * blob, so `uploadPendingBlobs` skips it naturally. `url` + `provider` let
  * renders offer the Drive iframe preview or a plain external card.
  */
-export async function addLink(url: string, opts: { parentType: ParentType; parentId: string; name?: string }): Promise<string> {
-  const id = uuid();
+export async function addLink(url: string, opts: { parentType: ParentType; parentId: string; name?: string; id?: string }): Promise<string> {
+  const id = opts.id ?? uuid();
   const me = authStore.get().user;
   const ref = driveEmbed(url);
   await mutate('files', id, {
@@ -126,8 +126,31 @@ async function mediaDuration(blob: Blob, kind: 'audio' | 'video'): Promise<numbe
 
 /* ---------- addFile ---------- */
 
-export async function addFile(input: Blob | File, opts: { parentType: ParentType; parentId: string; name?: string; transcriptState?: 'pending' }): Promise<string> {
-  const id = uuid();
+/**
+ * Stage a row in `blobs`, tolerating engines that refuse to persist certain
+ * Blob/File objects (WebKit: `UnknownError: Error preparing Blob/File data to
+ * be stored in object store` for disk-backed file picks). Retries once with
+ * the bytes materialized into a fresh memory-backed Blob. Returns false when
+ * the row still can't be written — callers must then record an honest
+ * 'failed' state rather than let the throw swallow their surrounding save.
+ */
+async function putBlobRow(row: BlobRow): Promise<boolean> {
+  try {
+    await db.blobs.put(row);
+    return true;
+  } catch {
+    try {
+      const bytes = await row.blob.arrayBuffer();
+      await db.blobs.put({ ...row, blob: new Blob([bytes], { type: row.blob.type }) });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export async function addFile(input: Blob | File, opts: { parentType: ParentType; parentId: string; name?: string; transcriptState?: 'pending'; id?: string }): Promise<string> {
+  const id = opts.id ?? uuid();
   const me = authStore.get().user;
   const originalName = opts.name ?? (input instanceof File ? input.name : undefined) ?? 'file';
   const mime = input.type || 'application/octet-stream';
@@ -146,8 +169,8 @@ export async function addFile(input: Blob | File, opts: { parentType: ParentType
       width = full.width;
       height = full.height;
       const thumb = await toWebp(bmp, 480, 0.8);
-      thumbId = uuid();
-      await db.blobs.put({ id: thumbId, blob: thumb.blob, state: 'pending', uploadedChunks: 0, mime: thumb.blob.type });
+      const tid = `${id}t`; // deterministic thumb id — retries hit the same row
+      if (await putBlobRow({ id: tid, blob: thumb.blob, state: 'pending', uploadedChunks: 0, mime: thumb.blob.type })) thumbId = tid;
       bmp.close();
     } catch {
       /* fall through: store original bytes */
@@ -158,8 +181,8 @@ export async function addFile(input: Blob | File, opts: { parentType: ParentType
       width = bmp.width;
       height = bmp.height;
       const thumb = await toWebp(bmp, 480, 0.8);
-      thumbId = uuid();
-      await db.blobs.put({ id: thumbId, blob: thumb.blob, state: 'pending', uploadedChunks: 0, mime: thumb.blob.type });
+      const tid = `${id}t`; // deterministic thumb id — retries hit the same row
+      if (await putBlobRow({ id: tid, blob: thumb.blob, state: 'pending', uploadedChunks: 0, mime: thumb.blob.type })) thumbId = tid;
       bmp.close();
     } catch {
       /* keep original */
@@ -173,7 +196,18 @@ export async function addFile(input: Blob | File, opts: { parentType: ParentType
     throw new ApiError(413, 'file too large');
   }
 
-  await db.blobs.put({ id, blob, state: 'pending', uploadedChunks: 0, mime: blob.type });
+  if (!(await putBlobRow({ id, blob, state: 'pending', uploadedChunks: 0, mime: blob.type }))) {
+    // Bytes can't be staged locally: still write the files record below so the
+    // attachment exists (and syncs), and leave an honest 'failed' marker that
+    // fileui renders as 'Upload failed' instead of 'Waiting for upload…'
+    // forever. The caller's save (record, context link, saved state) is never
+    // swallowed by one unstorable blob.
+    try {
+      await db.blobs.put({ id, blob: new Blob([]), state: 'failed', uploadedChunks: 0, mime: blob.type, error: 'Browser could not store the attachment' });
+    } catch {
+      /* even the empty marker can't be written — the files row still lands */
+    }
+  }
   await mutate('files', id, {
     name: originalName,
     mime: blob.type,

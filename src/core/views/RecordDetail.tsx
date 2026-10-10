@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowRight, Calendar, ChevronDown, ChevronRight, CornerDownRight, Link2, MoreHorizontal, Plus, Trash2, Users, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowRight, Calendar, ChevronDown, ChevronRight, CornerDownRight, Link2, MoreHorizontal, Plus, Trash2, Users, X } from 'lucide-react';
 import { db } from '../db';
 import { renderPlain } from '../mentions';
 import { useTokenResolver } from '../resolveMentions';
@@ -30,6 +30,7 @@ import { toast } from '../files';
 import { RecordAttachments } from './attachments';
 import { ItemPicker, RelationPicker, type PickItem } from './picker';
 import { MoveRecordDialog } from './move';
+import { archivePatch, isArchived } from '../../../shared/archive';
 
 export function RecordDetail({ recordId, board: boardProp, onClose }: { recordId: string; board?: BoardRow; onClose: () => void }) {
   const rec = useLiveQuery(() => db.tasks.get(recordId), [recordId]) as TaskRow | undefined;
@@ -113,6 +114,15 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
                 <CornerDownRight size={14} /> Move {noun.toLowerCase()}…
               </button>
               <button
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                onClick={() => {
+                  close();
+                  void mutate('tasks', rec.id, archivePatch(!isArchived(rec)));
+                }}
+              >
+                {isArchived(rec) ? <ArchiveRestore size={14} /> : <Archive size={14} />} {isArchived(rec) ? 'Unarchive' : 'Archive'} {noun.toLowerCase()}
+              </button>
+              <button
                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
                 onClick={() => {
                   close();
@@ -125,6 +135,16 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           )}
         </Popover>
       </div>
+
+      {isArchived(rec) && (
+        <div className="flex items-center gap-2 border-b border-neutral-200/70 bg-neutral-50 px-4 py-1.5 text-xs text-neutral-500 dark:border-neutral-800/70 dark:bg-neutral-900 dark:text-neutral-400">
+          <Archive size={12} />
+          <span className="flex-1">Archived</span>
+          <button className="rounded-md px-2 py-0.5 font-medium text-neutral-700 hover:bg-neutral-200/70 dark:text-neutral-200 dark:hover:bg-neutral-800" onClick={() => void mutate('tasks', rec.id, archivePatch(false))}>
+            Unarchive
+          </button>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
         {/* title */}

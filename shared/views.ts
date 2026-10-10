@@ -58,6 +58,7 @@ export interface ViewConfig {
   cover?: 'cover' | `p_${string}` | null;  // gallery/board card image source
   showSubrecords?: boolean;      // default false on board/gallery, true (nested) on table
   mine?: boolean;                // shortcut filter: assignee = current user
+  includeArchived?: boolean;     // Phase 3: keep `archived === true` rows (default: dropped)
   // Phase 2 calendar/timeline views — all values are date-only 'yyyy-mm-dd' strings
   dateKey?: DateFieldKey;        // primary date field (default 'dueDate')
   endDateKey?: DateFieldKey | null; // timeline bar end; null/absent → 1-day bars
@@ -318,9 +319,48 @@ function groupRows(rows: ViewRecord[], groupBy: FieldKey, ctx: ViewCtx): ViewGro
 export function applyView(records: readonly ViewRecord[], config: ViewConfig = {}, ctx: ViewCtx = {}): ViewResult {
   const filters = [...(config.filters ?? [])];
   if (config.mine) filters.push({ key: 'assigneeId', op: 'me' });
-  const live = records.filter((r) => !r.deleted);
+  const live = records.filter((r) => !r.deleted && (config.includeArchived === true || r.archived !== true));
   const rows = filters.length ? live.filter((r) => filters.every((f) => evalFilter(r, f, ctx))) : live;
   const sorted = sortRecords(rows, config.sorts, ctx);
   if (config.groupBy) return { rows: sorted, groups: groupRows(sorted, config.groupBy, ctx) };
   return { rows: sorted };
+}
+
+/**
+ * Phase 3 §3 — metric aggregation over a filtered record set. Rows are the
+ * same set `applyView` returns for `spec.filters`, so metric totals always
+ * match `query_records` for the same filters (`ids` is the drill-down set).
+ *
+ * - `count` ignores `fieldKey`; `value` = `count`.
+ * - `sum`/`avg` coerce `Number(v)` on `fieldKey` values; null/undefined/''
+ *   and non-finite results are skipped (`numericCount` = rows actually used).
+ * - `sum` of an empty set is 0; `avg` is `null` when `numericCount === 0`.
+ */
+export function aggregate(
+  records: readonly ViewRecord[],
+  spec: { filters?: Filter[]; agg: 'count' | 'sum' | 'avg'; fieldKey?: FieldKey },
+  ctx: ViewCtx = {},
+): { value: number | null; count: number; numericCount: number; ids: string[] } {
+  const { rows } = applyView(records, { filters: spec.filters }, ctx);
+  const ids = rows.map((r) => recordId(r)).filter((id) => id !== '');
+  const count = rows.length;
+  if (spec.agg === 'count') return { value: count, count, numericCount: count, ids };
+  let sum = 0;
+  let numericCount = 0;
+  if (spec.fieldKey) {
+    for (const r of rows) {
+      const v = fieldValue(r, spec.fieldKey, ctx);
+      if (v === null || v === undefined || v === '') continue;
+      const n = Number(v);
+      if (!Number.isFinite(n)) continue;
+      sum += n;
+      numericCount += 1;
+    }
+  }
+  return {
+    value: spec.agg === 'avg' ? (numericCount === 0 ? null : sum / numericCount) : sum,
+    count,
+    numericCount,
+    ids,
+  };
 }

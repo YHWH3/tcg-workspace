@@ -6,6 +6,7 @@ import { MyTasksPage } from './MyTasks';
 import { CapturePage } from './Capture';
 import { BoardsSection } from './Sidebar';
 import './TasksBlock';
+import './blocks';
 
 export const boardsModule: AppModule = {
   id: 'boards',

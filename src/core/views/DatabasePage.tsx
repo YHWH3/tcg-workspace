@@ -10,20 +10,21 @@
  */
 import { useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { ArrowUpDown, BarChart3, Calendar, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users } from 'lucide-react';
 import { authStore } from '../auth';
 import { useIsMobile } from '../mobile';
 import { PresenceStack } from '../presence';
 import { useStore } from '../store';
 import { mutate } from '../sync/engine';
 import { Button, Dialog, Popover, Select, Sheet } from '../ui';
-import { cn } from '../utils';
+import { cn, todayISO } from '../utils';
 import { Board } from '../../modules/boards/Board';
 import { BoardPage } from '../../modules/boards/BoardPage';
 import { FieldsEditor } from '../../modules/boards/FieldsEditor';
 import { useBoard, useTasks, boardTasks, deleteBoard, type BoardRow } from '../../modules/boards/api';
 import { fieldsOf } from '../../modules/boards/model';
 import {
+  applyView,
   availableFieldKeys,
   createRecord,
   createView,
@@ -39,6 +40,7 @@ import {
   updateView,
   useDbRecords,
   useViews,
+  viewCtx,
   VIEW_TYPE_LABELS,
   type FieldKey,
   type ViewConfig,
@@ -56,6 +58,7 @@ import { CalendarView } from '../../modules/boards/views/CalendarView';
 import { TimelineView } from '../../modules/boards/views/TimelineView';
 import { fieldKeyOf } from '../records';
 import type { DateFieldKey } from '../../../shared/views';
+import { archivePatch, isArchived } from '../../../shared/archive';
 
 const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3 };
 
@@ -128,6 +131,9 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setFieldsOpen(true); }}>
                   <Pencil size={14} /> Fields…
                 </button>
+                <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); void mutate('boards', board.id, archivePatch(!isArchived(board))); }}>
+                  {isArchived(board) ? <ArchiveRestore size={14} /> : <Archive size={14} />} {isArchived(board) ? 'Unarchive' : 'Archive'} database
+                </button>
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40" onClick={() => { close(); void deleteBoard(board).then(() => navigate('/boards')); }}>
                   <Trash2 size={14} /> Delete database
                 </button>
@@ -136,6 +142,16 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
           </Popover>
           <PresenceStack path={`/boards/${board.id}`} />
         </header>
+
+        {isArchived(board) && (
+          <div className="flex items-center gap-2 border-b border-neutral-200/70 bg-neutral-50 px-4 py-1.5 text-xs text-neutral-500 dark:border-neutral-800/70 dark:bg-neutral-900 dark:text-neutral-400">
+            <Archive size={12} />
+            <span className="flex-1">Archived</span>
+            <button className="rounded-md px-2 py-0.5 font-medium text-neutral-700 hover:bg-neutral-200/70 dark:text-neutral-200 dark:hover:bg-neutral-800" onClick={() => void mutate('boards', board.id, archivePatch(false))}>
+              Unarchive
+            </button>
+          </div>
+        )}
 
         {/* view tabs */}
         <div className="flex items-center gap-1 overflow-x-auto border-b border-neutral-200/70 px-3 py-1.5 dark:border-neutral-800/70" role="tablist" aria-label="Views">
@@ -221,7 +237,8 @@ function renderView(board: BoardRow, view: ViewRow, records: ReturnType<typeof u
     const groupBy = view.config?.groupBy;
     if (!groupBy || groupBy === 'status') {
       if (!cols.length) return <ListView board={board} view={{ ...view, type: 'list' }} records={records} />; // no stages → list fallback
-      return <Board board={board} tasks={boardTasks(deps.tasks, board.id)} />;
+      const ctx = viewCtx(board, deps.tasks, deps.links, deps.meId, todayISO());
+      return <Board board={board} tasks={applyView(records, view.config, ctx).rows} />;
     }
     return <GroupBoard board={board} view={view} records={records} />;
   }
@@ -333,6 +350,15 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
         style={{ minHeight: 32 }}
       >
         <Users size={12} /> <span className="hidden sm:inline">Mine</span>
+      </button>
+      <button
+        onClick={() => setCfg({ includeArchived: !cfg.includeArchived })}
+        aria-pressed={!!cfg.includeArchived}
+        className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', cfg.includeArchived ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800')}
+        style={{ minHeight: 32 }}
+        title="Include archived records"
+      >
+        <Archive size={12} /> <span className="hidden sm:inline">Archived</span>
       </button>
       <Popover
         align="right"

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, Navigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { FilePlus2, FileText, LayoutTemplate, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, FilePlus2, FileText, LayoutTemplate, MoreHorizontal, Trash2 } from 'lucide-react';
 import { db } from '../../core/db';
 import { mutate } from '../../core/sync/engine';
+import { archivePatch, isArchived } from '../../../shared/archive';
 import { IconButton, Menu, Popover, EmptyState } from '../../core/ui';
 import { cn, cmpOrder, debounce } from '../../core/utils';
 import { PAGE_ICONS } from '../../core/config';
@@ -109,6 +110,11 @@ export function PageView() {
                   icon: LayoutTemplate,
                   onClick: () => void mutate('pages', page.id, { isTemplate: !page.isTemplate }),
                 },
+                {
+                  label: isArchived(page) ? 'Unarchive' : 'Archive',
+                  icon: isArchived(page) ? ArchiveRestore : Archive,
+                  onClick: () => void mutate('pages', page.id, archivePatch(!isArchived(page))),
+                },
                 'divider',
                 {
                   label: 'Delete page',
@@ -125,6 +131,16 @@ export function PageView() {
           </Popover>
         </div>
       </div>
+
+      {isArchived(page) && (
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-neutral-200/80 bg-neutral-50 px-3 py-2 text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
+          <Archive size={13} />
+          <span className="flex-1">Archived</span>
+          <button className="rounded-md px-2 py-1 font-medium text-neutral-700 hover:bg-neutral-200/70 dark:text-neutral-200 dark:hover:bg-neutral-800" onClick={() => void mutate('pages', page.id, archivePatch(false))}>
+            Unarchive
+          </button>
+        </div>
+      )}
 
       <div className="mb-2 flex items-start gap-2">
         <Popover

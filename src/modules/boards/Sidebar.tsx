@@ -3,6 +3,7 @@ import { CheckSquare, Plus } from 'lucide-react';
 import { IconButton } from '../../core/ui';
 import { cn } from '../../core/utils';
 import { createBoard, useBoards } from './api';
+import { isArchived } from '../../../shared/archive';
 
 /** Sidebar: boards list + My tasks + create board. */
 export function BoardsSection() {
@@ -30,7 +31,7 @@ export function BoardsSection() {
         <CheckSquare size={15} strokeWidth={1.8} />
         <span className="min-w-0 flex-1 truncate">My tasks</span>
       </NavLink>
-      {boards.map((b) => (
+      {boards.filter((b) => !isArchived(b)).map((b) => (
         <NavLink key={b.id} to={`/boards/${b.id}`} className={itemCls}>
           <span className="w-4 text-center text-xs leading-none">{String(b.icon ?? '🗂️')}</span>
           <span className="min-w-0 flex-1 truncate">{String(b.name ?? 'Board')}</span>

@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Copy, Plus, Trash2, Check, Undo2 } from 'lucide-react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { Copy, Eye, LayoutTemplate, Plus, Trash2, Check, Undo2 } from 'lucide-react';
 import type { PublicUser } from '../../shared/types';
+import { findReusableBoards, planInstallPreview, type AuthorTemplate, type BundledTemplate, type ExistingBoardLike } from '../../shared/bundled';
 import { BUNDLED_TEMPLATES } from './bundledTemplates';
-import { instantiateTemplate } from '../modules/pages/api';
+import { instantiateTemplate, usePages } from '../modules/pages/api';
 import { api } from './api';
 import { authStore, changePassword, updateMe } from './auth';
 import { useChangesets, undoChangeset } from './activity';
 import { USER_COLORS } from './config';
+import { db } from './db';
+import { toast } from './files';
 import { useStore } from './store';
-import { Avatar, Button, Field, Input, Spinner } from './ui';
+import { AdaptiveDialog, Avatar, Button, Field, Input, Spinner } from './ui';
 import { cn } from './utils';
 
 interface InviteRow {
@@ -209,41 +213,172 @@ function LocalDataSection({ user }: { user: PublicUser | null }) {
 }
 
 function TemplateGallerySection() {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [done, setDone] = useState<Record<string, string>>({});
   const nav = useNavigate();
-  const add = async (key: string) => {
-    const tpl = BUNDLED_TEMPLATES.find((t) => t.key === key);
-    if (!tpl) return;
-    setBusy(key);
+  const boards = (useLiveQuery(() => db.boards.toArray(), [], []) ?? []) as ExistingBoardLike[];
+  const pages = usePages();
+  const [preview, setPreview] = useState<BundledTemplate | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  /** Installed = a non-deleted root page stamped with this templateKey. */
+  const installed = (key: string) => pages.some((p) => !p.deleted && p.templateKey === key);
+  const tplPages = pages.filter((p) => p.isTemplate && !p.deleted);
+
+  const install = async (t: BundledTemplate) => {
+    setBusy(t.key);
     try {
-      const id = await instantiateTemplate(tpl.root, { snapshot: tpl.snapshot, templateKey: tpl.key, title: tpl.name });
-      if (id) {
-        setDone((d) => ({ ...d, [key]: id }));
-        nav(`/pages/${id}`);
+      const authorLike: AuthorTemplate = {
+        name: t.name,
+        description: t.description,
+        icon: t.icon,
+        databases: Object.entries(t.snapshot.boards ?? {}).map(([id, b]) => ({
+          id,
+          key: b.key as string | undefined,
+          name: String(b.name ?? ''),
+        })),
+        pages: [],
+      };
+      const reuseBoards = findReusableBoards(boards, authorLike);
+      const res = await instantiateTemplate(t.root, {
+        snapshot: t.snapshot,
+        templateKey: t.key,
+        title: t.name,
+        reuseBoards,
+        preserveTemplates: true,
+        packInstall: true,
+        stableIds: true,
+      });
+      if (res) {
+        setPreview(null);
+        toast(res.kept
+          ? `Installed ${t.name} — wrote ${res.applied} missing rows, kept ${res.kept} existing`
+          : `Installed ${t.name}`);
+        nav(`/pages/${res.rootPageId}`);
+      } else {
+        toast('Install failed — nothing was written', 'error');
       }
+    } catch (e) {
+      // Stable ids make a re-run reconcile missing rows — say so honestly
+      // instead of claiming nothing was written.
+      toast(`Install interrupted — run Install again to finish (${e instanceof Error ? e.message : 'write error'})`, 'error');
     } finally {
       setBusy(null);
     }
   };
+
+  const addPageTemplate = async (pageId: string, title: string) => {
+    setBusy(pageId);
+    try {
+      const res = await instantiateTemplate(pageId, { title });
+      if (res) nav(`/pages/${res.rootPageId}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <Section title="Template gallery">
       <ul className="flex flex-col gap-2">
-        {BUNDLED_TEMPLATES.map((t) => (
-          <li key={t.key} className="flex items-center gap-3 rounded-xl border border-neutral-200/70 px-3 py-2.5 dark:border-neutral-800">
-            <span className="text-lg" aria-hidden>{t.icon}</span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">{t.name}</span>
-              <span className="block truncate text-xs text-neutral-500 dark:text-neutral-400">{t.description}</span>
-            </span>
-            <Button size="sm" variant="secondary" disabled={busy === t.key} onClick={() => void add(t.key)}>
-              {busy === t.key ? <Spinner className="h-3.5 w-3.5" /> : done[t.key] ? <Check size={14} /> : <Plus size={14} />}
-              {done[t.key] ? 'Added' : 'Add to workspace'}
-            </Button>
-          </li>
-        ))}
+        {BUNDLED_TEMPLATES.map((t) => {
+          const isIn = installed(t.key);
+          return (
+            <li key={t.key} className="flex items-center gap-3 rounded-xl border border-neutral-200/70 px-3 py-2.5 dark:border-neutral-800">
+              <span className="text-lg" aria-hidden>{t.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {t.name}
+                  {isIn && <span className="ml-2 rounded bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:bg-green-950/40 dark:text-green-400"><Check size={10} className="mr-0.5 inline" />Installed</span>}
+                </span>
+                <span className="block truncate text-xs text-neutral-500 dark:text-neutral-400">{t.description}</span>
+              </span>
+              <Button size="sm" variant="secondary" onClick={() => setPreview(t)}>
+                <Eye size={14} /> Preview
+              </Button>
+              <Button size="sm" disabled={busy === t.key} onClick={() => setPreview(t)}>
+                {busy === t.key ? <Spinner className="h-3.5 w-3.5" /> : <Plus size={14} />}
+                {isIn ? 'Reinstall' : 'Add to workspace'}
+              </Button>
+            </li>
+          );
+        })}
       </ul>
+      {tplPages.length > 0 && (
+        <>
+          <p className="mb-1 mt-4 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">Workspace page templates</p>
+          <ul className="flex flex-col gap-2">
+            {tplPages.map((p) => (
+              <li key={p.id} className="flex items-center gap-3 rounded-xl border border-neutral-200/70 px-3 py-2.5 dark:border-neutral-800">
+                <span className="text-lg" aria-hidden>{String(p.icon ?? '📄')}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{String(p.title ?? '') || 'Untitled'}</span>
+                  <span className="block truncate text-xs text-neutral-500 dark:text-neutral-400"><LayoutTemplate size={11} className="mr-1 inline" />Page template</span>
+                </span>
+                <Button size="sm" variant="secondary" disabled={busy === p.id} onClick={() => void addPageTemplate(p.id, String(p.title ?? '') || 'Untitled')}>
+                  {busy === p.id ? <Spinner className="h-3.5 w-3.5" /> : <Plus size={14} />}
+                  Add to workspace
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {preview && <TemplatePreviewSheet t={preview} boards={boards} installed={installed(preview.key)} busy={busy === preview.key} onClose={() => setPreview(null)} onInstall={() => void install(preview)} />}
     </Section>
+  );
+}
+
+/**
+ * Preview sheet = the dry-run (§4): planInstallPreview output — databases to
+ * create vs reuse, per-collection counts, and warnings — plus the explicit
+ * Install/Reinstall action. Nothing is written until the button is clicked.
+ */
+function TemplatePreviewSheet({ t, boards, installed, busy, onClose, onInstall }: { t: BundledTemplate; boards: ExistingBoardLike[]; installed: boolean; busy: boolean; onClose: () => void; onInstall: () => void }) {
+  const plan = planInstallPreview(t, boards);
+  return (
+    <AdaptiveDialog title={`Install ${t.name}`} onClose={onClose} guard={() => !busy}>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">{t.description}</p>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
+        <Count label="Pages" n={plan.pages} />
+        <Count label="Views" n={plan.views} />
+        <Count label="Links" n={plan.links} note={plan.reused.links ? `+${plan.reused.links} on reused records — skipped` : undefined} />
+        <Count label="Records" n={plan.records} />
+        <Count label="Blocks" n={plan.blocks} />
+        <Count label="Databases" n={plan.databases.create.length + plan.databases.reuse.length} />
+      </dl>
+      {plan.databases.create.length > 0 && (
+        <div className="mt-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">Databases — will be created</p>
+          <p className="mt-0.5 text-sm">{plan.databases.create.join(', ')}</p>
+        </div>
+      )}
+      {plan.databases.reuse.length > 0 && (
+        <div className="mt-3 rounded-lg border border-amber-200/70 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">Reused, not duplicated</p>
+          {plan.databases.reuse.map((name) => (
+            <p key={name} className="mt-0.5 text-sm text-amber-800 dark:text-amber-300">
+              {name} exists — already installed, will be reused.
+            </p>
+          ))}
+        </div>
+      )}
+      {installed && <p className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-300">Already installed. Reinstalling reconciles against the existing rows — it never duplicates pages or records.</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button onClick={onInstall} disabled={busy}>
+          {busy ? <Spinner className="h-3.5 w-3.5" /> : null}
+          {installed ? 'Reinstall' : 'Install'}
+        </Button>
+      </div>
+    </AdaptiveDialog>
+  );
+}
+
+function Count({ label, n, note }: { label: string; n: number; note?: string }) {
+  return (
+    <div>
+      <dt className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">{label}</dt>
+      <dd className="text-lg font-semibold tabular-nums">{n}</dd>
+      {note && <dd className="text-[10px] leading-tight text-neutral-400">{note}</dd>}
+    </div>
   );
 }
 

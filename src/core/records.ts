@@ -294,7 +294,7 @@ export function buildParentMap(tasks: readonly { id: string; deleted?: unknown; 
 
 export async function createRecord(
   databaseId: string,
-  opts: { title?: string; status?: string | null; parentId?: string | null; extra?: Record<string, unknown> } = {},
+  opts: { title?: string; status?: string | null; parentId?: string | null; extra?: Record<string, unknown>; id?: string } = {},
 ): Promise<string> {
   const board = (await db.boards.get(databaseId)) as BoardRow | undefined;
   const cols = stagesOf(board);
@@ -302,7 +302,7 @@ export async function createRecord(
   const siblings = (await db.tasks.toArray())
     .filter((t) => !t.deleted && taskBoardId(t) === databaseId)
     .sort((a, b) => cmpOrder(a.order, b.order));
-  const id = uuid();
+  const id = opts.id ?? uuid();
   const me = authStore.get().user;
   await mutate('tasks', id, {
     title: opts.title ?? '',

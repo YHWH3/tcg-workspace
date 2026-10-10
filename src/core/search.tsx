@@ -9,6 +9,7 @@ import { useTokenResolver } from './resolveMentions';
 import { renderPlain } from './mentions';
 import { createStore, useStore } from './store';
 import { cn } from './utils';
+import { ARCHIVED_LABEL, isArchived } from '../../shared/archive';
 
 export const paletteStore = createStore(false);
 
@@ -17,6 +18,7 @@ interface Hit {
   id: string;
   title: string;
   subtitle: string;
+  archived?: boolean;
 }
 
 export function CommandPalette() {
@@ -36,14 +38,14 @@ export function CommandPalette() {
     const all: Hit[] = [
       ...pages
         .filter((p) => !p.deleted)
-        .map((p) => ({ kind: 'page' as const, id: p.id, title: renderPlain(String(p.title ?? 'Untitled'), resolveTokens), subtitle: `${String(p.icon ?? '')} Page` })),
+        .map((p) => ({ kind: 'page' as const, id: p.id, title: renderPlain(String(p.title ?? 'Untitled'), resolveTokens), subtitle: `${String(p.icon ?? '')} Page`, archived: isArchived(p) })),
       ...tasks
         .filter((t) => !t.deleted)
         .map((t) => {
           const board = boards.find((b) => b.id === taskBoardId(t));
           return board && isRecordsDb(board)
-            ? { kind: 'task' as const, id: t.id, title: renderPlain(String(t.title ?? ''), resolveTokens), subtitle: `${String(board.icon ?? '')} ${String(board.name ?? 'Database')} · ${recordNoun(board)}`, boardId: board.id, record: true }
-            : { kind: 'task' as const, id: t.id, title: renderPlain(String(t.title ?? ''), resolveTokens), subtitle: `Task · ${String(t.status ?? '').replace('_', ' ')}` };
+            ? { kind: 'task' as const, id: t.id, title: renderPlain(String(t.title ?? ''), resolveTokens), subtitle: `${String(board.icon ?? '')} ${String(board.name ?? 'Database')} · ${recordNoun(board)}`, boardId: board.id, record: true, archived: isArchived(t) }
+            : { kind: 'task' as const, id: t.id, title: renderPlain(String(t.title ?? ''), resolveTokens), subtitle: `Task · ${String(t.status ?? '').replace('_', ' ')}`, archived: isArchived(t) };
         }),
     ];
     const filtered = q ? all.filter((h) => h.title.toLowerCase().includes(q)) : all;
@@ -111,6 +113,7 @@ export function CommandPalette() {
                 <CheckSquare size={15} className="shrink-0 text-neutral-400" />
               )}
               <span className="min-w-0 flex-1 truncate text-sm">{hit.title || 'Untitled'}</span>
+              {hit.archived && <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">{ARCHIVED_LABEL}</span>}
               <span className="shrink-0 text-xs text-neutral-400">{hit.subtitle}</span>
             </button>
           ))}

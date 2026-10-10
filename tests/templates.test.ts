@@ -200,16 +200,157 @@ describe('template planner — Phase 1 databases/linking', () => {
     expect(pblk.patch.text).toBe(`About @[rec:${maya.id}] and @[page:${plan.rootPageId}]`);
   });
 
-  it('stamps templateKey on copied rows and produces independent copies', () => {
+  it('stamps templateKey on the ROOT PAGE ONLY and produces independent copies', () => {
     const a = planTemplateInstantiation(dbSnap(), { templateId: 'tpl', templateKey: 'starter-people' }, { id, now })!;
     expect(a.writes.filter((w) => w.collection === 'boards').every((w) => w.patch.templateKey === 'starter-people')).toBe(true);
-    expect(a.writes.filter((w) => w.collection === 'pages').every((w) => w.patch.templateKey === 'starter-people')).toBe(true);
+    // P3-R1: the completion marker lives on the root page alone — stamping
+    // every page let an interrupted install pass the 'installed' check.
+    const pages = a.writes.filter((w) => w.collection === 'pages');
+    const stamped = pages.filter((w) => w.patch.templateKey === 'starter-people');
+    expect(stamped).toHaveLength(1);
+    expect(stamped[0].id).toBe(a.rootPageId);
+    // ...and it is the LAST write in the plan, so no applier order can put a
+    // marker ahead of the rest of the install.
+    expect(a.writes[a.writes.length - 1].id).toBe(a.rootPageId);
     const b = planTemplateInstantiation(dbSnap(), { templateId: 'tpl' }, { id, now })!;
     const idsA = new Set(a.writes.map((w) => w.id));
     for (const w of b.writes) expect(idsA.has(w.id)).toBe(false);
     const mayaA = a.writes.find((w) => w.collection === 'tasks' && w.patch.title === 'Maya')!;
     const linkB = b.writes.find((w) => w.collection === 'links' && w.patch.fieldId === 'f-org');
     expect(linkB && linkB.patch.fromId !== mayaA.id).toBe(true);
+  });
+});
+
+describe('template planner — Phase 3 reuse/remap', () => {
+  function p3Snap(): RecSnapshot {
+    return {
+      pages: {
+        tpl: { title: 'Ops pack', parentId: null, order: 'a0', isTemplate: true },
+        'tpl-tmpl': { title: 'Project Review', parentId: 'tpl', order: 'a1', isTemplate: true },
+        'tpl-page': { title: 'Normal child', parentId: 'tpl', order: 'a2' },
+      },
+      blocks: {
+        'b-tasks': { pageId: 'tpl', order: 'a0', type: 'tasks', boardId: 'db_a' },
+        'b-view': { pageId: 'tpl', order: 'a1', type: 'view', databaseId: 'db_a', viewId: 'v_a', inline: { includeArchived: true }, limit: 10, heading: 'All work' },
+        'b-view2': { pageId: 'tpl', order: 'a15', type: 'view', databaseId: 'db_b', heading: 'Log view' }, // pulls db_b (blocks pull boards; relations/captureTargets only remap)
+        'b-metric': { pageId: 'tpl', order: 'a2', type: 'metric', databaseId: 'db_c', agg: 'count', label: 'Open orgs', filters: [{ key: 'status', op: 'is', value: 'c1' }] },
+        'b-cal': { pageId: 'tpl', order: 'a3', type: 'calendar', sources: [{ databaseId: 'db_a', dateKey: 'dueDate', color: '#111' }, { databaseId: 'db_c', dateKey: 'p_f_when', color: '#222' }] },
+        'b-act': { pageId: 'tpl', order: 'a4', type: 'activity', scope: 'all', limit: 20 },
+        'b-mine': { pageId: 'tpl', order: 'a5', type: 'mywork' },
+      },
+      boards: {
+        db_a: {
+          name: 'Work',
+          key: 'work',
+          columns: [{ id: 'c1', name: 'Open', color: '#999' }],
+          fields: [{ id: 'f_rel', name: 'Side', type: 'relation', relation: { target: 'db_b' } }],
+          captureTargets: [{ kind: 'observation', databaseId: 'db_b' }, { kind: 'expense', databaseId: 'db_c' }],
+          fieldActions: ['observation', 'expense', 'note'],
+          defaultViewId: 'v_a',
+        },
+        db_b: {
+          name: 'Log',
+          fields: [{ id: 'f_back', name: 'Work', type: 'relation', relation: { target: 'db_a' } }],
+        },
+        db_c: { name: 'Orgs', fields: [] },
+      },
+      tasks: {
+        't-1': { boardId: 'db_a', title: 'Row one', status: 'c1', order: 'a0' },
+        't-c': { boardId: 'db_c', title: 'Existing org record', order: 'a0' },
+      },
+      views: {
+        v_a: { databaseId: 'db_a', name: 'Main', type: 'table', order: 'a0', config: { visible: ['title'] } },
+        v_c: { databaseId: 'db_c', name: 'Reused view', type: 'table', order: 'a0' },
+      },
+      links: {
+        l1: { fromType: 'page', fromId: 'tpl', toType: 'record', toId: 't-1', kind: 'related', fieldId: null },
+        l2: { fromType: 'record', fromId: 't-1', toType: 'record', toId: 't-c', kind: 'related', fieldId: null },
+      },
+    };
+  }
+
+  const findBlock = (plan: ReturnType<typeof planTemplateInstantiation>, type: string) =>
+    plan!.writes.filter((w) => w.collection === 'blocks').find((w) => w.patch.type === type)!;
+
+  it('reuseBoards: no board/record/view writes for reused db but every reference remaps to the live id', () => {
+    const plan = planTemplateInstantiation(p3Snap(), { templateId: 'tpl', reuseBoards: { db_c: 'live-c' }, templateKey: 'tcg-pack' }, { id, now })!;
+    const boards = plan.writes.filter((w) => w.collection === 'boards');
+    const tasks = plan.writes.filter((w) => w.collection === 'tasks');
+    const views = plan.writes.filter((w) => w.collection === 'views');
+
+    // db_a + db_b copied; db_c NOT written
+    expect(boards).toHaveLength(2);
+    expect(boards.map((b) => b.patch.name).sort()).toEqual(['Log', 'Work']);
+    // reused board's records are not copied; db_a's are
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].patch.title).toBe('Row one');
+    // views only for copied boards — v_c on reused db_c is not written
+    expect(views).toHaveLength(1);
+    const workBoard = boards.find((b) => b.patch.name === 'Work')!;
+    expect(views[0].patch.databaseId).toBe(workBoard.id);
+
+    // tasks block → copied db_a; metric → live id; calendar sources → copied + live
+    expect(findBlock(plan, 'tasks').patch.boardId).toBe(workBoard.id);
+    expect(findBlock(plan, 'metric').patch.databaseId).toBe('live-c');
+    const cal = findBlock(plan, 'calendar');
+    expect((cal.patch.sources as { databaseId: string }[])[0].databaseId).toBe(workBoard.id);
+    expect((cal.patch.sources as { databaseId: string }[])[1].databaseId).toBe('live-c');
+
+    // relation target remap: db_a.f_rel → copied db_b; db_b.f_back → copied db_a
+    const logBoard = boards.find((b) => b.patch.name === 'Log')!;
+    const fRel = (workBoard.patch.fields as { id: string; relation?: { target: string } }[]).find((f) => f.id === 'f_rel')!;
+    expect(fRel.relation?.target).toBe(logBoard.id);
+    const fBack = (logBoard.patch.fields as { id: string; relation?: { target: string } }[]).find((f) => f.id === 'f_back')!;
+    expect(fBack.relation?.target).toBe(workBoard.id);
+
+    // captureTargets remapped: db_b → copied, db_c → live
+    const cts = workBoard.patch.captureTargets as { kind: string; databaseId: string }[];
+    expect(cts[0]).toEqual({ kind: 'observation', databaseId: logBoard.id });
+    expect(cts[1]).toEqual({ kind: 'expense', databaseId: 'live-c' });
+
+    // link to a reused board's (uncopied) record is skipped
+    expect(plan.writes.filter((w) => w.collection === 'links')).toHaveLength(1);
+  });
+
+  it('stamps templateDbKey from snapshot key and passes fieldActions through', () => {
+    const plan = planTemplateInstantiation(p3Snap(), { templateId: 'tpl' }, { id, now })!;
+    const work = plan.writes.filter((w) => w.collection === 'boards').find((w) => w.patch.name === 'Work')!;
+    expect(work.patch.templateDbKey).toBe('work');
+    expect(work.patch.fieldActions).toEqual(['observation', 'expense', 'note']);
+    // boards without key get no templateDbKey
+    const log = plan.writes.filter((w) => w.collection === 'boards').find((w) => w.patch.name === 'Log')!;
+    expect(log.patch.templateDbKey).toBeUndefined();
+  });
+
+  it('preserveTemplates keeps isTemplate on authored template pages only', () => {
+    const keep = planTemplateInstantiation(p3Snap(), { templateId: 'tpl', preserveTemplates: true }, { id, now })!;
+    const pages = keep.writes.filter((w) => w.collection === 'pages');
+    expect(pages.find((w) => w.patch.title === 'Project Review')!.patch.isTemplate).toBe(true);
+    expect(pages.find((w) => w.patch.title === 'Normal child')!.patch.isTemplate).toBe(false);
+    const drop = planTemplateInstantiation(p3Snap(), { templateId: 'tpl' }, { id, now })!;
+    expect(drop.writes.filter((w) => w.collection === 'pages').every((w) => w.patch.isTemplate === false)).toBe(true);
+  });
+
+  it('view blocks remap viewId and databaseId via viewMap/boardMap; board defaultViewId remaps too', () => {
+    const plan = planTemplateInstantiation(p3Snap(), { templateId: 'tpl' }, { id, now })!;
+    const work = plan.writes.filter((w) => w.collection === 'boards').find((w) => w.patch.name === 'Work')!;
+    const view = plan.writes.filter((w) => w.collection === 'views').find((w) => w.patch.name === 'Main')!;
+    const vb = plan.writes.filter((w) => w.collection === 'blocks').find((w) => w.patch.type === 'view' && w.patch.heading === 'All work')!;
+    expect(vb.patch.databaseId).toBe(work.id);
+    expect(vb.patch.viewId).toBe(view.id);
+    expect(vb.patch.inline).toEqual({ includeArchived: true });
+    expect(vb.patch.limit).toBe(10);
+    expect(vb.patch.heading).toBe('All work');
+    expect(work.patch.defaultViewId).toBe(view.id);
+    // activity/mywork pass their config through
+    expect(findBlock(plan, 'activity').patch.scope).toBe('all');
+    expect(findBlock(plan, 'activity').patch.limit).toBe(20);
+    expect(findBlock(plan, 'mywork').patch.type).toBe('mywork');
+    // metric config whitelist: agg/label/filters copied
+    const metric = findBlock(plan, 'metric');
+    expect(metric.patch.agg).toBe('count');
+    expect(metric.patch.label).toBe('Open orgs');
+    expect(metric.patch.filters).toEqual([{ key: 'status', op: 'is', value: 'c1' }]);
   });
 });
 

@@ -7,8 +7,17 @@
  * parentId + record body blocks, and remaps @[page:]/@[rec:] mention tokens. */
 
 import { cmpOrder, orderBetween } from './order';
-import { linkId } from './linkid';
+import { fnv1a64hex, linkId } from './linkid';
 import type { FieldDef } from './fields';
+
+/**
+ * Deterministic record id for bundled installs (Phase 3 P3-R1): derived from
+ * (templateKey, collection, authored id), so a re-run after an interrupted
+ * install upserts the SAME rows instead of duplicating — replays converge.
+ */
+export function installRecordId(templateKey: string, collection: string, srcId: string): string {
+  return `inst_${fnv1a64hex(`${templateKey}:${collection}:${srcId}`)}`;
+}
 
 export interface RecSnapshot {
   pages: Record<string, Record<string, unknown>>;
@@ -28,6 +37,31 @@ export interface TemplateOpts {
   actorId?: string | null;
   /** Stamped on copied rows when instantiated from a bundled template (e.g. 'starter-people'). */
   templateKey?: string;
+  /**
+   * Phase 3 — snapshot/authored board id → EXISTING live board id. Reused
+   * boards join `boardMap` upfront: no board/record/view writes for them, but
+   * every reference (relation targets, block `databaseId`, `captureTargets`,
+   * views' `databaseId`) remaps to the live id. Reused boards' records are
+   * NOT copied.
+   */
+  reuseBoards?: Record<string, string>;
+  /** Bundled installs pass true: pages authored `template:true` keep `isTemplate:true`. */
+  preserveTemplates?: boolean;
+  /**
+   * Bundled-pack installs copy the WHOLE authored set (every page, database,
+   * record, view and link in the snapshot) — not just the templateId subtree.
+   * Used by the template gallery + install_template; plain page-template
+   * instantiation leaves this off.
+   */
+  packInstall?: boolean;
+  /**
+   * Bundled installs pass true: generated ids become deterministic
+   * `inst_<hash>` of (templateKey, collection, authored id) so re-runs are
+   * idempotent replays — an interrupted install resumes instead of
+   * duplicating. Requires `templateKey`. Never set for page-template
+   * instantiation (each instance needs fresh ids).
+   */
+  stableIds?: boolean;
 }
 
 export interface PlannedWrite {
@@ -85,9 +119,16 @@ export function planTemplateInstantiation(
   const writes: PlannedWrite[] = [];
 
   // --- pages ---
-  const pageIds = subtreeIds(snap.pages, opts.templateId);
+  const pageIds = opts.packInstall
+    ? Object.keys(snap.pages).filter((id) => !snap.pages[id].deleted)
+    : subtreeIds(snap.pages, opts.templateId);
+  // Stable-id mode: deterministic ids keyed by (templateKey, collection, src id)
+  // so interrupted bundled installs replay idempotently. Links already use
+  // deterministic linkId; everything else keys off its authored id.
+  const newId = (collection: PlannedWrite['collection'], srcId: string): string =>
+    opts.stableIds && opts.templateKey ? installRecordId(opts.templateKey, collection, srcId) : deps.id();
   const pageMap = new Map<string, string>(); // old → new
-  for (const oldId of pageIds) pageMap.set(oldId, deps.id());
+  for (const oldId of pageIds) pageMap.set(oldId, newId('pages', oldId));
 
   // Order for the new root: after existing siblings under the same parent.
   const parentId = opts.parentId ?? null;
@@ -108,10 +149,13 @@ export function planTemplateInstantiation(
         icon: src.icon ?? '📄',
         parentId: isRoot ? parentId : (pageMap.get(String(src.parentId)) ?? null),
         order: isRoot ? rootOrder : (src.order ?? null),
-        isTemplate: false,
+        isTemplate: opts.preserveTemplates ? src.isTemplate === true : false,
         createdBy: opts.actorId ?? null,
         createdAt: deps.now,
-        ...(opts.templateKey ? { templateKey: opts.templateKey } : {}),
+        // P3-R1: templateKey ONLY on the root page — it is the completion
+        // marker. Writes are ordered root-last so the marker can never exist
+        // before the rest of the install landed.
+        ...(opts.templateKey && isRoot ? { templateKey: opts.templateKey } : {}),
       },
     });
   }
@@ -122,29 +166,82 @@ export function planTemplateInstantiation(
   const boardMap = new Map<string, string>();
   const taskMap = new Map<string, string>();
   const srcBoardIds: string[] = [];
+
+  // Reused boards resolve to their live ids immediately — the fixpoint skips
+  // them (already in boardMap) so no board/record/view writes are planned.
+  const reusedBoardIds = new Set<string>();
+  for (const [srcId, liveId] of Object.entries(opts.reuseBoards ?? {})) {
+    if (typeof liveId === 'string' && liveId) {
+      boardMap.set(srcId, liveId);
+      reusedBoardIds.add(srcId);
+    }
+  }
+  // packInstall: every authored database (not already reused) joins the copy —
+  // dashboards/captureTargets reference databases no page embeds directly.
+  if (opts.packInstall) {
+    for (const [bid, b] of Object.entries(snap.boards)) {
+      if (b.deleted || boardMap.has(bid)) continue;
+      boardMap.set(bid, newId('boards', bid));
+      srcBoardIds.push(bid);
+      for (const [tid, t] of Object.entries(snap.tasks)) {
+        if (!t.deleted && String(t.boardId ?? 'board-default') === bid && !taskMap.has(tid)) {
+          taskMap.set(tid, newId('tasks', tid));
+        }
+      }
+    }
+  }
+
   const ownedByCopiedSet = (b: Record<string, unknown>): boolean =>
     !b.deleted && (pageMap.has(String(b.pageId ?? '')) || taskMap.has(String(b.pageId ?? '')));
 
-  // Fixpoint: a `tasks` block in a copied page/record pulls in its database;
-  // each copied database's records pull in their own body blocks, which may
-  // embed further databases. All board ids are allocated before ANY board
-  // patch is written so relation targets between copied databases remap.
+  // Fixpoint: a `tasks` block (boardId) or a dashboard block (databaseId /
+  // sources[].databaseId) in a copied page/record pulls in its database; each
+  // copied database's records pull in their own body blocks, which may embed
+  // further databases. All board ids are allocated before ANY board patch is
+  // written so relation targets between copied databases remap.
+  const DASHBOARD_BLOCK_TYPES = new Set(['view', 'metric', 'calendar', 'activity', 'mywork']);
+  const boardRefsOf = (b: Record<string, unknown>): string[] => {
+    const out: string[] = [];
+    if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId) out.push(b.boardId);
+    if (DASHBOARD_BLOCK_TYPES.has(String(b.type))) {
+      if (typeof b.databaseId === 'string' && b.databaseId) out.push(b.databaseId);
+      if (Array.isArray(b.sources)) {
+        for (const s of b.sources) {
+          const dbId = (s as { databaseId?: unknown })?.databaseId;
+          if (typeof dbId === 'string' && dbId) out.push(dbId);
+        }
+      }
+    }
+    return out;
+  };
   let grew = true;
   while (grew) {
     grew = false;
     for (const [, b] of Object.entries(snap.blocks)) {
       if (!ownedByCopiedSet(b)) continue;
-      if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId && !boardMap.has(b.boardId)) {
-        boardMap.set(b.boardId, deps.id());
-        srcBoardIds.push(b.boardId);
+      for (const refId of boardRefsOf(b)) {
+        if (boardMap.has(refId)) continue;
+        boardMap.set(refId, newId('boards', refId));
+        srcBoardIds.push(refId);
         grew = true;
         for (const [tid, t] of Object.entries(snap.tasks)) {
-          if (!t.deleted && String(t.boardId ?? 'board-default') === b.boardId && !taskMap.has(tid)) {
-            taskMap.set(tid, deps.id());
+          if (!t.deleted && String(t.boardId ?? 'board-default') === refId && !taskMap.has(tid)) {
+            taskMap.set(tid, newId('tasks', tid));
           }
         }
       }
     }
+  }
+
+  // viewMap allocated before ANY writes: `view` blocks' `viewId` and copied
+  // boards' `defaultViewId` remap through it. Views on reused boards are not
+  // written (their src view ids simply never enter the map).
+  const viewMap = new Map<string, string>();
+  for (const [vid, v] of Object.entries(snap.views ?? {})) {
+    if (v.deleted) continue;
+    const srcDb = String(v.databaseId ?? '');
+    if (!boardMap.has(srcDb) || reusedBoardIds.has(srcDb)) continue;
+    viewMap.set(vid, newId('views', vid));
   }
 
   const remapField = (f: FieldDef): FieldDef => ({
@@ -168,10 +265,21 @@ export function planTemplateInstantiation(
       createdBy: opts.actorId ?? null,
       createdAt: deps.now,
     };
-    for (const k of ['kind', 'recordNoun', 'showBuiltins', 'templateKey'] as const) {
-      if (src?.[k] !== undefined) patch[k] = src[k];
+    for (const k of ['kind', 'recordNoun', 'showBuiltins', 'templateKey', 'fieldActions'] as const) {
+      if (src?.[k] !== undefined) patch[k] = typeof src[k] === 'object' && src[k] !== null ? JSON.parse(JSON.stringify(src[k])) : src[k];
     }
     if (opts.templateKey) patch.templateKey = opts.templateKey;
+    // Snapshot `key` → `templateDbKey` on the live board (install dedupe key).
+    if (src?.key !== undefined) patch.templateDbKey = src.key;
+    if (src?.defaultViewId !== undefined) patch.defaultViewId = viewMap.get(String(src.defaultViewId)) ?? src.defaultViewId;
+    // captureTargets pass through with authored db ids remapped to live ids.
+    if (Array.isArray(src?.captureTargets)) {
+      patch.captureTargets = src.captureTargets.map((c) => {
+        const t = { ...(c as Record<string, unknown>) };
+        if (t.databaseId !== undefined) t.databaseId = boardMap.get(String(t.databaseId)) ?? t.databaseId;
+        return t;
+      });
+    }
     if (src?.description !== undefined) patch.description = substituteVars(src.description, vars);
     writes.push({ collection: 'boards', id: newId, patch });
 
@@ -202,13 +310,15 @@ export function planTemplateInstantiation(
   }
 
   // --- views of copied databases (field keys p_<id> stay valid: ids unchanged) ---
-  for (const [, v] of Object.entries(snap.views ?? {})) {
+  // Reused boards' views are not written (no view writes for reused boards).
+  for (const [vid, v] of Object.entries(snap.views ?? {})) {
     if (v.deleted) continue;
-    const newDbId = boardMap.get(String(v.databaseId ?? ''));
-    if (!newDbId) continue;
+    const srcDb = String(v.databaseId ?? '');
+    const newDbId = boardMap.get(srcDb);
+    if (!newDbId || reusedBoardIds.has(srcDb)) continue;
     writes.push({
       collection: 'views',
-      id: deps.id(),
+      id: viewMap.get(vid) ?? newId('views', vid),
       patch: {
         databaseId: newDbId,
         name: substituteVars(v.name ?? 'View', vars),
@@ -247,7 +357,7 @@ export function planTemplateInstantiation(
   }
 
   // --- blocks (page bodies AND copied-record bodies) ---
-  for (const [, b] of Object.entries(snap.blocks).filter(([, blk]) => ownedByCopiedSet(blk))) {
+  for (const [bid, b] of Object.entries(snap.blocks).filter(([, blk]) => ownedByCopiedSet(blk))) {
     const newOwnerId = pageMap.get(String(b.pageId)) ?? taskMap.get(String(b.pageId))!;
     let text = substituteVars(b.text, vars);
     // Page/record mentions inside the template re-point at the copies.
@@ -270,8 +380,33 @@ export function planTemplateInstantiation(
     if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId) {
       patch.boardId = boardMap.get(b.boardId) ?? b.boardId;
     }
-    writes.push({ collection: 'blocks', id: deps.id(), patch });
+    // Dashboard block whitelist (Phase 3 §3): config fields copy through,
+    // authored databaseId/viewId/sources[].databaseId remap to live ids.
+    if (DASHBOARD_BLOCK_TYPES.has(String(b.type))) {
+      for (const k of ['limit', 'agg', 'fieldKey', 'format', 'scope', 'url', 'inline', 'filters'] as const) {
+        if (b[k] !== undefined) patch[k] = typeof b[k] === 'object' && b[k] !== null ? JSON.parse(JSON.stringify(b[k])) : b[k];
+      }
+      if (b.heading !== undefined) patch.heading = substituteVars(b.heading, vars);
+      if (b.label !== undefined) patch.label = substituteVars(b.label, vars);
+      if (b.databaseId !== undefined) patch.databaseId = boardMap.get(String(b.databaseId)) ?? b.databaseId;
+      if (b.viewId !== undefined) patch.viewId = viewMap.get(String(b.viewId)) ?? b.viewId;
+      if (Array.isArray(b.sources)) {
+        patch.sources = (b.sources as Record<string, unknown>[]).map((s) => {
+          const t = { ...s };
+          if (t.databaseId !== undefined) t.databaseId = boardMap.get(String(t.databaseId)) ?? t.databaseId;
+          return t;
+        });
+      }
+    }
+    writes.push({ collection: 'blocks', id: newId('blocks', bid), patch });
   }
 
-  return { writes, rootPageId: pageMap.get(opts.templateId)! };
+  const rootPageId = pageMap.get(opts.templateId)!;
+  // P3-R1: the marker write is ordered LAST — sequential appliers (client
+  // mutate() loop, MCP batched write()) only stamp templateKey after every
+  // other planned row landed, so an interrupted install is never reported
+  // complete and a stable-id replay converges to the full set.
+  const ri = writes.findIndex((w) => w.collection === 'pages' && w.id === rootPageId);
+  if (ri >= 0) writes.push(writes.splice(ri, 1)[0]);
+  return { writes, rootPageId };
 }
