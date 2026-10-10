@@ -1,7 +1,43 @@
-import { useEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes, type ComponentType } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { X, type LucideIcon } from 'lucide-react';
 import { cn, initials } from './utils';
+import { useIsMobile, useVisualViewport } from './mobile';
+
+/* ---------- Overlay layer stack (platform spec §8) ----------
+ * Every dismissible layer (dialog/sheet/adaptive surface, open popover)
+ * registers here so Escape closes ONLY the topmost one, and the topmost
+ * portal makes the rest of the app inert. */
+interface OverlayLayer {
+  id: symbol;
+  /** Portal root when the layer is a modal surface — used for inerting. */
+  portal?: HTMLElement;
+}
+const layerStack: OverlayLayer[] = [];
+let inerted: Element[] = [];
+
+function isTopLayer(id: symbol): boolean {
+  return layerStack[layerStack.length - 1]?.id === id;
+}
+function pushLayer(l: OverlayLayer): void {
+  layerStack.push(l);
+}
+function removeLayer(id: symbol): void {
+  const i = layerStack.findIndex((l) => l.id === id);
+  if (i >= 0) layerStack.splice(i, 1);
+}
+function applyInert(): void {
+  for (const el of inerted) el.removeAttribute('inert');
+  inerted = [];
+  const top = [...layerStack].reverse().find((l) => l.portal)?.portal;
+  if (!top) return;
+  for (const child of Array.from(document.body.children)) {
+    if (child !== top && !child.hasAttribute('inert')) {
+      child.setAttribute('inert', '');
+      inerted.push(child);
+    }
+  }
+}
 
 /* ---------- Button ---------- */
 type BtnVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline';
@@ -88,6 +124,8 @@ export function Popover({
   className,
   open,
   onOpenChange,
+  adaptive,
+  label = 'Menu',
 }: {
   trigger: ReactNode;
   children: (close: () => void) => ReactNode;
@@ -95,6 +133,9 @@ export function Popover({
   className?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Present as a bottom sheet on compact layouts (platform §4/§8). */
+  adaptive?: boolean;
+  label?: string;
 }) {
   const [internal, setInternal] = useState(false);
   const isOpen = open ?? internal;
@@ -103,35 +144,87 @@ export function Popover({
     onOpenChange?.(v);
   };
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const layerId = useRef(Symbol('popover'));
+  const compact = useIsMobile();
+  const sheetMode = adaptive === true && compact;
+  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
   useEffect(() => {
-    if (!isOpen) return;
+    // In sheet mode the Overlay below owns dismissal/stacking.
+    if (!isOpen || sheetMode) return;
+    pushLayer({ id: layerId.current });
+    const prevFocus = document.activeElement as HTMLElement | null;
+    const update = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const minW = 176; // min-w-44
+      let left = align === 'right' ? r.right - Math.max(minW, r.width) : align === 'center' ? r.left + r.width / 2 - Math.max(minW, r.width) / 2 : r.left;
+      left = Math.max(8, Math.min(left, window.innerWidth - minW - 8));
+      setPos({ left, top: r.bottom + 4, width: Math.max(minW, r.width) });
+    };
+    update();
+    window.addEventListener('resize', update);
+    document.addEventListener('scroll', update, true);
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current?.contains(e.target as Node) || panelRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isTopLayer(layerId.current)) setOpen(false);
+    };
     document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey, true);
     return () => {
+      removeLayer(layerId.current);
+      window.removeEventListener('resize', update);
+      document.removeEventListener('scroll', update, true);
       document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey, true);
+      // Return focus to the trigger (or whatever had focus).
+      (triggerRef.current?.isConnected ? triggerRef.current : prevFocus?.isConnected ? prevFocus : null)?.focus();
     };
-  }, [isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, sheetMode]);
   return (
     <div ref={ref} className="relative inline-block">
-      <span onClick={(e) => { e.stopPropagation(); setOpen(!isOpen); }} className="inline-flex">
+      <span
+        ref={triggerRef}
+        role="button"
+        tabIndex={0}
+        aria-haspopup="true"
+        aria-expanded={isOpen}
+        onClick={(e) => { e.stopPropagation(); setOpen(!isOpen); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setOpen(!isOpen); }
+        }}
+        className="inline-flex rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
+      >
         {trigger}
       </span>
-      {isOpen && (
-        <div
-          className={cn(
-            'anim-slide-up absolute z-50 mt-1 min-w-44 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900',
-            align === 'right' ? 'right-0' : align === 'center' ? 'left-1/2 -translate-x-1/2' : 'left-0',
-            className,
-          )}
-        >
-          {children(() => setOpen(false))}
-        </div>
-      )}
+      {isOpen && sheetMode ? (
+        <Overlay onClose={() => setOpen(false)} label={label} className="flex flex-col justify-end">
+          <div className="anim-slide-bottom mt-auto max-h-[85%] w-full overflow-y-auto rounded-t-2xl border-t border-neutral-200 bg-white pb-safe shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+            {children(() => setOpen(false))}
+          </div>
+        </Overlay>
+      ) : isOpen && pos ? (
+        createPortal(
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-label={label}
+            style={{ position: 'fixed', left: pos.left, top: pos.top, minWidth: pos.width }}
+            className={cn(
+              'anim-slide-up z-50 max-h-[70vh] overflow-y-auto overflow-x-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900',
+              className,
+            )}
+          >
+            {children(() => setOpen(false))}
+          </div>,
+          document.body,
+        )
+      ) : null}
     </div>
   );
 }
@@ -176,32 +269,148 @@ export function Menu({ items, close }: { items: (MenuItem | 'divider')[]; close:
   );
 }
 
-/* ---------- Overlay shells ---------- */
-function Overlay({ children, onClose, className }: { children: ReactNode; onClose: () => void; className?: string }) {
+/* ---------- Overlay shells ----------
+ * Shared layer behavior: registers on the overlay stack (Escape reaches
+ * only the topmost layer), traps Tab focus, returns focus to whatever was
+ * focused before, inerts background content, locks body scroll while any
+ * overlay is open, and fits inside the visual viewport (--vvh/--vvo, so the
+ * software keyboard never covers fields). `guard` vets Escape/outside
+ * dismiss — return false to keep unsaved work mounted (platform §7/§8).
+ * Presentation changes (e.g. adaptive breakpoints) never remount children:
+ * only the wrapper layout shifts, so in-progress input stays alive. */
+const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[contenteditable="true"],[tabindex]:not([tabindex="-1"])';
+
+let overlayDepth = 0;
+
+function Overlay({
+  children,
+  onClose,
+  className,
+  label,
+  labelledBy,
+  guard,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  className?: string;
+  label?: string;
+  labelledBy?: string;
+  /** Return false to refuse Escape / outside dismiss (unsaved content). */
+  guard?: () => boolean;
+}) {
+  const portalRef = useRef<HTMLDivElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const guardRef = useRef(guard);
+  guardRef.current = guard;
+
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    document.addEventListener('keydown', onKey);
+    const layer: OverlayLayer = { id: Symbol('overlay'), portal: portalRef.current ?? undefined };
+    pushLayer(layer);
+    applyInert();
+    overlayDepth++;
     document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
+    const prevFocus = document.activeElement as HTMLElement | null;
+    const surface = surfaceRef.current;
+    const focusables = () =>
+      Array.from(surface?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(
+        (el) => !el.closest('[inert]') && el.offsetParent !== null,
+      );
+    const requestClose = () => {
+      if (guardRef.current && guardRef.current() === false) return;
+      onCloseRef.current();
     };
-  }, [onClose]);
+    (surface?.querySelector<HTMLElement>('[data-autofocus]') ?? focusables()[0] ?? surface)?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isTopLayer(layer.id)) {
+          e.preventDefault();
+          requestClose();
+        }
+        return;
+      }
+      if (e.key === 'Tab' && surface && isTopLayer(layer.id)) {
+        const f = focusables();
+        if (!f.length) {
+          e.preventDefault();
+          surface.focus();
+          return;
+        }
+        const first = f[0];
+        const last = f[f.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        const wrap = e.shiftKey ? active === first || !surface.contains(active) : active === last || !surface.contains(active);
+        if (wrap) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      removeLayer(layer.id);
+      document.removeEventListener('keydown', onKey, true);
+      overlayDepth--;
+      if (!overlayDepth) document.body.style.overflow = '';
+      applyInert();
+      if (prevFocus?.isConnected) prevFocus.focus();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the focused field above a freshly opened software keyboard.
+  const vv = useVisualViewport();
+  useEffect(() => {
+    if (vv.keyboardOpen) (document.activeElement as HTMLElement | null)?.scrollIntoView?.({ block: 'nearest' });
+  }, [vv.keyboardOpen]);
+
+  const close = () => {
+    if (guardRef.current && guardRef.current() === false) return;
+    onCloseRef.current();
+  };
+
   return createPortal(
-    <div className="anim-fade fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={className}>{children}</div>
+    <div
+      ref={portalRef}
+      className="anim-fade fixed inset-x-0 top-0 z-50 bg-black/40 backdrop-blur-[2px]"
+      style={{ top: 'var(--vvo, 0px)', height: 'var(--vvh, 100dvh)' }}
+      onMouseDown={(e) => e.target === e.currentTarget && close()}
+    >
+      <div
+        ref={surfaceRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        aria-labelledby={labelledBy}
+        tabIndex={-1}
+        className={cn('outline-none', className)}
+      >
+        {children}
+      </div>
     </div>,
     document.body,
   );
 }
 
-export function Dialog({ children, onClose, title }: { children: ReactNode; onClose: () => void; title?: string }) {
+export interface OverlayProps {
+  children: ReactNode;
+  onClose: () => void;
+  title?: string;
+  /** Return false to refuse Escape/outside dismiss — protects unsaved content. */
+  guard?: () => boolean;
+}
+
+export function Dialog({ children, onClose, title, guard }: OverlayProps) {
+  const titleId = useId();
   return (
-    <Overlay onClose={onClose} className="flex h-full items-center justify-center p-4">
+    <Overlay onClose={onClose} guard={guard} labelledBy={title ? titleId : undefined} label={title ? undefined : 'Dialog'} className="flex h-full items-center justify-center p-4">
       <div className="anim-slide-up w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-5 shadow-xl dark:border-neutral-800 dark:bg-neutral-900">
         {title && (
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">{title}</h2>
+            <h2 id={titleId} className="text-sm font-semibold">
+              {title}
+            </h2>
             <IconButton onClick={onClose} aria-label="Close">
               <X size={16} />
             </IconButton>
@@ -213,16 +422,50 @@ export function Dialog({ children, onClose, title }: { children: ReactNode; onCl
   );
 }
 
-export function Sheet({ children, onClose, side = 'right' }: { children: ReactNode; onClose: () => void; side?: 'right' | 'left' | 'bottom' }) {
+/** Dialog on medium/expanded, bottom sheet on compact — same mounted children. */
+export function AdaptiveDialog({ children, onClose, title, guard }: OverlayProps) {
+  const compact = useIsMobile();
+  const titleId = useId();
+  return (
+    <Overlay
+      onClose={onClose}
+      guard={guard}
+      labelledBy={title ? titleId : undefined}
+      label={title ? undefined : 'Dialog'}
+      className={cn('flex', compact ? 'flex-col justify-end' : 'h-full items-center justify-center p-4')}
+    >
+      <div
+        className={cn(
+          'flex min-h-0 flex-col border-neutral-200 bg-white shadow-xl dark:border-neutral-800 dark:bg-neutral-900',
+          compact ? 'anim-slide-bottom max-h-[92%] w-full rounded-t-2xl border-t pb-safe' : 'anim-slide-up w-full max-w-md rounded-2xl border p-5',
+        )}
+      >
+        {title && (
+          <div className={cn('flex items-center justify-between', compact ? 'px-4 pb-2 pt-4' : 'mb-3')}>
+            <h2 id={titleId} className="text-sm font-semibold">
+              {title}
+            </h2>
+            <IconButton onClick={onClose} aria-label="Close">
+              <X size={16} />
+            </IconButton>
+          </div>
+        )}
+        <div className={cn('min-h-0 overflow-y-auto', compact && 'px-4 pb-4')}>{children}</div>
+      </div>
+    </Overlay>
+  );
+}
+
+export function Sheet({ children, onClose, side = 'right', label, guard }: { children: ReactNode; onClose: () => void; side?: 'right' | 'left' | 'bottom'; label?: string; guard?: () => boolean }) {
   const anim = side === 'right' ? 'anim-slide-right' : side === 'left' ? 'anim-slide-left' : 'anim-slide-bottom';
   const pos =
     side === 'right'
-      ? 'ml-auto h-full w-full sm:w-[420px] sm:max-w-[92vw] border-l'
+      ? 'ml-auto h-full w-full sm:w-[420px] sm:max-w-[92vw] border-l pr-safe'
       : side === 'left'
-        ? 'mr-auto h-full w-[280px] max-w-[85vw] border-r'
-        : 'mt-auto h-[92%] w-full rounded-t-2xl border-t';
+        ? 'mr-auto h-full w-[280px] max-w-[85vw] border-r pl-safe'
+        : 'mt-auto h-[92%] w-full rounded-t-2xl border-t pb-safe';
   return (
-    <Overlay onClose={onClose} className="flex h-full flex-col">
+    <Overlay onClose={onClose} guard={guard} label={label ?? 'Panel'} className="flex h-full flex-col">
       <div className={cn(anim, 'flex flex-col overflow-hidden border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950', pos)}>
         {children}
       </div>

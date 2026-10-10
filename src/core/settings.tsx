@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, Plus, Trash2, Check } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { Copy, Plus, Trash2, Check, Undo2 } from 'lucide-react';
 import type { PublicUser } from '../../shared/types';
+import { BUNDLED_TEMPLATES } from './bundledTemplates';
+import { instantiateTemplate } from '../modules/pages/api';
 import { api } from './api';
 import { authStore, changePassword, updateMe } from './auth';
+import { useChangesets, undoChangeset } from './activity';
 import { USER_COLORS } from './config';
 import { useStore } from './store';
 import { Avatar, Button, Field, Input, Spinner } from './ui';
@@ -32,7 +36,10 @@ export function SettingsPage() {
       <div className="flex flex-col gap-5">
         <ProfileSection user={user} />
         <AIConnectorsSection />
+        <RecentAIChangesSection />
+        <TemplateGallerySection />
         <StorageSection />
+        <LocalDataSection user={user} />
         <PasswordSection />
         {user?.role === 'admin' && <AdminSection />}
       </div>
@@ -134,6 +141,108 @@ function StorageSection() {
       ) : (
         <p className="text-xs text-neutral-400">Storage usage is unavailable while offline.</p>
       )}
+    </Section>
+  );
+}
+
+/* Quarantined local stores (account-switch 'discard' choices + migrated
+ * legacy 'workspace' data). Deletion runs ONLY here, behind an explicit
+ * two-step confirm — nothing auto-deletes at login (T2). */
+function LocalDataSection({ user }: { user: PublicUser | null }) {
+  const [queued, setQueued] = useState<string[] | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(async () => {
+    const { pendingStoreDrops } = await import('./maintenance');
+    const active = user ? `workspace-${user.id}` : null;
+    setQueued((await pendingStoreDrops()).filter((n) => n !== active));
+  }, [user?.id]);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+  if (!queued || queued.length === 0) return null;
+  const purge = async () => {
+    setBusy(true);
+    try {
+      const { runConfirmedDrops } = await import('./maintenance');
+      await runConfirmedDrops(user ? `workspace-${user.id}` : null);
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+      await refresh();
+    }
+  };
+  return (
+    <Section title="Local data">
+      <p className="text-xs text-neutral-400">
+        Offline data kept on this device from other accounts or earlier versions.
+      </p>
+      <ul className="mt-2 space-y-1">
+        {queued.map((n) => (
+          <li key={n} className="flex items-center justify-between text-sm">
+            <span className="font-mono text-xs text-neutral-600 dark:text-neutral-300">{n}</span>
+          </li>
+        ))}
+      </ul>
+      {!confirming ? (
+        <Button variant="secondary" size="sm" className="mt-3" onClick={() => setConfirming(true)}>
+          Delete permanently…
+        </Button>
+      ) : (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-950/30">
+          <p className="text-xs text-red-600 dark:text-red-400">
+            This permanently erases the listed local data — including any unsynced changes, drafts and uploads still inside it.
+            There is no cancel or reclaim once it starts.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => void purge()}>
+              {busy ? <Spinner size={13} /> : 'Yes, delete it all'}
+            </Button>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirming(false)}>
+              Keep it
+            </Button>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function TemplateGallerySection() {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [done, setDone] = useState<Record<string, string>>({});
+  const nav = useNavigate();
+  const add = async (key: string) => {
+    const tpl = BUNDLED_TEMPLATES.find((t) => t.key === key);
+    if (!tpl) return;
+    setBusy(key);
+    try {
+      const id = await instantiateTemplate(tpl.root, { snapshot: tpl.snapshot, templateKey: tpl.key, title: tpl.name });
+      if (id) {
+        setDone((d) => ({ ...d, [key]: id }));
+        nav(`/pages/${id}`);
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Section title="Template gallery">
+      <ul className="flex flex-col gap-2">
+        {BUNDLED_TEMPLATES.map((t) => (
+          <li key={t.key} className="flex items-center gap-3 rounded-xl border border-neutral-200/70 px-3 py-2.5 dark:border-neutral-800">
+            <span className="text-lg" aria-hidden>{t.icon}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">{t.name}</span>
+              <span className="block truncate text-xs text-neutral-500 dark:text-neutral-400">{t.description}</span>
+            </span>
+            <Button size="sm" variant="secondary" disabled={busy === t.key} onClick={() => void add(t.key)}>
+              {busy === t.key ? <Spinner className="h-3.5 w-3.5" /> : done[t.key] ? <Check size={14} /> : <Plus size={14} />}
+              {done[t.key] ? 'Added' : 'Add to workspace'}
+            </Button>
+          </li>
+        ))}
+      </ul>
     </Section>
   );
 }
@@ -382,3 +491,49 @@ function AIConnectorsSection() {
     </Section>
   );
 }
+
+/* ---------- Phase 1: recent AI change sets + template gallery ---------- */
+
+function RecentAIChangesSection() {
+  const { rows, error, reload } = useChangesets(20);
+  const [undoId, setUndoId] = useState<string | null>(null);
+  return (
+    <Section title="Recent AI changes">
+      <p className="mb-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+        The last 20 change sets made by connected AI apps. Undo restores the previous field values; edits made since are skipped.
+      </p>
+      {error && <p className="text-xs text-neutral-400">Change history unavailable on this server.</p>}
+      {rows !== null && rows.length === 0 && !error && <p className="text-xs text-neutral-400">No AI changes yet.</p>}
+      {rows && rows.length > 0 && (
+        <ul className="divide-y divide-neutral-100 rounded-xl border border-neutral-200/70 dark:divide-neutral-800 dark:border-neutral-800">
+          {rows.map((c) => (
+            <li key={c.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+              <div className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{c.summary || c.tool || 'Change'}</span>
+                <span className="text-[11px] text-neutral-400">
+                  {c.client_name ? `via ${c.client_name} · ` : ''}{c.item_count} item{c.item_count === 1 ? '' : 's'} · {new Date(c.created_at < 1e12 ? c.created_at * 1000 : c.created_at).toLocaleString()}
+                  {c.undone_by && ' · undone'}
+                </span>
+              </div>
+              {!c.undone_by && (
+                <Button variant="secondary" size="sm" onClick={() => setUndoId(c.id)}>
+                  <Undo2 size={12} /> Undo
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {undoId && (
+        <div className="mt-3 rounded-xl border border-neutral-200 p-3 text-sm dark:border-neutral-700">
+          <p className="mb-2 text-neutral-600 dark:text-neutral-300">Undo this change set?</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setUndoId(null)}>Cancel</Button>
+            <Button size="sm" onClick={() => void undoChangeset(undoId).then(() => { setUndoId(null); void reload(); })}>Undo</Button>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+

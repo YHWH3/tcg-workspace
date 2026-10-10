@@ -206,3 +206,100 @@ function LightboxImage({ fileId }: { fileId: string }) {
   if (!url) return <span className="text-xs text-white/60">Loading…</span>;
   return <img src={url} alt="" className="max-h-full max-w-full object-contain" />;
 }
+
+/* ---------- Phase 1: 'link' file rows + 'embed' blocks (Drive/link cards) ---------- */
+
+import { driveEmbed } from './drive';
+import { registerBlockType, type MediaBlockProps } from '../modules/pages/blocks/registry';
+import { mutate } from './sync/engine';
+import { useIsMobile } from './mobile';
+
+/**
+ * A kind:'link' file row rendered inline: Drive/Docs → sandboxed preview +
+ * 'Open in Drive'; other URLs → plain card. Mobile always shows the card.
+ */
+export function LinkFileCard({ file, onDelete }: { file: FileRow; onDelete?: () => void }) {
+  const mobile = useIsMobile();
+  const url = String((file as Record<string, unknown>).url ?? '');
+  const emb = driveEmbed(url);
+  const openLabel = emb.provider === 'gdrive' ? 'Open in Drive' : 'Open link';
+  return (
+    <div className="overflow-hidden rounded-xl border border-neutral-200/80 dark:border-neutral-800">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <FileText size={14} className="shrink-0 text-blue-500" />
+        <a href={url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">
+          {String(file.name ?? emb.title ?? url)}
+        </a>
+        <a href={url} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-neutral-500 hover:underline" aria-label={openLabel}>
+          <ExternalLink size={11} /> {openLabel}
+        </a>
+        {onDelete && (
+          <button onClick={onDelete} className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-400 hover:text-red-500" aria-label="Remove link">
+            <X size={12} />
+          </button>
+        )}
+      </div>
+      {emb.provider === 'gdrive' && emb.embedUrl && !mobile && (
+        <iframe src={emb.embedUrl} title={emb.title} sandbox="allow-scripts allow-same-origin allow-popups" loading="lazy" referrerPolicy="no-referrer" className="h-72 w-full border-t border-neutral-100 dark:border-neutral-800" />
+      )}
+    </div>
+  );
+}
+
+/** Block renderer for {type:'embed', url, provider} — sandboxed iframe on desktop, card on mobile. */
+function EmbedBlock({ block, onDelete }: MediaBlockProps) {
+  const mobile = useIsMobile();
+  const url = String(block.url ?? '');
+  const emb = driveEmbed(url);
+  if (!url) {
+    return (
+      <div className="rounded-xl border border-dashed border-neutral-300 px-3 py-2 dark:border-neutral-700">
+        <EmbedUrlInput onSet={(u) => void mutate('blocks', block.id, { url: u, provider: driveEmbed(u).provider })} />
+      </div>
+    );
+  }
+  return (
+    <div className="group relative overflow-hidden rounded-xl border border-neutral-200/80 dark:border-neutral-800">
+      <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-1.5 dark:border-neutral-800">
+        <FileText size={13} className="shrink-0 text-blue-500" />
+        <span className="min-w-0 flex-1 truncate text-xs text-neutral-500">{emb.title}</span>
+        <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400">
+          <ExternalLink size={11} /> {emb.provider === 'gdrive' ? 'Open in Drive' : 'Open'}
+        </a>
+        <button onClick={onDelete} className="flex h-6 w-6 items-center justify-center rounded text-neutral-300 opacity-0 transition-opacity hover:text-red-500 focus:opacity-100 group-hover:opacity-100" aria-label="Remove embed">
+          <X size={12} />
+        </button>
+      </div>
+      {emb.provider === 'gdrive' && emb.embedUrl && !mobile ? (
+        <iframe src={emb.embedUrl} title={emb.title} sandbox="allow-scripts allow-same-origin allow-popups" loading="lazy" referrerPolicy="no-referrer" className="h-80 w-full" />
+      ) : (
+        <a href={url} target="_blank" rel="noreferrer" className="block px-3 py-3 text-sm text-blue-600 hover:underline dark:text-blue-400">
+          {emb.title} — opens in a new tab
+        </a>
+      )}
+    </div>
+  );
+}
+
+function EmbedUrlInput({ onSet }: { onSet: (url: string) => void }) {
+  const [v, setV] = useState('');
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && v.trim()) onSet(v.trim());
+        }}
+        placeholder="Paste a Google Drive or external link…"
+        className="h-8 flex-1 bg-transparent text-xs outline-none placeholder:text-neutral-400"
+        aria-label="Embed URL"
+      />
+      <button className="rounded-md bg-neutral-900 px-2 py-1 text-[11px] font-medium text-white disabled:opacity-40 dark:bg-white dark:text-neutral-900" disabled={!v.trim()} onClick={() => onSet(v.trim())}>
+        Embed
+      </button>
+    </div>
+  );
+}
+
+registerBlockType('embed', 'Embed (Drive / link)', EmbedBlock);

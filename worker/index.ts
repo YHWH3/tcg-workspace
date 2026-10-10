@@ -7,6 +7,7 @@ import { files } from './files';
 import { shares } from './shares';
 import { publicApi } from './public';
 import { oauthGrants, registerAuthorize } from './oauth';
+import { changesApi } from './changesets';
 import { mcpApiHandler } from './mcp';
 import type { Env, AuthUser } from './auth';
 
@@ -51,6 +52,7 @@ app.route('/api/files', files);
 app.route('/api/shares', shares);
 app.route('/api/public', publicApi);
 app.route('/api/oauth', oauthGrants);
+app.route('/api/changes', changesApi);
 app.route('/api', admin);
 
 app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));

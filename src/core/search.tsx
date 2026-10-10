@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { FileText, CheckSquare, Search } from 'lucide-react';
+import { Database, FileText, CheckSquare, Search } from 'lucide-react';
 import { db } from './db';
+import { isRecordsDb, recordNoun } from './records';
+import { taskBoardId } from '../modules/boards/api';
 import { useTokenResolver } from './resolveMentions';
 import { renderPlain } from './mentions';
 import { createStore, useStore } from './store';
@@ -26,6 +28,7 @@ export function CommandPalette() {
 
   const pages = useLiveQuery(() => db.pages.toArray(), [], []) ?? [];
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], []) ?? [];
+  const boards = useLiveQuery(() => db.boards.toArray(), [], []) ?? [];
   const resolveTokens = useTokenResolver();
 
   const hits = useMemo<Hit[]>(() => {
@@ -36,11 +39,16 @@ export function CommandPalette() {
         .map((p) => ({ kind: 'page' as const, id: p.id, title: renderPlain(String(p.title ?? 'Untitled'), resolveTokens), subtitle: `${String(p.icon ?? '')} Page` })),
       ...tasks
         .filter((t) => !t.deleted)
-        .map((t) => ({ kind: 'task' as const, id: t.id, title: renderPlain(String(t.title ?? ''), resolveTokens), subtitle: `Task · ${String(t.status ?? '').replace('_', ' ')}` })),
+        .map((t) => {
+          const board = boards.find((b) => b.id === taskBoardId(t));
+          return board && isRecordsDb(board)
+            ? { kind: 'task' as const, id: t.id, title: renderPlain(String(t.title ?? ''), resolveTokens), subtitle: `${String(board.icon ?? '')} ${String(board.name ?? 'Database')} · ${recordNoun(board)}`, boardId: board.id, record: true }
+            : { kind: 'task' as const, id: t.id, title: renderPlain(String(t.title ?? ''), resolveTokens), subtitle: `Task · ${String(t.status ?? '').replace('_', ' ')}` };
+        }),
     ];
     const filtered = q ? all.filter((h) => h.title.toLowerCase().includes(q)) : all;
     return filtered.slice(0, 12);
-  }, [pages, tasks, query, resolveTokens]);
+  }, [pages, tasks, boards, query, resolveTokens]);
 
   useEffect(() => {
     if (open) {
@@ -56,7 +64,7 @@ export function CommandPalette() {
 
   const go = (hit: Hit) => {
     paletteStore.set(false);
-    navigate(hit.kind === 'page' ? `/pages/${hit.id}` : `/tasks/${hit.id}`);
+    navigate(hit.kind === 'page' ? `/pages/${hit.id}` : (hit as { boardId?: string }).boardId ? `/boards/${(hit as { boardId?: string }).boardId}/tasks/${hit.id}` : `/tasks/${hit.id}`);
   };
 
   return (
@@ -97,6 +105,8 @@ export function CommandPalette() {
             >
               {hit.kind === 'page' ? (
                 <FileText size={15} className="shrink-0 text-neutral-400" />
+              ) : (hit as { record?: boolean }).record ? (
+                <Database size={15} className="shrink-0 text-neutral-400" />
               ) : (
                 <CheckSquare size={15} className="shrink-0 text-neutral-400" />
               )}

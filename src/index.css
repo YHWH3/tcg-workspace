@@ -50,11 +50,47 @@ textarea {
   field-sizing: content;
 }
 
+/* Safe-area insets on all four edges, applied once at the owning edge. */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
 }
 .pt-safe {
   padding-top: env(safe-area-inset-top);
+}
+.pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+.pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+.px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.py-safe {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.p-safe {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Visual viewport fit: --vvh/--vvo are set by core/mobile.ts so overlays and
+ * the shell stay inside the keyboard-shrunk region; unset = 100dvh/0. */
+.vv-fit {
+  height: var(--vvh, 100dvh);
+  margin-top: var(--vvo, 0px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade,
+  .anim-slide-up,
+  .anim-slide-right,
+  .anim-slide-left,
+  .anim-slide-bottom,
+  .anim-pulse {
+    animation: none;
+  }
 }
 
 @keyframes fade-in {

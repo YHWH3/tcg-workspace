@@ -1,0 +1,68 @@
+{
+  "$schema": "tcg-workspace/template/v1",
+  "name": "People & Organizations",
+  "description": "Starter directory: People linked to Organizations via a two-way relation. Ships with table views.",
+  "icon": "👥",
+  "databases": [
+    {
+      "id": "db_people",
+      "name": "People",
+      "icon": "👤",
+      "kind": "records",
+      "recordNoun": "Person",
+      "showBuiltins": { "assignee": false, "due": false, "priority": false },
+      "columns": [],
+      "fields": [
+        { "id": "f_role", "name": "Role", "type": "text" },
+        { "id": "f_works", "name": "Works at", "type": "relation", "relation": { "target": "db_orgs", "pairedFieldId": "f_people", "single": true, "primary": true } },
+        { "id": "f_email", "name": "Email", "type": "text" },
+        { "id": "f_phone", "name": "Phone", "type": "text" },
+        { "id": "f_tags", "name": "Tags", "type": "multi_select", "options": [
+          { "id": "o_friend", "name": "Friend", "color": "#22c55e" },
+          { "id": "o_colleague", "name": "Colleague", "color": "#3b82f6" },
+          { "id": "o_client", "name": "Client", "color": "#f59e0b" },
+          { "id": "o_family", "name": "Family", "color": "#ec4899" }
+        ]},
+        { "id": "f_pnotes", "name": "Notes", "type": "text" }
+      ],
+      "views": [
+        { "id": "v_people_table", "name": "All people", "type": "table", "config": { "visible": ["title", "p_f_role", "rel_f_works", "p_f_email", "p_f_tags"], "showSubrecords": true } }
+      ]
+    },
+    {
+      "id": "db_orgs",
+      "name": "Organizations",
+      "icon": "🏢",
+      "kind": "records",
+      "recordNoun": "Organization",
+      "showBuiltins": { "assignee": false, "due": false, "priority": false },
+      "columns": [],
+      "fields": [
+        { "id": "f_industry", "name": "Industry", "type": "select", "options": [
+          { "id": "o_tech", "name": "Tech", "color": "#3b82f6" },
+          { "id": "o_finance", "name": "Finance", "color": "#22c55e" },
+          { "id": "o_health", "name": "Health", "color": "#ef4444" },
+          { "id": "o_other", "name": "Other", "color": "#a3a3a3" }
+        ]},
+        { "id": "f_website", "name": "Website", "type": "url" },
+        { "id": "f_people", "name": "People", "type": "relation", "relation": { "target": "db_people", "pairedFieldId": "f_works", "single": false, "primary": false } },
+        { "id": "f_onotes", "name": "Notes", "type": "text" }
+      ],
+      "views": [
+        { "id": "v_orgs_table", "name": "All organizations", "type": "table", "config": { "visible": ["title", "p_f_industry", "rel_f_people", "p_f_website"], "showSubrecords": true } }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "id": "pg_people_root",
+      "title": "People & Organizations",
+      "icon": "👥",
+      "blocks": [
+        "# People & Organizations\n\nA starter directory. Track people, link them to the organizations they work at, and see the same people from the org side.",
+        "Embed: db_people",
+        "Embed: db_orgs"
+      ]
+    }
+  ]
+}

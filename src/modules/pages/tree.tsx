@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { ChevronRight, LayoutTemplate, Plus, FileText, Trash2, FilePlus2 } from 'lucide-react';
-import { IconButton, Menu, Popover } from '../../core/ui';
+import { ChevronRight, FolderInput, LayoutTemplate, Plus, FileText, Trash2, FilePlus2 } from 'lucide-react';
+import { AdaptiveDialog, IconButton, Menu, Popover } from '../../core/ui';
 import { cn, cmpOrder } from '../../core/utils';
-import { createPage, deletePage, instantiateTemplate, usePages, visiblePages, type PageRow } from './api';
+import { createPage, deletePage, instantiateTemplate, movePage, usePages, visiblePages, type PageRow } from './api';
 
 export function PagesTree() {
   const pages = usePages();
   const navigate = useNavigate();
   const { pageId } = useParams();
+  const [moveTarget, setMoveTarget] = useState<PageRow | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const visible = useMemo(() => visiblePages(pages), [pages]);
@@ -78,6 +79,11 @@ export function PagesTree() {
                           const id = await createPage(p.id);
                           navigate(`/pages/${id}`);
                         },
+                      },
+                      {
+                        label: 'Move to…',
+                        icon: FolderInput,
+                        onClick: () => setMoveTarget(p),
                       },
                       'divider',
                       { label: 'Delete', icon: Trash2, danger: true, onClick: () => void deletePage(p.id) },
@@ -156,6 +162,48 @@ export function PagesTree() {
           <FileText size={15} /> New page
         </button>
       )}
+      {moveTarget && <MovePageDialog page={moveTarget} pages={pages} onClose={() => setMoveTarget(null)} />}
     </div>
+  );
+}
+
+/** Parent selector for 'Move to…' — excludes the page itself and its descendants. */
+function MovePageDialog({ page, pages, onClose }: { page: PageRow; pages: PageRow[]; onClose: () => void }) {
+  const live = useMemo(() => visiblePages(pages), [pages]);
+  const excluded = useMemo(() => {
+    const out = new Set<string>([page.id]);
+    const kids = new Map<string | null, string[]>();
+    for (const p of live) {
+      const pid = p.parentId ?? null;
+      kids.set(pid, [...(kids.get(pid) ?? []), p.id]);
+    }
+    const queue = [...(kids.get(page.id) ?? [])];
+    while (queue.length) {
+      const id = queue.shift()!;
+      out.add(id);
+      queue.push(...(kids.get(id) ?? []));
+    }
+    return out;
+  }, [live, page.id]);
+  const candidates = live.filter((p) => !excluded.has(p.id) && !p.isTemplate);
+  const move = async (parentId: string | null) => {
+    await movePage(page.id, parentId);
+    onClose();
+  };
+  return (
+    <AdaptiveDialog title="Move page" onClose={onClose}>
+      <div className="max-h-[50vh] overflow-y-auto">
+        <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800" onClick={() => void move(null)}>
+          <FileText size={14} className="text-neutral-400" /> Top level
+        </button>
+        {candidates.map((p) => (
+          <button key={p.id} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800" onClick={() => void move(p.id)}>
+            <span className="w-4 text-center text-[13px]">{String(p.icon ?? '📄')}</span>
+            <span className="min-w-0 flex-1 truncate">{String(p.title ?? '') || 'Untitled'}</span>
+          </button>
+        ))}
+        {!candidates.length && <p className="px-2.5 py-2 text-xs text-neutral-400">No other pages.</p>}
+      </div>
+    </AdaptiveDialog>
   );
 }

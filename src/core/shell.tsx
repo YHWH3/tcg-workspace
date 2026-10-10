@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
-import { Search, Settings, LogOut, Moon, Sun, Monitor, CloudOff, RefreshCw, Check, AlertTriangle, PanelLeft, Plus, Camera } from 'lucide-react';
+import { matchPath, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router';
+import { Search, Settings, LogOut, Moon, Sun, Monitor, CloudOff, RefreshCw, Check, AlertTriangle, PanelLeft, Plus, Camera, X } from 'lucide-react';
 import { toastStore } from './files';
 import { modules } from '../modules';
 import type { AppModule } from '../modules/types';
-import { authStore, signOut } from './auth';
+import { authStore, resolveAccountSwitch, signOut } from './auth';
+import { accountSwitchStore } from './accountSwitch';
+import { legacyRecoveryStore, resolveLegacyRecovery } from './legacyMigration';
 import { APP_NAME } from './config';
 import { InstallButton } from './install';
 import { CommandPalette, paletteStore } from './search';
 import { sendHere } from './live';
 import { PresenceDots } from './presence';
-import { flushAndCountPending, onlineStore, syncNow, syncStore } from './sync/engine';
-import { useStore } from './store';
+import { BoardOrDb } from './views/DatabasePage';
+import { countLocalPending, flushAndCountPending, onlineStore, retryRejected, serializeRejected, syncNow, syncStore } from './sync/engine';
+import { createStore, useStore } from './store';
 import { setTheme, themeStore } from './theme';
 import { Avatar, Button, Dialog, Menu, Popover, Sheet } from './ui';
 import { cn } from './utils';
@@ -20,9 +23,23 @@ export { useIsMobile } from './mobile';
 import { useIsMobile } from './mobile';
 
 function SyncIndicator() {
-  const { status, pending } = useStore(syncStore);
+  const { status, pending, pendingMedia, rejected } = useStore(syncStore);
   const online = useStore(onlineStore);
+  const total = pending + pendingMedia;
 
+  // Server-rejected writes are unsynced work — never show 'Synced' (S3).
+  if (status === 'rejected' || rejected > 0) {
+    return (
+      <button
+        onClick={() => void retryRejected()}
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
+        title="Changes rejected by the server, kept locally — click to retry"
+      >
+        <AlertTriangle size={13} />
+        <span>{rejected} rejected · retry</span>
+      </button>
+    );
+  }
   if (status === 'error') {
     return (
       <button
@@ -39,7 +56,7 @@ function SyncIndicator() {
     return (
       <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-amber-500">
         <CloudOff size={13} />
-        <span>Offline{pending > 0 ? ` · ${pending} pending` : ''}</span>
+        <span>Offline{total > 0 ? ` · ${total} pending` : ''}</span>
       </div>
     );
   }
@@ -51,7 +68,7 @@ function SyncIndicator() {
       </div>
     );
   }
-  if (pending > 0) {
+  if (total > 0) {
     return (
       <button
         onClick={() => void syncNow()}
@@ -59,7 +76,7 @@ function SyncIndicator() {
         title="Unsynced changes — click to sync now"
       >
         <RefreshCw size={13} />
-        <span>{pending} unsynced</span>
+        <span>{total} unsynced</span>
       </button>
     );
   }
@@ -106,19 +123,32 @@ function ThemeRow() {
 function UserMenu() {
   const user = useStore(authStore).user;
   const navigate = useNavigate();
-  const [confirmOut, setConfirmOut] = useState(0);
+  const [confirmOut, setConfirmOut] = useState<{ records: number; media: number; drafts: number } | null>(null);
 
   const trySignOut = async () => {
-    const pending = await flushAndCountPending();
-    if (pending > 0) setConfirmOut(pending);
+    // Best-effort flush first, then count everything still local: unsent
+    // writes, pending/failed uploads and unsent draft envelopes (§7/§11).
+    await flushAndCountPending();
+    const pending = await countLocalPending();
+    if (pending.records + pending.media + pending.drafts > 0) setConfirmOut(pending);
     else void signOut();
   };
 
   if (!user) return null;
+  const total = confirmOut ? confirmOut.records + confirmOut.media + confirmOut.drafts : 0;
+  const parts = confirmOut
+    ? [
+        confirmOut.records ? `${confirmOut.records} unsynced change${confirmOut.records === 1 ? '' : 's'}` : '',
+        confirmOut.media ? `${confirmOut.media} upload${confirmOut.media === 1 ? '' : 's'} pending or failed` : '',
+        confirmOut.drafts ? `${confirmOut.drafts} unsent draft${confirmOut.drafts === 1 ? '' : 's'}` : '',
+      ].filter(Boolean)
+    : [];
   return (
     <>
       <Popover
         align="left"
+        adaptive
+        label="Account"
         trigger={
           <span className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800">
             <Avatar name={user.name} color={user.color} size={24} />
@@ -147,14 +177,15 @@ function UserMenu() {
           </div>
         )}
       </Popover>
-      {confirmOut > 0 && (
-        <Dialog title="Unsynced changes" onClose={() => setConfirmOut(0)}>
+      {confirmOut && (
+        <Dialog title="Unsynced changes" onClose={() => setConfirmOut(null)}>
           <p className="text-sm text-neutral-600 dark:text-neutral-300">
-            You have {confirmOut} unsynced change{confirmOut === 1 ? '' : 's'}. They'll sync next time you sign in here, but will be lost if someone
-            else signs in on this device.
+            You have {total} local item{total === 1 ? '' : 's'} not yet confirmed by the server
+            {parts.length ? ` (${parts.join(', ')})` : ''}. They'll sync next time you sign in here, but will be lost if someone else signs in on
+            this device.
           </p>
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setConfirmOut(0)}>
+            <Button variant="secondary" size="sm" onClick={() => setConfirmOut(null)}>
               Stay signed in
             </Button>
             <Button variant="danger" size="sm" onClick={() => void signOut()}>
@@ -182,13 +213,204 @@ function TabLink({ item }: { item: NonNullable<AppModule['navItem']> }) {
   );
 }
 
+/* Durable error surface (platform §6/§7): failures a transient toast would
+ * drop (failed saves, quota errors) also land here — role=alert, visible
+ * until dismissed or resolved, with an explicit retry. */
+export const durableErrorStore = createStore<{ text: string; at: number } | null>(null);
+
+export function reportError(text: string): void {
+  durableErrorStore.set({ text, at: Date.now() });
+}
+
+function DurableError() {
+  const err = useStore(durableErrorStore);
+  const rejected = useStore(syncStore).rejected;
+  const downloadRejected = async () => {
+    const payload = await serializeRejected();
+    const file = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workspace-rejected-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  if (!err && !rejected) return null;
+  return (
+    <div
+      role="alert"
+      className="fixed inset-x-4 bottom-24 z-[71] mx-auto flex max-w-md items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800 shadow-lg dark:border-red-900/60 dark:bg-red-950/90 dark:text-red-200 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:ml-auto"
+    >
+      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold">Needs attention</p>
+        {err && <p className="mt-0.5 break-words">{err.text}</p>}
+        {rejected > 0 && (
+          <p className="mt-0.5 break-words">
+            {rejected} change{rejected === 1 ? '' : 's'} rejected by the server and kept locally — nothing was lost.
+          </p>
+        )}
+        <span className="mt-1.5 flex gap-3">
+          <button
+            className="font-medium underline decoration-red-300 underline-offset-2 hover:decoration-red-500"
+            onClick={() => (rejected ? void retryRejected() : void syncNow())}
+          >
+            {rejected ? 'Retry rejected' : 'Retry sync'}
+          </button>
+          {rejected > 0 && (
+            <button className="font-medium underline decoration-red-300 underline-offset-2 hover:decoration-red-500" onClick={() => void downloadRejected()}>
+              Export JSON
+            </button>
+          )}
+        </span>
+      </div>
+      <button aria-label="Dismiss" className="shrink-0 rounded-md p-0.5 hover:bg-red-100 dark:hover:bg-red-900/50" onClick={() => durableErrorStore.set(null)}>
+        <X size={13} />
+      </button>
+    </div>
+  );
+}
+
+/* Blocking account-switch surface (§12.3, reviews B4/R1/R2/R3): renders above
+ * login and shell alike — the previous account's unsynced data can't be
+ * signed away without an explicit choice. Escape/outside-click and the X all
+ * mean the safe option (cancel), never a silent wipe. The backup path is
+ * two-step when the download can't be verified: the file must be confirmed
+ * saved before the switch proceeds. */
+export function AccountSwitchGate() {
+  const d = useStore(accountSwitchStore);
+  const [busy, setBusy] = useState<null | 'cancel' | 'keep' | 'keep-confirmed' | 'destroy'>(null);
+  if (!d) return null;
+  const { records, rejected, media, drafts } = d.pending;
+  const parts = [
+    records ? `${records} unsynced change${records === 1 ? '' : 's'}${rejected ? ` (${rejected} rejected by the server, kept locally)` : ''}` : '',
+    media ? `${media} upload${media === 1 ? '' : 's'} pending or failed` : '',
+    drafts ? `${drafts} unsent draft${drafts === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  const choose = (c: 'cancel' | 'keep' | 'keep-confirmed' | 'destroy') => {
+    setBusy(c);
+    void resolveAccountSwitch(c).catch(() => setBusy(null));
+  };
+  const backupDone = d.backup === 'verified' || d.backup === 'downloaded-unconfirmed';
+  return (
+    <Dialog title={`Sign in as ${d.newUser.name}?`} onClose={() => choose('cancel')} guard={() => busy === null}>
+      <p className="text-sm text-neutral-600 dark:text-neutral-300">
+        This device has {parts.join(', ')} belonging to the previous account that the server never confirmed.
+      </p>
+      {d.backup === 'downloaded-unconfirmed' && (
+        <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          A backup file was downloaded — check your Downloads folder and confirm it saved, then finish switching.
+        </p>
+      )}
+      <div className="mt-4 flex flex-col gap-2">
+        {backupDone ? (
+          <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('keep-confirmed')}>
+            {busy === 'keep-confirmed' ? 'Switching…' : 'Backup saved — switch now'}
+          </Button>
+        ) : (
+          <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('keep')}>
+            {busy === 'keep' ? 'Exporting backup…' : 'Back up everything, then switch'}
+          </Button>
+        )}
+        <Button variant="danger" size="sm" disabled={busy !== null} onClick={() => choose('destroy')}>
+          {busy === 'destroy' ? 'Deleting…' : `Discard ${records + media + drafts} item${records + media + drafts === 1 ? '' : 's'} and switch anyway`}
+        </Button>
+        <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => choose('cancel')}>
+          {busy === 'cancel' ? 'Cancelling…' : 'Cancel — keep my data'}
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
+/* Legacy-store recovery (S1/T1): pre-uid 'workspace' data whose owner can't
+ * be exclusively proven — copy needs an explicit choice, and stores holding
+ * other users' data additionally need the informed-confirm step. The export
+ * covers only unsynced changes & uploads (T3); 'leave' keeps the store. */
+export function LegacyRecoveryGate() {
+  const r = useStore(legacyRecoveryStore);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [confirmImport, setConfirmImport] = useState(false);
+  if (!r) return null;
+  const { records, outbox, drafts, blobs } = r.counts;
+  const parts = [
+    records ? `${records} record${records === 1 ? '' : 's'}` : '',
+    outbox ? `${outbox} unsynced change${outbox === 1 ? '' : 's'}` : '',
+    drafts ? `${drafts} draft${drafts === 1 ? '' : 's'}` : '',
+    blobs ? `${blobs} upload${blobs === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  // Copying foreign/mixed stores imports other users' data — that path is
+  // only reachable through an explicit informed second step (T1).
+  const tainted = r.foreign || r.mixed;
+  const choose = (c: 'copy' | 'export' | 'leave', allowForeign = false) => {
+    setBusy(c);
+    void resolveLegacyRecovery(c, r, { allowForeign }).catch(() => setBusy(null));
+  };
+  return (
+    <Dialog title="Recover data from a previous version?" onClose={() => choose('leave')} guard={() => busy === null}>
+      <p className="text-sm text-neutral-600 dark:text-neutral-300">
+        This device holds {parts.join(', ')} stored by an older version of the app
+        {r.foreign
+          ? ' — but it appears to belong to a different account.'
+          : r.mixed
+            ? ' — and it contains data belonging to more than one account.'
+            : ' — the owning account could not be confirmed.'}
+      </p>
+      <div className="mt-4 flex flex-col gap-2">
+        {!tainted && (
+          <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('copy')}>
+            {busy === 'copy' ? 'Copying…' : 'Copy it into this account'}
+          </Button>
+        )}
+        {tainted && !confirmImport && (
+          <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => setConfirmImport(true)}>
+            Import anyway…
+          </Button>
+        )}
+        {tainted && confirmImport && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              This store holds data belonging to {r.mixed ? 'your account and other users' : 'a different account'}.
+              Copying will import all of it — including other users' drafts, records and uploads — into your account.
+            </p>
+            <div className="mt-2 flex gap-2">
+              <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('copy', true)}>
+                {busy === 'copy' ? 'Copying…' : 'Import it anyway'}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => setConfirmImport(false)}>
+                Back
+              </Button>
+            </div>
+          </div>
+        )}
+        <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => choose('export')}>
+          {busy === 'export' ? 'Exporting…' : 'Export unsynced changes & uploads'}
+        </Button>
+        <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => choose('leave')}>
+          {busy === 'leave' ? 'Closing…' : 'Keep it on this device'}
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
 function Toaster() {
   const { items } = useStore(toastStore);
+  // Mirror the newest error into the durable surface so it can't expire
+  // away before the user sees it.
+  useEffect(() => {
+    const last = items.filter((t) => t.tone === 'error').at(-1);
+    if (last) durableErrorStore.set({ text: last.text, at: Date.now() });
+  }, [items]);
   if (items.length === 0) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-20 z-[70] flex flex-col items-center gap-1.5 px-4 sm:bottom-6">
+    <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-20 z-[70] flex flex-col items-center gap-1.5 px-4 sm:bottom-6">
       {items.map((t) => (
-        <div key={t.id} className={cn('anim-slide-up rounded-full px-4 py-2 text-xs font-medium shadow-lg', t.tone === 'error' ? 'bg-red-600 text-white' : 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900')}>
+        <div
+          key={t.id}
+          role={t.tone === 'error' ? 'alert' : 'status'}
+          className={cn('anim-slide-up rounded-full px-4 py-2 text-xs font-medium shadow-lg', t.tone === 'error' ? 'bg-red-600 text-white' : 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900')}
+        >
           {t.text}
         </div>
       ))}
@@ -305,7 +527,7 @@ export function Shell() {
   const tabItems = modules.filter((m) => m.navItem).map((m) => m.navItem!);
 
   return (
-    <div className="flex h-full">
+    <div className="vv-fit px-safe flex">
       {/* Desktop sidebar */}
       {!mobile && (
         <aside className="w-60 shrink-0 border-r border-neutral-200/70 bg-neutral-50/60 dark:border-neutral-800/70 dark:bg-neutral-900/40">
@@ -328,7 +550,17 @@ export function Shell() {
         )}
 
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-          <Outlet />
+          {matchPath('boards/:boardId/*', location.pathname) || matchPath('boards/:boardId', location.pathname) ? (
+            <Routes>
+              <Route path="boards/:boardId" element={<BoardOrDb />} />
+              <Route path="boards/:boardId/tasks/:taskId" element={<BoardOrDb />} />
+              <Route path="boards/:boardId/views/:viewId" element={<BoardOrDb />} />
+              <Route path="boards/:boardId/views/:viewId/records/:recordId" element={<BoardOrDb />} />
+              <Route path="boards/*" element={<BoardOrDb />} />
+            </Routes>
+          ) : (
+            <Outlet />
+          )}
         </main>
 
         {/* Mobile bottom tabs with a prominent center capture button */}
@@ -365,6 +597,7 @@ export function Shell() {
       )}
 
       <Toaster />
+      <DurableError />
       <CommandPalette />
     </div>
   );

@@ -6,17 +6,25 @@ import { hlc } from '../hlc';
 import { createStore } from '../store';
 import { rebaseRecord, type PendingChange } from './rebase';
 import { authStore, dropSession } from '../auth';
+import { assertSameAccount } from '../accountSwitch';
+import type { OutboxEntry } from '../db';
 import { liveConnected, startPresence } from '../live';
+import { countDrafts, ensurePersistentStorage, reconcileDraft } from '../drafts';
 
-export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'idle';
+export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'idle' | 'rejected';
 
 interface SyncState {
   status: SyncStatus;
+  /** Unsent outbox record writes. */
   pending: number;
+  /** Pending/failed blob uploads — separate so 'Synced' can't lie about media. */
+  pendingMedia: number;
+  /** Server- or locally-rejected outbox writes, retained until resolved. */
+  rejected: number;
   lastSyncedAt: number | null;
 }
 
-export const syncStore = createStore<SyncState>({ status: 'idle', pending: 0, lastSyncedAt: null });
+export const syncStore = createStore<SyncState>({ status: 'idle', pending: 0, pendingMedia: 0, rejected: 0, lastSyncedAt: null });
 export const onlineStore = createStore(typeof navigator === 'undefined' ? true : navigator.onLine);
 
 const PUSH_CHUNK = 500;
@@ -28,10 +36,33 @@ let queued = false;
 let timer: ReturnType<typeof setInterval> | undefined;
 let lastPeriod = 0;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+let persistenceRequested = false;
+
+/** The identity this tab booted with. A sibling tab completing an account
+ * switch flips ws_uid — writes after that must refuse, not ride the new
+ * identity (§12.3 stale-tab rule, review B4). */
+const TAB_UID: string | null = typeof localStorage === 'undefined' ? null : localStorage.getItem('ws_uid');
+
+function sameAccount() {
+  assertSameAccount(TAB_UID, localStorage.getItem('ws_uid'));
+}
 
 async function updatePending() {
-  const n = await db.outbox.count();
-  syncStore.set((s) => (s.pending === n ? s : { ...s, pending: n }));
+  const all = await db.outbox.toArray();
+  const n = all.filter((e) => (e.state ?? 'pending') === 'pending').length;
+  const rej = all.length - n;
+  const media = await db.blobs.where('state').anyOf('pending', 'failed').count();
+  syncStore.set((s) => {
+    // Rejected rows are unsynced work — never allow 'synced' while any
+    // remain; clear the flag once they're retried/exported (review S3).
+    const status = rej > 0 && s.status === 'synced' ? 'rejected' : rej === 0 && s.status === 'rejected' ? 'synced' : s.status;
+    return s.pending === n && s.pendingMedia === media && s.rejected === rej && s.status === status ? s : { ...s, status, pending: n, pendingMedia: media, rejected: rej };
+  });
+}
+
+/** Re-count pending work (records + media) — safe to call after any write path. */
+export function refreshPending(): void {
+  void updatePending();
 }
 
 /**
@@ -81,6 +112,7 @@ async function seedBuiltins(): Promise<void> {
 
 /** Local write API: apply patch to the local row + enqueue for sync, in one tx. */
 export async function mutate(collection: Collection, id: string, patch: Record<string, unknown>): Promise<void> {
+  sameAccount();
   const table = db.collection(collection);
   const ts = hlc.next();
   await db.transaction('rw', table, db.outbox, async () => {
@@ -111,22 +143,65 @@ function validOutboxEntry(e: { id: unknown; collection: unknown; patch: unknown;
   );
 }
 
+/** Pure partition of a pushed chunk: acknowledged deletions vs entries that
+ * must be retained as rejected (server disposition or local poison). Unit-
+ * tested — review B5's 'nothing claimed synced that wasn't' invariant. */
+export function planPushOutcome(entries: OutboxEntry[], rejectedItems: { id: string; collection: string; reason: string }[]): { acked: OutboxEntry[]; refused: OutboxEntry[] } {
+  const reasons = new Map<string, string>();
+  for (const r of rejectedItems) reasons.set(`${r.collection}:${r.id}`, r.reason);
+  const acked: OutboxEntry[] = [];
+  const refused: OutboxEntry[] = [];
+  for (const e of entries) {
+    const reason = reasons.get(`${e.collection}:${e.id}`);
+    if (reason) refused.push({ ...e, state: 'rejected', rejectReason: reason });
+    else acked.push(e);
+  }
+  return { acked, refused };
+}
+
+/** Entries retained as rejected (never pushed, never dropped silently). */
+export async function rejectedEntries(): Promise<OutboxEntry[]> {
+  return (await db.outbox.toArray()).filter((e) => e.state === 'rejected');
+}
+
+/** Flip every rejected entry back to pending and re-sync. */
+export async function retryRejected(): Promise<void> {
+  const rej = await rejectedEntries();
+  if (rej.length) {
+    await db.outbox.bulkPut(rej.map((e) => ({ ...e, state: 'pending' as const, rejectReason: undefined })));
+    await updatePending();
+    scheduleSync();
+  }
+}
+
+/** Serialize rejected entries for the durable surface's export path. */
+export async function serializeRejected(): Promise<{ exportedAt: number; entries: Omit<OutboxEntry, 'autoId'>[] }> {
+  const rej = await rejectedEntries();
+  return { exportedAt: Date.now(), entries: rej.map(({ autoId: _autoId, ...e }) => e) };
+}
+
 async function pushOutbox(): Promise<boolean> {
   for (;;) {
-    const entries = await db.outbox.orderBy('autoId').limit(PUSH_CHUNK).toArray();
+    // Pending only — rejected rows stay retained until retried/exported.
+    const entries = (await db.outbox.orderBy('autoId').toArray()).filter((e) => (e.state ?? 'pending') === 'pending').slice(0, PUSH_CHUNK);
     if (entries.length === 0) return true;
-    // Drop poison entries the server would reject (e.g. a collection removed
-    // when a module is uninstalled) so they can't jam the queue forever.
+    // Poison entries the server would reject are RETAINED as rejected
+    // (previously deleted — unrecoverable; review B5).
     const poison = entries.filter((e) => !validOutboxEntry(e));
     if (poison.length > 0) {
-      console.warn('sync: dropping invalid outbox entries', poison.map((e) => e.id));
-      await db.outbox.bulkDelete(poison.map((e) => e.autoId!).filter((n) => n !== undefined));
+      console.warn('sync: retaining invalid outbox entries as rejected', poison.map((e) => e.id));
+      await db.outbox.bulkPut(poison.map((e) => ({ ...e, state: 'rejected' as const, rejectReason: 'invalid_outbox_entry' })));
+      await updatePending();
     }
     const good = entries.filter(validOutboxEntry);
     if (good.length === 0) continue;
     const changes: Mutation[] = good.map((e) => ({ id: e.id, collection: e.collection, patch: e.patch, ts: e.ts }));
-    await api('/api/sync/push', { method: 'POST', body: { changes } });
-    await db.outbox.bulkDelete(good.map((e) => e.autoId!).filter((n) => n !== undefined));
+    const res = await api<{ ok: boolean; rejected: number; rejectedItems?: { id: string; collection: string; reason: string }[] }>('/api/sync/push', { method: 'POST', body: { changes } });
+    // Only acknowledged entries are deleted — server-rejected items stay
+    // recoverable locally (they were never claimed as synced).
+    const { acked, refused } = planPushOutcome(good, res.rejectedItems ?? []);
+    await db.outbox.bulkDelete(acked.map((e) => e.autoId!).filter((n) => n !== undefined));
+    if (refused.length) await db.outbox.bulkPut(refused);
     await updatePending();
     if (entries.length < PUSH_CHUNK) return true;
   }
@@ -153,6 +228,10 @@ async function pullRemote(): Promise<boolean> {
           const rebased = rebaseRecord({ data: rec.data, field_ts: rec.field_ts }, byId.get(rec.id) ?? []);
           const row = { id: rec.id, ...rebased.data, _ts: rebased.field_ts };
           await db.collection(rec.collection).put(row);
+          // Settle draft candidates against the reconciled value: matching
+          // fields are confirmed and dropped; fields a remote write won keep
+          // their candidate for review (§7 'recoverable local candidate').
+          await reconcileDraft(rec.collection, rec.id, rebased.data, rebased.field_ts);
           for (const ts of Object.values(rec.field_ts)) hlc.observe(ts);
         }
       });
@@ -178,6 +257,13 @@ export async function syncNow(): Promise<void> {
     queued = true;
     return;
   }
+  try {
+    sameAccount();
+  } catch {
+    // Stale tab under a replaced identity: stop syncing entirely.
+    syncStore.set((s) => ({ ...s, status: 'error' }));
+    return;
+  }
   if (!getToken() || !navigator.onLine) {
     syncStore.set((s) => ({ ...s, status: getToken() && !navigator.onLine ? 'offline' : s.status }));
     return;
@@ -192,7 +278,15 @@ export async function syncNow(): Promise<void> {
     // Chunked blob uploads run after metadata sync (dynamic import avoids a cycle).
     const { uploadPendingBlobs } = await import('../files');
     await uploadPendingBlobs();
-    syncStore.set((s) => ({ ...s, status: 'synced', lastSyncedAt: Date.now() }));
+    await updatePending();
+    // Rejected rows mean work was NOT accepted — 'synced' must never be
+    // reported while any remain (review S3).
+    syncStore.set((s) => ({ ...s, status: s.rejected > 0 ? 'rejected' : 'synced', lastSyncedAt: Date.now() }));
+    if (!persistenceRequested) {
+      persistenceRequested = true;
+      // Best-effort durability hint after real storage use (platform §3).
+      void ensurePersistentStorage();
+    }
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) {
       // Signed out server-side: keep outbox + local data, drop the session.
@@ -215,14 +309,31 @@ export function scheduleSync() {
   debounceTimer = setTimeout(() => void syncNow(), 800);
 }
 
-/** Flush the outbox, then report remaining pending count (for sign-out warning). */
+/** Flush the outbox, then report remaining pending work incl. media (for sign-out warning). */
 export async function flushAndCountPending(): Promise<number> {
   try {
     await syncNow();
   } catch {
     /* best effort */
   }
-  return db.outbox.count();
+  return (await db.outbox.count()) + (await db.blobs.where('state').anyOf('pending', 'failed').count());
+}
+
+/**
+ * Everything locally owned that a sign-out/account switch could strand:
+ * unsent record writes, pending/failed uploads, and unsent draft envelopes.
+ */
+export async function countLocalPending(): Promise<{ records: number; rejected: number; media: number; drafts: number }> {
+  const [all, media, drafts] = await Promise.all([
+    db.outbox.toArray(),
+    db.blobs.where('state').anyOf('pending', 'failed').count(),
+    countDrafts(),
+  ]);
+  // EVERY outbox row is unacknowledged server-side (pending, rejected, any
+  // future state) — sign-out and account-switch protection must count them
+  // all, not just 'pending' (review R2: rejected-only users were wiped).
+  const rejected = all.filter((e) => (e.state ?? 'pending') === 'rejected').length;
+  return { records: all.length, rejected, media, drafts };
 }
 
 export function startSyncEngine() {

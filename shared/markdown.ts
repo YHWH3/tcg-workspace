@@ -1,7 +1,10 @@
 /* Pure markdown ⇄ block-list converter, shared by the MCP server and tests.
  * Block type ids match the editor registry: p, h1, h2, h3, bullet, numbered,
  * todo, quote, code, divider — plus `image` carrying a `src` the CALLER must
- * resolve to a fileId before storing. */
+ * resolve to a fileId before storing. A line that is only a Google Drive/Docs
+ * URL becomes an `embed` block {url, provider:'gdrive'} (Phase 1 §4.7). */
+
+import { parseLinkUrl } from './drive';
 
 export interface MdBlock {
   type: string;
@@ -10,6 +13,9 @@ export interface MdBlock {
   /** Image URL marker — callers resolve to `fileId` before writing records. */
   src?: string;
   caption?: string;
+  /** Embed blocks: the original external URL + provider. */
+  url?: string;
+  provider?: 'gdrive' | 'link';
 }
 
 export interface MentionResolvers {
@@ -17,22 +23,29 @@ export interface MentionResolvers {
   resolveUser?: (handle: string) => string | undefined;
   /** Resolve a [[page title]] to a page id; undefined = no unique match. */
   resolvePage?: (title: string) => string | undefined;
+  /** Resolve a [[record title]] to a record id — tried AFTER resolvePage (Phase 1 §3.6). */
+  resolveRecord?: (title: string) => string | undefined;
   /** For blocksToMarkdown: user id → display name. */
   userName?: (id: string) => string | undefined;
   /** For blocksToMarkdown: page id → title. */
   pageTitle?: (id: string) => string | undefined;
+  /** For blocksToMarkdown: record id → title. */
+  recordTitle?: (id: string) => string | undefined;
 }
 
-const TOKEN_RE = /@\[(page|user):([^\]]+)\]/g;
+const TOKEN_RE = /@\[(page|user|rec):([^\]]+)\]/g;
 const AT_MENTION_RE = /@([a-z0-9_.-]{2,32})/gi;
 const WIKI_RE = /\[\[([^\]]+)\]\]/g;
 
 /** Replace plain-text mention syntax with stored tokens where they resolve uniquely. */
 export function resolveMentionText(text: string, r: MentionResolvers): string {
-  // 1. [[Page Title]] → @[page:ID]
+  // 1. [[Title]] → @[page:ID], then @[rec:ID] — pages resolve first (Phase 1 §3.6).
   text = text.replace(WIKI_RE, (m, title: string) => {
-    const id = r.resolvePage?.(title.trim());
-    return id ? `@[page:${id}]` : m;
+    const t = title.trim();
+    const pageId = r.resolvePage?.(t);
+    if (pageId) return `@[page:${pageId}]`;
+    const recId = r.resolveRecord?.(t);
+    return recId ? `@[rec:${recId}]` : m;
   });
   // 2. @handle → @[user:ID] — skip when already a token (@ is followed by '[' there).
   text = text.replace(AT_MENTION_RE, (m, handle: string, off: number) => {
@@ -78,6 +91,13 @@ export function markdownToBlocks(markdown: string, resolvers: MentionResolvers =
       i++;
       continue;
     }
+    // A line that is only a Google Drive/Docs URL becomes an embed block.
+    const lone = /^\S+$/.test(line.trim()) ? parseLinkUrl(line.trim()) : null;
+    if (lone?.provider === 'gdrive') {
+      out.push({ type: 'embed', url: lone.url, provider: 'gdrive' });
+      i++;
+      continue;
+    }
     const h = /^(#{1,3})\s+(.*)$/.exec(line);
     if (h) {
       out.push({ type: `h${h[1].length}`, text: resolveMentionText(h[2], resolvers) });
@@ -115,12 +135,13 @@ export function markdownToBlocks(markdown: string, resolvers: MentionResolvers =
 export function renderMentionText(text: string, r: MentionResolvers): string {
   return text.replace(TOKEN_RE, (_m, kind: string, id: string) => {
     if (kind === 'user') return `@${r.userName?.(id) ?? 'user'}`;
+    if (kind === 'rec') return `[[${r.recordTitle?.(id) ?? 'record'}]]`;
     return `[[${r.pageTitle?.(id) ?? 'page'}]]`;
   });
 }
 
 /** Block list → markdown. Non-text block types are noted as comments/placeholders. */
-export function blocksToMarkdown(blocks: { type?: string; text?: string; checked?: boolean; boardId?: string; fileId?: string; caption?: string }[], r: MentionResolvers = {}): string {
+export function blocksToMarkdown(blocks: { type?: string; text?: string; checked?: boolean; boardId?: string; fileId?: string; caption?: string; url?: string }[], r: MentionResolvers = {}): string {
   const lines: string[] = [];
   let numbered = 0;
   for (const b of blocks) {
@@ -161,6 +182,10 @@ export function blocksToMarkdown(blocks: { type?: string; text?: string; checked
         break;
       case 'tasks':
         lines.push(`*[task list: ${b.boardId ?? 'board'}]*`);
+        break;
+      case 'embed':
+        // Bare URL on its own line round-trips through markdownToBlocks.
+        lines.push(b.url ?? '');
         break;
       default:
         lines.push(text);

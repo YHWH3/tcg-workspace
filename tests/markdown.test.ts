@@ -43,6 +43,52 @@ describe('mentions in markdown', () => {
   it('leaves existing tokens untouched', () => {
     expect(resolveMentionText('@[user:u-maya] said hi', resolvers)).toBe('@[user:u-maya] said hi');
   });
+
+  it('resolves [[Title]] to pages first, then records', () => {
+    const r = {
+      resolvePage: (t: string) => (t === 'Shared' ? 'p-1' : undefined),
+      resolveRecord: (t: string) => (t === 'Shared' || t === 'Maya Person' ? 'r-9' : undefined),
+    };
+    expect(resolveMentionText('see [[Shared]]', r)).toBe('see @[page:p-1]'); // page wins
+    expect(resolveMentionText('see [[Maya Person]]', r)).toBe('see @[rec:r-9]'); // falls through to record
+    expect(resolveMentionText('see [[Nobody]]', r)).toBe('see [[Nobody]]');
+  });
+
+  it('passes existing @[rec:] tokens through untouched', () => {
+    expect(resolveMentionText('ping @[rec:r-9] now', resolvers)).toBe('ping @[rec:r-9] now');
+  });
+});
+
+describe('record mentions', () => {
+  it('renderMentionText renders @[rec:] as [[title]] via recordTitle', () => {
+    const r = { recordTitle: (id: string) => (id === 'r-9' ? 'Maya Person' : undefined) };
+    expect(renderMentionText('ask @[rec:r-9]', r)).toBe('ask [[Maya Person]]');
+    expect(renderMentionText('ask @[rec:r-x]', r)).toBe('ask [[record]]');
+  });
+});
+
+describe('drive embeds in markdown', () => {
+  it('a lone Google Drive URL becomes an embed block', () => {
+    const blocks = markdownToBlocks('check this\nhttps://drive.google.com/file/d/AbC-123/view?usp=sharing');
+    expect(blocks).toEqual([
+      { type: 'p', text: 'check this' },
+      { type: 'embed', url: 'https://drive.google.com/file/d/AbC-123/view?usp=sharing', provider: 'gdrive' },
+    ]);
+  });
+
+  it('docs.google.com URLs embed too; non-drive URLs stay paragraphs', () => {
+    const [doc, link] = markdownToBlocks('https://docs.google.com/document/d/D1/edit\nhttps://example.com/page');
+    expect(doc).toMatchObject({ type: 'embed', provider: 'gdrive' });
+    expect(link).toMatchObject({ type: 'p', text: 'https://example.com/page' });
+  });
+
+  it('blocksToMarkdown renders an embed back to its bare URL (round-trip)', () => {
+    const url = 'https://drive.google.com/file/d/AbC-123/view';
+    const md = blocksToMarkdown([{ type: 'embed', url }]);
+    expect(md).toBe(url);
+    const [again] = markdownToBlocks(md);
+    expect(again).toMatchObject({ type: 'embed', url, provider: 'gdrive' });
+  });
 });
 
 describe('blocksToMarkdown', () => {

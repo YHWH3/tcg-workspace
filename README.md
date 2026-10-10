@@ -54,7 +54,7 @@ Setup per client:
 - **Gemini**: gemini.google.com → Settings → Connected Apps → Add a custom app (custom apps currently require a US personal account, English language).
 - Any standard MCP client: register via `/register`, then the normal OAuth flow.
 
-Settings → AI connectors shows the URL to copy, per-client steps, and your connected apps with Revoke (revoking kills the grant's tokens immediately).
+Settings → AI connectors shows the URL to copy, per-client steps, and your connected apps with Revoke (revoking kills the grant's tokens immediately). AI changes are undoable from Activity — entries carry an Undo button, the 'AI changes' chip filters to connector writes, and Settings → Recent AI changes lists the last 20 change sets with Undo.
 
 ## Storage & files
 

@@ -1,0 +1,154 @@
+===== RESULTS =====
+engine    viewport check                                                status
+chromium  desktop  table view renders grid + rows                       PASS
+chromium  desktop  table sticky title column                            PASS
+chromium  desktop  table resize handles                                 PASS
+chromium  desktop  list view renders rows                               PASS
+chromium  desktop  gallery view renders card grid                       PASS
+chromium  desktop  board view groups by field                           PASS
+chromium  desktop  record create navigates to detail                    PASS
+chromium  desktop  record row in Dexie                                  PASS
+chromium  desktop  title edit persists (Dexie)                          PASS
+chromium  desktop  custom property p_f_role persists                    PASS
+chromium  desktop  relation link row written                            PASS
+chromium  desktop  relation chip renders                                PASS
+chromium  desktop  sub-record created with parentId                     PASS
+chromium  desktop  dependency link written (blocks)                     PASS
+chromium  desktop  body block written to Dexie                          PASS
+chromium  desktop  @[rec:] token renders record title                   PASS
+chromium  desktop  kind:'link' file row written                         PASS
+chromium  desktop  link card renders (Open in Drive)                    PASS
+chromium  desktop  embed block renders sandboxed iframe (desktop) / card (compact) PASS
+chromium  desktop  offline edit survives reload (Dexie)                 PASS
+chromium  desktop  offline record synced to server                      PASS
+chromium  desktop  sidebar navigates to database                        PASS
+chromium  desktop  ⌘K record hit navigates to record                    PASS
+chromium  desktop  record detail renders as dialog/side panel           PASS
+chromium  desktop  Escape dismisses topmost overlay only                PASS
+chromium  desktop  outside dismiss loses no edits (autosaved)           PASS
+chromium  compact  table view: compact list renders rows                PASS
+chromium  compact  list view renders rows                               PASS
+chromium  compact  gallery view renders card grid                       PASS
+chromium  compact  board view groups by field                           PASS
+chromium  compact  record create navigates to detail                    PASS
+chromium  compact  record row in Dexie                                  PASS
+chromium  compact  title edit persists (Dexie)                          PASS
+chromium  compact  custom property p_f_role persists                    PASS
+chromium  compact  relation link row written                            PASS
+chromium  compact  relation chip renders                                PASS
+chromium  compact  sub-record created with parentId                     PASS
+chromium  compact  dependency link written (blocks)                     PASS
+chromium  compact  body block written to Dexie                          PASS
+chromium  compact  @[rec:] token renders record title                   PASS
+chromium  compact  kind:'link' file row written                         PASS
+chromium  compact  link card renders (Open in Drive)                    PASS
+chromium  compact  embed block renders sandboxed iframe (desktop) / card (compact) PASS
+chromium  compact  offline edit survives reload (Dexie)                 PASS
+chromium  compact  offline record synced to server                      PASS
+chromium  compact  sidebar navigates to database                        NOT RUN
+chromium  compact  ⌘K record hit navigates to record                    PASS
+chromium  compact  record detail renders as adaptive sheet              PASS
+chromium  compact  Escape dismisses topmost overlay only                PASS
+chromium  compact  outside dismiss loses no edits (autosaved)           PASS
+firefox   desktop  table view renders grid + rows                       PASS
+firefox   desktop  table sticky title column                            PASS
+firefox   desktop  table resize handles                                 PASS
+firefox   desktop  list view renders rows                               PASS
+firefox   desktop  gallery view renders card grid                       PASS
+firefox   desktop  board view groups by field                           PASS
+firefox   desktop  record create navigates to detail                    PASS
+firefox   desktop  record row in Dexie                                  PASS
+firefox   desktop  title edit persists (Dexie)                          PASS
+firefox   desktop  custom property p_f_role persists                    PASS
+firefox   desktop  relation link row written                            PASS
+firefox   desktop  relation chip renders                                PASS
+firefox   desktop  sub-record created with parentId                     PASS
+firefox   desktop  dependency link written (blocks)                     PASS
+firefox   desktop  body block written to Dexie                          PASS
+firefox   desktop  @[rec:] token renders record title                   PASS
+firefox   desktop  kind:'link' file row written                         PASS
+firefox   desktop  link card renders (Open in Drive)                    PASS
+firefox   desktop  embed block renders sandboxed iframe (desktop) / card (compact) PASS
+firefox   desktop  offline edit survives reload (Dexie)                 PASS
+firefox   desktop  offline record synced to server                      PASS
+firefox   desktop  sidebar navigates to database                        PASS
+firefox   desktop  ⌘K record hit navigates to record                    PASS
+firefox   desktop  record detail renders as dialog/side panel           PASS
+firefox   desktop  Escape dismisses topmost overlay only                PASS
+firefox   desktop  outside dismiss loses no edits (autosaved)           PASS
+firefox   compact  table view: compact list renders rows                PASS
+firefox   compact  list view renders rows                               PASS
+firefox   compact  gallery view renders card grid                       PASS
+firefox   compact  board view groups by field                           PASS
+firefox   compact  record create navigates to detail                    PASS
+firefox   compact  record row in Dexie                                  PASS
+firefox   compact  title edit persists (Dexie)                          PASS
+firefox   compact  custom property p_f_role persists                    PASS
+firefox   compact  relation link row written                            PASS
+firefox   compact  relation chip renders                                PASS
+firefox   compact  sub-record created with parentId                     PASS
+firefox   compact  dependency link written (blocks)                     PASS
+firefox   compact  body block written to Dexie                          PASS
+firefox   compact  @[rec:] token renders record title                   PASS
+firefox   compact  kind:'link' file row written                         PASS
+firefox   compact  link card renders (Open in Drive)                    PASS
+firefox   compact  embed block renders sandboxed iframe (desktop) / card (compact) PASS
+firefox   compact  offline edit survives reload (Dexie)                 PASS
+firefox   compact  offline record synced to server                      PASS
+firefox   compact  sidebar navigates to database                        NOT RUN
+firefox   compact  ⌘K record hit navigates to record                    PASS
+firefox   compact  record detail renders as adaptive sheet              PASS
+firefox   compact  Escape dismisses topmost overlay only                PASS
+firefox   compact  outside dismiss loses no edits (autosaved)           PASS
+webkit    desktop  table view renders grid + rows                       PASS
+webkit    desktop  table sticky title column                            PASS
+webkit    desktop  table resize handles                                 PASS
+webkit    desktop  list view renders rows                               PASS
+webkit    desktop  gallery view renders card grid                       PASS
+webkit    desktop  board view groups by field                           PASS
+webkit    desktop  record create navigates to detail                    PASS
+webkit    desktop  record row in Dexie                                  PASS
+webkit    desktop  title edit persists (Dexie)                          PASS
+webkit    desktop  custom property p_f_role persists                    PASS
+webkit    desktop  relation link row written                            PASS
+webkit    desktop  relation chip renders                                PASS
+webkit    desktop  sub-record created with parentId                     PASS
+webkit    desktop  dependency link written (blocks)                     PASS
+webkit    desktop  body block written to Dexie                          PASS
+webkit    desktop  @[rec:] token renders record title                   PASS
+webkit    desktop  kind:'link' file row written                         PASS
+webkit    desktop  link card renders (Open in Drive)                    PASS
+webkit    desktop  embed block renders sandboxed iframe (desktop) / card (compact) PASS
+webkit    desktop  offline edit survives reload (Dexie)                 PASS
+webkit    desktop  offline record synced to server                      PASS
+webkit    desktop  sidebar navigates to database                        PASS
+webkit    desktop  ⌘K record hit navigates to record                    PASS
+webkit    desktop  record detail renders as dialog/side panel           PASS
+webkit    desktop  Escape dismisses topmost overlay only                PASS
+webkit    desktop  outside dismiss loses no edits (autosaved)           PASS
+webkit    compact  table view: compact list renders rows                PASS
+webkit    compact  list view renders rows                               PASS
+webkit    compact  gallery view renders card grid                       PASS
+webkit    compact  board view groups by field                           PASS
+webkit    compact  record create navigates to detail                    PASS
+webkit    compact  record row in Dexie                                  PASS
+webkit    compact  title edit persists (Dexie)                          PASS
+webkit    compact  custom property p_f_role persists                    PASS
+webkit    compact  relation link row written                            PASS
+webkit    compact  relation chip renders                                PASS
+webkit    compact  sub-record created with parentId                     PASS
+webkit    compact  dependency link written (blocks)                     PASS
+webkit    compact  body block written to Dexie                          PASS
+webkit    compact  @[rec:] token renders record title                   PASS
+webkit    compact  kind:'link' file row written                         PASS
+webkit    compact  link card renders (Open in Drive)                    PASS
+webkit    compact  embed block renders sandboxed iframe (desktop) / card (compact) PASS
+webkit    compact  offline edit survives reload (Dexie)                 PASS
+webkit    compact  offline record synced to server                      PASS
+webkit    compact  sidebar navigates to database                        NOT RUN
+webkit    compact  ⌘K record hit navigates to record                    PASS
+webkit    compact  record detail renders as adaptive sheet              PASS
+webkit    compact  Escape dismisses topmost overlay only                PASS
+webkit    compact  outside dismiss loses no edits (autosaved)           PASS
+
+147 PASS / 0 FAIL / 3 NOT RUN

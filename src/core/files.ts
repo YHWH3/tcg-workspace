@@ -9,6 +9,7 @@ import { createStore, useStore } from './store';
 import { uuid } from './utils';
 
 import { kindOf } from '../../shared/filekinds';
+import { driveEmbed } from './drive';
 export type { FileKind, ParentType } from '../../shared/filekinds';
 import type { FileKind, ParentType } from '../../shared/filekinds';
 
@@ -33,6 +34,36 @@ export interface FileRow extends LocalRow {
 
 export { CHUNK_SIZE, MAX_FILE_SIZE, chunkCount, chunkSlice };
 export { kindOf };
+
+/* ---------- link rows (Phase 1): Drive/external links stored as files ---------- */
+
+export type LinkFileRow = Omit<FileRow, 'kind'> & {
+  kind: 'link';
+  url?: string;
+  provider?: 'gdrive' | 'link';
+}
+
+/**
+ * 'Add Drive link' (spec §4.7): a file row with kind 'link' — never carries a
+ * blob, so `uploadPendingBlobs` skips it naturally. `url` + `provider` let
+ * renders offer the Drive iframe preview or a plain external card.
+ */
+export async function addLink(url: string, opts: { parentType: ParentType; parentId: string; name?: string }): Promise<string> {
+  const id = uuid();
+  const me = authStore.get().user;
+  const ref = driveEmbed(url);
+  await mutate('files', id, {
+    kind: 'link',
+    name: opts.name || ref.title || url,
+    url,
+    provider: ref.provider,
+    parentType: opts.parentType,
+    parentId: opts.parentId,
+    uploadedBy: me?.id ?? null,
+    createdAt: Date.now(),
+  });
+  return id;
+}
 
 /* ---------- toasts ---------- */
 interface ToastItem {

@@ -15,6 +15,10 @@ export interface OutboxEntry {
   collection: Collection;
   patch: Record<string, unknown>;
   ts: number;
+  /** 'rejected' rows are kept (never silently dropped) until retried/exported —
+   * absent on older rows, treat as 'pending' (review B5). */
+  state?: 'pending' | 'rejected';
+  rejectReason?: string;
 }
 
 export type BlobState = 'pending' | 'uploaded' | 'cached' | 'failed';
@@ -28,6 +32,15 @@ export interface BlobRow {
   error?: string;
 }
 
+/** One IndexedDB database per account id (§12.3, review R3): an account
+ * switch can never expose or clobber the previous account's store — B gets
+ * `workspace-<B>` while A's `workspace-<A>` stays quarantined on disk.
+ * Falls back to a stable anonymous name before any identity exists. */
+function databaseName(): string {
+  const uid = typeof localStorage === 'undefined' ? null : localStorage.getItem('ws_uid');
+  return uid ? `workspace-${uid}` : 'workspace-anon';
+}
+
 export class LocalDB extends Dexie {
   pages!: Table<LocalRow, string>;
   blocks!: Table<LocalRow, string>;
@@ -38,13 +51,15 @@ export class LocalDB extends Dexie {
   files!: Table<LocalRow, string>;
   moodboards!: Table<LocalRow, string>;
   mooditems!: Table<LocalRow, string>;
+  views!: Table<LocalRow, string>;
+  links!: Table<LocalRow, string>;
   users!: Table<PublicUser, string>;
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<{ key: string; value: unknown }, string>;
   blobs!: Table<BlobRow, string>;
 
-  constructor() {
-    super('workspace');
+  constructor(name: string = databaseName()) {
+    super(name);
     this.version(1).stores({
       pages: 'id, parentId, order',
       blocks: 'id, pageId, order',
@@ -65,6 +80,14 @@ export class LocalDB extends Dexie {
       moodboards: 'id, order',
       mooditems: 'id, boardId, z',
     });
+    this.version(4).stores({
+      views: 'id, databaseId, order',
+      links: 'id, fromId, toId, kind, fieldId',
+      tasks: 'id, status, assigneeId, boardId, parentId, order, createdAt',
+    });
+    // v5: identical schema — gives the purge probe a harmless upgrade
+    // version to detect foreign holders with (see isHeldElsewhere).
+    this.version(5).stores({});
   }
 
   collection(name: Collection): Table<LocalRow, string> {
@@ -73,6 +96,84 @@ export class LocalDB extends Dexie {
 }
 
 export const db = new LocalDB();
+
+/** Delete the on-disk store belonging to `userId` (destroy choice on account
+ * switch). Uses the raw deleteDatabase request: `onblocked` rejects as soon
+ * as another connection is holding the store open, with `timeoutMs` as a
+ * backstop for browsers that swallow the event — the caller MUST treat a
+ * rejection as abort, not proceed. */
+export async function dropDatabaseFor(userId: string, timeoutMs = 4000): Promise<void> {
+  await dropDatabaseByName(`workspace-${userId}`, timeoutMs);
+}
+
+/**
+ * Non-destructive probe: is this store held open by another connection?
+ * Issues an upgrade-open at SCHEMA_VERSION (a no-op schema) — `onblocked`
+ * fires iff another connection holds the db. If the probe request is
+ * itself left pending it only completes a schema-identical bump when the
+ * holders close — never destructive. Lets the purge detect 'held' WITHOUT
+ * arming an uncancellable deleteDatabase request (T2).
+ */
+export async function isHeldElsewhere(name: string, timeoutMs = 1500): Promise<boolean> {
+  // Read the raw on-disk version (fake-indexeddb and real engines can store
+  // different raw values, so it must be read, not assumed).
+  const version = await new Promise<number>((resolve, reject) => {
+    const r = indexedDB.open(name);
+    r.onsuccess = () => {
+      const v = r.result.version;
+      r.result.close();
+      resolve(v);
+    };
+    r.onerror = () => reject(r.error);
+  }).catch(() => -1);
+  if (version < 0) return true; // unknown → treat as held (safe)
+  return await new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(true), timeoutMs); // unknown → held (safe)
+    const req = indexedDB.open(name, version + 1);
+    req.onblocked = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    // Never actually upgrade: abort rolls the bump back — this probe is
+    // non-destructive AND non-mutating even when left pending.
+    req.onupgradeneeded = () => {
+      try {
+        req.transaction?.abort();
+      } catch {
+        /* best effort */
+      }
+    };
+    req.onsuccess = () => {
+      clearTimeout(timer);
+      req.result.close();
+      resolve(false);
+    };
+    req.onerror = () => {
+      clearTimeout(timer);
+      resolve(false); // aborted upgrade / non-block failure → not held
+    };
+  });
+}
+
+/** Raw-name variant — also covers the pre-uid 'workspace' legacy store. */
+export async function dropDatabaseByName(name: string, timeoutMs = 4000): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`deleting ${name} timed out`)), timeoutMs);
+    const req = indexedDB.deleteDatabase(name);
+    req.onsuccess = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    req.onerror = () => {
+      clearTimeout(timer);
+      reject(req.error ?? new Error(`could not delete ${name}`));
+    };
+    req.onblocked = () => {
+      clearTimeout(timer);
+      reject(new Error(`deleting ${name} is blocked by another tab`));
+    };
+  });
+}
 
 export async function getMeta<T>(key: string): Promise<T | undefined> {
   const row = await db.meta.get(key);
