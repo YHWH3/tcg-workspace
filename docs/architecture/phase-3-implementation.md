@@ -114,6 +114,11 @@ interface TemplateOpts {
   …existing…
   reuseBoards?: Record<string, string>;   // authored/src board id → EXISTING live board id
   preserveTemplates?: boolean;            // bundled install keeps isTemplate:true pages
+  packInstall?: boolean;                  // bundled install copies the WHOLE authored set
+                                          // (all pages/boards/records/views/links), not just
+                                          // the templateId subtree — tcg-pack pages are
+                                          // top-level siblings, so subtree-only installs
+                                          // would yield a single page and no databases
 }
 ```
 

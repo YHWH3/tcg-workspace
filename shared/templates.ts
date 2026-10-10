@@ -38,6 +38,13 @@ export interface TemplateOpts {
   reuseBoards?: Record<string, string>;
   /** Bundled installs pass true: pages authored `template:true` keep `isTemplate:true`. */
   preserveTemplates?: boolean;
+  /**
+   * Bundled-pack installs copy the WHOLE authored set (every page, database,
+   * record, view and link in the snapshot) — not just the templateId subtree.
+   * Used by the template gallery + install_template; plain page-template
+   * instantiation leaves this off.
+   */
+  packInstall?: boolean;
 }
 
 export interface PlannedWrite {
@@ -95,7 +102,9 @@ export function planTemplateInstantiation(
   const writes: PlannedWrite[] = [];
 
   // --- pages ---
-  const pageIds = subtreeIds(snap.pages, opts.templateId);
+  const pageIds = opts.packInstall
+    ? Object.keys(snap.pages).filter((id) => !snap.pages[id].deleted)
+    : subtreeIds(snap.pages, opts.templateId);
   const pageMap = new Map<string, string>(); // old → new
   for (const oldId of pageIds) pageMap.set(oldId, deps.id());
 
@@ -142,6 +151,21 @@ export function planTemplateInstantiation(
       reusedBoardIds.add(srcId);
     }
   }
+  // packInstall: every authored database (not already reused) joins the copy —
+  // dashboards/captureTargets reference databases no page embeds directly.
+  if (opts.packInstall) {
+    for (const [bid, b] of Object.entries(snap.boards)) {
+      if (b.deleted || boardMap.has(bid)) continue;
+      boardMap.set(bid, deps.id());
+      srcBoardIds.push(bid);
+      for (const [tid, t] of Object.entries(snap.tasks)) {
+        if (!t.deleted && String(t.boardId ?? 'board-default') === bid && !taskMap.has(tid)) {
+          taskMap.set(tid, deps.id());
+        }
+      }
+    }
+  }
+
   const ownedByCopiedSet = (b: Record<string, unknown>): boolean =>
     !b.deleted && (pageMap.has(String(b.pageId ?? '')) || taskMap.has(String(b.pageId ?? '')));
 
