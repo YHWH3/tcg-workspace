@@ -83,8 +83,22 @@ export async function renamePage(id: string, title: string): Promise<void> {
 
 /* ---------- templates ---------- */
 
-/** Deep-copy a template page tree (blocks + embedded boards/tasks) via the shared planner. */
-export async function instantiateTemplate(templateId: string, opts: { title?: string; parentId?: string | null; variables?: Record<string, string>; templateKey?: string; snapshot?: RecSnapshot } = {}): Promise<string | null> {
+/** Deep-copy a template page tree (blocks + embedded boards/tasks) via the shared planner.
+ *  Bundled-pack installs additionally pass `reuseBoards`/`preserveTemplates`/`packInstall`
+ *  (gallery + install_template); plain page-template instantiation leaves them off. */
+export async function instantiateTemplate(
+  templateId: string,
+  opts: {
+    title?: string;
+    parentId?: string | null;
+    variables?: Record<string, string>;
+    templateKey?: string;
+    snapshot?: RecSnapshot;
+    reuseBoards?: Record<string, string>;
+    preserveTemplates?: boolean;
+    packInstall?: boolean;
+  } = {},
+): Promise<string | null> {
   const snap = opts.snapshot ?? await (async () => {
     const [pages, blocks, boards, tasks, views, links] = await Promise.all([db.pages.toArray(), db.blocks.toArray(), db.boards.toArray(), db.tasks.toArray(), db.views.toArray(), db.links.toArray()]);
     return {
@@ -97,7 +111,21 @@ export async function instantiateTemplate(templateId: string, opts: { title?: st
     };
   })();
   const me = authStore.get().user;
-  const plan = planTemplateInstantiation(snap, { templateId, title: opts.title, parentId: opts.parentId ?? null, variables: opts.variables, actorId: me?.id, templateKey: opts.templateKey }, { id: uuid, now: Date.now() });
+  const plan = planTemplateInstantiation(
+    snap,
+    {
+      templateId,
+      title: opts.title,
+      parentId: opts.parentId ?? null,
+      variables: opts.variables,
+      actorId: me?.id,
+      templateKey: opts.templateKey,
+      reuseBoards: opts.reuseBoards,
+      preserveTemplates: opts.preserveTemplates,
+      packInstall: opts.packInstall,
+    },
+    { id: uuid, now: Date.now() },
+  );
   if (!plan) return null;
   for (const w of plan.writes) await mutate(w.collection, w.id, w.patch);
   logActivity('created', 'page', plan.rootPageId, opts.title ?? 'From template');

@@ -7,6 +7,7 @@ import { EmptyState } from '../../core/ui';
 import type { FileRow } from '../../core/files';
 import { boardTasks, useBoards, useTasks, type BoardRow } from './api';
 import { FileImage } from '../../core/fileui';
+import { isArchived } from '../../../shared/archive';
 
 /** /boards — grid of board tiles with a mosaic of recent task covers. */
 export function BoardsIndex() {
@@ -22,7 +23,7 @@ export function BoardsIndex() {
         <h1 className="text-xl font-semibold tracking-tight">Boards</h1>
       </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-        {boards.map((b) => (
+        {boards.filter((b) => !isArchived(b)).map((b) => (
           <BoardTile key={b.id} board={b} tasks={boardTasks(tasks, b.id)} />
         ))}
         <div className="min-h-32">

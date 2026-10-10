@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { CheckSquare, LayoutGrid, List, ListPlus, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, CheckSquare, LayoutGrid, List, ListPlus, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { authStore } from '../../core/auth';
 import { useIsMobile } from '../../core/mobile';
 import { PresenceStack } from '../../core/presence';
@@ -15,6 +15,7 @@ import { db } from '../../core/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Board } from './Board';
 import { TaskDetail } from './TaskDetail';
+import { archivePatch, isArchived } from '../../../shared/archive';
 import {
   boardTasks, byOrder, columnIdFor, columnsOf, createTask, deleteBoard, isDone, lastColumnId, PRIORITIES, taskBoardId, useBoard, useTasks,
   type BoardRow, type TaskRow,
@@ -134,6 +135,15 @@ export function BoardPage() {
             <BoardMenu board={board} deletable={board.id !== 'board-default' && board.id !== 'board-inbox'} />
           </div>
         </header>
+        {isArchived(board) && (
+          <div className="flex items-center gap-2 border-b border-neutral-200/70 bg-neutral-50 px-4 py-1.5 text-xs text-neutral-500 dark:border-neutral-800/70 dark:bg-neutral-900 dark:text-neutral-400">
+            <Archive size={12} />
+            <span className="flex-1">Archived</span>
+            <button className="rounded-md px-2 py-0.5 font-medium text-neutral-700 hover:bg-neutral-200/70 dark:text-neutral-200 dark:hover:bg-neutral-800" onClick={() => void mutate('boards', board.id, archivePatch(false))}>
+              Unarchive
+            </button>
+          </div>
+        )}
         <div className="min-h-0 flex-1 overflow-auto">
           {view === 'board' ? (
             cols.length === 0 ? (
@@ -199,6 +209,11 @@ function BoardMenu({ board, deletable }: { board: BoardRow; deletable: boolean }
               items={[
                 { label: 'Fields', icon: ListPlus, onClick: () => setFieldsOpen(true) },
                 { label: 'Rename board', icon: Pencil, onClick: () => setRenaming(true) },
+                {
+                  label: isArchived(board) ? 'Unarchive board' : 'Archive board',
+                  icon: isArchived(board) ? ArchiveRestore : Archive,
+                  onClick: () => void mutate('boards', board.id, archivePatch(!isArchived(board))),
+                },
                 ...(deletable
                   ? ([
                       'divider',

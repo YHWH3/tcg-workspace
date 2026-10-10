@@ -20,7 +20,7 @@ function TasksBlock({ block }: MediaBlockProps) {
   const [newTitle, setNewTitle] = useState('');
   const boardId = block.boardId ? String(block.boardId) : undefined;
   const board = useLiveQuery(() => (boardId ? db.boards.get(boardId) : undefined), [boardId]) as LocalRow | undefined;
-  const boards = useLiveQuery(() => db.boards.filter((b) => !b.deleted).sortBy('order'), [], []);
+  const boards = useLiveQuery(() => db.boards.filter((b) => !b.deleted && b.archived !== true).sortBy('order'), [], []);
   const tasks = useLiveQuery(
     () =>
       boardId

@@ -1,28 +1,41 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { ChevronRight, FolderInput, LayoutTemplate, Plus, FileText, Trash2, FilePlus2 } from 'lucide-react';
+import { Archive, ArchiveRestore, ChevronRight, FolderInput, LayoutTemplate, Plus, FileText, Trash2, FilePlus2 } from 'lucide-react';
 import { AdaptiveDialog, IconButton, Menu, Popover } from '../../core/ui';
 import { cn, cmpOrder } from '../../core/utils';
+import { mutate } from '../../core/sync/engine';
+import { archivePatch, isArchived } from '../../../shared/archive';
+import { useBoards } from '../boards/api';
 import { createPage, deletePage, instantiateTemplate, movePage, usePages, visiblePages, type PageRow } from './api';
 
 export function PagesTree() {
   const pages = usePages();
+  const boards = useBoards();
   const navigate = useNavigate();
   const { pageId } = useParams();
   const [moveTarget, setMoveTarget] = useState<PageRow | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
-  const visible = useMemo(() => visiblePages(pages), [pages]);
+  const visible = useMemo(() => visiblePages(pages).filter((p) => !isArchived(p)), [pages]);
+  const archivedIds = useMemo(() => new Set(pages.filter((p) => isArchived(p) && !p.deleted).map((p) => p.id)), [pages]);
   const childrenOf = useMemo(() => {
     const map = new Map<string | null, PageRow[]>();
     for (const p of visible) {
-      const key = (p.parentId as string | null) ?? null;
+      // an archived parent is hidden — re-home its live children at top level
+      const raw = (p.parentId as string | null) ?? null;
+      const key = raw && archivedIds.has(raw) ? null : raw;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(p);
     }
     for (const list of map.values()) list.sort((a, b) => cmpOrder(a.order, b.order));
     return map;
-  }, [visible]);
+  }, [visible, archivedIds]);
+
+  const archivedPages = useMemo(
+    () => pages.filter((p) => isArchived(p) && !p.deleted && (!(p.parentId as string | null) || archivedIds.has(String(p.parentId)))).sort((a, b) => cmpOrder(a.order, b.order)),
+    [pages, archivedIds],
+  );
+  const archivedBoards = useMemo(() => boards.filter((b) => isArchived(b)), [boards]);
 
   const toggle = (id: string) =>
     setCollapsed((s) => {
@@ -84,6 +97,11 @@ export function PagesTree() {
                         label: 'Move to…',
                         icon: FolderInput,
                         onClick: () => setMoveTarget(p),
+                      },
+                      {
+                        label: 'Archive',
+                        icon: Archive,
+                        onClick: () => void mutate('pages', p.id, archivePatch(true)),
                       },
                       'divider',
                       { label: 'Delete', icon: Trash2, danger: true, onClick: () => void deletePage(p.id) },
@@ -162,7 +180,33 @@ export function PagesTree() {
           <FileText size={15} /> New page
         </button>
       )}
+      {(archivedPages.length > 0 || archivedBoards.length > 0) && (
+        <div className="mt-3 border-t border-neutral-100 pt-2 dark:border-neutral-800">
+          <p className="mb-0.5 px-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Archived</p>
+          {archivedPages.map((p) => (
+            <ArchivedRow key={p.id} icon={String(p.icon ?? '📄')} title={String(p.title ?? '') || 'Untitled'} onOpen={() => navigate(`/pages/${p.id}`)} onUnarchive={() => void mutate('pages', p.id, archivePatch(false))} />
+          ))}
+          {archivedBoards.map((b) => (
+            <ArchivedRow key={b.id} icon={String(b.icon ?? '🗂️')} title={String(b.name ?? 'Board')} onOpen={() => navigate(`/boards/${b.id}`)} onUnarchive={() => void mutate('boards', b.id, archivePatch(false))} />
+          ))}
+        </div>
+      )}
       {moveTarget && <MovePageDialog page={moveTarget} pages={pages} onClose={() => setMoveTarget(null)} />}
+    </div>
+  );
+}
+
+/** Row in the sidebar "Archived" section — unarchive affordance on hover/focus-visible. */
+function ArchivedRow({ icon, title, onOpen, onUnarchive }: { icon: string; title: string; onOpen: () => void; onUnarchive: () => void }) {
+  return (
+    <div className="group flex items-center gap-0.5 rounded-lg py-1 pl-2 pr-1 text-sm text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800/60">
+      <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={onOpen}>
+        <span className="w-5 shrink-0 text-center text-[13px] opacity-60">{icon}</span>
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+      </button>
+      <IconButton className="h-6 w-6 opacity-0 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100" aria-label={`Unarchive ${title}`} onClick={onUnarchive}>
+        <ArchiveRestore size={13} />
+      </IconButton>
     </div>
   );
 }

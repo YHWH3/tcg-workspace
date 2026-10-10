@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ImagePlus, Paperclip, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ImagePlus, Paperclip, Trash2, X } from 'lucide-react';
 import { authStore } from '../../core/auth';
 import { db } from '../../core/db';
 import { addFile, deleteFile, useAttachments, useFileUrl, type FileRow } from '../../core/files';
@@ -17,6 +17,7 @@ import { Slot } from '../slots';
 import { columnsOf, columnIdFor, deleteTask, isDone, moveTaskToBoard, PRIORITIES, setTaskField, taskBoardId, useBoards, type TaskRow } from './api';
 import { fieldsOf } from './model';
 import { FieldRow } from './FieldValue';
+import { archivePatch, isArchived } from '../../../shared/archive';
 
 export function TaskDetail({ taskId, onClose }: { taskId: string; onClose: () => void }) {
   const mobile = useIsMobile();
@@ -96,6 +97,9 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
         </span>
         <div className="flex items-center gap-1">
           <PresenceStack path={`/boards/${taskBoardId(task)}/tasks/${task.id}`} />
+          <IconButton aria-label={isArchived(task) ? 'Unarchive task' : 'Archive task'} onClick={() => void setTaskField(task.id, archivePatch(!isArchived(task)))}>
+            {isArchived(task) ? <ArchiveRestore size={15} /> : <Archive size={15} />}
+          </IconButton>
           <IconButton aria-label="Delete task" onClick={async () => { await deleteTask(task.id); onClose(); }}>
             <Trash2 size={15} />
           </IconButton>
@@ -104,6 +108,15 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
           </IconButton>
         </div>
       </div>
+      {isArchived(task) && (
+        <div className="flex items-center gap-2 border-b border-neutral-100 bg-neutral-50 px-4 py-1.5 text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
+          <Archive size={12} />
+          <span className="flex-1">Archived</span>
+          <button className="rounded-md px-2 py-0.5 font-medium text-neutral-700 hover:bg-neutral-200/70 dark:text-neutral-200 dark:hover:bg-neutral-800" onClick={() => void setTaskField(task.id, archivePatch(false))}>
+            Unarchive
+          </button>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* cover */}
         {coverId && (
