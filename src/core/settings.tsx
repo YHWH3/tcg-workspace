@@ -238,7 +238,7 @@ function TemplateGallerySection() {
         pages: [],
       };
       const reuseBoards = findReusableBoards(boards, authorLike);
-      const id = await instantiateTemplate(t.root, {
+      const res = await instantiateTemplate(t.root, {
         snapshot: t.snapshot,
         templateKey: t.key,
         title: t.name,
@@ -247,10 +247,12 @@ function TemplateGallerySection() {
         packInstall: true,
         stableIds: true,
       });
-      if (id) {
+      if (res) {
         setPreview(null);
-        toast(`Installed ${t.name}`);
-        nav(`/pages/${id}`);
+        toast(res.kept
+          ? `Installed ${t.name} — wrote ${res.applied} missing rows, kept ${res.kept} existing`
+          : `Installed ${t.name}`);
+        nav(`/pages/${res.rootPageId}`);
       } else {
         toast('Install failed — nothing was written', 'error');
       }
@@ -266,8 +268,8 @@ function TemplateGallerySection() {
   const addPageTemplate = async (pageId: string, title: string) => {
     setBusy(pageId);
     try {
-      const id = await instantiateTemplate(pageId, { title });
-      if (id) nav(`/pages/${id}`);
+      const res = await instantiateTemplate(pageId, { title });
+      if (res) nav(`/pages/${res.rootPageId}`);
     } finally {
       setBusy(null);
     }

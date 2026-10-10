@@ -156,8 +156,8 @@ export function PagesTree() {
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
                   onClick={async () => {
                     close();
-                    const id = await instantiateTemplate(t.id);
-                    if (id) navigate(`/pages/${id}`);
+                    const res = await instantiateTemplate(t.id);
+                    if (res) navigate(`/pages/${res.rootPageId}`);
                   }}
                 >
                   <span>{String(t.icon ?? '📄')}</span>
