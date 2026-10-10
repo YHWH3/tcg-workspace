@@ -9,6 +9,11 @@ import { publicApi } from './public';
 import { oauthGrants, registerAuthorize } from './oauth';
 import { changesApi } from './changesets';
 import { mcpApiHandler } from './mcp';
+import { notificationsApi } from './notifications';
+import { approvalsApi } from './approvals';
+import { formsApi, publicFormsApi } from './forms';
+import { automationsApi } from './automations';
+import { runScheduled } from './reminders';
 import type { Env, AuthUser } from './auth';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
@@ -53,6 +58,11 @@ app.route('/api/shares', shares);
 app.route('/api/public', publicApi);
 app.route('/api/oauth', oauthGrants);
 app.route('/api/changes', changesApi);
+app.route('/api/notifications', notificationsApi);
+app.route('/api/approvals', approvalsApi);
+app.route('/api/forms', formsApi);
+app.route('/api/automations', automationsApi);
+app.route('/api/public/forms', publicFormsApi);
 app.route('/api', admin);
 
 app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));
@@ -82,6 +92,15 @@ export default {
       resourceMetadata: { resource: `${base}/mcp`, resource_name: 'Workspace' },
       allowPrivateUseRedirectUris: true,
     }).fetch(request, env, ctx);
+  },
+
+  /**
+   * Phase 4 cron (every 15 min): reminders, date-offset automation triggers,
+   * and the durable event-outbox sweep. Local testing:
+   * `wrangler dev --test-scheduled` then POST /cdn-cgi/handler/scheduled.
+   */
+  scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): void {
+    ctx.waitUntil(runScheduled(env));
   },
 } satisfies ExportedHandler<Env>;
 

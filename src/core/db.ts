@@ -88,6 +88,12 @@ export class LocalDB extends Dexie {
     // v5: identical schema — gives the purge probe a harmless upgrade
     // version to detect foreign holders with (see isHeldElsewhere).
     this.version(5).stores({});
+    // v6 Phase 4: automation + form CONFIG collections (server-controlled
+    // operational state stays in D1 tables, never synced here).
+    this.version(6).stores({
+      automations: 'id, databaseId, order',
+      forms: 'id, databaseId, order',
+    });
   }
 
   collection(name: Collection): Table<LocalRow, string> {

@@ -63,7 +63,7 @@ export interface UndoOutcome {
   conflicts?: { id: string; collection: string; expectedRev: number; currentRev: number | null }[];
 }
 
-export async function undoChangeset(env: Env, user: AuthUser, changesetId: string): Promise<UndoOutcome> {
+export async function undoChangeset(env: Env, user: AuthUser, changesetId: string, ectx?: { waitUntil(p: Promise<unknown>): void }): Promise<UndoOutcome> {
   const cs = await env.DB.prepare('SELECT id, user_id, undone_by, tool FROM changesets WHERE id = ?').bind(changesetId).first<{ id: string; user_id: string; undone_by: string | null; tool: string }>();
   if (!cs) return { ok: false, status: 404, error: 'changeset not found' };
   // Authorization lives here, not in callers: every path (HTTP route, MCP
@@ -94,7 +94,7 @@ export async function undoChangeset(env: Env, user: AuthUser, changesetId: strin
     const cur = current.get(p.id);
     if (cur) expect.set(p.id, cur.rev);
   }
-  const res = await applyChanges(env, user.id, plan.patches.map((p) => ({ id: p.id, collection: p.collection, patch: p.patch, ts: Date.now() })), { serverTs: true, expect, atomic: false });
+  const res = await applyChanges(env, user.id, plan.patches.map((p) => ({ id: p.id, collection: p.collection, patch: p.patch, ts: Date.now() })), { serverTs: true, expect, atomic: false, event: ectx ? { source: 'undo' as const, ctx: ectx } : undefined });
   undoCs.items = res.applied;
   const conflicts = (res.conflicts ?? []).map((c) => ({ id: c.id, collection: c.collection, expectedRev: c.expectedRev, currentRev: c.currentRev }));
   if (!res.applied.length) {
@@ -146,7 +146,7 @@ changesApi.get('/:id', async (c) => {
 
 changesApi.post('/:id/undo', async (c) => {
   const user = c.get('user');
-  const out = await undoChangeset(c.env, user, c.req.param('id'));
+  const out = await undoChangeset(c.env, user, c.req.param('id'), c.executionCtx);
   if (!out.ok) return c.json({ error: out.error, conflicts: out.conflicts }, (out.status ?? 409) as 403 | 404 | 409);
   return c.json(out);
 });

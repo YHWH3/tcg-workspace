@@ -86,7 +86,7 @@ async function write(c: Ctx, ops: WriteOp[], opts: { expect?: Map<string, number
       c.env,
       c.userId,
       chunk.map((o) => ({ id: o.id, collection: o.collection, patch: o.patch, ts: 0 })),
-      { serverTs: true, expect: opts.expect },
+      { serverTs: true, expect: opts.expect, event: { source: 'mcp', ctx: c.ectx } },
     );
     if (r.conflicts?.length) throw new WriteConflict(r.conflicts);
     if (r.conflict) throw new Error('write conflict, retry');
@@ -433,7 +433,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
    * attribution) and records landed writes into the change set inside
    * casUpdate itself — nothing can land unrecorded before a later push. */
   const cas = (collection: string, id: string, mutate: Parameters<typeof casUpdate>[4]) =>
-    casUpdate(ctx.env, ctx.userId, collection, id, mutate, { recordTo: ctx.cs?.items ?? undefined });
+    casUpdate(ctx.env, ctx.userId, collection, id, mutate, { recordTo: ctx.cs?.items ?? undefined, ectx: ctx.ectx, source: 'mcp' });
 
   /* ---------- 1-2. search / fetch (ChatGPT connector contract) ---------- */
 

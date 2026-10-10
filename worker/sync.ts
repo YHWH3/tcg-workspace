@@ -4,6 +4,9 @@ import type { Mutation } from '../shared/types';
 import { mergeRecord } from './merge';
 import { requireAuth } from './auth';
 import type { Env, AuthUser } from './auth';
+import { emitChanges, type EventSource } from './events';
+import { guardStageWrites } from './approvals';
+import type { SemanticEvent } from '../shared/events';
 
 const MAX_CHANGES = 500;
 const MAX_ID_LEN = 64;
@@ -96,6 +99,18 @@ export interface ApplyOptions {
   expect?: Map<string, number>;
   /** all-or-nothing: if any expectation fails, write nothing (default true when expect is set). */
   atomic?: boolean;
+  /**
+   * Phase 4 event emission: when set, successfully applied changes are staged
+   * in event_outbox and processed (notifications/automations/date_index).
+   * Every write pathway that should produce semantic events passes this.
+   */
+  event?: {
+    source: EventSource;
+    ctx: { waitUntil(p: Promise<unknown>): void };
+    changesetId?: string;
+    /** Synthetic events appended post-derivation (e.g. form.submitted). */
+    extra?: SemanticEvent[];
+  };
 }
 
 export interface ConflictInfo {
@@ -222,6 +237,11 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     incoming = restampForServer(incoming, floors, now);
   }
 
+  // Phase 4 approval gates: a status write into a gated stage without a
+  // matching approved decision is refused here — on EVERY pathway (client
+  // push, MCP, automation, undo) — so generic sync can never bypass it.
+  await guardStageWrites(env, incoming, reject);
+
   const plans = new Map<string, Plan>();
   for (const ch of incoming) {
     let plan = plans.get(ch.id);
@@ -271,6 +291,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
       const result = await flushPlans(env, userId, plans, expected, now, opts.expect, opts.atomic);
       result.rejected += rejected;
       result.conflicts = conflicts;
+      emitApplied(env, userId, result, opts);
       return result;
     }
   }
@@ -278,7 +299,20 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   const result = await flushPlans(env, userId, plans, expected, now, opts.expect, opts.atomic);
   result.rejected += rejected;
   if (rejectedItems.length) result.rejectedItems = [...rejectedItems, ...(result.rejectedItems ?? [])];
+  emitApplied(env, userId, result, opts);
   return result;
+}
+
+/** Post-commit event emission — applied changes only, never intentions. */
+function emitApplied(env: Env, userId: string, result: ApplyResult, opts: ApplyOptions): void {
+  if (!opts.event || !result.applied.length) return;
+  emitChanges(env, opts.event.ctx, {
+    source: opts.event.source,
+    userId,
+    applied: result.applied,
+    changesetId: opts.event.changesetId,
+    extra: opts.event.extra,
+  });
 }
 
 /** Extract the fields that changed on a written row for change-set recording. */
@@ -478,7 +512,9 @@ sync.post('/push', async (c) => {
   if (body.changes.length > MAX_CHANGES) return c.json({ error: `max ${MAX_CHANGES} changes per request` }, 400);
 
   const user = c.get('user');
-  const result = await applyChanges(c.env, user.id, body.changes);
+  const result = await applyChanges(c.env, user.id, body.changes, {
+    event: { source: 'client', ctx: c.executionCtx },
+  });
   if (result.conflict) return c.json({ error: 'conflict, retry' }, 409);
 
   pokeLive(c.env, c.executionCtx);
