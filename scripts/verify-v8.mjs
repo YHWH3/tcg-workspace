@@ -665,7 +665,9 @@ async function failureSuite(browser, page, E, V) {
   const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const p3 = await loginPage(ctx3, admin);
   await p3.addInitScript(() => {
-    localStorage.setItem('ws_field_ctx', JSON.stringify({ id: 'v8_place_doomed', kind: 'record', title: 'Doomed Site', databaseId: 'v8_db_places' }));
+    // P3-R3: field context is account-scoped — ws_field_ctx:<uid> (ws_uid is
+    // written at login, which happened before this init script's navigation).
+    localStorage.setItem(`ws_field_ctx:${localStorage.getItem('ws_uid')}`, JSON.stringify({ id: 'v8_place_doomed', kind: 'record', title: 'Doomed Site', databaseId: 'v8_db_places' }));
   });
   await p3.goto(`${BASE}/capture`, { waitUntil: 'domcontentloaded' });
   await sleep(1500);

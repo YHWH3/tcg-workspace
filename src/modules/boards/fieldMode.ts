@@ -34,9 +34,11 @@ export function isRoutedKind(kind: CaptureKind): kind is RoutedKind {
   return (ROUTED_KINDS as readonly string[]).includes(kind);
 }
 
-/* ---------- field context (ws_field_ctx) ---------- */
+/* ---------- field context (ws_field_ctx, account-scoped) ---------- */
 
-/** The record/page a field capture is taken "at"; stored in localStorage. */
+/** The record/page a field capture is taken "at"; stored in localStorage per
+ * account (P3-R3: a shared browser profile must never leak one user's context
+ * or destination to the next signed-in user). */
 export interface FieldContext {
   id: string;
   kind: 'page' | 'record';
@@ -45,6 +47,25 @@ export interface FieldContext {
 }
 
 export const FIELD_CTX_KEY = 'ws_field_ctx';
+export const CAPTURE_BOARD_KEY = 'ws_capture_board';
+
+/** localStorage keys are account-scoped: `ws_field_ctx:<uid>`. */
+export function fieldContextKey(userId: string): string {
+  return `${FIELD_CTX_KEY}:${userId}`;
+}
+export function captureBoardKey(userId: string): string {
+  return `${CAPTURE_BOARD_KEY}:${userId}`;
+}
+
+/** Drop the pre-scoping global keys (one-time migration hygiene). */
+export function clearLegacyFieldPrefs(): void {
+  try {
+    localStorage.removeItem(FIELD_CTX_KEY);
+    localStorage.removeItem(CAPTURE_BOARD_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 export function cleanFieldContext(raw: unknown): FieldContext | null {
   const c = raw as Partial<FieldContext> | null | undefined;
@@ -59,9 +80,11 @@ export function cleanFieldContext(raw: unknown): FieldContext | null {
   };
 }
 
-export function loadFieldContext(): FieldContext | null {
+export function loadFieldContext(userId: string | undefined): FieldContext | null {
   try {
-    const raw = localStorage.getItem(FIELD_CTX_KEY);
+    clearLegacyFieldPrefs();
+    if (!userId) return null;
+    const raw = localStorage.getItem(fieldContextKey(userId));
     if (!raw) return null;
     return cleanFieldContext(JSON.parse(raw));
   } catch {
@@ -69,10 +92,12 @@ export function loadFieldContext(): FieldContext | null {
   }
 }
 
-export function saveFieldContext(ctx: FieldContext | null): void {
+export function saveFieldContext(userId: string | undefined, ctx: FieldContext | null): void {
   try {
-    if (ctx) localStorage.setItem(FIELD_CTX_KEY, JSON.stringify(ctx));
-    else localStorage.removeItem(FIELD_CTX_KEY);
+    clearLegacyFieldPrefs();
+    if (!userId) return;
+    if (ctx) localStorage.setItem(fieldContextKey(userId), JSON.stringify(ctx));
+    else localStorage.removeItem(fieldContextKey(userId));
   } catch {
     /* storage unavailable */
   }
