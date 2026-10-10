@@ -15,7 +15,7 @@ import { toBundled, type AuthorTemplate } from '../shared/bundled';
 import { planTemplateInstantiation } from '../shared/templates';
 import rawPack from '../templates/tcg-pack.json';
 
-const ev = (partial: Partial<SemanticEvent>): SemanticEvent => ({ kind: 'record.created', recordId: 'r1', ...partial });
+const ev = (partial: Partial<SemanticEvent>): SemanticEvent => ({ kind: 'record.created', recordId: 'r1', collection: 'tasks', ...partial });
 
 const board = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   name: 'Tasks',
