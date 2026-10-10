@@ -28,6 +28,16 @@ export interface TemplateOpts {
   actorId?: string | null;
   /** Stamped on copied rows when instantiated from a bundled template (e.g. 'starter-people'). */
   templateKey?: string;
+  /**
+   * Phase 3 — snapshot/authored board id → EXISTING live board id. Reused
+   * boards join `boardMap` upfront: no board/record/view writes for them, but
+   * every reference (relation targets, block `databaseId`, `captureTargets`,
+   * views' `databaseId`) remaps to the live id. Reused boards' records are
+   * NOT copied.
+   */
+  reuseBoards?: Record<string, string>;
+  /** Bundled installs pass true: pages authored `template:true` keep `isTemplate:true`. */
+  preserveTemplates?: boolean;
 }
 
 export interface PlannedWrite {
@@ -108,7 +118,7 @@ export function planTemplateInstantiation(
         icon: src.icon ?? '📄',
         parentId: isRoot ? parentId : (pageMap.get(String(src.parentId)) ?? null),
         order: isRoot ? rootOrder : (src.order ?? null),
-        isTemplate: false,
+        isTemplate: opts.preserveTemplates ? src.isTemplate === true : false,
         createdBy: opts.actorId ?? null,
         createdAt: deps.now,
         ...(opts.templateKey ? { templateKey: opts.templateKey } : {}),
@@ -122,29 +132,67 @@ export function planTemplateInstantiation(
   const boardMap = new Map<string, string>();
   const taskMap = new Map<string, string>();
   const srcBoardIds: string[] = [];
+
+  // Reused boards resolve to their live ids immediately — the fixpoint skips
+  // them (already in boardMap) so no board/record/view writes are planned.
+  const reusedBoardIds = new Set<string>();
+  for (const [srcId, liveId] of Object.entries(opts.reuseBoards ?? {})) {
+    if (typeof liveId === 'string' && liveId) {
+      boardMap.set(srcId, liveId);
+      reusedBoardIds.add(srcId);
+    }
+  }
   const ownedByCopiedSet = (b: Record<string, unknown>): boolean =>
     !b.deleted && (pageMap.has(String(b.pageId ?? '')) || taskMap.has(String(b.pageId ?? '')));
 
-  // Fixpoint: a `tasks` block in a copied page/record pulls in its database;
-  // each copied database's records pull in their own body blocks, which may
-  // embed further databases. All board ids are allocated before ANY board
-  // patch is written so relation targets between copied databases remap.
+  // Fixpoint: a `tasks` block (boardId) or a dashboard block (databaseId /
+  // sources[].databaseId) in a copied page/record pulls in its database; each
+  // copied database's records pull in their own body blocks, which may embed
+  // further databases. All board ids are allocated before ANY board patch is
+  // written so relation targets between copied databases remap.
+  const DASHBOARD_BLOCK_TYPES = new Set(['view', 'metric', 'calendar', 'activity', 'mywork']);
+  const boardRefsOf = (b: Record<string, unknown>): string[] => {
+    const out: string[] = [];
+    if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId) out.push(b.boardId);
+    if (DASHBOARD_BLOCK_TYPES.has(String(b.type))) {
+      if (typeof b.databaseId === 'string' && b.databaseId) out.push(b.databaseId);
+      if (Array.isArray(b.sources)) {
+        for (const s of b.sources) {
+          const dbId = (s as { databaseId?: unknown })?.databaseId;
+          if (typeof dbId === 'string' && dbId) out.push(dbId);
+        }
+      }
+    }
+    return out;
+  };
   let grew = true;
   while (grew) {
     grew = false;
     for (const [, b] of Object.entries(snap.blocks)) {
       if (!ownedByCopiedSet(b)) continue;
-      if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId && !boardMap.has(b.boardId)) {
-        boardMap.set(b.boardId, deps.id());
-        srcBoardIds.push(b.boardId);
+      for (const refId of boardRefsOf(b)) {
+        if (boardMap.has(refId)) continue;
+        boardMap.set(refId, deps.id());
+        srcBoardIds.push(refId);
         grew = true;
         for (const [tid, t] of Object.entries(snap.tasks)) {
-          if (!t.deleted && String(t.boardId ?? 'board-default') === b.boardId && !taskMap.has(tid)) {
+          if (!t.deleted && String(t.boardId ?? 'board-default') === refId && !taskMap.has(tid)) {
             taskMap.set(tid, deps.id());
           }
         }
       }
     }
+  }
+
+  // viewMap allocated before ANY writes: `view` blocks' `viewId` and copied
+  // boards' `defaultViewId` remap through it. Views on reused boards are not
+  // written (their src view ids simply never enter the map).
+  const viewMap = new Map<string, string>();
+  for (const [vid, v] of Object.entries(snap.views ?? {})) {
+    if (v.deleted) continue;
+    const srcDb = String(v.databaseId ?? '');
+    if (!boardMap.has(srcDb) || reusedBoardIds.has(srcDb)) continue;
+    viewMap.set(vid, deps.id());
   }
 
   const remapField = (f: FieldDef): FieldDef => ({
@@ -168,10 +216,21 @@ export function planTemplateInstantiation(
       createdBy: opts.actorId ?? null,
       createdAt: deps.now,
     };
-    for (const k of ['kind', 'recordNoun', 'showBuiltins', 'templateKey'] as const) {
-      if (src?.[k] !== undefined) patch[k] = src[k];
+    for (const k of ['kind', 'recordNoun', 'showBuiltins', 'templateKey', 'fieldActions'] as const) {
+      if (src?.[k] !== undefined) patch[k] = typeof src[k] === 'object' && src[k] !== null ? JSON.parse(JSON.stringify(src[k])) : src[k];
     }
     if (opts.templateKey) patch.templateKey = opts.templateKey;
+    // Snapshot `key` → `templateDbKey` on the live board (install dedupe key).
+    if (src?.key !== undefined) patch.templateDbKey = src.key;
+    if (src?.defaultViewId !== undefined) patch.defaultViewId = viewMap.get(String(src.defaultViewId)) ?? src.defaultViewId;
+    // captureTargets pass through with authored db ids remapped to live ids.
+    if (Array.isArray(src?.captureTargets)) {
+      patch.captureTargets = src.captureTargets.map((c) => {
+        const t = { ...(c as Record<string, unknown>) };
+        if (t.databaseId !== undefined) t.databaseId = boardMap.get(String(t.databaseId)) ?? t.databaseId;
+        return t;
+      });
+    }
     if (src?.description !== undefined) patch.description = substituteVars(src.description, vars);
     writes.push({ collection: 'boards', id: newId, patch });
 
@@ -202,13 +261,15 @@ export function planTemplateInstantiation(
   }
 
   // --- views of copied databases (field keys p_<id> stay valid: ids unchanged) ---
-  for (const [, v] of Object.entries(snap.views ?? {})) {
+  // Reused boards' views are not written (no view writes for reused boards).
+  for (const [vid, v] of Object.entries(snap.views ?? {})) {
     if (v.deleted) continue;
-    const newDbId = boardMap.get(String(v.databaseId ?? ''));
-    if (!newDbId) continue;
+    const srcDb = String(v.databaseId ?? '');
+    const newDbId = boardMap.get(srcDb);
+    if (!newDbId || reusedBoardIds.has(srcDb)) continue;
     writes.push({
       collection: 'views',
-      id: deps.id(),
+      id: viewMap.get(vid) ?? deps.id(),
       patch: {
         databaseId: newDbId,
         name: substituteVars(v.name ?? 'View', vars),
@@ -269,6 +330,24 @@ export function planTemplateInstantiation(
     };
     if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId) {
       patch.boardId = boardMap.get(b.boardId) ?? b.boardId;
+    }
+    // Dashboard block whitelist (Phase 3 §3): config fields copy through,
+    // authored databaseId/viewId/sources[].databaseId remap to live ids.
+    if (DASHBOARD_BLOCK_TYPES.has(String(b.type))) {
+      for (const k of ['limit', 'agg', 'fieldKey', 'format', 'scope', 'url', 'inline', 'filters'] as const) {
+        if (b[k] !== undefined) patch[k] = typeof b[k] === 'object' && b[k] !== null ? JSON.parse(JSON.stringify(b[k])) : b[k];
+      }
+      if (b.heading !== undefined) patch.heading = substituteVars(b.heading, vars);
+      if (b.label !== undefined) patch.label = substituteVars(b.label, vars);
+      if (b.databaseId !== undefined) patch.databaseId = boardMap.get(String(b.databaseId)) ?? b.databaseId;
+      if (b.viewId !== undefined) patch.viewId = viewMap.get(String(b.viewId)) ?? b.viewId;
+      if (Array.isArray(b.sources)) {
+        patch.sources = (b.sources as Record<string, unknown>[]).map((s) => {
+          const t = { ...s };
+          if (t.databaseId !== undefined) t.databaseId = boardMap.get(String(t.databaseId)) ?? t.databaseId;
+          return t;
+        });
+      }
     }
     writes.push({ collection: 'blocks', id: deps.id(), patch });
   }

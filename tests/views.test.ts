@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyView, evalFilter, fieldValue, resolveDateKey, sortRecords, VIEW_TYPES, type Filter, type ViewConfig, type ViewCtx, type ViewRecord, type ViewRow, type ViewType } from '../shared/views';
+import { aggregate, applyView, evalFilter, fieldValue, resolveDateKey, sortRecords, VIEW_TYPES, type Filter, type ViewConfig, type ViewCtx, type ViewRecord, type ViewRow, type ViewType } from '../shared/views';
 import type { FieldDef } from '../shared/fields';
 
 const tags: FieldDef = { id: 'ftags', name: 'Tags', type: 'multi_select', options: [
@@ -225,6 +225,86 @@ describe('applyView', () => {
       ctx,
     );
     expect(byPriority.groups?.map((g) => g.key)).toEqual(['low', 'high', '']); // priority order, '' last
+  });
+});
+
+describe('Phase 3 — includeArchived', () => {
+  const rows: ViewRecord[] = [
+    rec('a', { title: 'Active' }),
+    rec('b', { title: 'Gone', archived: true }),
+    rec('c', { title: 'False flag', archived: false }),
+    rec('d', { title: 'Deleted', archived: true, deleted: true }),
+  ];
+
+  it('archived rows are dropped by default and kept with includeArchived', () => {
+    expect(applyView(rows, {}, ctx).rows.map((r) => r.id)).toEqual(['a', 'c']);
+    expect(applyView(rows, { includeArchived: true }, ctx).rows.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('archived rows drop alongside other filters when includeArchived is absent', () => {
+    const { rows: out } = applyView(rows, { filters: [{ key: 'title', op: 'contains', value: 'e' }] }, ctx);
+    expect(out.map((r) => r.id)).toEqual(['a', 'c']); // 'Gone'/'Deleted' match 'e' but are archived/deleted
+  });
+
+  it('aggregate drops archived rows like query_records', () => {
+    const res = aggregate(rows, { agg: 'count' }, ctx);
+    expect(res.count).toBe(2);
+    expect(res.ids).toEqual(['a', 'c']);
+  });
+});
+
+describe('Phase 3 — aggregate', () => {
+  const rows: ViewRecord[] = [
+    rec('a', { title: 'A', status: 'c-todo', p_fhours: 10 }),
+    rec('b', { title: 'B', status: 'c-todo', p_fhours: 4 }),
+    rec('c', { title: 'C', status: 'c-done', p_fhours: 'not a number' }),
+    rec('d', { title: 'D', status: 'c-done', p_fhours: null }),
+    rec('e', { title: 'E', status: 'c-done' }), // missing value
+    rec('f', { title: 'F', status: 'c-done', p_fhours: Number.POSITIVE_INFINITY }),
+    rec('g', { title: 'G', status: 'c-done', deleted: true, p_fhours: 100 }),
+    rec('h', { title: 'H', status: 'c-done', archived: true, p_fhours: 1000 }),
+  ];
+
+  it('count ignores fieldKey; value=count, ids are the filtered set', () => {
+    const res = aggregate(rows, { agg: 'count', fieldKey: 'p_fhours' }, ctx);
+    // g (deleted) + h (archived) dropped by applyView → 6 rows
+    expect(res).toEqual({ value: 6, count: 6, numericCount: 6, ids: ['a', 'b', 'c', 'd', 'e', 'f'] });
+    const filtered = aggregate(rows, { agg: 'count', filters: [{ key: 'status', op: 'is', value: 'c-done' }] }, ctx);
+    expect(filtered.ids).toEqual(['c', 'd', 'e', 'f']);
+    expect(filtered.value).toBe(4);
+  });
+
+  it('sum coerces Number(v), skips null/empty/invalid/non-finite', () => {
+    const res = aggregate(rows, { agg: 'sum', fieldKey: 'p_fhours' }, ctx);
+    expect(res.value).toBe(14); // 10 + 4; 'not a number', null, missing, Infinity skipped
+    expect(res.numericCount).toBe(2);
+    expect(res.count).toBe(6);
+  });
+
+  it('sum of an empty set is 0', () => {
+    const res = aggregate(rows, { agg: 'sum', fieldKey: 'p_fhours', filters: [{ key: 'status', op: 'is', value: 'c-todo' }] }, ctx);
+    expect(res.value).toBe(14);
+    const none = aggregate(rows, { agg: 'sum', fieldKey: 'p_fhours', filters: [{ key: 'title', op: 'is', value: 'zzz' }] }, ctx);
+    expect(none.value).toBe(0);
+    expect(none.numericCount).toBe(0);
+    expect(none.count).toBe(0);
+  });
+
+  it('avg returns mean over numeric rows and null when numericCount is 0', () => {
+    const res = aggregate(rows, { agg: 'avg', fieldKey: 'p_fhours' }, ctx);
+    expect(res.value).toBeCloseTo(7);
+    expect(res.numericCount).toBe(2);
+    const empty = aggregate(rows, { agg: 'avg', fieldKey: 'p_fhours', filters: [{ key: 'title', op: 'is', value: 'zzz' }] }, ctx);
+    expect(empty.value).toBeNull();
+    const noKey = aggregate(rows, { agg: 'avg' }, ctx);
+    expect(noKey.value).toBeNull();
+    expect(noKey.numericCount).toBe(0);
+  });
+
+  it('respects filters the same way applyView does', () => {
+    const res = aggregate(rows, { agg: 'sum', fieldKey: 'p_fhours', filters: [{ key: 'status', op: 'is', value: 'c-todo' }] }, ctx);
+    expect(res.ids).toEqual(['a', 'b']);
+    expect(res.value).toBe(14);
   });
 });
 
