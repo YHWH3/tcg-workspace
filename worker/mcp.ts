@@ -3997,6 +3997,42 @@ function unauthorized(): Response {
 }
 
 /**
+ * prompts/get wire-compat shim. The widely deployed @modelcontextprotocol/sdk
+ * 1.x client calls `getPrompt(name, options)` positionally and serializes the
+ * request as `params: "<name>"` — a bare string. The vendored server SDK 2.0
+ * Streamable-HTTP transport validates inbound bodies against a strict
+ * JSONRPCRequestSchema (params must be an object) and rejects the request with
+ * -32600 "not a valid JSON-RPC message" before prompts/get can dispatch.
+ * Rewriting `params: string` to `{name, arguments:{}}` (the wire shape the
+ * schema expects, and the SDK's own GetPromptRequestSchema accepts — the
+ * prompt's argsSchema then validates arguments normally) restores interop
+ * without touching the transport; every other body passes through unchanged.
+ */
+async function normalizePromptGetRequest(request: Request): Promise<Request> {
+  if (request.method !== 'POST') return request;
+  if (!(request.headers.get('content-type') ?? '').includes('application/json')) return request;
+  let body: unknown;
+  try {
+    body = await request.clone().json();
+  } catch {
+    return request;
+  }
+  const elements = Array.isArray(body) ? body : [body];
+  let touched = false;
+  const fixed = elements.map((m) => {
+    if (m && typeof m === 'object' && (m as { method?: unknown }).method === 'prompts/get' && typeof (m as { params?: unknown }).params === 'string') {
+      touched = true;
+      return { ...(m as Record<string, unknown>), params: { name: (m as { params: string }).params, arguments: {} } };
+    }
+    return m;
+  });
+  if (!touched) return request;
+  const headers = new Headers(request.headers);
+  headers.delete('content-length');
+  return new Request(request.url, { method: request.method, headers, body: JSON.stringify(Array.isArray(body) ? fixed : fixed[0]) });
+}
+
+/**
  * apiHandler for OAuthProvider: validates the token's user still exists in D1
  * (a wiped DB must re-auth rather than write as a ghost), then delegates to the
  * stateless MCP handler. ctx.props comes from completeAuthorization().
@@ -4012,6 +4048,7 @@ export const mcpApiHandler = {
     if (!props.userId) return unauthorized();
     const user = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(props.userId).first<{ id: string }>();
     if (!user) return unauthorized();
+    request = await normalizePromptGetRequest(request);
     return createMcpHandler(
       (mcpCtx: McpRequestContext) => createWorkspaceServer(ctxFor(env, ctx, mcpCtx, props)),
       { route: '/mcp' },
