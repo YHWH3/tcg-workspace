@@ -283,8 +283,9 @@ export function dateOffsetEvent(recordId: string, boardId: string | undefined, d
  * Cron step 4 (B calls this from runScheduled): for every enabled
  * date_offset automation, fire records whose indexed date is `today - days`.
  */
-export async function runDateOffsetAutomations(env: Env, today: string = todayUtc()): Promise<void> {
-  const autos = await enabledAutomations(env);
+export async function runDateOffsetAutomations(env: { DB: D1Database }, today: string = todayUtc()): Promise<void> {
+  const e = env as unknown as Env;
+  const autos = await enabledAutomations(e);
   for (const auto of autos) {
     const t = auto.data.trigger;
     if (t?.kind !== 'date_offset') continue;
@@ -296,9 +297,9 @@ export async function runDateOffsetAutomations(env: Env, today: string = todayUt
       .bind(dateKey === 'due' ? 'dueDate' : dateKey, want)
       .all<{ record_id: string }>();
     for (const row of results) {
-      const rec = await getRec(env, row.record_id);
+      const rec = await getRec(e, row.record_id);
       if (!rec || rec.collection !== 'tasks' || rec.data.deleted === true || rec.data.archived === true) continue;
-      await runOneAutomation(env, auto, dateOffsetEvent(row.record_id, String(rec.data.boardId ?? ''), dateKey, want), { source: 'automation', userId: String(rec.data.createdBy ?? '') || 'system', outboxId: `cron:${today}` }, rec.data, today).catch(() => {});
+      await runOneAutomation(e, auto, dateOffsetEvent(row.record_id, String(rec.data.boardId ?? ''), dateKey, want), { source: 'automation', userId: String(rec.data.createdBy ?? '') || 'system', outboxId: `cron:${today}` }, rec.data, today).catch(() => {});
     }
   }
 }

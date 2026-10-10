@@ -5,11 +5,10 @@
 
 import { processOutbox } from './events';
 import { notify, reminderKind, type EventCtx } from './notifications';
-import { runAutomationsForEvent } from './automations';
 import { addDays, isDone, nextDate, todayUtc, type Recurrence } from '../shared/recurrence';
 import { linkId } from '../shared/linkid';
 import { applyChanges } from './sync';
-import { kindAllowed, loadPrefs, type UserPrefs } from './auth';
+import { kindAllowed, loadPrefs, type Env, type UserPrefs } from './auth';
 import type { SemanticEvent } from '../shared/events';
 import type { Mutation } from '../shared/types';
 
@@ -157,46 +156,6 @@ function titleOf(data: Record<string, unknown>): string {
   return typeof t === 'string' ? t.trim() : '';
 }
 
-/** date_offset automation triggers: for each enabled automation, fire one
- * synthetic record.field_changed-style event per record whose indexed date
- * field lands `days` before/after today (E interprets the trigger). */
-async function runDateOffsetTriggers(env: { DB: D1Database }, today: string): Promise<number> {
-  const { results } = await env.DB.prepare(`SELECT id, data FROM records WHERE collection = 'automations'`).all<{ id: string; data: string }>();
-  const synthetics: SemanticEvent[] = [];
-  for (const row of results) {
-    let cfg: { enabled?: boolean; databaseId?: string; trigger?: { kind?: string; dateKey?: string; days?: number } };
-    try {
-      cfg = JSON.parse(row.data) as typeof cfg;
-    } catch {
-      continue;
-    }
-    if (cfg.enabled === false) continue;
-    const trig = cfg.trigger;
-    if (trig?.kind !== 'date_offset' || typeof trig.dateKey !== 'string' || !trig.dateKey) continue;
-    const days = typeof trig.days === 'number' && Number.isFinite(trig.days) ? Math.trunc(trig.days) : 0;
-    // date + days = today  ⇒  indexed date is today - days.
-    const target = addDays(today, -days);
-    const { results: hits } = await env.DB.prepare('SELECT record_id FROM date_index WHERE field_key = ? AND date = ? LIMIT 200')
-      .bind(trig.dateKey, target)
-      .all<{ record_id: string }>();
-    for (const h of hits) {
-      synthetics.push({
-        kind: 'record.field_changed',
-        recordId: h.record_id,
-        collection: 'tasks',
-        boardId: cfg.databaseId,
-        fieldKey: trig.dateKey,
-        to: target,
-      });
-    }
-  }
-  if (!synthetics.length) return 0;
-  // Writes produced by these runs are automation writes (source:'automation');
-  // 'cron' is the acting identity stamped on updated_by.
-  await runAutomationsForEvent(env, synthetics, { source: 'automation', userId: 'cron' });
-  return synthetics.length;
-}
-
 /** Retention sweeps (§10): expired submissions, read notifications, ancient
  * dedupe rows, run history past 200/automation, orphan form-upload files. */
 async function runRetention(env: { DB: D1Database }, now: number): Promise<void> {
@@ -265,8 +224,11 @@ export async function runScheduled(env: { DB: D1Database }): Promise<void> {
   const today = todayUtc();
   // 2. due_soon / overdue via date_index + reminder_sent.
   await runDueReminders(env, today).catch(() => {});
-  // 3. date_offset automation triggers.
-  await runDateOffsetTriggers(env, today).catch(() => {});
+  // 3. date_offset automation triggers (E's engine — fires date_offset
+  // triggers only; synthetic field_changed events would misfire real
+  // field-changed automations).
+  const { runDateOffsetAutomations } = await import('./automations');
+  await runDateOffsetAutomations(env as unknown as Env, today).catch(() => {});
   // 4. notification/run/submission/orphan-file retention sweeps.
   await runRetention(env, Date.now());
 }
