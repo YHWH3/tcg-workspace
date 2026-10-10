@@ -1,0 +1,5529 @@
+{
+  "$schema": "tcg-workspace/template/v1",
+  "name": "TCG Operating Pack",
+  "description": "The Common Ground operating system: programs, projects, experiments, places, people, funding, media and finance — databases, dashboards and page templates.",
+  "icon": "🌍",
+  "databases": [
+    {
+      "id": "db_programs",
+      "key": "programs",
+      "name": "Programs",
+      "icon": "🎯",
+      "kind": "records",
+      "recordNoun": "Program",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "active",
+          "name": "Active",
+          "color": "#22c55e"
+        },
+        {
+          "id": "paused",
+          "name": "Paused",
+          "color": "#f59e0b"
+        },
+        {
+          "id": "closed",
+          "name": "Closed",
+          "color": "#a3a3a3"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_owner",
+          "name": "Owner",
+          "type": "person"
+        },
+        {
+          "id": "f_summary",
+          "name": "Summary",
+          "type": "text"
+        },
+        {
+          "id": "f_projects",
+          "name": "Projects",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_program",
+            "primary": false
+          }
+        }
+      ],
+      "views": [
+        {
+          "id": "v_programs_table",
+          "name": "All programs",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "rel_f_projects"
+            ],
+            "showSubrecords": true
+          }
+        },
+        {
+          "id": "v_programs_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_projects",
+      "key": "projects",
+      "name": "Projects",
+      "icon": "🚀",
+      "kind": "records",
+      "recordNoun": "Project",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": true
+      },
+      "columns": [
+        {
+          "id": "idea",
+          "name": "Idea",
+          "color": "#a3a3a3"
+        },
+        {
+          "id": "under_review",
+          "name": "Under review",
+          "color": "#06b6d4"
+        },
+        {
+          "id": "approved",
+          "name": "Approved",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "planning",
+          "name": "Planning",
+          "color": "#8b5cf6"
+        },
+        {
+          "id": "active",
+          "name": "Active",
+          "color": "#22c55e"
+        },
+        {
+          "id": "blocked",
+          "name": "Blocked",
+          "color": "#ef4444"
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "color": "#f59e0b"
+        },
+        {
+          "id": "completed",
+          "name": "Completed",
+          "color": "#14b8a6"
+        },
+        {
+          "id": "paused",
+          "name": "Paused",
+          "color": "#f97316"
+        },
+        {
+          "id": "cancelled",
+          "name": "Cancelled",
+          "color": "#a3a3a3"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_owner",
+          "name": "Owner",
+          "type": "person"
+        },
+        {
+          "id": "f_objective",
+          "name": "Objective",
+          "type": "text"
+        },
+        {
+          "id": "f_start",
+          "name": "Start date",
+          "type": "date"
+        },
+        {
+          "id": "f_end",
+          "name": "End date",
+          "type": "date"
+        },
+        {
+          "id": "f_budget",
+          "name": "Budget",
+          "type": "number"
+        },
+        {
+          "id": "f_program",
+          "name": "Program",
+          "type": "relation",
+          "relation": {
+            "target": "db_programs",
+            "pairedFieldId": "f_projects",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_places",
+          "name": "Places",
+          "type": "relation",
+          "relation": {
+            "target": "db_places",
+            "pairedFieldId": "f_projects",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_people",
+          "name": "Team",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_projects",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_orgs",
+          "name": "Organizations",
+          "type": "relation",
+          "relation": {
+            "target": "db_orgs",
+            "pairedFieldId": "f_projects",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_experiments",
+          "name": "Experiments",
+          "type": "relation",
+          "relation": {
+            "target": "db_experiments",
+            "pairedFieldId": "f_project",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_events",
+          "name": "Events",
+          "type": "relation",
+          "relation": {
+            "target": "db_events",
+            "pairedFieldId": "f_projects",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_media",
+          "name": "Media",
+          "type": "relation",
+          "relation": {
+            "target": "db_media",
+            "pairedFieldId": "f_projects",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_decisions",
+          "name": "Decisions",
+          "type": "relation",
+          "relation": {
+            "target": "db_decisions",
+            "pairedFieldId": "f_projects",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_meetings",
+          "name": "Meetings",
+          "type": "relation",
+          "relation": {
+            "target": "db_meetings",
+            "pairedFieldId": "f_projects",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_transactions",
+          "name": "Transactions",
+          "type": "relation",
+          "relation": {
+            "target": "db_transactions",
+            "pairedFieldId": "f_project",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_opportunities",
+          "name": "Opportunities",
+          "type": "relation",
+          "relation": {
+            "target": "db_opportunities",
+            "pairedFieldId": "f_projects",
+            "primary": false
+          }
+        }
+      ],
+      "captureTargets": [
+        {
+          "kind": "observation",
+          "databaseId": "db_fieldlog"
+        },
+        {
+          "kind": "expense",
+          "databaseId": "db_transactions"
+        },
+        {
+          "kind": "task",
+          "databaseId": "db_tasks"
+        },
+        {
+          "kind": "note",
+          "databaseId": "db_tasks"
+        }
+      ],
+      "fieldActions": [
+        "observation",
+        "expense",
+        "task",
+        "note",
+        "photo",
+        "voice",
+        "text"
+      ],
+      "defaultViewId": "v_projects_board",
+      "views": [
+        {
+          "id": "v_projects_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        },
+        {
+          "id": "v_projects_table",
+          "name": "All projects",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "rel_f_program",
+              "p_f_start",
+              "p_f_end",
+              "p_f_budget"
+            ],
+            "showSubrecords": true,
+            "sorts": [
+              {
+                "key": "status",
+                "dir": "asc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_projects_active",
+          "name": "Active",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "p_f_owner",
+              "rel_f_program",
+              "p_f_end"
+            ],
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "active"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_projects_timeline",
+          "name": "Timeline",
+          "type": "timeline",
+          "config": {
+            "dateKey": "p_f_start",
+            "endDateKey": "p_f_end",
+            "timelineScale": "month"
+          }
+        },
+        {
+          "id": "v_projects_calendar",
+          "name": "Calendar",
+          "type": "calendar",
+          "config": {
+            "dateKey": "p_f_start"
+          }
+        },
+        {
+          "id": "v_projects_archive",
+          "name": "Including archived",
+          "type": "table",
+          "config": {
+            "includeArchived": true,
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "rel_f_program"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_tasks",
+      "key": "tasks",
+      "name": "Tasks",
+      "icon": "✅",
+      "kind": "tasks",
+      "recordNoun": "Task",
+      "columns": [
+        {
+          "id": "to_do",
+          "name": "To do",
+          "color": "#a3a3a3"
+        },
+        {
+          "id": "doing",
+          "name": "Doing",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "color": "#f59e0b"
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "color": "#22c55e"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_project",
+          "name": "Project",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "primary": true,
+            "single": true
+          }
+        }
+      ],
+      "defaultViewId": "v_tasks_board",
+      "views": [
+        {
+          "id": "v_tasks_board",
+          "name": "Board",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        },
+        {
+          "id": "v_tasks_table",
+          "name": "All tasks",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "assigneeId",
+              "dueDate",
+              "priority",
+              "rel_f_project"
+            ],
+            "showSubrecords": true,
+            "sorts": [
+              {
+                "key": "status",
+                "dir": "asc"
+              },
+              {
+                "key": "dueDate",
+                "dir": "asc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_tasks_mine",
+          "name": "My tasks",
+          "type": "table",
+          "config": {
+            "mine": true,
+            "filters": [
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "done"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "dueDate",
+              "priority",
+              "rel_f_project"
+            ]
+          }
+        },
+        {
+          "id": "v_tasks_calendar",
+          "name": "By due date",
+          "type": "calendar",
+          "config": {
+            "dateKey": "dueDate"
+          }
+        },
+        {
+          "id": "v_tasks_timeline",
+          "name": "Timeline",
+          "type": "timeline",
+          "config": {
+            "dateKey": "dueDate",
+            "timelineScale": "month"
+          }
+        },
+        {
+          "id": "v_tasks_archive",
+          "name": "Including archived",
+          "type": "table",
+          "config": {
+            "includeArchived": true,
+            "visible": [
+              "title",
+              "status",
+              "assigneeId",
+              "dueDate"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_experiments",
+      "key": "experiments",
+      "name": "Experiments",
+      "icon": "🧪",
+      "kind": "records",
+      "recordNoun": "Experiment",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "proposed",
+          "name": "Proposed",
+          "color": "#a3a3a3"
+        },
+        {
+          "id": "designing",
+          "name": "Designing",
+          "color": "#06b6d4"
+        },
+        {
+          "id": "running",
+          "name": "Running",
+          "color": "#22c55e"
+        },
+        {
+          "id": "analysing",
+          "name": "Analysing",
+          "color": "#f59e0b"
+        },
+        {
+          "id": "documented",
+          "name": "Documented",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "published",
+          "name": "Published",
+          "color": "#8b5cf6"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_problem",
+          "name": "Problem",
+          "type": "text"
+        },
+        {
+          "id": "f_question",
+          "name": "Question",
+          "type": "text"
+        },
+        {
+          "id": "f_hypothesis",
+          "name": "Hypothesis",
+          "type": "text"
+        },
+        {
+          "id": "f_lead",
+          "name": "Lead",
+          "type": "person"
+        },
+        {
+          "id": "f_location",
+          "name": "Location",
+          "type": "text"
+        },
+        {
+          "id": "f_target_date",
+          "name": "Target date",
+          "type": "date"
+        },
+        {
+          "id": "f_pub_status",
+          "name": "Publication status",
+          "type": "select",
+          "options": [
+            {
+              "id": "internal",
+              "name": "Internal",
+              "color": "#a3a3a3"
+            },
+            {
+              "id": "submitted",
+              "name": "Submitted",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "published",
+              "name": "Published",
+              "color": "#22c55e"
+            }
+          ]
+        },
+        {
+          "id": "f_project",
+          "name": "Project",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_experiments",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_places",
+          "name": "Places",
+          "type": "relation",
+          "relation": {
+            "target": "db_places",
+            "pairedFieldId": "f_experiments",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_people",
+          "name": "People",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_experiments",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_media",
+          "name": "Media",
+          "type": "relation",
+          "relation": {
+            "target": "db_media",
+            "pairedFieldId": "f_experiments",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_courses",
+          "name": "Courses",
+          "type": "relation",
+          "relation": {
+            "target": "db_courses",
+            "pairedFieldId": "f_experiments",
+            "primary": false
+          }
+        }
+      ],
+      "captureTargets": [
+        {
+          "kind": "observation",
+          "databaseId": "db_fieldlog"
+        },
+        {
+          "kind": "expense",
+          "databaseId": "db_transactions"
+        },
+        {
+          "kind": "task",
+          "databaseId": "db_tasks"
+        },
+        {
+          "kind": "note",
+          "databaseId": "db_tasks"
+        }
+      ],
+      "fieldActions": [
+        "observation",
+        "expense",
+        "task",
+        "note",
+        "photo",
+        "voice",
+        "text"
+      ],
+      "defaultViewId": "v_experiments_board",
+      "views": [
+        {
+          "id": "v_experiments_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        },
+        {
+          "id": "v_experiments_table",
+          "name": "All experiments",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_lead",
+              "rel_f_project",
+              "rel_f_places",
+              "p_f_target_date",
+              "p_f_pub_status"
+            ],
+            "showSubrecords": true
+          }
+        },
+        {
+          "id": "v_experiments_calendar",
+          "name": "By target date",
+          "type": "calendar",
+          "config": {
+            "dateKey": "p_f_target_date"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_fieldlog",
+      "key": "fieldlog",
+      "name": "Field Log",
+      "icon": "📋",
+      "kind": "records",
+      "recordNoun": "Observation",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [],
+      "fields": [
+        {
+          "id": "f_date",
+          "name": "Date",
+          "type": "date"
+        },
+        {
+          "id": "f_measurement",
+          "name": "Measurement",
+          "type": "number"
+        },
+        {
+          "id": "f_unit",
+          "name": "Unit",
+          "type": "text"
+        },
+        {
+          "id": "f_observation",
+          "name": "Observation",
+          "type": "text"
+        },
+        {
+          "id": "f_photos",
+          "name": "Photo / file link",
+          "type": "url"
+        },
+        {
+          "id": "f_project",
+          "name": "Project",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_experiment",
+          "name": "Experiment",
+          "type": "relation",
+          "relation": {
+            "target": "db_experiments",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_place",
+          "name": "Place",
+          "type": "relation",
+          "relation": {
+            "target": "db_places",
+            "primary": true,
+            "single": true
+          }
+        }
+      ],
+      "views": [
+        {
+          "id": "v_fieldlog_table",
+          "name": "All observations",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "p_f_date",
+              "p_f_measurement",
+              "p_f_unit",
+              "rel_f_project",
+              "rel_f_experiment",
+              "rel_f_place"
+            ],
+            "sorts": [
+              {
+                "key": "p_f_date",
+                "dir": "desc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_fieldlog_calendar",
+          "name": "By date",
+          "type": "calendar",
+          "config": {
+            "dateKey": "p_f_date"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_ideas",
+      "key": "ideas",
+      "name": "Ideas",
+      "icon": "💡",
+      "kind": "records",
+      "recordNoun": "Idea",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "captured",
+          "name": "Captured",
+          "color": "#a3a3a3"
+        },
+        {
+          "id": "researching",
+          "name": "Researching",
+          "color": "#06b6d4"
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "color": "#f59e0b"
+        },
+        {
+          "id": "approved",
+          "name": "Approved",
+          "color": "#22c55e"
+        },
+        {
+          "id": "parked",
+          "name": "Parked",
+          "color": "#f97316"
+        },
+        {
+          "id": "rejected",
+          "name": "Rejected",
+          "color": "#ef4444"
+        },
+        {
+          "id": "converted",
+          "name": "Converted",
+          "color": "#8b5cf6"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_theme",
+          "name": "Theme",
+          "type": "multi_select",
+          "options": [
+            {
+              "id": "agroecology",
+              "name": "Agroecology",
+              "color": "#22c55e"
+            },
+            {
+              "id": "water",
+              "name": "Water",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "energy",
+              "name": "Energy",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "food",
+              "name": "Food",
+              "color": "#84cc16"
+            },
+            {
+              "id": "construction",
+              "name": "Construction",
+              "color": "#f97316"
+            },
+            {
+              "id": "education",
+              "name": "Education",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "media",
+              "name": "Media",
+              "color": "#ec4899"
+            },
+            {
+              "id": "community",
+              "name": "Community",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "health",
+              "name": "Health",
+              "color": "#ef4444"
+            }
+          ]
+        },
+        {
+          "id": "f_impact",
+          "name": "Impact",
+          "type": "select",
+          "options": [
+            {
+              "id": "low",
+              "name": "Low",
+              "color": "#a3a3a3"
+            },
+            {
+              "id": "medium",
+              "name": "Medium",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "high",
+              "name": "High",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "transformative",
+              "name": "Transformative",
+              "color": "#8b5cf6"
+            }
+          ]
+        },
+        {
+          "id": "f_effort",
+          "name": "Effort",
+          "type": "select",
+          "options": [
+            {
+              "id": "low",
+              "name": "Low",
+              "color": "#22c55e"
+            },
+            {
+              "id": "medium",
+              "name": "Medium",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "high",
+              "name": "High",
+              "color": "#ef4444"
+            }
+          ]
+        },
+        {
+          "id": "f_creator",
+          "name": "Creator",
+          "type": "person"
+        },
+        {
+          "id": "f_converted_project",
+          "name": "Converted to project",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_decisions",
+          "name": "Decisions",
+          "type": "relation",
+          "relation": {
+            "target": "db_decisions",
+            "primary": true
+          }
+        }
+      ],
+      "defaultViewId": "v_ideas_board",
+      "views": [
+        {
+          "id": "v_ideas_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        },
+        {
+          "id": "v_ideas_table",
+          "name": "All ideas",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_theme",
+              "p_f_impact",
+              "p_f_effort",
+              "p_f_creator",
+              "rel_f_converted_project"
+            ],
+            "showSubrecords": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_decisions",
+      "key": "decisions",
+      "name": "Decisions",
+      "icon": "⚖️",
+      "kind": "records",
+      "recordNoun": "Decision",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "open",
+          "name": "Open",
+          "color": "#f59e0b"
+        },
+        {
+          "id": "recommended",
+          "name": "Recommended",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "decided",
+          "name": "Decided",
+          "color": "#22c55e"
+        },
+        {
+          "id": "superseded",
+          "name": "Superseded",
+          "color": "#a3a3a3"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_question",
+          "name": "Question",
+          "type": "text"
+        },
+        {
+          "id": "f_date",
+          "name": "Date",
+          "type": "date"
+        },
+        {
+          "id": "f_decider",
+          "name": "Decision maker",
+          "type": "person"
+        },
+        {
+          "id": "f_projects",
+          "name": "Projects",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_decisions",
+            "primary": true
+          }
+        }
+      ],
+      "views": [
+        {
+          "id": "v_decisions_table",
+          "name": "All decisions",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_date",
+              "p_f_decider",
+              "rel_f_projects"
+            ],
+            "sorts": [
+              {
+                "key": "p_f_date",
+                "dir": "desc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_decisions_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_meetings",
+      "key": "meetings",
+      "name": "Meetings",
+      "icon": "🗣️",
+      "kind": "records",
+      "recordNoun": "Meeting",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "planned",
+          "name": "Planned",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "color": "#22c55e"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_type",
+          "name": "Type",
+          "type": "select",
+          "options": [
+            {
+              "id": "weekly_operating_review",
+              "name": "Weekly operating review",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "project_review",
+              "name": "Project review",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "finance_review",
+              "name": "Finance review",
+              "color": "#22c55e"
+            },
+            {
+              "id": "partnership_review",
+              "name": "Partnership review",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "content_planning",
+              "name": "Content planning",
+              "color": "#ec4899"
+            },
+            {
+              "id": "quarterly_strategy",
+              "name": "Quarterly strategy",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "field_visit",
+              "name": "Field visit",
+              "color": "#84cc16"
+            },
+            {
+              "id": "other",
+              "name": "Other",
+              "color": "#a3a3a3"
+            }
+          ]
+        },
+        {
+          "id": "f_date",
+          "name": "Date",
+          "type": "date"
+        },
+        {
+          "id": "f_chair",
+          "name": "Chair",
+          "type": "person"
+        },
+        {
+          "id": "f_participants",
+          "name": "Participants",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_meetings",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_projects",
+          "name": "Projects",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_meetings",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_orgs",
+          "name": "Organizations",
+          "type": "relation",
+          "relation": {
+            "target": "db_orgs",
+            "pairedFieldId": "f_meetings",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_decisions",
+          "name": "Decisions taken",
+          "type": "relation",
+          "relation": {
+            "target": "db_decisions",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_actions",
+          "name": "Action items",
+          "type": "relation",
+          "relation": {
+            "target": "db_tasks",
+            "primary": true
+          }
+        }
+      ],
+      "views": [
+        {
+          "id": "v_meetings_table",
+          "name": "All meetings",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "p_f_date",
+              "p_f_type",
+              "rel_f_participants",
+              "rel_f_projects"
+            ],
+            "sorts": [
+              {
+                "key": "p_f_date",
+                "dir": "desc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_meetings_calendar",
+          "name": "By date",
+          "type": "calendar",
+          "config": {
+            "dateKey": "p_f_date"
+          }
+        },
+        {
+          "id": "v_meetings_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_events",
+      "key": "events",
+      "name": "Events",
+      "icon": "📅",
+      "kind": "records",
+      "recordNoun": "Event",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "planning",
+          "name": "Planning",
+          "color": "#06b6d4"
+        },
+        {
+          "id": "open",
+          "name": "Open",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "running",
+          "name": "Running",
+          "color": "#22c55e"
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "color": "#14b8a6"
+        },
+        {
+          "id": "reviewed",
+          "name": "Reviewed",
+          "color": "#a3a3a3"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_type",
+          "name": "Type",
+          "type": "select",
+          "options": [
+            {
+              "id": "workshop",
+              "name": "Workshop",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "course",
+              "name": "Course",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "volunteer_day",
+              "name": "Volunteer day",
+              "color": "#22c55e"
+            },
+            {
+              "id": "community",
+              "name": "Community gathering",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "training",
+              "name": "Training",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "celebration",
+              "name": "Celebration",
+              "color": "#ec4899"
+            },
+            {
+              "id": "other",
+              "name": "Other",
+              "color": "#a3a3a3"
+            }
+          ]
+        },
+        {
+          "id": "f_start",
+          "name": "Start date",
+          "type": "date"
+        },
+        {
+          "id": "f_end",
+          "name": "End date",
+          "type": "date"
+        },
+        {
+          "id": "f_capacity",
+          "name": "Capacity",
+          "type": "number"
+        },
+        {
+          "id": "f_budget",
+          "name": "Budget",
+          "type": "number"
+        },
+        {
+          "id": "f_revenue",
+          "name": "Revenue",
+          "type": "number"
+        },
+        {
+          "id": "f_place",
+          "name": "Place",
+          "type": "relation",
+          "relation": {
+            "target": "db_places",
+            "pairedFieldId": "f_events",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_facilitators",
+          "name": "Facilitators",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_ev_facilitating",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_volunteers",
+          "name": "Volunteers",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_ev_volunteering",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_participants",
+          "name": "Participants",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_ev_participating",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_orgs",
+          "name": "Organizations",
+          "type": "relation",
+          "relation": {
+            "target": "db_orgs",
+            "pairedFieldId": "f_events",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_projects",
+          "name": "Projects",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_events",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_transactions",
+          "name": "Transactions",
+          "type": "relation",
+          "relation": {
+            "target": "db_transactions",
+            "pairedFieldId": "f_event",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_courses",
+          "name": "Courses",
+          "type": "relation",
+          "relation": {
+            "target": "db_courses",
+            "pairedFieldId": "f_events",
+            "primary": false
+          }
+        }
+      ],
+      "defaultViewId": "v_events_board",
+      "views": [
+        {
+          "id": "v_events_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        },
+        {
+          "id": "v_events_table",
+          "name": "All events",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_type",
+              "p_f_start",
+              "p_f_end",
+              "p_f_capacity",
+              "rel_f_place"
+            ],
+            "showSubrecords": true,
+            "sorts": [
+              {
+                "key": "p_f_start",
+                "dir": "asc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_events_calendar",
+          "name": "Calendar",
+          "type": "calendar",
+          "config": {
+            "dateKey": "p_f_start"
+          }
+        },
+        {
+          "id": "v_events_timeline",
+          "name": "Timeline",
+          "type": "timeline",
+          "config": {
+            "dateKey": "p_f_start",
+            "endDateKey": "p_f_end",
+            "timelineScale": "month"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_places",
+      "key": "places",
+      "name": "Places",
+      "icon": "📍",
+      "kind": "records",
+      "recordNoun": "Place",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "active",
+          "name": "Active",
+          "color": "#22c55e"
+        },
+        {
+          "id": "partner",
+          "name": "Partner",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "historical",
+          "name": "Historical",
+          "color": "#a3a3a3"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_relationship",
+          "name": "Relationship",
+          "type": "select",
+          "options": [
+            {
+              "id": "owned",
+              "name": "Owned",
+              "color": "#22c55e"
+            },
+            {
+              "id": "leased",
+              "name": "Leased",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "partner",
+              "name": "Partner",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "community",
+              "name": "Community",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "other",
+              "name": "Other",
+              "color": "#a3a3a3"
+            }
+          ]
+        },
+        {
+          "id": "f_location",
+          "name": "Location",
+          "type": "text"
+        },
+        {
+          "id": "f_capacity",
+          "name": "Capacity",
+          "type": "number"
+        },
+        {
+          "id": "f_projects",
+          "name": "Projects",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_places",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_events",
+          "name": "Events",
+          "type": "relation",
+          "relation": {
+            "target": "db_events",
+            "pairedFieldId": "f_place",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_experiments",
+          "name": "Experiments",
+          "type": "relation",
+          "relation": {
+            "target": "db_experiments",
+            "pairedFieldId": "f_places",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_people",
+          "name": "People",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_places",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_orgs",
+          "name": "Organizations",
+          "type": "relation",
+          "relation": {
+            "target": "db_orgs",
+            "pairedFieldId": "f_places",
+            "primary": true
+          }
+        }
+      ],
+      "captureTargets": [
+        {
+          "kind": "observation",
+          "databaseId": "db_fieldlog"
+        },
+        {
+          "kind": "expense",
+          "databaseId": "db_transactions"
+        },
+        {
+          "kind": "task",
+          "databaseId": "db_tasks"
+        },
+        {
+          "kind": "note",
+          "databaseId": "db_tasks"
+        }
+      ],
+      "fieldActions": [
+        "observation",
+        "expense",
+        "task",
+        "note",
+        "photo",
+        "voice",
+        "text"
+      ],
+      "views": [
+        {
+          "id": "v_places_table",
+          "name": "All places",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_relationship",
+              "p_f_location",
+              "p_f_capacity",
+              "rel_f_projects"
+            ],
+            "showSubrecords": true
+          }
+        },
+        {
+          "id": "v_places_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        }
+      ],
+      "records": [
+        {
+          "id": "r_parambu",
+          "title": "Parambu Habitat",
+          "status": "active",
+          "props": {
+            "p_f_relationship": "owned",
+            "p_f_location": "Parambu, Ceará, Brazil",
+            "p_f_capacity": 40
+          },
+          "body": [
+            "Base habitat of The Common Ground in Parambu, Ceará.",
+            "Use this record as the capture context for field observations, expenses and tasks on site."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db_opportunities",
+      "key": "opportunities",
+      "name": "Opportunities",
+      "icon": "💰",
+      "kind": "records",
+      "recordNoun": "Opportunity",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "researching",
+          "name": "Researching",
+          "color": "#a3a3a3"
+        },
+        {
+          "id": "target",
+          "name": "Target",
+          "color": "#06b6d4"
+        },
+        {
+          "id": "contacted",
+          "name": "Contacted",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "conversation",
+          "name": "Conversation",
+          "color": "#8b5cf6"
+        },
+        {
+          "id": "proposal",
+          "name": "Proposal",
+          "color": "#f59e0b"
+        },
+        {
+          "id": "negotiation",
+          "name": "Negotiation",
+          "color": "#f97316"
+        },
+        {
+          "id": "submitted",
+          "name": "Submitted",
+          "color": "#ec4899"
+        },
+        {
+          "id": "active",
+          "name": "Active",
+          "color": "#14b8a6"
+        },
+        {
+          "id": "won",
+          "name": "Won",
+          "color": "#22c55e"
+        },
+        {
+          "id": "lost",
+          "name": "Lost",
+          "color": "#ef4444"
+        },
+        {
+          "id": "dormant",
+          "name": "Dormant",
+          "color": "#a3a3a3"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_type",
+          "name": "Type",
+          "type": "select",
+          "options": [
+            {
+              "id": "grant",
+              "name": "Grant",
+              "color": "#22c55e"
+            },
+            {
+              "id": "csr",
+              "name": "CSR",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "donation",
+              "name": "Donation",
+              "color": "#ec4899"
+            },
+            {
+              "id": "sponsorship",
+              "name": "Sponsorship",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "research_funding",
+              "name": "Research funding",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "technology_grant",
+              "name": "Technology grant",
+              "color": "#06b6d4"
+            },
+            {
+              "id": "cloud_credit",
+              "name": "Cloud credit",
+              "color": "#f97316"
+            },
+            {
+              "id": "nonprofit_software",
+              "name": "Nonprofit software",
+              "color": "#84cc16"
+            },
+            {
+              "id": "institutional_partnership",
+              "name": "Institutional partnership",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "academic_collaboration",
+              "name": "Academic collaboration",
+              "color": "#f59e0b"
+            }
+          ]
+        },
+        {
+          "id": "f_amount",
+          "name": "Amount",
+          "type": "number"
+        },
+        {
+          "id": "f_deadline",
+          "name": "Deadline",
+          "type": "date"
+        },
+        {
+          "id": "f_decision_date",
+          "name": "Decision date",
+          "type": "date"
+        },
+        {
+          "id": "f_owner",
+          "name": "Owner",
+          "type": "person"
+        },
+        {
+          "id": "f_next_action",
+          "name": "Next action",
+          "type": "text"
+        },
+        {
+          "id": "f_next_action_date",
+          "name": "Next action date",
+          "type": "date"
+        },
+        {
+          "id": "f_org",
+          "name": "Organization",
+          "type": "relation",
+          "relation": {
+            "target": "db_orgs",
+            "pairedFieldId": "f_opportunities",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_projects",
+          "name": "Projects",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_opportunities",
+            "primary": true
+          }
+        }
+      ],
+      "defaultViewId": "v_opportunities_board",
+      "views": [
+        {
+          "id": "v_opportunities_board",
+          "name": "Pipeline",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        },
+        {
+          "id": "v_opportunities_table",
+          "name": "All opportunities",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_type",
+              "p_f_amount",
+              "p_f_deadline",
+              "p_f_owner",
+              "rel_f_org"
+            ],
+            "showSubrecords": true,
+            "sorts": [
+              {
+                "key": "p_f_deadline",
+                "dir": "asc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_opportunities_deadlines",
+          "name": "By deadline",
+          "type": "calendar",
+          "config": {
+            "dateKey": "p_f_deadline"
+          }
+        },
+        {
+          "id": "v_opportunities_next",
+          "name": "Next actions",
+          "type": "calendar",
+          "config": {
+            "dateKey": "p_f_next_action_date"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_media",
+      "key": "media",
+      "name": "Media",
+      "icon": "🎬",
+      "kind": "records",
+      "recordNoun": "Media item",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "idea",
+          "name": "Idea",
+          "color": "#a3a3a3"
+        },
+        {
+          "id": "research",
+          "name": "Research",
+          "color": "#06b6d4"
+        },
+        {
+          "id": "pre_production",
+          "name": "Pre-production",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "production",
+          "name": "Production",
+          "color": "#8b5cf6"
+        },
+        {
+          "id": "editing",
+          "name": "Editing",
+          "color": "#f59e0b"
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "color": "#f97316"
+        },
+        {
+          "id": "approved",
+          "name": "Approved",
+          "color": "#14b8a6"
+        },
+        {
+          "id": "scheduled",
+          "name": "Scheduled",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "published",
+          "name": "Published",
+          "color": "#22c55e"
+        },
+        {
+          "id": "archived",
+          "name": "Archived",
+          "color": "#a3a3a3"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_format",
+          "name": "Format",
+          "type": "select",
+          "options": [
+            {
+              "id": "article",
+              "name": "Article",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "video",
+              "name": "Video",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "photo_essay",
+              "name": "Photo essay",
+              "color": "#ec4899"
+            },
+            {
+              "id": "podcast",
+              "name": "Podcast",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "social",
+              "name": "Social post",
+              "color": "#06b6d4"
+            },
+            {
+              "id": "newsletter",
+              "name": "Newsletter",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "report",
+              "name": "Report",
+              "color": "#f97316"
+            },
+            {
+              "id": "course_material",
+              "name": "Course material",
+              "color": "#84cc16"
+            }
+          ]
+        },
+        {
+          "id": "f_channel",
+          "name": "Channel",
+          "type": "select",
+          "options": [
+            {
+              "id": "website",
+              "name": "Website",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "youtube",
+              "name": "YouTube",
+              "color": "#ef4444"
+            },
+            {
+              "id": "instagram",
+              "name": "Instagram",
+              "color": "#ec4899"
+            },
+            {
+              "id": "newsletter",
+              "name": "Newsletter",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "print",
+              "name": "Print",
+              "color": "#a3a3a3"
+            },
+            {
+              "id": "other",
+              "name": "Other",
+              "color": "#64748b"
+            }
+          ]
+        },
+        {
+          "id": "f_publish_date",
+          "name": "Publish date",
+          "type": "date"
+        },
+        {
+          "id": "f_owner",
+          "name": "Owner",
+          "type": "person"
+        },
+        {
+          "id": "f_projects",
+          "name": "Projects",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_media",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_experiments",
+          "name": "Experiments",
+          "type": "relation",
+          "relation": {
+            "target": "db_experiments",
+            "pairedFieldId": "f_media",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_courses",
+          "name": "Courses",
+          "type": "relation",
+          "relation": {
+            "target": "db_courses",
+            "pairedFieldId": "f_media",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_credits",
+          "name": "Credits",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_media_credits",
+            "primary": true
+          }
+        }
+      ],
+      "defaultViewId": "v_media_board",
+      "views": [
+        {
+          "id": "v_media_board",
+          "name": "Pipeline",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        },
+        {
+          "id": "v_media_table",
+          "name": "All media",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_format",
+              "p_f_channel",
+              "p_f_publish_date",
+              "p_f_owner"
+            ],
+            "showSubrecords": true,
+            "sorts": [
+              {
+                "key": "p_f_publish_date",
+                "dir": "desc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_media_calendar",
+          "name": "Publishing calendar",
+          "type": "calendar",
+          "config": {
+            "dateKey": "p_f_publish_date"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_courses",
+      "key": "courses",
+      "name": "Courses",
+      "icon": "🎓",
+      "kind": "records",
+      "recordNoun": "Course",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "idea",
+          "name": "Idea",
+          "color": "#a3a3a3"
+        },
+        {
+          "id": "research",
+          "name": "Research",
+          "color": "#06b6d4"
+        },
+        {
+          "id": "curriculum",
+          "name": "Curriculum",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "production",
+          "name": "Production",
+          "color": "#8b5cf6"
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "color": "#f59e0b"
+        },
+        {
+          "id": "published",
+          "name": "Published",
+          "color": "#22c55e"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_format",
+          "name": "Format",
+          "type": "select",
+          "options": [
+            {
+              "id": "online",
+              "name": "Online",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "in_person",
+              "name": "In person",
+              "color": "#22c55e"
+            },
+            {
+              "id": "hybrid",
+              "name": "Hybrid",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "self_paced",
+              "name": "Self-paced",
+              "color": "#14b8a6"
+            }
+          ]
+        },
+        {
+          "id": "f_tutors",
+          "name": "Tutors",
+          "type": "text"
+        },
+        {
+          "id": "f_media",
+          "name": "Media",
+          "type": "relation",
+          "relation": {
+            "target": "db_media",
+            "pairedFieldId": "f_courses",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_experiments",
+          "name": "Experiments",
+          "type": "relation",
+          "relation": {
+            "target": "db_experiments",
+            "pairedFieldId": "f_courses",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_events",
+          "name": "Events",
+          "type": "relation",
+          "relation": {
+            "target": "db_events",
+            "pairedFieldId": "f_courses",
+            "primary": true
+          }
+        }
+      ],
+      "defaultViewId": "v_courses_board",
+      "views": [
+        {
+          "id": "v_courses_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        },
+        {
+          "id": "v_courses_table",
+          "name": "All courses",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_format",
+              "p_f_tutors",
+              "rel_f_media",
+              "rel_f_experiments",
+              "rel_f_events"
+            ],
+            "showSubrecords": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_transactions",
+      "key": "transactions",
+      "name": "Transactions",
+      "icon": "🧾",
+      "kind": "records",
+      "recordNoun": "Transaction",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [],
+      "fields": [
+        {
+          "id": "f_type",
+          "name": "Type",
+          "type": "select",
+          "options": [
+            {
+              "id": "income",
+              "name": "Income",
+              "color": "#22c55e"
+            },
+            {
+              "id": "expense",
+              "name": "Expense",
+              "color": "#ef4444"
+            },
+            {
+              "id": "budget_line",
+              "name": "Budget line",
+              "color": "#3b82f6"
+            }
+          ]
+        },
+        {
+          "id": "f_amount",
+          "name": "Amount",
+          "type": "number"
+        },
+        {
+          "id": "f_date",
+          "name": "Date",
+          "type": "date"
+        },
+        {
+          "id": "f_category",
+          "name": "Category",
+          "type": "select",
+          "options": [
+            {
+              "id": "materials",
+              "name": "Materials",
+              "color": "#f97316"
+            },
+            {
+              "id": "transport",
+              "name": "Transport",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "food",
+              "name": "Food",
+              "color": "#84cc16"
+            },
+            {
+              "id": "equipment",
+              "name": "Equipment",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "services",
+              "name": "Services",
+              "color": "#06b6d4"
+            },
+            {
+              "id": "fees",
+              "name": "Fees",
+              "color": "#64748b"
+            },
+            {
+              "id": "donation",
+              "name": "Donation",
+              "color": "#ec4899"
+            },
+            {
+              "id": "grant_disbursement",
+              "name": "Grant disbursement",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "sales",
+              "name": "Sales",
+              "color": "#22c55e"
+            },
+            {
+              "id": "other",
+              "name": "Other",
+              "color": "#a3a3a3"
+            }
+          ]
+        },
+        {
+          "id": "f_funding_source",
+          "name": "Funding source",
+          "type": "text"
+        },
+        {
+          "id": "f_receipt",
+          "name": "Receipt link",
+          "type": "url"
+        },
+        {
+          "id": "f_project",
+          "name": "Project",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_transactions",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_event",
+          "name": "Event",
+          "type": "relation",
+          "relation": {
+            "target": "db_events",
+            "pairedFieldId": "f_transactions",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_opportunity",
+          "name": "Opportunity",
+          "type": "relation",
+          "relation": {
+            "target": "db_opportunities",
+            "primary": true,
+            "single": true
+          }
+        }
+      ],
+      "views": [
+        {
+          "id": "v_transactions_table",
+          "name": "All transactions",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "p_f_type",
+              "p_f_amount",
+              "p_f_date",
+              "p_f_category",
+              "rel_f_project",
+              "rel_f_event"
+            ],
+            "sorts": [
+              {
+                "key": "p_f_date",
+                "dir": "desc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_transactions_income",
+          "name": "Income",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_type",
+                "op": "is",
+                "value": "income"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_amount",
+              "p_f_date",
+              "p_f_category",
+              "rel_f_project"
+            ],
+            "sorts": [
+              {
+                "key": "p_f_date",
+                "dir": "desc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_transactions_expense",
+          "name": "Expenses",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_type",
+                "op": "is",
+                "value": "expense"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_amount",
+              "p_f_date",
+              "p_f_category",
+              "rel_f_project"
+            ],
+            "sorts": [
+              {
+                "key": "p_f_date",
+                "dir": "desc"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_transactions_calendar",
+          "name": "By date",
+          "type": "calendar",
+          "config": {
+            "dateKey": "p_f_date"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_products",
+      "key": "products",
+      "name": "Common Cupboard",
+      "icon": "🧺",
+      "kind": "records",
+      "recordNoun": "Product",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "exploring",
+          "name": "Exploring",
+          "color": "#a3a3a3"
+        },
+        {
+          "id": "sampling",
+          "name": "Sampling",
+          "color": "#06b6d4"
+        },
+        {
+          "id": "listed",
+          "name": "Listed",
+          "color": "#22c55e"
+        },
+        {
+          "id": "paused",
+          "name": "Paused",
+          "color": "#f59e0b"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_price",
+          "name": "Price",
+          "type": "number"
+        },
+        {
+          "id": "f_cost",
+          "name": "Cost",
+          "type": "number"
+        },
+        {
+          "id": "f_margin",
+          "name": "Margin",
+          "type": "text"
+        },
+        {
+          "id": "f_project",
+          "name": "Project",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_producer_person",
+          "name": "Producer (person)",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_producer_org",
+          "name": "Producer (organization)",
+          "type": "relation",
+          "relation": {
+            "target": "db_orgs",
+            "primary": true,
+            "single": true
+          }
+        }
+      ],
+      "defaultViewId": "v_products_board",
+      "views": [
+        {
+          "id": "v_products_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        },
+        {
+          "id": "v_products_table",
+          "name": "All products",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_price",
+              "p_f_cost",
+              "p_f_margin",
+              "rel_f_producer_person",
+              "rel_f_producer_org"
+            ],
+            "showSubrecords": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_people",
+      "key": "people",
+      "name": "People",
+      "icon": "👤",
+      "kind": "records",
+      "recordNoun": "Person",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [],
+      "fields": [
+        {
+          "id": "f_role",
+          "name": "Role",
+          "type": "text"
+        },
+        {
+          "id": "f_works",
+          "name": "Works at",
+          "type": "relation",
+          "relation": {
+            "target": "db_orgs",
+            "pairedFieldId": "f_people",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_email",
+          "name": "Email",
+          "type": "text"
+        },
+        {
+          "id": "f_phone",
+          "name": "Phone",
+          "type": "text"
+        },
+        {
+          "id": "f_tags",
+          "name": "Tags",
+          "type": "multi_select",
+          "options": [
+            {
+              "id": "o_friend",
+              "name": "Friend",
+              "color": "#22c55e"
+            },
+            {
+              "id": "o_colleague",
+              "name": "Colleague",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "o_client",
+              "name": "Client",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "o_family",
+              "name": "Family",
+              "color": "#ec4899"
+            }
+          ]
+        },
+        {
+          "id": "f_membership",
+          "name": "Membership status",
+          "type": "multi_select",
+          "options": [
+            {
+              "id": "member",
+              "name": "Member",
+              "color": "#22c55e"
+            },
+            {
+              "id": "volunteer",
+              "name": "Volunteer",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "partner",
+              "name": "Partner",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "participant",
+              "name": "Participant",
+              "color": "#06b6d4"
+            },
+            {
+              "id": "donor",
+              "name": "Donor",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "facilitator",
+              "name": "Facilitator",
+              "color": "#ec4899"
+            },
+            {
+              "id": "team",
+              "name": "Team",
+              "color": "#f97316"
+            }
+          ]
+        },
+        {
+          "id": "f_joined",
+          "name": "Joined",
+          "type": "date"
+        },
+        {
+          "id": "f_skills",
+          "name": "Skills",
+          "type": "multi_select",
+          "options": [
+            {
+              "id": "agroecology",
+              "name": "Agroecology",
+              "color": "#22c55e"
+            },
+            {
+              "id": "water_systems",
+              "name": "Water systems",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "construction",
+              "name": "Construction",
+              "color": "#f97316"
+            },
+            {
+              "id": "carpentry",
+              "name": "Carpentry",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "teaching",
+              "name": "Teaching",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "facilitation",
+              "name": "Facilitation",
+              "color": "#ec4899"
+            },
+            {
+              "id": "video",
+              "name": "Video",
+              "color": "#06b6d4"
+            },
+            {
+              "id": "photography",
+              "name": "Photography",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "writing",
+              "name": "Writing",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "cooking",
+              "name": "Cooking",
+              "color": "#84cc16"
+            },
+            {
+              "id": "medicine",
+              "name": "Medicine",
+              "color": "#ef4444"
+            },
+            {
+              "id": "admin",
+              "name": "Administration",
+              "color": "#64748b"
+            }
+          ]
+        },
+        {
+          "id": "f_availability",
+          "name": "Availability",
+          "type": "select",
+          "options": [
+            {
+              "id": "full_time",
+              "name": "Full-time",
+              "color": "#22c55e"
+            },
+            {
+              "id": "part_time",
+              "name": "Part-time",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "weekends",
+              "name": "Weekends",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "seasonal",
+              "name": "Seasonal",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "on_call",
+              "name": "On call",
+              "color": "#a3a3a3"
+            }
+          ]
+        },
+        {
+          "id": "f_pnotes",
+          "name": "Notes",
+          "type": "text"
+        },
+        {
+          "id": "f_projects",
+          "name": "Projects",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_people",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_experiments",
+          "name": "Experiments",
+          "type": "relation",
+          "relation": {
+            "target": "db_experiments",
+            "pairedFieldId": "f_people",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_places",
+          "name": "Places",
+          "type": "relation",
+          "relation": {
+            "target": "db_places",
+            "pairedFieldId": "f_people",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_meetings",
+          "name": "Meetings",
+          "type": "relation",
+          "relation": {
+            "target": "db_meetings",
+            "pairedFieldId": "f_participants",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_ev_facilitating",
+          "name": "Facilitating",
+          "type": "relation",
+          "relation": {
+            "target": "db_events",
+            "pairedFieldId": "f_facilitators",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_ev_volunteering",
+          "name": "Volunteering",
+          "type": "relation",
+          "relation": {
+            "target": "db_events",
+            "pairedFieldId": "f_volunteers",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_ev_participating",
+          "name": "Participating",
+          "type": "relation",
+          "relation": {
+            "target": "db_events",
+            "pairedFieldId": "f_participants",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_media_credits",
+          "name": "Media credits",
+          "type": "relation",
+          "relation": {
+            "target": "db_media",
+            "pairedFieldId": "f_credits",
+            "primary": false
+          }
+        }
+      ],
+      "views": [
+        {
+          "id": "v_people_table",
+          "name": "All people",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "p_f_role",
+              "rel_f_works",
+              "p_f_email",
+              "p_f_membership",
+              "p_f_tags"
+            ],
+            "showSubrecords": true
+          }
+        },
+        {
+          "id": "v_people_volunteers",
+          "name": "Volunteers",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "contains",
+                "value": "volunteer"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_role",
+              "p_f_skills",
+              "p_f_availability"
+            ]
+          }
+        },
+        {
+          "id": "v_people_team",
+          "name": "Team",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "contains",
+                "value": "team"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_role",
+              "p_f_email",
+              "p_f_phone"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_orgs",
+      "key": "organizations",
+      "name": "Organizations",
+      "icon": "🏢",
+      "kind": "records",
+      "recordNoun": "Organization",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [],
+      "fields": [
+        {
+          "id": "f_industry",
+          "name": "Industry",
+          "type": "select",
+          "options": [
+            {
+              "id": "o_tech",
+              "name": "Tech",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "o_finance",
+              "name": "Finance",
+              "color": "#22c55e"
+            },
+            {
+              "id": "o_health",
+              "name": "Health",
+              "color": "#ef4444"
+            },
+            {
+              "id": "o_other",
+              "name": "Other",
+              "color": "#a3a3a3"
+            }
+          ]
+        },
+        {
+          "id": "f_website",
+          "name": "Website",
+          "type": "url"
+        },
+        {
+          "id": "f_partnership",
+          "name": "Partnership status",
+          "type": "select",
+          "options": [
+            {
+              "id": "partner",
+              "name": "Partner",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "funder",
+              "name": "Funder",
+              "color": "#22c55e"
+            },
+            {
+              "id": "vendor",
+              "name": "Vendor",
+              "color": "#f97316"
+            },
+            {
+              "id": "community",
+              "name": "Community",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "member",
+              "name": "Member org",
+              "color": "#3b82f6"
+            }
+          ]
+        },
+        {
+          "id": "f_since",
+          "name": "Partner since",
+          "type": "date"
+        },
+        {
+          "id": "f_focus",
+          "name": "Focus areas",
+          "type": "multi_select",
+          "options": [
+            {
+              "id": "agroecology",
+              "name": "Agroecology",
+              "color": "#22c55e"
+            },
+            {
+              "id": "water",
+              "name": "Water",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "education",
+              "name": "Education",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "energy",
+              "name": "Energy",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "media",
+              "name": "Media",
+              "color": "#ec4899"
+            },
+            {
+              "id": "construction",
+              "name": "Construction",
+              "color": "#f97316"
+            },
+            {
+              "id": "funding",
+              "name": "Funding",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "research",
+              "name": "Research",
+              "color": "#06b6d4"
+            }
+          ]
+        },
+        {
+          "id": "f_people",
+          "name": "People",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_works",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_projects",
+          "name": "Projects",
+          "type": "relation",
+          "relation": {
+            "target": "db_projects",
+            "pairedFieldId": "f_orgs",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_meetings",
+          "name": "Meetings",
+          "type": "relation",
+          "relation": {
+            "target": "db_meetings",
+            "pairedFieldId": "f_orgs",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_events",
+          "name": "Events",
+          "type": "relation",
+          "relation": {
+            "target": "db_events",
+            "pairedFieldId": "f_orgs",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_places",
+          "name": "Places",
+          "type": "relation",
+          "relation": {
+            "target": "db_places",
+            "pairedFieldId": "f_orgs",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_opportunities",
+          "name": "Opportunities",
+          "type": "relation",
+          "relation": {
+            "target": "db_opportunities",
+            "pairedFieldId": "f_org",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_onotes",
+          "name": "Notes",
+          "type": "text"
+        }
+      ],
+      "views": [
+        {
+          "id": "v_orgs_table",
+          "name": "All organizations",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "p_f_industry",
+              "rel_f_people",
+              "p_f_website",
+              "p_f_partnership"
+            ],
+            "showSubrecords": true
+          }
+        },
+        {
+          "id": "v_orgs_partners",
+          "name": "Partners",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_partnership",
+                "op": "is",
+                "value": "partner"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_industry",
+              "rel_f_people",
+              "p_f_since"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "id": "pg_home",
+      "title": "Home",
+      "icon": "🏠",
+      "order": "a0",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "The Common Ground operating system — programs, projects, land, people, money and media in one graph."
+        },
+        {
+          "type": "h2",
+          "text": "This week"
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_projects",
+          "agg": "count",
+          "label": "Active projects",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "active"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_projects",
+          "agg": "count",
+          "label": "Blocked projects",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "blocked"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_opportunities",
+          "agg": "count",
+          "label": "Deadlines in the next 30 days",
+          "filters": [
+            {
+              "key": "p_f_deadline",
+              "op": "on_or_before",
+              "value": "today+30"
+            },
+            {
+              "key": "p_f_deadline",
+              "op": "on_or_after",
+              "value": "today"
+            },
+            {
+              "key": "status",
+              "op": "is_not",
+              "value": "won"
+            },
+            {
+              "key": "status",
+              "op": "is_not",
+              "value": "lost"
+            }
+          ]
+        },
+        {
+          "type": "h2",
+          "text": "Upcoming"
+        },
+        {
+          "type": "calendar",
+          "sources": [
+            {
+              "databaseId": "db_events",
+              "dateKey": "p_f_start",
+              "color": "#14b8a6"
+            },
+            {
+              "databaseId": "db_projects",
+              "dateKey": "p_f_start",
+              "color": "#3b82f6"
+            },
+            {
+              "databaseId": "db_meetings",
+              "dateKey": "p_f_date",
+              "color": "#8b5cf6"
+            },
+            {
+              "databaseId": "db_opportunities",
+              "dateKey": "p_f_deadline",
+              "color": "#f59e0b"
+            }
+          ]
+        },
+        {
+          "type": "h2",
+          "text": "Recent activity"
+        },
+        {
+          "type": "activity",
+          "scope": "all",
+          "limit": 20
+        }
+      ]
+    },
+    {
+      "id": "pg_mywork",
+      "title": "My Work",
+      "icon": "✅",
+      "order": "a1",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Everything assigned to you, and the records you own."
+        },
+        {
+          "type": "mywork"
+        },
+        {
+          "type": "h2",
+          "text": "My tasks"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_tasks",
+          "inline": {
+            "filters": [
+              {
+                "key": "assigneeId",
+                "op": "me"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "done"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "dueDate",
+                "dir": "asc"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "dueDate",
+              "priority",
+              "rel_f_project"
+            ]
+          },
+          "limit": 15,
+          "heading": "My open tasks"
+        },
+        {
+          "type": "h2",
+          "text": "Things I own"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_projects",
+          "inline": {
+            "filters": [
+              {
+                "key": "p_f_owner",
+                "op": "me"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "completed"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_end"
+            ]
+          },
+          "limit": 10,
+          "heading": "My projects"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_opportunities",
+          "inline": {
+            "filters": [
+              {
+                "key": "p_f_owner",
+                "op": "me"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_amount",
+              "p_f_deadline"
+            ]
+          },
+          "limit": 10,
+          "heading": "My opportunities"
+        }
+      ]
+    },
+    {
+      "id": "pg_programs",
+      "title": "Programs",
+      "icon": "🎯",
+      "order": "a2",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Programs are the long arcs; projects hang underneath them. Keep one note per program here."
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_programs",
+          "agg": "count",
+          "label": "Active programs",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "active"
+            }
+          ]
+        },
+        {
+          "type": "view",
+          "databaseId": "db_programs",
+          "viewId": "v_programs_table",
+          "heading": "All programs"
+        },
+        {
+          "type": "h2",
+          "text": "Program notes"
+        },
+        {
+          "type": "text",
+          "text": "One line per program — health, next milestone, and what it needs this month."
+        },
+        {
+          "type": "bulleted",
+          "text": "{{program}} — status, next milestone, needs."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_programs",
+          "viewId": "v_programs_board",
+          "heading": "By stage"
+        }
+      ]
+    },
+    {
+      "id": "pg_commonlab",
+      "title": "Common Lab",
+      "icon": "🧪",
+      "order": "a3",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Experiments and the field log. The L-board method: observe, explore, experiment, evolve."
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_experiments",
+          "agg": "count",
+          "label": "Running experiments",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "running"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_experiments",
+          "agg": "count",
+          "label": "Proposed",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "proposed"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_experiments",
+          "agg": "count",
+          "label": "Documented",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "documented"
+            }
+          ]
+        },
+        {
+          "type": "view",
+          "databaseId": "db_experiments",
+          "viewId": "v_experiments_board",
+          "heading": "Experiments"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_fieldlog",
+          "viewId": "v_fieldlog_table",
+          "limit": 20,
+          "heading": "Latest field log entries"
+        },
+        {
+          "type": "h2",
+          "text": "Research activity"
+        },
+        {
+          "type": "calendar",
+          "sources": [
+            {
+              "databaseId": "db_fieldlog",
+              "dateKey": "p_f_date",
+              "color": "#22c55e"
+            },
+            {
+              "databaseId": "db_experiments",
+              "dateKey": "p_f_target_date",
+              "color": "#8b5cf6"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pg_places",
+      "title": "Places",
+      "icon": "📍",
+      "order": "a4",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "The land graph — every place carries its own page, projects, events and field log."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_places",
+          "viewId": "v_places_table",
+          "heading": "All places"
+        },
+        {
+          "type": "text",
+          "text": "Each place gets a child page with its own dashboard — see Parambu Habitat below."
+        }
+      ]
+    },
+    {
+      "id": "pg_parambu",
+      "title": "Parambu Habitat",
+      "icon": "🌱",
+      "parentId": "pg_places",
+      "order": "a0",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Base habitat in Parambu, Ceará. Habitat record: @[rec:r_parambu]"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_fieldlog",
+          "inline": {
+            "filters": [
+              {
+                "key": "rel_f_place",
+                "op": "contains",
+                "value": "Parambu"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "p_f_date",
+                "dir": "desc"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_date",
+              "p_f_measurement",
+              "p_f_unit",
+              "p_f_observation"
+            ]
+          },
+          "limit": 20,
+          "heading": "Field log at Parambu"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_projects",
+          "inline": {
+            "filters": [
+              {
+                "key": "rel_f_places",
+                "op": "contains",
+                "value": "Parambu"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner"
+            ]
+          },
+          "heading": "Projects at Parambu"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_experiments",
+          "inline": {
+            "filters": [
+              {
+                "key": "rel_f_places",
+                "op": "contains",
+                "value": "Parambu"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_lead"
+            ]
+          },
+          "heading": "Experiments at Parambu"
+        }
+      ]
+    },
+    {
+      "id": "pg_community",
+      "title": "Community",
+      "icon": "🤝",
+      "order": "a5",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Members, volunteers, partners — the people who make the ground common."
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_people",
+          "agg": "count",
+          "label": "People"
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_people",
+          "agg": "count",
+          "label": "Volunteers",
+          "filters": [
+            {
+              "key": "p_f_membership",
+              "op": "contains",
+              "value": "volunteer"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_orgs",
+          "agg": "count",
+          "label": "Organizations"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_people",
+          "viewId": "v_people_table",
+          "heading": "People"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_people",
+          "viewId": "v_people_volunteers",
+          "heading": "Volunteers"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_orgs",
+          "viewId": "v_orgs_table",
+          "heading": "Organizations"
+        }
+      ]
+    },
+    {
+      "id": "pg_partnerships",
+      "title": "Partnerships & Funding",
+      "icon": "💰",
+      "order": "a6",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Grants, CSR, donations and sponsorships — the pipeline that funds the work."
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_opportunities",
+          "agg": "sum",
+          "label": "Active pipeline value",
+          "fieldKey": "p_f_amount",
+          "format": "currency",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "active"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_opportunities",
+          "agg": "count",
+          "label": "Proposals out",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "proposal"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_opportunities",
+          "agg": "count",
+          "label": "Awaiting decision",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "submitted"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_opportunities",
+          "agg": "count",
+          "label": "Deadlines in the next 30 days",
+          "filters": [
+            {
+              "key": "p_f_deadline",
+              "op": "on_or_before",
+              "value": "today+30"
+            },
+            {
+              "key": "p_f_deadline",
+              "op": "on_or_after",
+              "value": "today"
+            },
+            {
+              "key": "status",
+              "op": "is_not",
+              "value": "won"
+            },
+            {
+              "key": "status",
+              "op": "is_not",
+              "value": "lost"
+            }
+          ]
+        },
+        {
+          "type": "view",
+          "databaseId": "db_opportunities",
+          "viewId": "v_opportunities_board",
+          "heading": "Pipeline"
+        },
+        {
+          "type": "h2",
+          "text": "Deadlines & next actions"
+        },
+        {
+          "type": "calendar",
+          "sources": [
+            {
+              "databaseId": "db_opportunities",
+              "dateKey": "p_f_deadline",
+              "color": "#f59e0b"
+            },
+            {
+              "databaseId": "db_opportunities",
+              "dateKey": "p_f_next_action_date",
+              "color": "#3b82f6"
+            }
+          ]
+        },
+        {
+          "type": "view",
+          "databaseId": "db_transactions",
+          "viewId": "v_transactions_income",
+          "limit": 10,
+          "heading": "Income"
+        }
+      ]
+    },
+    {
+      "id": "pg_events",
+      "title": "Events & Education",
+      "icon": "📅",
+      "order": "a7",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Workshops, courses and volunteer days at the habitat and beyond."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_events",
+          "viewId": "v_events_board",
+          "heading": "Events"
+        },
+        {
+          "type": "calendar",
+          "sources": [
+            {
+              "databaseId": "db_events",
+              "dateKey": "p_f_start",
+              "color": "#14b8a6"
+            }
+          ],
+          "heading": "Event calendar"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_courses",
+          "viewId": "v_courses_board",
+          "heading": "Courses"
+        }
+      ]
+    },
+    {
+      "id": "pg_media",
+      "title": "Media",
+      "icon": "🎬",
+      "order": "a8",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Articles, videos and courses that carry the work outward."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_media",
+          "viewId": "v_media_board",
+          "heading": "Production pipeline"
+        },
+        {
+          "type": "calendar",
+          "sources": [
+            {
+              "databaseId": "db_media",
+              "dateKey": "p_f_publish_date",
+              "color": "#ec4899"
+            }
+          ],
+          "heading": "Publishing calendar"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_courses",
+          "viewId": "v_courses_table",
+          "heading": "Courses"
+        }
+      ]
+    },
+    {
+      "id": "pg_meetings",
+      "title": "Meetings & Decisions",
+      "icon": "🗣️",
+      "order": "a9",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Every meeting produces decisions; every decision links back to the projects it changes."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_meetings",
+          "viewId": "v_meetings_table",
+          "heading": "Meetings"
+        },
+        {
+          "type": "calendar",
+          "sources": [
+            {
+              "databaseId": "db_meetings",
+              "dateKey": "p_f_date",
+              "color": "#8b5cf6"
+            }
+          ],
+          "heading": "Meeting calendar"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_decisions",
+          "viewId": "v_decisions_table",
+          "heading": "Decisions"
+        }
+      ]
+    },
+    {
+      "id": "pg_ideas",
+      "title": "Ideas",
+      "icon": "💡",
+      "order": "aA",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "The intake. Approved ideas convert to projects — set \"Converted to project\" and the stage moves to Converted."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_ideas",
+          "viewId": "v_ideas_board",
+          "heading": "Ideas pipeline"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_ideas",
+          "viewId": "v_ideas_table",
+          "heading": "All ideas"
+        }
+      ]
+    },
+    {
+      "id": "pg_finance",
+      "title": "Finance",
+      "icon": "🧾",
+      "order": "aB",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Operations & finance — money in, money out, by project and event."
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_transactions",
+          "agg": "sum",
+          "label": "Income",
+          "fieldKey": "p_f_amount",
+          "format": "currency",
+          "filters": [
+            {
+              "key": "p_f_type",
+              "op": "is",
+              "value": "income"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_transactions",
+          "agg": "sum",
+          "label": "Expenses",
+          "fieldKey": "p_f_amount",
+          "format": "currency",
+          "filters": [
+            {
+              "key": "p_f_type",
+              "op": "is",
+              "value": "expense"
+            }
+          ]
+        },
+        {
+          "type": "view",
+          "databaseId": "db_transactions",
+          "viewId": "v_transactions_table",
+          "heading": "All transactions"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_events",
+          "inline": {
+            "filters": [
+              {
+                "key": "p_f_revenue",
+                "op": "not_empty"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_start",
+              "p_f_revenue"
+            ],
+            "sorts": [
+              {
+                "key": "p_f_start",
+                "dir": "desc"
+              }
+            ]
+          },
+          "heading": "Event revenue"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_products",
+          "viewId": "v_products_board",
+          "heading": "Common Cupboard"
+        }
+      ]
+    },
+    {
+      "id": "pg_knowledge",
+      "title": "Knowledge",
+      "icon": "📚",
+      "order": "aC",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "What we know — research notes, SOPs and policies, kept as living pages."
+        },
+        {
+          "type": "h2",
+          "text": "In this tree"
+        },
+        {
+          "type": "bulleted",
+          "text": "Research Notes — experiment write-ups and reference material."
+        },
+        {
+          "type": "bulleted",
+          "text": "SOPs & Policies — how we run the ground."
+        }
+      ]
+    },
+    {
+      "id": "pg_research_notes",
+      "title": "Research Notes",
+      "icon": "🔬",
+      "parentId": "pg_knowledge",
+      "order": "a0",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Experiment write-ups, literature notes, and reference material. Use the Research Note template."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_experiments",
+          "inline": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "documented"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_lead",
+              "rel_f_project"
+            ]
+          },
+          "heading": "Documented experiments"
+        }
+      ]
+    },
+    {
+      "id": "pg_sops",
+      "title": "SOPs & Policies",
+      "icon": "📜",
+      "parentId": "pg_knowledge",
+      "order": "a1",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Standard operating procedures and policies. One page per SOP; keep them short and testable."
+        },
+        {
+          "type": "bulleted",
+          "text": "Safety & site rules"
+        },
+        {
+          "type": "bulleted",
+          "text": "Financial approval limits"
+        },
+        {
+          "type": "bulleted",
+          "text": "Media release & consent"
+        },
+        {
+          "type": "bulleted",
+          "text": "Volunteer onboarding"
+        }
+      ]
+    },
+    {
+      "id": "pg_archive",
+      "title": "Archive",
+      "icon": "🗄️",
+      "order": "aD",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Archived projects and records live here — hidden from views, still searchable."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_projects",
+          "inline": {
+            "includeArchived": true,
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner"
+            ]
+          },
+          "heading": "Archived projects"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_tasks",
+          "inline": {
+            "includeArchived": true,
+            "visible": [
+              "title",
+              "status",
+              "assigneeId",
+              "dueDate"
+            ]
+          },
+          "heading": "Archived records"
+        }
+      ]
+    },
+    {
+      "id": "pg_templates",
+      "title": "Templates",
+      "icon": "🧩",
+      "order": "aE",
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Page templates for the operating rhythm — project kickoffs, reviews, field visits, grants."
+        },
+        {
+          "type": "text",
+          "text": "Create from these via the \"+\" template picker."
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_project",
+      "title": "New Project",
+      "icon": "🚀",
+      "parentId": "pg_templates",
+      "order": "a0",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Project brief for {{project}} — set the record fields (owner, program, places, dates, budget), then work this page top-down."
+        },
+        {
+          "type": "h2",
+          "text": "Objective"
+        },
+        {
+          "type": "text",
+          "text": "{{objective}}"
+        },
+        {
+          "type": "h2",
+          "text": "Milestones"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_tasks",
+          "viewId": "v_tasks_timeline",
+          "heading": "Milestones",
+          "limit": 20
+        },
+        {
+          "type": "h2",
+          "text": "Open tasks"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_tasks",
+          "inline": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "done"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "dueDate",
+                "dir": "asc"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "assigneeId",
+              "dueDate"
+            ]
+          },
+          "limit": 10,
+          "heading": "Tasks"
+        },
+        {
+          "type": "h2",
+          "text": "Decisions"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_decisions",
+          "inline": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "open"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_date",
+              "p_f_decider"
+            ]
+          },
+          "limit": 8,
+          "heading": "Open decisions"
+        },
+        {
+          "type": "h2",
+          "text": "Notes"
+        },
+        {
+          "type": "text",
+          "text": "Program: {{program}} · Owner: {{owner}} · {{start}} → {{end}} · Budget: {{budget}}"
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_experiment",
+      "title": "New Experiment",
+      "icon": "🧪",
+      "parentId": "pg_templates",
+      "order": "a1",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Experiment: {{experiment}} — the L-board method: observe, explore, experiment, evolve."
+        },
+        {
+          "type": "h2",
+          "text": "Problem"
+        },
+        {
+          "type": "text",
+          "text": "{{problem}}"
+        },
+        {
+          "type": "h2",
+          "text": "Question"
+        },
+        {
+          "type": "text",
+          "text": "{{question}}"
+        },
+        {
+          "type": "h2",
+          "text": "Hypothesis"
+        },
+        {
+          "type": "text",
+          "text": "{{hypothesis}}"
+        },
+        {
+          "type": "h2",
+          "text": "Method"
+        },
+        {
+          "type": "bulleted",
+          "text": "Setup: "
+        },
+        {
+          "type": "bulleted",
+          "text": "Controls: "
+        },
+        {
+          "type": "bulleted",
+          "text": "Measurements: "
+        },
+        {
+          "type": "h2",
+          "text": "Observations"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_fieldlog",
+          "viewId": "v_fieldlog_table",
+          "limit": 10,
+          "heading": "Field log"
+        },
+        {
+          "type": "h2",
+          "text": "Expected outcome"
+        },
+        {
+          "type": "text",
+          "text": "Project: {{project}} · Lead: {{lead}} · Target: {{target_date}}"
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_event",
+      "title": "Event / Workshop",
+      "icon": "📅",
+      "parentId": "pg_templates",
+      "order": "a2",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "{{event}} — {{date}} at {{place}}."
+        },
+        {
+          "type": "h2",
+          "text": "Plan"
+        },
+        {
+          "type": "bulleted",
+          "text": "Purpose: "
+        },
+        {
+          "type": "bulleted",
+          "text": "Audience: "
+        },
+        {
+          "type": "bulleted",
+          "text": "Capacity: {{capacity}}"
+        },
+        {
+          "type": "h2",
+          "text": "Agenda"
+        },
+        {
+          "type": "todo",
+          "text": "Doors open / arrival",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Session 1",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Break",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Session 2",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Close & clean-up",
+          "checked": false
+        },
+        {
+          "type": "h2",
+          "text": "Logistics"
+        },
+        {
+          "type": "bulleted",
+          "text": "Facilitators: {{facilitators}}"
+        },
+        {
+          "type": "bulleted",
+          "text": "Volunteers: {{volunteers}}"
+        },
+        {
+          "type": "bulleted",
+          "text": "Materials & equipment: "
+        },
+        {
+          "type": "h2",
+          "text": "Money"
+        },
+        {
+          "type": "bulleted",
+          "text": "Budget: {{budget}} · Revenue: {{revenue}}"
+        },
+        {
+          "type": "h2",
+          "text": "Follow-up"
+        },
+        {
+          "type": "todo",
+          "text": "Thank participants & share notes",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Log expenses to Finance",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Write up for Media",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_field_visit",
+      "title": "Field Visit",
+      "icon": "🥾",
+      "parentId": "pg_templates",
+      "order": "a3",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Field visit to {{place}} on {{date}} — capture observations into the Field Log."
+        },
+        {
+          "type": "h2",
+          "text": "Purpose"
+        },
+        {
+          "type": "text",
+          "text": "{{purpose}}"
+        },
+        {
+          "type": "h2",
+          "text": "Site"
+        },
+        {
+          "type": "text",
+          "text": "{{place}}"
+        },
+        {
+          "type": "h2",
+          "text": "Observations"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_fieldlog",
+          "viewId": "v_fieldlog_table",
+          "limit": 15,
+          "heading": "Field log"
+        },
+        {
+          "type": "h2",
+          "text": "Measurements"
+        },
+        {
+          "type": "bulleted",
+          "text": "What to measure, units, sampling notes."
+        },
+        {
+          "type": "h2",
+          "text": "Photos"
+        },
+        {
+          "type": "text",
+          "text": "Attach photos to this page or link Drive folders."
+        },
+        {
+          "type": "h2",
+          "text": "Follow-ups"
+        },
+        {
+          "type": "todo",
+          "text": "",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_meeting",
+      "title": "Meeting",
+      "icon": "🗣️",
+      "parentId": "pg_templates",
+      "order": "a4",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "{{meeting}} — {{date}} · Chair: {{chair}}"
+        },
+        {
+          "type": "h2",
+          "text": "Agenda"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Notes"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Decisions taken"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_decisions",
+          "inline": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "open"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_decider"
+            ]
+          },
+          "heading": "Open decisions",
+          "limit": 8
+        },
+        {
+          "type": "h2",
+          "text": "Action items"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_tasks",
+          "inline": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "done"
+              }
+            ],
+            "visible": [
+              "title",
+              "assigneeId",
+              "dueDate"
+            ]
+          },
+          "heading": "Actions",
+          "limit": 10
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_weekly",
+      "title": "Weekly Operating Review",
+      "icon": "📋",
+      "parentId": "pg_templates",
+      "order": "a5",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Week of {{week}} — the weekly rhythm: numbers first, then people, then decisions."
+        },
+        {
+          "type": "h2",
+          "text": "This week’s numbers"
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_projects",
+          "agg": "count",
+          "label": "Active projects",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "active"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_projects",
+          "agg": "count",
+          "label": "Blocked",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "blocked"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_opportunities",
+          "agg": "count",
+          "label": "Deadlines in the next 30 days",
+          "filters": [
+            {
+              "key": "p_f_deadline",
+              "op": "on_or_before",
+              "value": "today+30"
+            },
+            {
+              "key": "p_f_deadline",
+              "op": "on_or_after",
+              "value": "today"
+            },
+            {
+              "key": "status",
+              "op": "is_not",
+              "value": "won"
+            },
+            {
+              "key": "status",
+              "op": "is_not",
+              "value": "lost"
+            }
+          ]
+        },
+        {
+          "type": "h2",
+          "text": "Wins"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Blocked"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_projects",
+          "inline": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "blocked"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_owner"
+            ]
+          },
+          "heading": "Blocked projects",
+          "limit": 10
+        },
+        {
+          "type": "h2",
+          "text": "Decisions needed"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_decisions",
+          "inline": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "open"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_decider"
+            ]
+          },
+          "heading": "Open decisions",
+          "limit": 8
+        },
+        {
+          "type": "h2",
+          "text": "Next week"
+        },
+        {
+          "type": "todo",
+          "text": "",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_project_review",
+      "title": "Project Review",
+      "icon": "🔍",
+      "parentId": "pg_templates",
+      "order": "a6",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Review of {{project}} — honest answers, evidence over impressions."
+        },
+        {
+          "type": "h2",
+          "text": "What was planned?"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "What actually happened?"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "What worked?"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "What failed?"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "What did we learn?"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "What should change?"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "What needs to be documented?"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "What could become a course, article or video?"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "h2",
+          "text": "Related records"
+        },
+        {
+          "type": "text",
+          "text": "Link the project’s tasks, decisions and media. The blocks below show open items across the workspace — filter them to {{project}} when reviewing."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_tasks",
+          "inline": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "done"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "rel_f_project",
+              "dueDate"
+            ]
+          },
+          "heading": "Open tasks",
+          "limit": 10
+        },
+        {
+          "type": "view",
+          "databaseId": "db_decisions",
+          "viewId": "v_decisions_table",
+          "heading": "Decisions",
+          "limit": 10
+        },
+        {
+          "type": "view",
+          "databaseId": "db_media",
+          "viewId": "v_media_table",
+          "heading": "Media",
+          "limit": 8
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_finance_review",
+      "title": "Finance Review",
+      "icon": "🧾",
+      "parentId": "pg_templates",
+      "order": "a7",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Finance review — {{period}}."
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_transactions",
+          "agg": "sum",
+          "label": "Income",
+          "fieldKey": "p_f_amount",
+          "format": "currency",
+          "filters": [
+            {
+              "key": "p_f_type",
+              "op": "is",
+              "value": "income"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_transactions",
+          "agg": "sum",
+          "label": "Expenses",
+          "fieldKey": "p_f_amount",
+          "format": "currency",
+          "filters": [
+            {
+              "key": "p_f_type",
+              "op": "is",
+              "value": "expense"
+            }
+          ]
+        },
+        {
+          "type": "view",
+          "databaseId": "db_transactions",
+          "viewId": "v_transactions_table",
+          "heading": "Transactions",
+          "limit": 20
+        },
+        {
+          "type": "h2",
+          "text": "Variances"
+        },
+        {
+          "type": "bulleted",
+          "text": "Where did we over/under-spend vs plan?"
+        },
+        {
+          "type": "h2",
+          "text": "Actions"
+        },
+        {
+          "type": "todo",
+          "text": "",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_partnership_review",
+      "title": "Partnership Review",
+      "icon": "🤝",
+      "parentId": "pg_templates",
+      "order": "a8",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Partnership review — {{partner}}."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_opportunities",
+          "viewId": "v_opportunities_board",
+          "heading": "Pipeline",
+          "limit": 12
+        },
+        {
+          "type": "h2",
+          "text": "Status"
+        },
+        {
+          "type": "bulleted",
+          "text": "Open opportunities: "
+        },
+        {
+          "type": "bulleted",
+          "text": "Awaiting decision: "
+        },
+        {
+          "type": "h2",
+          "text": "Notes"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Next actions"
+        },
+        {
+          "type": "todo",
+          "text": "",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_content_planning",
+      "title": "Content Planning",
+      "icon": "🎬",
+      "parentId": "pg_templates",
+      "order": "a9",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Content planning — {{period}}."
+        },
+        {
+          "type": "view",
+          "databaseId": "db_media",
+          "viewId": "v_media_board",
+          "heading": "Pipeline",
+          "limit": 15
+        },
+        {
+          "type": "calendar",
+          "sources": [
+            {
+              "databaseId": "db_media",
+              "dateKey": "p_f_publish_date",
+              "color": "#ec4899"
+            }
+          ],
+          "heading": "Publishing calendar"
+        },
+        {
+          "type": "h2",
+          "text": "Themes"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Queue"
+        },
+        {
+          "type": "todo",
+          "text": "",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_quarterly",
+      "title": "Quarterly Strategy",
+      "icon": "🧭",
+      "parentId": "pg_templates",
+      "order": "aA",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Quarterly strategy — {{quarter}}. Step back: what does the ground need next?"
+        },
+        {
+          "type": "h2",
+          "text": "Review"
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_projects",
+          "agg": "count",
+          "label": "Projects completed",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "completed"
+            }
+          ]
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_opportunities",
+          "agg": "sum",
+          "label": "Funding won",
+          "fieldKey": "p_f_amount",
+          "format": "currency",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "won"
+            }
+          ]
+        },
+        {
+          "type": "bulleted",
+          "text": "What moved?"
+        },
+        {
+          "type": "bulleted",
+          "text": "What stalled?"
+        },
+        {
+          "type": "h2",
+          "text": "Priorities"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Bets"
+        },
+        {
+          "type": "text",
+          "text": "The 1–3 things we commit to this quarter."
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_research_note",
+      "title": "Research Note",
+      "icon": "📓",
+      "parentId": "pg_templates",
+      "order": "aB",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Research note — {{topic}}."
+        },
+        {
+          "type": "h2",
+          "text": "Question"
+        },
+        {
+          "type": "text",
+          "text": "{{question}}"
+        },
+        {
+          "type": "h2",
+          "text": "Sources"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Notes"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Implications"
+        },
+        {
+          "type": "text",
+          "text": "What this changes for the work."
+        },
+        {
+          "type": "h2",
+          "text": "Next"
+        },
+        {
+          "type": "todo",
+          "text": "",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_case_study",
+      "title": "Case Study",
+      "icon": "📖",
+      "parentId": "pg_templates",
+      "order": "aC",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Case study — {{project}}. Tell it like a story someone could repeat."
+        },
+        {
+          "type": "h2",
+          "text": "Context"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "What we did"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Results"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Evidence"
+        },
+        {
+          "type": "text",
+          "text": "Photos, measurements, quotes — link the field log and media records."
+        },
+        {
+          "type": "h2",
+          "text": "Lessons"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_grant",
+      "title": "Grant Application",
+      "icon": "💰",
+      "parentId": "pg_templates",
+      "order": "aD",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Grant application — {{funder}} · {{amount}} · due {{deadline}}."
+        },
+        {
+          "type": "h2",
+          "text": "Funder"
+        },
+        {
+          "type": "bulleted",
+          "text": "Requirements: "
+        },
+        {
+          "type": "bulleted",
+          "text": "Contact: "
+        },
+        {
+          "type": "h2",
+          "text": "Narrative"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Budget"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Checklist"
+        },
+        {
+          "type": "todo",
+          "text": "Draft narrative",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Budget table",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Supporting documents",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Internal review",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Submit before {{deadline}}",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_course",
+      "title": "Course",
+      "icon": "🎓",
+      "parentId": "pg_templates",
+      "order": "aE",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Course — {{course}} · Format: {{format}} · Tutors: {{tutors}}."
+        },
+        {
+          "type": "h2",
+          "text": "Audience"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Outcomes"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Curriculum"
+        },
+        {
+          "type": "todo",
+          "text": "Module 1 — ",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Module 2 — ",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Module 3 — ",
+          "checked": false
+        },
+        {
+          "type": "h2",
+          "text": "Production"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_media",
+          "viewId": "v_media_board",
+          "heading": "Course media",
+          "limit": 10
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_media_production",
+      "title": "Media Production",
+      "icon": "🎥",
+      "parentId": "pg_templates",
+      "order": "aF",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Media production — {{title}} · {{format}} for {{channel}}."
+        },
+        {
+          "type": "h2",
+          "text": "Brief"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Script / outline"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Shot list"
+        },
+        {
+          "type": "todo",
+          "text": "",
+          "checked": false
+        },
+        {
+          "type": "h2",
+          "text": "Review"
+        },
+        {
+          "type": "todo",
+          "text": "Edit pass",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Fact check",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Legal / consent check",
+          "checked": false
+        },
+        {
+          "type": "todo",
+          "text": "Schedule for {{publish_date}}",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "pg_tpl_volunteer",
+      "title": "Volunteer Program",
+      "icon": "🙌",
+      "parentId": "pg_templates",
+      "order": "aG",
+      "template": true,
+      "blocks": [
+        {
+          "type": "callout",
+          "text": "Volunteer program — {{program}}."
+        },
+        {
+          "type": "h2",
+          "text": "Roles"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Schedule"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Requirements"
+        },
+        {
+          "type": "bulleted",
+          "text": ""
+        },
+        {
+          "type": "h2",
+          "text": "Volunteers"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_people",
+          "viewId": "v_people_volunteers",
+          "heading": "Volunteers",
+          "limit": 15
+        },
+        {
+          "type": "h2",
+          "text": "Recognition"
+        },
+        {
+          "type": "text",
+          "text": ""
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "pg_parambu",
+      "to": "r_parambu",
+      "kind": "related"
+    }
+  ]
+}
