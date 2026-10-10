@@ -15,6 +15,12 @@ import { cmpOrder, orderBetween, uuid } from '../shared/order';
 import { blocksToMarkdown, markdownToBlocks, renderMentionText, resolveMentionText } from '../shared/markdown';
 import { planTemplateInstantiation, type RecSnapshot } from '../shared/templates';
 import { coerceFieldValue, fieldsOf, formatFieldValue, isSelectType, optionByName, propKey, type FieldDef } from '../shared/fields';
+import { normalizeItem, cardRef, connectorLinkPlan, DEFAULT_ITEM_SIZE, itemBounds, type MoodItem, type ItemRef } from '../shared/mooditems';
+import { layoutBoard, type CanvasLayoutAlgorithm } from '../shared/canvasLayout';
+import { validateDiagramSpec } from '../shared/diagramLayout';
+import { sanitizeSvg, SVG_MAX_BYTES } from '../shared/svgSanitize';
+import { linkId } from '../shared/linkid';
+import { edgesOf, wouldCreateDependencyCycle } from '../shared/deps';
 import { COLUMN_COLORS } from '../src/modules/boards/model';
 import type { Collection } from '../shared/collections';
 
@@ -1150,18 +1156,113 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
 
   /* ---------- 12. mood boards ---------- */
 
+  const itemRefInput = z.object({ type: z.enum(['record', 'page']), id: z.string() });
   const moodItemInput = z.object({
-    type: z.enum(['note', 'text', 'color', 'image']),
+    type: z.enum(['image', 'note', 'text', 'color', 'card', 'frame', 'shape', 'svg', 'diagram', 'connector']),
     text: z.string().optional(),
     color: z.string().optional(),
     imageUrl: z.string().optional().describe('https URL — imported into workspace files'),
+    fileId: z.string().optional().describe('existing workspace file id (image/svg)'),
     x: z.number().optional(),
     y: z.number().optional(),
     w: z.number().optional(),
     h: z.number().optional(),
+    // card
+    ref: itemRefInput.optional().describe('card target: {type:"record"|"page", id}'),
+    taskId: z.string().optional().describe('legacy shorthand for ref {type:"record",id}'),
+    // frame
+    title: z.string().optional(),
+    frameStageOf: z.object({ databaseId: z.string(), stageId: z.string() }).nullable().optional(),
+    // shape
+    shape: z.enum(['rect', 'ellipse', 'diamond', 'pill']).optional(),
+    fill: z.string().optional(),
+    stroke: z.string().optional(),
+    // svg (inline sanitized markup — never store unsanitized)
+    svg: z.string().optional(),
+    // diagram
+    spec: z.unknown().optional().describe('DiagramSpec {layout, nodes, edges}'),
+    // connector
+    from: z.string().optional(),
+    to: z.string().optional(),
+    label: z.string().optional(),
+    style: z.enum(['solid', 'dashed']).optional(),
+    arrow: z.enum(['end', 'both', 'none']).optional(),
+    linkKind: z.enum(['blocks', 'related']).nullable().optional(),
+    linkId: z.string().nullable().optional(),
+    parentFrameId: z.string().nullable().optional(),
   });
 
-  const MOOD_SIZES: Record<string, [number, number]> = { image: [320, 213], note: [220, 160], text: [400, 60], color: [120, 80] };
+  /** Live mooditems of one board. */
+  const boardItems = async (moodboardId: string): Promise<Rec[]> =>
+    live((await listBy(ctx.env, 'mooditems', 'boardId', moodboardId)).map(toRec));
+
+  /** Resolve a card ref to {title, stage} — stage is the column NAME on the record's board. */
+  async function cardInfoFor(ref: ItemRef | null, boardsById: Map<string, Rec>): Promise<{ title: string | null; stage: string | null }> {
+    if (!ref) return { title: null, stage: null };
+    const r = await rec(ctx.env, ref.type === 'page' ? 'pages' : 'tasks', ref.id);
+    if (!r || r.data.deleted) return { title: null, stage: null };
+    if (ref.type === 'page') return { title: titleOf(r, 'Untitled'), stage: null };
+    let board = boardsById.get(String(r.data.boardId ?? 'board-default'));
+    if (board === undefined) {
+      board = (await rec(ctx.env, 'boards', String(r.data.boardId ?? 'board-default'))) ?? undefined;
+      if (board) boardsById.set(String(r.data.boardId ?? 'board-default'), board);
+    }
+    const cols = (board?.data.columns ?? []) as { id: string; name: string }[];
+    const status = String(r.data.status ?? '');
+    return { title: titleOf(r, 'Untitled'), stage: cols.find((c) => c.id === status)?.name ?? (status || null) };
+  }
+
+  /** Mirror a connector's linkKind into a `links` row (deterministic id) — same ops batch (§4). */
+  function linkOpFor(kind: 'blocks' | 'related', fromId: string, toId: string): WriteOp {
+    return {
+      collection: 'links',
+      id: linkId(kind, '', fromId, toId),
+      patch: { fromType: 'record', fromId, toType: 'record', toId, kind, fieldId: null, deleted: false, createdBy: ctx.userId, createdAt: Date.now() },
+    };
+  }
+
+  /** Per-item validation + defaults. Throws on bad svg/spec — never stores unsanitized svg. */
+  async function canvasItemPatch(moodboardId: string, id: string, item: z.infer<typeof moodItemInput>, knownIds: Set<string>): Promise<{ patch: Record<string, unknown>; extraOps: WriteOp[] }> {
+    const patch: Record<string, unknown> = { boardId: moodboardId, type: item.type };
+    for (const k of ['x', 'y', 'w', 'h', 'text', 'color', 'title', 'shape', 'fill', 'stroke', 'label', 'style', 'arrow'] as const) {
+      if (item[k] !== undefined) patch[k] = item[k];
+    }
+    if (item.frameStageOf !== undefined) patch.frameStageOf = item.frameStageOf;
+    if (item.parentFrameId !== undefined) patch.parentFrameId = item.parentFrameId;
+    const extraOps: WriteOp[] = [];
+    if (item.type === 'image') {
+      if (item.imageUrl) {
+        const { fileId } = await importFileFromUrl(ctx.env, item.imageUrl, { parentType: 'mooditem', parentId: id, userId: ctx.userId });
+        patch.fileId = fileId;
+      } else if (item.fileId) patch.fileId = item.fileId;
+    } else if (item.type === 'svg') {
+      if (item.fileId) patch.fileId = item.fileId;
+      if (item.svg !== undefined) {
+        const s = sanitizeSvg(item.svg);
+        if (!s.ok) throw new Error(`svg rejected: ${s.reasons.join('; ')}`);
+        patch.svg = s.svg;
+      }
+      if (!patch.svg && !patch.fileId) throw new Error('svg item needs `svg` markup or `fileId`');
+    } else if (item.type === 'card') {
+      const ref = item.ref ?? (item.taskId ? { type: 'record' as const, id: item.taskId } : undefined);
+      if (!ref) throw new Error('card item needs `ref` (or taskId)');
+      const target = await rec(ctx.env, ref.type === 'page' ? 'pages' : 'tasks', ref.id);
+      if (!target || target.data.deleted) throw new Error(`card ref ${ref.id} not found`);
+      patch.ref = { type: ref.type, id: ref.id };
+    } else if (item.type === 'diagram') {
+      const v = validateDiagramSpec(item.spec);
+      if (!v.ok) throw new Error(`diagram spec rejected: ${v.reasons.join('; ')}`);
+      patch.spec = v.spec;
+    } else if (item.type === 'connector') {
+      if (!item.from || !item.to) throw new Error('connector needs `from` and `to`');
+      patch.from = item.from;
+      patch.to = item.to;
+      if (item.linkId !== undefined) patch.linkId = item.linkId;
+      if (item.linkKind) patch.linkKind = item.linkKind;
+    }
+    void knownIds;
+    return { patch, extraOps };
+  }
 
   async function moodItemOps(moodboardId: string, items: z.infer<typeof moodItemInput>[], existing: Rec[]): Promise<WriteOp[]> {
     const ops: WriteOp[] = [];
@@ -1172,31 +1273,53 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     let col = 0;
     let rowY = originY;
     let rowH = 0;
+    const knownIds = new Set(existing.map((i) => i.id));
     for (const item of items) {
-      const [dw, dh] = MOOD_SIZES[item.type] ?? [220, 160];
-      const w = item.w ?? dw;
-      const h = item.h ?? dh;
-      const auto = item.x === undefined || item.y === undefined;
-      const x = auto ? originX + col * 344 : item.x!;
-      const y = auto ? rowY : item.y!;
-      if (auto) {
-        rowH = Math.max(rowH, h);
-        col++;
-        if (col === 3) {
-          col = 0;
-          rowY += rowH + 24;
-          rowH = 0;
+      const id = uuid();
+      knownIds.add(id);
+      const { patch, extraOps } = await canvasItemPatch(moodboardId, id, item, knownIds);
+      if (item.type !== 'connector') {
+        const ds = DEFAULT_ITEM_SIZE[item.type] ?? { w: 220, h: 160 };
+        const w = item.w ?? ds.w;
+        const h = item.h ?? ds.h;
+        const auto = item.x === undefined || item.y === undefined;
+        patch.w = w;
+        patch.h = h;
+        if (auto) {
+          patch.x = originX + col * 344;
+          patch.y = rowY;
+          rowH = Math.max(rowH, h);
+          col++;
+          if (col === 3) {
+            col = 0;
+            rowY += rowH + 24;
+            rowH = 0;
+          }
+        } else {
+          patch.x = item.x;
+          patch.y = item.y;
         }
       }
-      const id = uuid();
-      const patch: Record<string, unknown> = { boardId: moodboardId, type: item.type, x, y, w, h, z: ++z0 };
-      if (item.text !== undefined) patch.text = item.text;
-      if (item.color !== undefined) patch.color = item.color;
-      if (item.type === 'image' && item.imageUrl) {
-        const { fileId } = await importFileFromUrl(ctx.env, item.imageUrl, { parentType: 'mooditem', parentId: id, userId: ctx.userId });
-        patch.fileId = fileId;
+      patch.z = ++z0;
+      const normalized = normalizeItem({ id, ...patch } as Partial<MoodItem> & { id: string });
+      const { id: _drop, ...data } = normalized;
+      void _drop;
+      if (data.type === 'connector' && data.linkKind && data.linkId === undefined) {
+        // Mirror into a `links` row in the same batch — connector ↔ link share fate (§4).
+        const all = [...existing.map((e) => ({ id: e.id, ...e.data })), ...ops.filter((o) => o.collection === 'mooditems').map((o) => ({ id: o.id, ...o.patch }))] as MoodItem[];
+        const from = all.find((m) => m.id === data.from);
+        const to = all.find((m) => m.id === data.to);
+        const rf = from ? cardRef(from) : null;
+        const rt = to ? cardRef(to) : null;
+        if (!rf || !rt || rf.type !== 'record' || rt.type !== 'record') throw new Error('linkKind connectors need both endpoints to be record cards');
+        const lid = linkId(data.linkKind, '', rf.id, rt.id);
+        data.linkId = lid;
+        const existingLink = await getRec(ctx.env, lid);
+        data.linkOwned = !existingLink || existingLink.data.deleted === true;
+        extraOps.push(linkOpFor(data.linkKind, rf.id, rt.id));
       }
-      ops.push({ collection: 'mooditems', id, patch });
+      ops.push({ collection: 'mooditems', id, patch: data });
+      ops.push(...extraOps);
     }
     return ops;
   }
@@ -1222,17 +1345,645 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'add_mood_items',
     {
-      description: 'Add items to a mood board. Items without x/y are placed in a tidy grid after existing items.',
-      inputSchema: z.object({ moodboardId: z.string(), items: z.array(moodItemInput).min(1) }),
+      description: 'Add items to a mood board (types: image, note, text, color, card, frame, shape, svg, diagram, connector). Items without x/y are placed in a tidy grid after existing items. svg needs `svg` markup (sanitized) or `fileId`; card needs `ref`; diagram needs `spec`; connector needs `from`/`to` (linkKind mirrors a links row in the same batch).',
+      inputSchema: z.object({ moodboardId: z.string(), items: z.array(moodItemInput).min(1), dryRun: dryRunInput }),
       annotations: { idempotentHint: false },
     },
-    async ({ moodboardId, items }) => {
+    async (a) => {
+      const { moodboardId, items } = a;
       const mb = await rec(ctx.env, 'moodboards', moodboardId);
       if (!mb || mb.data.deleted) return err('mood board not found');
       const existing = live(await recs(ctx.env, 'mooditems')).filter((i) => String(i.data.boardId) === moodboardId);
       const ops = await moodItemOps(moodboardId, items, existing);
+      if (a.dryRun) return txt({ dryRun: true, summary: `add_mood_items in ${moodboardId}`, counts: { create: ops.filter((o) => o.collection === 'mooditems').length }, warnings: [], impact: { types: items.map((i) => i.type) } });
       await write(ctx, ops);
-      return txt({ moodboardId, added: ops.length, url: moodUrl(ctx, moodboardId) });
+      return txt({ moodboardId, added: ops.filter((o) => o.collection === 'mooditems').length, url: moodUrl(ctx, moodboardId) });
+    },
+  );
+
+  /* ---------- 12b. Phase 2 canvas tools ---------- */
+
+  /** Resolve a moodboard by id (moodboardId|boardId) or exact title (name). */
+  async function moodboardFor(id: string | undefined, name: string | undefined): Promise<Rec | null | 'ambiguous'> {
+    if (id) {
+      const m = await rec(ctx.env, 'moodboards', id);
+      return m && !m.data.deleted ? m : null;
+    }
+    if (!name) return null;
+    const all = live(await recs(ctx.env, 'moodboards')).filter((m) => String(m.data.title ?? m.data.name ?? '').toLowerCase() === name.toLowerCase());
+    if (all.length > 1) return 'ambiguous';
+    return all[0] ?? null;
+  }
+
+  server.registerTool(
+    'get_moodboard',
+    {
+      description: 'Get a mood board with all items (each item carries rev for expectedRev writes). Card items include a resolved {title, stage}. Connectors flag `dangling` when their linkId has no live links row.',
+      inputSchema: z.object({
+        moodboardId: z.string().optional(),
+        boardId: z.string().optional(),
+        name: z.string().optional().describe('Exact moodboard title'),
+      }),
+      annotations: { readOnlyHint: true },
+    },
+    async (a) => {
+      const mb = await moodboardFor(a.moodboardId ?? a.boardId, a.name);
+      if (mb === 'ambiguous') return err('multiple mood boards share that name — pass moodboardId');
+      if (!mb) return err('mood board not found');
+      const items = await boardItems(mb.id);
+      const boardsById = new Map<string, Rec>();
+      // linkId → live links row check for connector dangling detection
+      const linkIds = items.map((i) => i.data.linkId).filter((x): x is string => typeof x === 'string' && !!x);
+      const liveLinks = linkIds.length ? await getRecs(ctx.env, linkIds) : new Map();
+      const out = items.map((i) => ({ id: i.id, rev: i.rev, ...(i.data as Record<string, unknown>) }));
+      return txt({
+        id: mb.id,
+        title: mb.data.title ?? 'Mood board',
+        rev: mb.rev,
+        url: moodUrl(ctx, mb.id),
+        items: await Promise.all(
+          out.map(async (it) => {
+            const m = it as Record<string, unknown>;
+            if (m.type === 'card') m.card = await cardInfoFor(cardRef(m as MoodItem), boardsById);
+            if (m.type === 'connector' && typeof m.linkId === 'string') {
+              const l = liveLinks.get(m.linkId);
+              m.dangling = !l || l.data.deleted === true;
+            }
+            return it;
+          }),
+        ),
+      });
+    },
+  );
+
+  const ITEM_PATCH_FIELDS = new Set(['x', 'y', 'w', 'h', 'z', 'text', 'color', 'ref', 'taskId', 'title', 'frameStageOf', 'shape', 'fill', 'stroke', 'fileId', 'svg', 'spec', 'from', 'to', 'label', 'style', 'arrow', 'linkKind', 'linkId', 'parentFrameId', 'type', 'deleted']);
+
+  reg(
+    'update_mood_items',
+    {
+      description: 'Patch mood items: {items:[{id, expectedRev?, patch:{...}}]} (flat fields merge into patch). Editable: geometry, text/color, ref, title, frameStageOf, shape/fill/stroke, fileId, svg (sanitized), spec (validated), connector from/to/label/style/arrow/linkKind/linkId, parentFrameId, deleted. boardId/id are not patchable.',
+      inputSchema: z.object({
+        items: z
+          .array(
+            z.object({ id: z.string(), expectedRev: z.number().optional(), patch: z.record(z.string(), z.unknown()).optional() }).passthrough(),
+          )
+          .min(1)
+          .max(200),
+        dryRun: dryRunInput,
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const ids = a.items.map((i) => i.id);
+      if (new Set(ids).size !== ids.length) return err('duplicate item ids');
+      const found = await getRecs(ctx.env, ids);
+      const ops: WriteOp[] = [];
+      const expect = new Map<string, number>();
+      const skipped: string[] = [];
+      // Connector lifecycle bookkeeping: linkId/linkKind/from/to are connector
+      // shape — retarget or re-mirror via connect_items, never by raw patch.
+      // links rows are GLOBAL (deterministic linkId is shared across boards):
+      // referrer accounting must span every moodboard, tombstoned connectors
+      // included — only connectorLinkPlan decides retire/transfer.
+      const beingDeleted = new Set<string>();
+      const referrersByLink = new Map<string, MoodItem[]>();
+      const connectorsOnLink = async (lid: string): Promise<MoodItem[]> => {
+        let list = referrersByLink.get(lid);
+        if (!list) {
+          const { results } = await ctx.env.DB
+            .prepare(`SELECT id, data FROM records WHERE collection = 'mooditems' AND json_extract(data, '$.type') = 'connector' AND json_extract(data, '$.linkId') = ?`)
+            .bind(lid)
+            .all<{ id: string; data: string }>();
+          list = results.map((r) => ({ id: r.id, ...(JSON.parse(r.data) as Record<string, unknown>) }) as MoodItem);
+          referrersByLink.set(lid, list);
+        }
+        return list;
+      };
+      for (const upd of a.items) {
+        const row = found.get(upd.id);
+        const { id: _id, expectedRev, patch: patchObj, ...flat } = upd;
+        void _id;
+        const patch: Record<string, unknown> = { ...flat, ...(patchObj ?? {}) };
+        for (const k of Object.keys(patch)) if (!ITEM_PATCH_FIELDS.has(k)) delete patch[k];
+        if (!row || row.collection !== 'mooditems' || (row.data.deleted === true && patch.deleted !== false)) {
+          skipped.push(upd.id);
+          ctx.warnings.push(`mooditem ${upd.id} not found — skipped`);
+          continue;
+        }
+        if (!Object.keys(patch).length) {
+          skipped.push(upd.id);
+          continue;
+        }
+        const isConnector = row.data.type === 'connector' || patch.type === 'connector';
+        if (isConnector && (patch.from !== undefined || patch.to !== undefined || patch.linkKind !== undefined || patch.linkId !== undefined || patch.linkOwned !== undefined)) {
+          return err(`connector ${upd.id}: linkId/linkKind/from/to/linkOwned are lifecycle fields — use connect_items / delete+recreate`);
+        }
+        if (!isConnector) {
+          delete patch.linkId;
+          delete patch.linkKind;
+          delete patch.linkOwned;
+          delete patch.from;
+          delete patch.to;
+        }
+        const deletesItem = patch.deleted === true || (patch.type !== undefined && patch.type !== 'connector');
+        if (isConnector && deletesItem && typeof row.data.linkId === 'string') {
+          const lid = String(row.data.linkId);
+          // Referrers deleted earlier in this batch aren't live any more, but
+          // their ownership flags still count for the connector-minted check.
+          const all = (await connectorsOnLink(lid)).map((c) => (beingDeleted.has(c.id) ? { ...c, deleted: true } : c));
+          const plan = connectorLinkPlan(row.data as MoodItem, all, upd.id);
+          if (plan.retireLink) ops.push({ collection: 'links', id: lid, patch: { deleted: true } });
+          if (plan.transferTo) ops.push({ collection: 'mooditems', id: plan.transferTo, patch: { linkOwned: true } });
+          if (patch.deleted === true) beingDeleted.add(upd.id);
+        }
+        const restoresItem = isConnector && patch.deleted === false && typeof row.data.linkId === 'string';
+        if (restoresItem && (row.data as MoodItem).linkOwned === true) {
+          // Resurrect a mirror this connector owned — only if the row is
+          // actually dead (resurrection also un-dangles any other referrer).
+          const lid = String(row.data.linkId);
+          const linkRow = await getRec(ctx.env, lid);
+          if (linkRow?.data.deleted === true) ops.push({ collection: 'links', id: lid, patch: { deleted: false } });
+        }
+        if (patch.svg !== undefined) {
+          const s = sanitizeSvg(patch.svg);
+          if (!s.ok) return err(`svg rejected for ${upd.id}: ${s.reasons.join('; ')}`);
+          patch.svg = s.svg;
+        }
+        if (patch.spec !== undefined) {
+          const v = validateDiagramSpec(patch.spec);
+          if (!v.ok) return err(`diagram spec rejected for ${upd.id}: ${v.reasons.join('; ')}`);
+          patch.spec = v.spec;
+        }
+        if (expectedRev !== undefined) expect.set(upd.id, expectedRev);
+        ops.push({ collection: 'mooditems', id: upd.id, patch });
+      }
+      if (!ops.length) return err('nothing to update');
+      if (a.dryRun) return txt({ dryRun: true, summary: `update_mood_items`, counts: { update: ops.length, skipped: skipped.length }, warnings: ctx.warnings, impact: { skipped } });
+      await write(ctx, ops, { expect: expect.size ? expect : undefined });
+      return txt({ updated: ops.length, skipped });
+    },
+  );
+
+  reg(
+    'connect_items',
+    {
+      description: `Draw connector(s) between mood items. Single: {moodboardId, from, to, linkKind?, label?, style?, arrow?} or batch via connects:[{from,to,...}]. With linkKind 'blocks'/'related' AND both endpoints card items with record refs, a deterministic links row is written in the same batch and connector.linkId set. Reconnecting an existing from→to pair returns the existing connector.`,
+      inputSchema: z.object({
+        moodboardId: z.string(),
+        from: z.string().optional(),
+        to: z.string().optional(),
+        linkKind: z.enum(['blocks', 'related']).optional(),
+        label: z.string().optional(),
+        style: z.enum(['solid', 'dashed']).optional(),
+        arrow: z.enum(['end', 'both', 'none']).optional(),
+        connects: z
+          .array(
+            z.object({ from: z.string(), to: z.string(), linkKind: z.enum(['blocks', 'related']).optional(), label: z.string().optional(), style: z.enum(['solid', 'dashed']).optional(), arrow: z.enum(['end', 'both', 'none']).optional() }),
+          )
+          .optional(),
+        dryRun: dryRunInput,
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const mb = await rec(ctx.env, 'moodboards', a.moodboardId);
+      if (!mb || mb.data.deleted) return err('mood board not found');
+      const wants = a.connects?.length ? a.connects : a.from && a.to ? [{ from: a.from, to: a.to, linkKind: a.linkKind, label: a.label, style: a.style, arrow: a.arrow }] : null;
+      if (!wants) return err('pass from/to or connects[]');
+      const items = await boardItems(a.moodboardId);
+      const byId = new Map(items.map((i) => [i.id, i]));
+      const depEdges = edgesOf((await listCollection(ctx.env, 'links')).map((l) => l.data));
+      const ops: WriteOp[] = [];
+      const created: string[] = [];
+      const existed: string[] = [];
+      const failed: { from: string; to: string; error: string }[] = [];
+      let z0 = Math.max(0, ...items.map((i) => Number(i.data.z ?? 0)));
+      for (const w2 of wants) {
+        const from = byId.get(w2.from);
+        const to = byId.get(w2.to);
+        if (!from || !to) {
+          failed.push({ from: w2.from, to: w2.to, error: 'endpoint item not found on this board' });
+          continue;
+        }
+        const dup = items.find((i) => i.data.type === 'connector' && String(i.data.from) === w2.from && String(i.data.to) === w2.to);
+        if (dup) {
+          existed.push(dup.id);
+          continue;
+        }
+        const id = uuid();
+        const patch: Record<string, unknown> = { boardId: a.moodboardId, type: 'connector', from: w2.from, to: w2.to, z: ++z0 };
+        if (w2.label !== undefined) patch.label = w2.label;
+        if (w2.style !== undefined) patch.style = w2.style;
+        if (w2.arrow !== undefined) patch.arrow = w2.arrow;
+        if (w2.linkKind) {
+          const rf = cardRef(from.data as MoodItem);
+          const rt = cardRef(to.data as MoodItem);
+          if (!rf || !rt || rf.type !== 'record' || rt.type !== 'record') {
+            failed.push({ from: w2.from, to: w2.to, error: 'linkKind connectors need both endpoints to be record cards' });
+            continue;
+          }
+          if (w2.linkKind === 'blocks' && wouldCreateDependencyCycle([...depEdges, ...ops.filter((o) => o.collection === 'links').map((o) => [String(o.patch.fromId), String(o.patch.toId)] as [string, string])], rf.id, rt.id)) {
+            failed.push({ from: w2.from, to: w2.to, error: 'dependency cycle' });
+            continue;
+          }
+          const lid = linkId(w2.linkKind, '', rf.id, rt.id);
+          patch.linkKind = w2.linkKind;
+          patch.linkId = lid;
+          const existing = await getRec(ctx.env, lid);
+          patch.linkOwned = !existing || existing.data.deleted === true;
+          ops.push({ collection: 'links', id: lid, patch: { fromType: 'record', fromId: rf.id, toType: 'record', toId: rt.id, kind: w2.linkKind, fieldId: null, deleted: false, createdBy: ctx.userId, createdAt: existing?.data.createdAt ?? Date.now() } });
+        }
+        ops.push({ collection: 'mooditems', id, patch });
+        created.push(id);
+      }
+      if (a.dryRun) return txt({ dryRun: true, summary: `connect_items on ${a.moodboardId}`, counts: { create: created.length, existed: existed.length, failed: failed.length }, warnings: [], impact: { failed } });
+      if (ops.length) await write(ctx, ops);
+      return txt({ moodboardId: a.moodboardId, created, existed, failed });
+    },
+  );
+
+  reg(
+    'add_frame',
+    {
+      description: `Create a frame item grouping items on a mood board. bounds omitted → computed to contain itemIds (+40px pad). stage {databaseId, stageId|stage} stores frameStageOf for stage-mirrored frames.`,
+      inputSchema: z.object({
+        moodboardId: z.string(),
+        itemIds: z.array(z.string()).optional(),
+        items: z.array(z.string()).optional().describe('alias of itemIds'),
+        title: z.string().optional(),
+        bounds: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
+        stage: z.object({ databaseId: z.string(), stageId: z.string().optional(), stage: z.string().optional() }).optional(),
+        dryRun: dryRunInput,
+      }),
+      annotations: { idempotentHint: false },
+    },
+    async (a) => {
+      const mb = await rec(ctx.env, 'moodboards', a.moodboardId);
+      if (!mb || mb.data.deleted) return err('mood board not found');
+      const itemIds = a.itemIds ?? a.items ?? [];
+      const items = await boardItems(a.moodboardId);
+      const byId = new Map(items.map((i) => [i.id, i]));
+      const members = itemIds.map((id) => byId.get(id)).filter((x): x is Rec => !!x && x.data.type !== 'frame');
+      let bounds = a.bounds;
+      if (!bounds) {
+        const pad = 40;
+        if (members.length) {
+          const rects = members.map((m) => itemBounds({ id: m.id, ...(m.data as object) } as MoodItem));
+          const x = Math.min(...rects.map((r) => r.x));
+          const y = Math.min(...rects.map((r) => r.y));
+          bounds = { x: x - pad, y: y - pad, w: Math.max(...rects.map((r) => r.x + r.w)) - x + pad * 2, h: Math.max(...rects.map((r) => r.y + r.h)) - y + pad * 2 };
+        } else {
+          bounds = { x: 0, y: 0, w: DEFAULT_ITEM_SIZE.frame.w, h: DEFAULT_ITEM_SIZE.frame.h };
+        }
+      }
+      let frameStageOf: { databaseId: string; stageId: string } | undefined;
+      if (a.stage) {
+        const board = await rec(ctx.env, 'boards', a.stage.databaseId);
+        if (!board || board.data.deleted) return err('stage database not found');
+        const cols = (board.data.columns ?? []) as { id: string; name: string }[];
+        const stage = a.stage;
+        const stageId = stage.stageId ?? cols.find((c) => c.name.toLowerCase() === String(stage.stage ?? '').toLowerCase())?.id;
+        if (!stageId) return err('stage not found on that database');
+        frameStageOf = { databaseId: stage.databaseId, stageId };
+      }
+      if (a.dryRun) return txt({ dryRun: true, summary: `add_frame on ${a.moodboardId}`, counts: { create: 1, update: members.length }, warnings: [], impact: { members: members.map((m) => m.id) } });
+      const id = uuid();
+      const z0 = Math.max(0, ...items.map((i) => Number(i.data.z ?? 0))) + 1;
+      const ops: WriteOp[] = [
+        { collection: 'mooditems', id, patch: { boardId: a.moodboardId, type: 'frame', x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h, z: z0, ...(a.title !== undefined ? { title: a.title } : {}), ...(frameStageOf ? { frameStageOf } : {}) } },
+        ...members.map((m) => ({ collection: 'mooditems' as const, id: m.id, patch: { parentFrameId: id } })),
+      ];
+      await write(ctx, ops);
+      return txt({ id, moodboardId: a.moodboardId, bounds, memberCount: members.length, ...(frameStageOf ? { frameStageOf } : {}) });
+    },
+  );
+
+  reg(
+    'layout_moodboard',
+    {
+      description: `Apply an automatic layout to a mood board. algorithm: 'grid' | 'flow-lr' (connector DAG, cycles → grid) | 'by-frame' (arrange members inside frames) | 'by-stage' (lanes = stage columns; needs cards, optional databaseId). Connectors are never positioned. Returns moved count.`,
+      inputSchema: z.object({
+        moodboardId: z.string(),
+        algorithm: z.enum(['grid', 'flow-lr', 'by-frame', 'by-stage']),
+        databaseId: z.string().optional().describe("for 'by-stage': database whose columns become lanes (default: board shared by the most cards)"),
+        gap: z.number().optional(),
+        wrapWidth: z.number().optional(),
+        dryRun: dryRunInput,
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const mb = await rec(ctx.env, 'moodboards', a.moodboardId);
+      if (!mb || mb.data.deleted) return err('mood board not found');
+      const items = await boardItems(a.moodboardId);
+      const moodItems = items.map((i) => ({ id: i.id, ...(i.data as object) }) as MoodItem);
+      const opts: { gap?: number; wrapWidth?: number; lanes?: string[]; laneOf?: (it: MoodItem) => string | null } = { gap: a.gap, wrapWidth: a.wrapWidth };
+      const recByCardItem = new Map<string, Rec>();
+      if (a.algorithm === 'by-stage') {
+        const cardItems = moodItems.filter((m) => m.type === 'card');
+        for (const m of cardItems) {
+          const ref = cardRef(m);
+          if (ref?.type === 'record') {
+            const t = await rec(ctx.env, 'tasks', ref.id);
+            if (t) recByCardItem.set(m.id, t);
+          }
+        }
+        let boardId = a.databaseId;
+        if (!boardId) {
+          const counts = new Map<string, number>();
+          for (const t of recByCardItem.values()) {
+            const b = String(t.data.boardId ?? 'board-default');
+            counts.set(b, (counts.get(b) ?? 0) + 1);
+          }
+          boardId = [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
+        }
+        const board = boardId ? await rec(ctx.env, 'boards', boardId) : null;
+        const cols = ((board?.data.columns ?? []) as { id: string; name: string }[]).map((c) => c.id);
+        if (!cols.length) {
+          ctx.warnings.push('by-stage needs a staged database — fell back to grid');
+          a = { ...a, algorithm: 'grid' };
+        } else {
+          opts.lanes = cols;
+          opts.laneOf = (it) => {
+            const t = recByCardItem.get(it.id);
+            return t ? String(t.data.status ?? '') : null;
+          };
+        }
+      }
+      const rects = layoutBoard(moodItems, a.algorithm as CanvasLayoutAlgorithm, opts);
+      const ops: WriteOp[] = [];
+      for (const [id, r] of rects) {
+        const cur = items.find((i) => i.id === id);
+        if (!cur) continue;
+        if (Number(cur.data.x) === r.x && Number(cur.data.y) === r.y && Number(cur.data.w) === r.w && Number(cur.data.h) === r.h) continue;
+        ops.push({ collection: 'mooditems', id, patch: { x: r.x, y: r.y, w: r.w, h: r.h } });
+      }
+      if (a.dryRun) return txt({ dryRun: true, summary: `layout_moodboard ${a.algorithm} on ${a.moodboardId}`, counts: { update: ops.length }, warnings: ctx.warnings, impact: {} });
+      if (ops.length) await write(ctx, ops);
+      return txt({ moodboardId: a.moodboardId, algorithm: a.algorithm, moved: ops.length });
+    },
+  );
+
+  /** https-only fetch with a byte cap — svg payload for add_svg (≤1MB per §6). */
+  async function fetchSvgText(url: string): Promise<string> {
+    let u: URL;
+    try {
+      u = new URL(url);
+    } catch {
+      throw new Error('invalid url');
+    }
+    if (u.protocol !== 'https:') throw new Error('only https urls are supported');
+    const res = await fetch(url);
+    if (!res.ok || !res.body) throw new Error(`fetch failed (${res.status})`);
+    const reader = res.body.getReader();
+    const parts: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > SVG_MAX_BYTES) throw new Error(`svg exceeds ${SVG_MAX_BYTES} bytes`);
+      parts.push(value);
+    }
+    const buf = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) {
+      buf.set(p, off);
+      off += p.length;
+    }
+    return new TextDecoder().decode(buf);
+  }
+
+  reg(
+    'add_svg',
+    {
+      description: `Add an SVG item to a mood board. svg = inline markup; svgUrl = https URL fetched (≤1MB). Both are sanitized server-side and stored inline on the item — unsanitizable input is an error.`,
+      inputSchema: z.object({
+        moodboardId: z.string(),
+        svg: z.string().optional(),
+        svgUrl: z.string().optional().describe('https URL of an .svg — fetched and sanitized'),
+        x: z.number().optional(),
+        y: z.number().optional(),
+        w: z.number().optional(),
+        h: z.number().optional(),
+        parentFrameId: z.string().optional(),
+      }),
+      annotations: { idempotentHint: false },
+    },
+    async (a) => {
+      if (!a.svg && !a.svgUrl) return err('pass svg or svgUrl');
+      if (a.svg && a.svgUrl) return err('pass exactly one of svg/svgUrl');
+      const mb = await rec(ctx.env, 'moodboards', a.moodboardId);
+      if (!mb || mb.data.deleted) return err('mood board not found');
+      const raw = a.svg ?? (await fetchSvgText(a.svgUrl!));
+      const s = sanitizeSvg(raw);
+      if (!s.ok) return err(`svg rejected: ${s.reasons.join('; ')}`);
+      const items = await boardItems(a.moodboardId);
+      const id = uuid();
+      const z0 = Math.max(0, ...items.map((i) => Number(i.data.z ?? 0))) + 1;
+      const patch: Record<string, unknown> = { boardId: a.moodboardId, type: 'svg', svg: s.svg, x: a.x ?? 0, y: a.y ?? 0, w: a.w ?? DEFAULT_ITEM_SIZE.svg.w, h: a.h ?? DEFAULT_ITEM_SIZE.svg.h, z: z0 };
+      if (a.parentFrameId) patch.parentFrameId = a.parentFrameId;
+      await write(ctx, [{ collection: 'mooditems', id, patch }]);
+      return txt({ id, moodboardId: a.moodboardId, bytes: s.svg.length });
+    },
+  );
+
+  reg(
+    'add_diagram',
+    {
+      description: `Add a diagram to a mood board as ONE mooditem holding the validated spec (edges derive render-side — no connector items). spec = {layout:'auto-lr'|'auto-tb'|'manual', nodes:[{id,label?,...}], edges:[{from,to,label?}]} — ≤200 nodes / ≤400 edges.`,
+      inputSchema: z.object({
+        moodboardId: z.string(),
+        spec: z.unknown().describe('DiagramSpec'),
+        x: z.number().optional(),
+        y: z.number().optional(),
+        w: z.number().optional(),
+        h: z.number().optional(),
+        parentFrameId: z.string().optional(),
+      }),
+      annotations: { idempotentHint: false },
+    },
+    async (a) => {
+      const mb = await rec(ctx.env, 'moodboards', a.moodboardId);
+      if (!mb || mb.data.deleted) return err('mood board not found');
+      const v = validateDiagramSpec(a.spec);
+      if (!v.ok) return err(`diagram spec rejected: ${v.reasons.join('; ')}`);
+      const items = await boardItems(a.moodboardId);
+      const id = uuid();
+      const z0 = Math.max(0, ...items.map((i) => Number(i.data.z ?? 0))) + 1;
+      const patch: Record<string, unknown> = { boardId: a.moodboardId, type: 'diagram', spec: v.spec, x: a.x ?? 0, y: a.y ?? 0, w: a.w ?? DEFAULT_ITEM_SIZE.diagram.w, h: a.h ?? DEFAULT_ITEM_SIZE.diagram.h, z: z0 };
+      if (a.parentFrameId) patch.parentFrameId = a.parentFrameId;
+      await write(ctx, [{ collection: 'mooditems', id, patch }]);
+      return txt({ id, moodboardId: a.moodboardId, nodes: v.spec.nodes.length, edges: v.spec.edges.length });
+    },
+  );
+
+  reg(
+    'update_diagram',
+    {
+      description: 'Replace a diagram item\'s spec (validated; expectedRev guards against stale writes).',
+      inputSchema: z.object({
+        itemId: z.string().optional(),
+        id: z.string().optional().describe('alias of itemId'),
+        spec: z.unknown().describe('DiagramSpec'),
+        expectedRev: z.number().describe('required — the item\'s current rev'),
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const id = a.itemId ?? a.id;
+      if (!id) return err('pass itemId');
+      const row = await getRec(ctx.env, id);
+      if (!row || row.collection !== 'mooditems' || row.data.deleted === true) return err('diagram item not found');
+      if (row.data.type !== 'diagram') return err('item is not a diagram');
+      const v = validateDiagramSpec(a.spec);
+      if (!v.ok) return err(`diagram spec rejected: ${v.reasons.join('; ')}`);
+      await write(ctx, [{ collection: 'mooditems', id, patch: { spec: v.spec } }], { expect: new Map([[id, a.expectedRev]]) });
+      return txt({ id, nodes: v.spec.nodes.length, edges: v.spec.edges.length });
+    },
+  );
+
+  reg(
+    'board_to_canvas',
+    {
+      description: `Convert a database/board into moodboard frames+cards in one call: one frame per stage (frameStageOf) + one card per record (ref {type:'record'}) parented to its stage frame + 'blocks' dependencies as linkKind connectors. moodboardId/name appends to an existing moodboard (dedupes existing card refs); otherwise a new moodboard is created. layout applies layoutBoard (default 'by-frame').`,
+      inputSchema: z.object({
+        databaseId: z.string().optional(),
+        boardId: z.string().optional().describe('alias of databaseId'),
+        moodboardId: z.string().optional().describe('append to this moodboard'),
+        name: z.string().optional().describe('append to moodboard with this title (else create new)'),
+        title: z.string().optional().describe('title for a newly created moodboard'),
+        layout: z.enum(['grid', 'flow-lr', 'by-frame', 'by-stage']).optional(),
+        dryRun: dryRunInput,
+      }),
+      annotations: { idempotentHint: false },
+    },
+    async (a) => {
+      const dbId = a.databaseId ?? a.boardId;
+      if (!dbId) return err('pass databaseId');
+      const board = await rec(ctx.env, 'boards', dbId);
+      if (!board || board.data.deleted) return err('database not found');
+      const cols = (board.data.columns ?? []) as { id: string; name: string; color?: string }[];
+      const records = live((await listBy(ctx.env, 'tasks', 'boardId', dbId)).map(toRec));
+
+      let mb: Rec | 'ambiguous' | null;
+      if (a.moodboardId || a.name) mb = await moodboardFor(a.moodboardId, a.name);
+      else mb = null;
+      if (mb === 'ambiguous') return err('multiple mood boards share that name — pass moodboardId');
+      if (a.moodboardId && !mb) return err('mood board not found');
+      const existing = mb ? await boardItems(mb.id) : [];
+      const existingRefs = new Set(existing.filter((i) => i.data.type === 'card').map((i) => cardRef(i.data as MoodItem)?.id).filter(Boolean));
+      // Existing cards map ref→item so dep connectors can point at them too.
+      const cardIdByRec = new Map<string, string>();
+      for (const i of existing) {
+        if (i.data.type !== 'card') continue;
+        const r = cardRef(i.data as MoodItem);
+        if (r) cardIdByRec.set(r.id, i.id);
+      }
+
+      const FRAME_W = 340;
+      const FRAME_GAP = 60;
+      const CARD_GAP = 20;
+      const PAD = 40;
+      const perCol = new Map<string, Rec[]>();
+      for (const t of records) {
+        const st = String(t.data.status ?? cols[0]?.id ?? '');
+        const list = perCol.get(st) ?? [];
+        list.push(t);
+        perCol.set(st, list);
+      }
+      const ops: WriteOp[] = [];
+      let newCards = 0;
+      let z0 = mb ? Math.max(0, ...existing.map((i) => Number(i.data.z ?? 0))) : 0;
+      const frameIdByStage = new Map<string, string>();
+      cols.forEach((col, i) => {
+        const n = perCol.get(col.id)?.length ?? 0;
+        const fid = uuid();
+        frameIdByStage.set(col.id, fid);
+        const h = Math.max(DEFAULT_ITEM_SIZE.frame.h, PAD * 2 + n * (DEFAULT_ITEM_SIZE.card.h + CARD_GAP));
+        ops.push({ collection: 'mooditems', id: fid, patch: { boardId: '', type: 'frame', title: col.name, frameStageOf: { databaseId: dbId, stageId: col.id }, x: i * (FRAME_W + FRAME_GAP), y: 0, w: FRAME_W, h } });
+      });
+      const orphanRecs = perCol.get('') ?? [];
+      let orphanFrameId: string | null = null;
+      const cardOps = (t: Rec, fid: string) => {
+        if (existingRefs.has(t.id)) return;
+        const cid = uuid();
+        cardIdByRec.set(t.id, cid);
+        newCards++;
+        ops.push({ collection: 'mooditems', id: cid, patch: { boardId: '', type: 'card', ref: { type: 'record', id: t.id }, parentFrameId: fid, x: 0, y: 0, w: DEFAULT_ITEM_SIZE.card.w, h: DEFAULT_ITEM_SIZE.card.h } });
+      };
+      for (const col of cols) (perCol.get(col.id) ?? []).forEach((t) => cardOps(t, frameIdByStage.get(col.id)!));
+      if (orphanRecs.length) {
+        orphanFrameId = uuid();
+        ops.push({ collection: 'mooditems', id: orphanFrameId, patch: { boardId: '', type: 'frame', title: 'No stage', x: cols.length * (FRAME_W + FRAME_GAP), y: 0, w: FRAME_W, h: Math.max(DEFAULT_ITEM_SIZE.frame.h, PAD * 2 + orphanRecs.length * (DEFAULT_ITEM_SIZE.card.h + CARD_GAP)) } });
+        orphanRecs.forEach((t) => cardOps(t, orphanFrameId!));
+      }
+      // 'blocks' deps between records that both got cards → connector + mirrored links row.
+      const depLinks = (await listCollection(ctx.env, 'links')).filter((l) => !l.data.deleted && l.data.kind === 'blocks');
+      let connectors = 0;
+      const connSeen = new Set(existing.filter((i) => i.data.type === 'connector').map((i) => `${i.data.from}->${i.data.to}`));
+      for (const l of depLinks) {
+        const f = cardIdByRec.get(String(l.data.fromId));
+        const t = cardIdByRec.get(String(l.data.toId));
+        if (!f || !t || connSeen.has(`${f}->${t}`)) continue;
+        connSeen.add(`${f}->${t}`);
+        connectors++;
+        ops.push(
+          { collection: 'mooditems', id: uuid(), patch: { boardId: '', type: 'connector', from: f, to: t, linkKind: 'blocks', linkId: l.id } },
+        );
+      }
+      const mbId = mb?.id ?? uuid();
+      for (const o of ops) {
+        (o.patch as Record<string, unknown>).boardId = mbId;
+        o.patch.z = ++z0;
+      }
+      const algorithm = (a.layout ?? 'by-frame') as CanvasLayoutAlgorithm;
+      // Apply layout to the freshly minted geometry (single write, LWW).
+      const staged = [...existing.map((i) => ({ id: i.id, ...(i.data as object) }) as MoodItem), ...ops.filter((o) => o.collection === 'mooditems').map((o) => ({ id: o.id, ...(o.patch as object) }) as MoodItem)];
+      const rects = layoutBoard(staged, algorithm, {});
+      for (const o of ops) {
+        if (o.collection !== 'mooditems') continue;
+        const r = rects.get(o.id);
+        if (r && o.patch.type !== 'connector') Object.assign(o.patch, { x: r.x, y: r.y, w: r.w, h: r.h });
+      }
+      if (a.dryRun) {
+        return txt({ dryRun: true, summary: `board_to_canvas ${dbId} → ${mb ? mb.id : 'new moodboard'}`, counts: { frames: frameIdByStage.size + (orphanFrameId ? 1 : 0), cards: newCards, connectors, skippedExisting: records.length - newCards }, warnings: [], impact: {} });
+      }
+      if (!mb) ops.push({ collection: 'moodboards', id: mbId, patch: { title: a.title ?? `${titleOf(board, 'Board')} canvas`, icon: '🎨', order: String(Date.now()), createdBy: ctx.userId, createdAt: Date.now() } });
+      ops.push(activityOp(ctx.userId, ctx.clientName, 'created', 'moodboard', mbId, a.title ?? String(board.data.name ?? 'canvas'), ctx.cs?.id));
+      await write(ctx, ops);
+      return txt({
+        moodboardId: mbId,
+        created: !mb,
+        url: moodUrl(ctx, mbId),
+        frames: frameIdByStage.size + (orphanFrameId ? 1 : 0),
+        cards: newCards,
+        connectors,
+        skippedExisting: records.length - newCards,
+        frameIds: [...frameIdByStage.values()],
+        cardIds: [...cardIdByRec.values()],
+      });
+    },
+  );
+
+  reg(
+    'share_moodboard',
+    {
+      description: 'Publish (or unpublish) a mood board as a read-only public canvas link. Returns /s/canvas/<token>.',
+      inputSchema: z.object({ moodboardId: z.string(), enabled: z.boolean().optional() }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const mb = await rec(ctx.env, 'moodboards', a.moodboardId);
+      if (!mb || mb.data.deleted) return err('mood board not found');
+      if (a.enabled === false) {
+        await ctx.env.DB.prepare(`DELETE FROM shares WHERE page_id = ? AND target_type = 'moodboard'`).bind(a.moodboardId).run();
+        return txt({ enabled: false });
+      }
+      const existing = await ctx.env.DB.prepare(`SELECT token FROM shares WHERE page_id = ? AND target_type = 'moodboard'`).bind(a.moodboardId).first<{ token: string }>();
+      const token = existing?.token ?? randomToken();
+      if (!existing) await ctx.env.DB.prepare(`INSERT INTO shares (token, target_type, page_id, created_by, created_at) VALUES (?, 'moodboard', ?, ?, ?)`).bind(token, a.moodboardId, ctx.userId, Date.now()).run();
+      return txt({ enabled: true, token, url: `${ctx.origin}/s/canvas/${token}`, api: `${ctx.origin}/api/public/canvas/${token}` });
     },
   );
 
@@ -1999,7 +2750,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
 
   /* ---------- 21. Phase 1: databases, views, records, links ---------- */
 
-  const VIEW_TYPES = ['table', 'list', 'gallery', 'board'] as const;
+  const VIEW_TYPES = ['table', 'list', 'gallery', 'board', 'calendar', 'timeline'] as const;
   const viewUrl = (dbId: string, viewId: string) => `${ctx.origin}/boards/${dbId}/views/${viewId}`;
   const recordUrl = (dbId: string, recId: string) => `${ctx.origin}/boards/${dbId}/tasks/${recId}`;
 
@@ -2011,6 +2762,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     groupBy: z.string().optional(),
     visible: z.array(z.string()).optional(),
     cover: z.string().optional(),
+    dateKey: z.string().optional().describe("calendar/timeline: date field name/id ('dueDate' or a date-type field)"),
+    endDateKey: z.string().optional().describe('timeline: bar end date field name/id'),
+    timelineScale: z.enum(['week', 'month', 'quarter']).optional(),
   });
 
   /** Field name/id → views.ts FieldKey ('title'|'status'|'assigneeId'|'dueDate'|'priority'|'createdAt'|'createdBy'|p_<fid>|rel_<fid>). */
@@ -2021,7 +2775,16 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     return (BUILTINS[key.toLowerCase()] ?? key) as import('../shared/views').FieldKey;
   };
 
-  const viewOps = async (dbId: string, views: { name: string; type?: string; filters?: { field: string; op: string; value?: unknown }[]; sorts?: { field: string; dir?: string }[]; groupBy?: string; visible?: string[]; cover?: string }[], boardData: Record<string, unknown>): Promise<WriteOp[]> => {
+  /** dateKey arg → 'dueDate' | p_<fid>; must resolve to a date-capable field. Throws on bad key. */
+  const resolveDateKeyArg = (boardData: Record<string, unknown>, key: string): string => {
+    if (key === 'dueDate' || key === 'due' || key === 'duedate') return 'dueDate';
+    const f = fieldsOf(boardData).find((x) => x.id === key || x.name.toLowerCase() === key.toLowerCase());
+    if (!f) throw new Error(`dateKey "${key}" is not a field on this database`);
+    if (f.type !== 'date') throw new Error(`dateKey "${key}" resolves to a ${f.type} field — needs type 'date'`);
+    return `p_${f.id}`;
+  };
+
+  const viewOps = async (dbId: string, views: { name: string; type?: string; filters?: { field: string; op: string; value?: unknown }[]; sorts?: { field: string; dir?: string }[]; groupBy?: string; visible?: string[]; cover?: string; dateKey?: string; endDateKey?: string; timelineScale?: string }[], boardData: Record<string, unknown>): Promise<WriteOp[]> => {
     const ops: WriteOp[] = [];
     let prevKey: string | null = null;
     for (const v of views) {
@@ -2040,6 +2803,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
             groupBy: v.groupBy ? resolveFieldKey(boardData, v.groupBy) : undefined,
             visible: v.visible?.map((f) => resolveFieldKey(boardData, f)),
             cover: v.cover ? resolveFieldKey(boardData, v.cover) : undefined,
+            dateKey: v.dateKey ? resolveDateKeyArg(boardData, v.dateKey) : undefined,
+            endDateKey: v.endDateKey ? resolveDateKeyArg(boardData, v.endDateKey) : undefined,
+            timelineScale: v.timelineScale ?? undefined,
           },
           order: prevKey,
           createdBy: ctx.userId,
@@ -2146,8 +2912,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'add_view',
     {
-      description: 'Add a view to a database. Filter/sort/groupBy/visible take field NAMES (resolved server-side to ids).',
-      inputSchema: z.object({ databaseId: z.string(), name: z.string(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: z.string().optional(), visible: z.array(z.string()).optional(), cover: z.string().optional() }),
+      description: 'Add a view to a database (types: table/list/gallery/board/calendar/timeline). Filter/sort/groupBy/visible take field NAMES (resolved server-side to ids). calendar/timeline take dateKey/endDateKey (date field names) + timelineScale.',
+      inputSchema: z.object({ databaseId: z.string(), name: z.string(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: z.string().optional(), visible: z.array(z.string()).optional(), cover: z.string().optional(), dateKey: z.string().optional(), endDateKey: z.string().optional(), timelineScale: z.enum(['week', 'month', 'quarter']).optional() }),
       annotations: { idempotentHint: true },
     },
     async (a) => {
@@ -2157,7 +2923,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const dup = existing.find((v) => String(v.data.name ?? '').toLowerCase() === a.name.toLowerCase());
       if (dup) return txt({ id: dup.id, url: viewUrl(a.databaseId, dup.id), existed: true });
       const id = uuid();
-      const ops = await viewOps(a.databaseId, [{ name: a.name, type: a.type, filters: a.filters, sorts: a.sorts, groupBy: a.groupBy, visible: a.visible, cover: a.cover }], board.data);
+      const ops = await viewOps(a.databaseId, [{ name: a.name, type: a.type, filters: a.filters, sorts: a.sorts, groupBy: a.groupBy, visible: a.visible, cover: a.cover, dateKey: a.dateKey, endDateKey: a.endDateKey, timelineScale: a.timelineScale }], board.data);
       await write(ctx, ops.map((o) => ({ ...o, id })).concat(activityOp(ctx.userId, ctx.clientName, 'created', 'board', a.databaseId, `view ${a.name}`, ctx.cs?.id)));
       return txt({ id, url: viewUrl(a.databaseId, id) });
     },
@@ -2167,7 +2933,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     'update_view',
     {
       description: 'Update a view name/type/config.',
-      inputSchema: z.object({ viewId: z.string(), name: z.string().optional(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: z.string().optional(), visible: z.array(z.string()).optional(), cover: z.string().optional(), expectedRev: z.number().optional() }),
+      inputSchema: z.object({ viewId: z.string(), name: z.string().optional(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: z.string().optional(), visible: z.array(z.string()).optional(), cover: z.string().optional(), dateKey: z.string().nullable().optional(), endDateKey: z.string().nullable().optional(), timelineScale: z.enum(['week', 'month', 'quarter']).nullable().optional(), expectedRev: z.number().optional() }),
       annotations: { idempotentHint: true },
     },
     async (a) => {
@@ -2183,6 +2949,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (a.groupBy !== undefined) cfg.groupBy = a.groupBy ? resolveFieldKey(board?.data ?? {}, a.groupBy) : undefined;
       if (a.visible !== undefined) cfg.visible = a.visible.map((f) => resolveFieldKey(board?.data ?? {}, f));
       if (a.cover !== undefined) cfg.cover = a.cover ? resolveFieldKey(board?.data ?? {}, a.cover) : undefined;
+      if (a.dateKey !== undefined) cfg.dateKey = a.dateKey ? resolveDateKeyArg(board?.data ?? {}, a.dateKey) : undefined;
+      if (a.endDateKey !== undefined) cfg.endDateKey = a.endDateKey ? resolveDateKeyArg(board?.data ?? {}, a.endDateKey) : undefined;
+      if (a.timelineScale !== undefined) cfg.timelineScale = a.timelineScale ?? undefined;
       patch.config = cfg;
       const expect = a.expectedRev !== undefined ? new Map([[a.viewId, a.expectedRev]]) : undefined;
       await write(ctx, [{ collection: 'views', id: a.viewId, patch }], { expect });

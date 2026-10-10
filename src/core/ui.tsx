@@ -159,8 +159,11 @@ export function Popover({
       const r = triggerRef.current?.getBoundingClientRect();
       if (!r) return;
       const minW = 176; // min-w-44
-      let left = align === 'right' ? r.right - Math.max(minW, r.width) : align === 'center' ? r.left + r.width / 2 - Math.max(minW, r.width) / 2 : r.left;
-      left = Math.max(8, Math.min(left, window.innerWidth - minW - 8));
+      // Clamp against the panel's real rendered width (w-80 etc.), not just
+      // minW — otherwise right-anchored panels overflow the viewport.
+      const panelW = Math.max(minW, panelRef.current?.offsetWidth ?? r.width);
+      let left = align === 'right' ? r.right - panelW : align === 'center' ? r.left + r.width / 2 - panelW / 2 : r.left;
+      left = Math.max(8, Math.min(left, window.innerWidth - panelW - 8));
       setPos({ left, top: r.bottom + 4, width: Math.max(minW, r.width) });
     };
     update();
@@ -186,6 +189,16 @@ export function Popover({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, sheetMode]);
+  // Once the panel exists, re-clamp left against its real rendered width —
+  // the first measure only knows minW, so wide panels could overflow right.
+  useEffect(() => {
+    if (!isOpen || !pos) return;
+    const w = panelRef.current?.offsetWidth ?? 0;
+    if (!w) return;
+    const maxLeft = Math.max(8, window.innerWidth - w - 8);
+    if (pos.left > maxLeft) setPos((p) => (p ? { ...p, left: maxLeft } : p));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, pos]);
   return (
     <div ref={ref} className="relative inline-block">
       <span

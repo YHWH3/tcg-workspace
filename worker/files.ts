@@ -1,6 +1,17 @@
 import { Hono } from 'hono';
 import { requireAuth } from './auth';
 import type { Env, AuthUser } from './auth';
+import { sanitizeSvg } from '../shared/svgSanitize';
+
+/** SVG must be served inert: sandboxed, scripts/styles locked down. */
+export const SVG_HEADERS: Record<string, string> = {
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+  'X-Content-Type-Options': 'nosniff',
+};
+
+export function svgHeaders(mime: string | null | undefined): Record<string, string> {
+  return mime === 'image/svg+xml' ? { 'Content-Type': 'image/svg+xml', ...SVG_HEADERS } : {};
+}
 
 export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB per file
 export const QUOTA_BYTES = 450 * 1024 * 1024; // 450 MB workspace quota
@@ -104,6 +115,26 @@ files.post('/:id/complete', async (c) => {
   if ((await usageBytes(db)) + body.size > QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
 
   const mime = typeof body.mime === 'string' && body.mime.length <= 100 ? body.mime : 'application/octet-stream';
+
+  // SVG is active markup: sanitize on write and store the canonical output.
+  if (mime === 'image/svg+xml') {
+    const { results } = await db.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ data: unknown }>();
+    const svg = sanitizeSvg(new TextDecoder().decode(concatRows(results)));
+    if (!svg.ok) {
+      await db.batch([db.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id), db.prepare('DELETE FROM files WHERE id = ?').bind(id)]);
+      return c.json({ error: 'svg failed sanitization', reasons: svg.reasons }, 400);
+    }
+    const bytes = new TextEncoder().encode(svg.svg);
+    await db.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id).run();
+    const chunks: D1PreparedStatement[] = [];
+    for (let off = 0, idx = 0; off < bytes.length; off += MAX_CHUNK, idx++) {
+      chunks.push(db.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, ?, ?)').bind(id, idx, bytes.slice(off, off + MAX_CHUNK)));
+    }
+    await db.batch(chunks);
+    await db.prepare('UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ?').bind(mime, bytes.length, chunks.length, id).run();
+    return c.json({ ok: true });
+  }
+
   await db.prepare('UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ?').bind(mime, body.size, body.chunks, id).run();
   return c.json({ ok: true });
 });
@@ -120,6 +151,7 @@ files.get('/:id', async (c) => {
       'Content-Type': meta.mime ?? 'application/octet-stream',
       'Content-Length': String(out.byteLength),
       'Cache-Control': 'private, max-age=31536000, immutable',
+      ...svgHeaders(meta.mime),
     },
   });
 });

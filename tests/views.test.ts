@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyView, evalFilter, fieldValue, sortRecords, type Filter, type ViewCtx, type ViewRecord } from '../shared/views';
+import { applyView, evalFilter, fieldValue, resolveDateKey, sortRecords, VIEW_TYPES, type Filter, type ViewConfig, type ViewCtx, type ViewRecord, type ViewRow, type ViewType } from '../shared/views';
 import type { FieldDef } from '../shared/fields';
 
 const tags: FieldDef = { id: 'ftags', name: 'Tags', type: 'multi_select', options: [
@@ -225,5 +225,41 @@ describe('applyView', () => {
       ctx,
     );
     expect(byPriority.groups?.map((g) => g.key)).toEqual(['low', 'high', '']); // priority order, '' last
+  });
+});
+
+describe('Phase 2 — calendar/timeline view config', () => {
+  it('calendar and timeline are valid ViewTypes', () => {
+    const types: ViewType[] = ['calendar', 'timeline'];
+    for (const t of types) {
+      const row: ViewRow = { id: 'v1', databaseId: 'db', name: 'v', type: t, order: 'a', config: {} };
+      expect(row.type).toBe(t);
+    }
+    expect(VIEW_TYPES).toContain('calendar');
+    expect(VIEW_TYPES).toContain('timeline');
+  });
+
+  it('resolveDateKey defaults to dueDate and honors config', () => {
+    expect(resolveDateKey({})).toBe('dueDate');
+    expect(resolveDateKey(undefined)).toBe('dueDate');
+    expect(resolveDateKey(null)).toBe('dueDate');
+    expect(resolveDateKey({ dateKey: 'dueDate' })).toBe('dueDate');
+    expect(resolveDateKey({ dateKey: 'p_fdeadline' })).toBe('p_fdeadline');
+  });
+
+  it('date config fields pass through applyView untouched', () => {
+    const cfg: ViewConfig = {
+      dateKey: 'p_deadline',
+      endDateKey: 'p_launch',
+      timelineScale: 'quarter',
+      sorts: [{ key: 'title', dir: 'asc' }],
+    };
+    const { rows } = applyView(
+      [rec('b', { title: 'b', p_deadline: '2026-01-02' }), rec('a', { title: 'a', p_deadline: '2026-01-01' })],
+      cfg,
+      ctx,
+    );
+    expect(rows.map((r) => r.id)).toEqual(['a', 'b']); // sorts still apply; date fields don't break eval
+    expect(cfg.timelineScale).toBe('quarter');
   });
 });

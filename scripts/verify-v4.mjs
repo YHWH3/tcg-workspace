@@ -115,16 +115,17 @@ await pageA.waitForURL(/\/moodboards\//);
 const mbId = pageA.url().split('/moodboards/')[1];
 await sleep(600);
 
-// add note via toolbar
-await pageA.locator('button[title="Sticky note"]').click();
+// add note via Add item menu
+await pageA.locator('button[title="Add item"]').click();
+await pageA.locator('button:has-text("Sticky note")').first().click();
 await sleep(500);
 await pageA.keyboard.type('weave textures', { delay: 15 });
 await pageA.locator('body').click({ position: { x: 30, y: 30 } });
 await sleep(400);
 check('note item added', (await pageA.locator('[data-mooditem]').count()) === 1);
 
-// add color swatch
-await pageA.locator('button[title="Color swatch"]').click();
+// add color swatch via Add item menu
+await pageA.locator('button[title="Add item"]').click();
 await sleep(300);
 await pageA.locator('input[type="color"]').evaluate((el) => {
   el.value = '#12a594';
@@ -135,10 +136,15 @@ await pageA.getByRole('button', { name: 'Add', exact: true }).click();
 await sleep(400);
 check('color item added', (await pageA.locator('[data-mooditem]').count()) === 2);
 
-// add image via toolbar input
+// add image via Add item menu file input (inside the open popover)
+await pageA.locator('button[title="Add item"]').click();
 await pageA.locator('input[type="file"][accept="image/*"]').setInputFiles(`${FIXTURES}/photo.png`);
 await sleep(1200);
 check('image item added', (await pageA.locator('[data-mooditem]').count()) === 3);
+// ctxA advertises a coarse pointer (hasTouch) → the canvas opens in browse
+// mode; a real touch user taps Edit for drag/resize gestures.
+await pageA.locator('button[title*="click to edit"]').click();
+await sleep(200);
 await pageA.screenshot({ path: `${OUT}/moodboard-desktop.png`, fullPage: false });
 
 // drag the image: pointer on item → move → drop; position commits on drop.
@@ -168,7 +174,10 @@ if (hb) {
 const box2 = await img.boundingBox();
 check('resize grows item', box2.width > box1.width + 30);
 
-// pan the canvas by dragging empty space
+// pan the canvas by dragging empty space — back in browse mode (edit-mode
+// background drags are marquee-select instead)
+await pageA.locator('button[title*="click to browse"]').click();
+await sleep(200);
 const world0 = await pageA.locator('[data-mooditem]').first().boundingBox();
 await pageA.mouse.move(1300, 800);
 await pageA.mouse.down();
@@ -275,7 +284,7 @@ await mpage.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'networkidle' });
 await sleep(1000);
 await mpage.locator('button[aria-label="Block options"]').first().click();
 await sleep(400);
-await mpage.locator('text=Comments').first().click();
+await mpage.locator('[role="dialog"]').getByRole('button', { name: 'Comments' }).click();
 await sleep(600);
 await mpage.locator('input[placeholder="Add a comment…"]').last().fill('mobile reply');
 await mpage.getByRole('button', { name: 'Post', exact: true }).last().click();

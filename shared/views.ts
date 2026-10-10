@@ -6,7 +6,12 @@
 import { cmpOrder } from './order';
 import { isSelectType, optionByName, type FieldDef } from './fields';
 
-export type ViewType = 'board' | 'table' | 'list' | 'gallery';
+export type ViewType = 'board' | 'table' | 'list' | 'gallery' | 'calendar' | 'timeline';
+
+export const VIEW_TYPES: readonly ViewType[] = ['board', 'table', 'list', 'gallery', 'calendar', 'timeline'];
+
+/** Date-capable field key: the built-in due date or a custom `date` field. */
+export type DateFieldKey = 'dueDate' | `p_${string}`;
 
 export type FieldKey =
   | 'title'
@@ -53,6 +58,15 @@ export interface ViewConfig {
   cover?: 'cover' | `p_${string}` | null;  // gallery/board card image source
   showSubrecords?: boolean;      // default false on board/gallery, true (nested) on table
   mine?: boolean;                // shortcut filter: assignee = current user
+  // Phase 2 calendar/timeline views — all values are date-only 'yyyy-mm-dd' strings
+  dateKey?: DateFieldKey;        // primary date field (default 'dueDate')
+  endDateKey?: DateFieldKey | null; // timeline bar end; null/absent → 1-day bars
+  timelineScale?: 'week' | 'month' | 'quarter';
+}
+
+/** The record field calendar/timeline views bucket by — defaults to 'dueDate'. */
+export function resolveDateKey(cfg: Pick<ViewConfig, 'dateKey'> | null | undefined): DateFieldKey {
+  return cfg?.dateKey ?? 'dueDate';
 }
 
 export interface ViewRow {
