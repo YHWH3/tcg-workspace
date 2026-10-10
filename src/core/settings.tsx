@@ -6,6 +6,7 @@ import type { PublicUser } from '../../shared/types';
 import { findReusableBoards, planInstallPreview, type AuthorTemplate, type BundledTemplate, type ExistingBoardLike } from '../../shared/bundled';
 import { BUNDLED_TEMPLATES } from './bundledTemplates';
 import { instantiateTemplate, usePages } from '../modules/pages/api';
+import { NotificationPrefs } from '../modules/inbox';
 import { api } from './api';
 import { authStore, changePassword, updateMe } from './auth';
 import { useChangesets, undoChangeset } from './activity';
@@ -43,6 +44,7 @@ export function SettingsPage() {
         <RecentAIChangesSection />
         <TemplateGallerySection />
         <StorageSection />
+        <NotificationsSection />
         <LocalDataSection user={user} />
         <PasswordSection />
         {user?.role === 'admin' && <AdminSection />}
@@ -208,6 +210,14 @@ function LocalDataSection({ user }: { user: PublicUser | null }) {
           </div>
         </div>
       )}
+    </Section>
+  );
+}
+
+function NotificationsSection() {
+  return (
+    <Section title="Notifications">
+      <NotificationPrefs />
     </Section>
   );
 }
