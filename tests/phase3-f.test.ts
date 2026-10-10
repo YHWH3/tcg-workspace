@@ -435,3 +435,51 @@ describe('dashboard blocks — config fields pass through author→snapshot→pl
     }
   });
 });
+
+/* ---------------- P3-R1: durable completion marker + stable-id reconcile ---------------- */
+describe('planner — P3-R1 stable ids + root-last completion marker', () => {
+  const bundle = toBundled('mini', mini);
+
+  it('stableIds: same plan twice → identical write ids (replay-safe)', () => {
+    const plan = planTemplateInstantiation(bundle.snapshot, {
+      templateId: 'pg_home', templateKey: 'mini', packInstall: true, preserveTemplates: true, stableIds: true,
+    }, { id: nid, now: NOW })!;
+    // every non-link id is an inst_ hash of (key, collection, authored id)
+    expect(plan.writes.every((w) => w.id.startsWith('inst_') || w.collection === 'links')).toBe(true);
+    const re = planTemplateInstantiation(bundle.snapshot, {
+      templateId: 'pg_home', templateKey: 'mini', packInstall: true, preserveTemplates: true, stableIds: true,
+    }, { id: nid, now: NOW })!;
+    // deps.id is only a fallback — stableIds ignores it, so two calls converge
+    expect(re.writes.map((w) => w.id).sort()).toEqual(plan.writes.map((w) => w.id).sort());
+    expect(re.rootPageId).toBe(plan.rootPageId);
+  });
+
+  it('stableIds + interrupted apply: replanning yields the same ids, so writing the missing tail completes the install', () => {
+    const plan = planTemplateInstantiation(bundle.snapshot, {
+      templateId: 'pg_home', templateKey: 'mini', packInstall: true, preserveTemplates: true, stableIds: true,
+    }, { id: nid, now: NOW })!;
+    // simulate an interruption after the first K writes: marker root is last,
+    // so the marker is absent ⇒ a re-run proceeds and the (stable) ids
+    // dedupe the overlap — writing only the missing tail converges.
+    const K = Math.floor(plan.writes.length / 2);
+    const applied = new Map(plan.writes.slice(0, K).map((w) => [w.id, w.patch]));
+    expect([...applied.keys()]).not.toContain(plan.rootPageId);
+    const re = planTemplateInstantiation(bundle.snapshot, {
+      templateId: 'pg_home', templateKey: 'mini', packInstall: true, preserveTemplates: true, stableIds: true,
+    }, { id: nid, now: NOW })!;
+    for (const w of re.writes) applied.set(w.id, w.patch);
+    // After the resume every planned id exists exactly once — no duplicates.
+    expect(applied.size).toBe(plan.writes.length);
+    const stamped = plan.writes.filter((w) => w.collection === 'pages' && w.patch.templateKey === 'mini');
+    expect(stamped).toHaveLength(1);
+    expect(stamped[0].id).toBe(plan.rootPageId);
+  });
+
+  it('real tcg-pack: root stamped last; only root carries templateKey', () => {
+    const pack = toBundled('tcg-pack', rawPack as unknown as AuthorTemplate);
+    const plan = planTemplateInstantiation(pack.snapshot, { templateId: pack.root, templateKey: 'tcg-pack', packInstall: true, stableIds: true }, { id: nid, now: NOW })!;
+    const stamped = plan.writes.filter((w) => w.patch.templateKey === 'tcg-pack' && w.collection === 'pages');
+    expect(stamped).toHaveLength(1);
+    expect(plan.writes[plan.writes.length - 1].id).toBe(stamped[0].id);
+  });
+});

@@ -200,10 +200,18 @@ describe('template planner — Phase 1 databases/linking', () => {
     expect(pblk.patch.text).toBe(`About @[rec:${maya.id}] and @[page:${plan.rootPageId}]`);
   });
 
-  it('stamps templateKey on copied rows and produces independent copies', () => {
+  it('stamps templateKey on the ROOT PAGE ONLY and produces independent copies', () => {
     const a = planTemplateInstantiation(dbSnap(), { templateId: 'tpl', templateKey: 'starter-people' }, { id, now })!;
     expect(a.writes.filter((w) => w.collection === 'boards').every((w) => w.patch.templateKey === 'starter-people')).toBe(true);
-    expect(a.writes.filter((w) => w.collection === 'pages').every((w) => w.patch.templateKey === 'starter-people')).toBe(true);
+    // P3-R1: the completion marker lives on the root page alone — stamping
+    // every page let an interrupted install pass the 'installed' check.
+    const pages = a.writes.filter((w) => w.collection === 'pages');
+    const stamped = pages.filter((w) => w.patch.templateKey === 'starter-people');
+    expect(stamped).toHaveLength(1);
+    expect(stamped[0].id).toBe(a.rootPageId);
+    // ...and it is the LAST write in the plan, so no applier order can put a
+    // marker ahead of the rest of the install.
+    expect(a.writes[a.writes.length - 1].id).toBe(a.rootPageId);
     const b = planTemplateInstantiation(dbSnap(), { templateId: 'tpl' }, { id, now })!;
     const idsA = new Set(a.writes.map((w) => w.id));
     for (const w of b.writes) expect(idsA.has(w.id)).toBe(false);

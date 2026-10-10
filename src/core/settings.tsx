@@ -245,6 +245,7 @@ function TemplateGallerySection() {
         reuseBoards,
         preserveTemplates: true,
         packInstall: true,
+        stableIds: true,
       });
       if (id) {
         setPreview(null);
@@ -253,6 +254,10 @@ function TemplateGallerySection() {
       } else {
         toast('Install failed — nothing was written', 'error');
       }
+    } catch (e) {
+      // Stable ids make a re-run reconcile missing rows — say so honestly
+      // instead of claiming nothing was written.
+      toast(`Install interrupted — run Install again to finish (${e instanceof Error ? e.message : 'write error'})`, 'error');
     } finally {
       setBusy(null);
     }
@@ -332,7 +337,7 @@ function TemplatePreviewSheet({ t, boards, installed, busy, onClose, onInstall }
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
         <Count label="Pages" n={plan.pages} />
         <Count label="Views" n={plan.views} />
-        <Count label="Links" n={plan.links} />
+        <Count label="Links" n={plan.links} note={plan.reused.links ? `+${plan.reused.links} on reused records — skipped` : undefined} />
         <Count label="Records" n={plan.records} />
         <Count label="Blocks" n={plan.blocks} />
         <Count label="Databases" n={plan.databases.create.length + plan.databases.reuse.length} />
@@ -353,7 +358,7 @@ function TemplatePreviewSheet({ t, boards, installed, busy, onClose, onInstall }
           ))}
         </div>
       )}
-      {installed && <p className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-300">Already installed. Reinstalling reuses the databases but may create duplicate pages.</p>}
+      {installed && <p className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-300">Already installed. Reinstalling reconciles against the existing rows — it never duplicates pages or records.</p>}
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
         <Button onClick={onInstall} disabled={busy}>
@@ -365,11 +370,12 @@ function TemplatePreviewSheet({ t, boards, installed, busy, onClose, onInstall }
   );
 }
 
-function Count({ label, n }: { label: string; n: number }) {
+function Count({ label, n, note }: { label: string; n: number; note?: string }) {
   return (
     <div>
       <dt className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">{label}</dt>
       <dd className="text-lg font-semibold tabular-nums">{n}</dd>
+      {note && <dd className="text-[10px] leading-tight text-neutral-400">{note}</dd>}
     </div>
   );
 }

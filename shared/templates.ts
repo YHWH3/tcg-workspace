@@ -7,8 +7,17 @@
  * parentId + record body blocks, and remaps @[page:]/@[rec:] mention tokens. */
 
 import { cmpOrder, orderBetween } from './order';
-import { linkId } from './linkid';
+import { fnv1a64hex, linkId } from './linkid';
 import type { FieldDef } from './fields';
+
+/**
+ * Deterministic record id for bundled installs (Phase 3 P3-R1): derived from
+ * (templateKey, collection, authored id), so a re-run after an interrupted
+ * install upserts the SAME rows instead of duplicating — replays converge.
+ */
+export function installRecordId(templateKey: string, collection: string, srcId: string): string {
+  return `inst_${fnv1a64hex(`${templateKey}:${collection}:${srcId}`)}`;
+}
 
 export interface RecSnapshot {
   pages: Record<string, Record<string, unknown>>;
@@ -45,6 +54,14 @@ export interface TemplateOpts {
    * instantiation leaves this off.
    */
   packInstall?: boolean;
+  /**
+   * Bundled installs pass true: generated ids become deterministic
+   * `inst_<hash>` of (templateKey, collection, authored id) so re-runs are
+   * idempotent replays — an interrupted install resumes instead of
+   * duplicating. Requires `templateKey`. Never set for page-template
+   * instantiation (each instance needs fresh ids).
+   */
+  stableIds?: boolean;
 }
 
 export interface PlannedWrite {
@@ -105,8 +122,13 @@ export function planTemplateInstantiation(
   const pageIds = opts.packInstall
     ? Object.keys(snap.pages).filter((id) => !snap.pages[id].deleted)
     : subtreeIds(snap.pages, opts.templateId);
+  // Stable-id mode: deterministic ids keyed by (templateKey, collection, src id)
+  // so interrupted bundled installs replay idempotently. Links already use
+  // deterministic linkId; everything else keys off its authored id.
+  const newId = (collection: PlannedWrite['collection'], srcId: string): string =>
+    opts.stableIds && opts.templateKey ? installRecordId(opts.templateKey, collection, srcId) : deps.id();
   const pageMap = new Map<string, string>(); // old → new
-  for (const oldId of pageIds) pageMap.set(oldId, deps.id());
+  for (const oldId of pageIds) pageMap.set(oldId, newId('pages', oldId));
 
   // Order for the new root: after existing siblings under the same parent.
   const parentId = opts.parentId ?? null;
@@ -130,7 +152,10 @@ export function planTemplateInstantiation(
         isTemplate: opts.preserveTemplates ? src.isTemplate === true : false,
         createdBy: opts.actorId ?? null,
         createdAt: deps.now,
-        ...(opts.templateKey ? { templateKey: opts.templateKey } : {}),
+        // P3-R1: templateKey ONLY on the root page — it is the completion
+        // marker. Writes are ordered root-last so the marker can never exist
+        // before the rest of the install landed.
+        ...(opts.templateKey && isRoot ? { templateKey: opts.templateKey } : {}),
       },
     });
   }
@@ -156,11 +181,11 @@ export function planTemplateInstantiation(
   if (opts.packInstall) {
     for (const [bid, b] of Object.entries(snap.boards)) {
       if (b.deleted || boardMap.has(bid)) continue;
-      boardMap.set(bid, deps.id());
+      boardMap.set(bid, newId('boards', bid));
       srcBoardIds.push(bid);
       for (const [tid, t] of Object.entries(snap.tasks)) {
         if (!t.deleted && String(t.boardId ?? 'board-default') === bid && !taskMap.has(tid)) {
-          taskMap.set(tid, deps.id());
+          taskMap.set(tid, newId('tasks', tid));
         }
       }
     }
@@ -196,12 +221,12 @@ export function planTemplateInstantiation(
       if (!ownedByCopiedSet(b)) continue;
       for (const refId of boardRefsOf(b)) {
         if (boardMap.has(refId)) continue;
-        boardMap.set(refId, deps.id());
+        boardMap.set(refId, newId('boards', refId));
         srcBoardIds.push(refId);
         grew = true;
         for (const [tid, t] of Object.entries(snap.tasks)) {
           if (!t.deleted && String(t.boardId ?? 'board-default') === refId && !taskMap.has(tid)) {
-            taskMap.set(tid, deps.id());
+            taskMap.set(tid, newId('tasks', tid));
           }
         }
       }
@@ -216,7 +241,7 @@ export function planTemplateInstantiation(
     if (v.deleted) continue;
     const srcDb = String(v.databaseId ?? '');
     if (!boardMap.has(srcDb) || reusedBoardIds.has(srcDb)) continue;
-    viewMap.set(vid, deps.id());
+    viewMap.set(vid, newId('views', vid));
   }
 
   const remapField = (f: FieldDef): FieldDef => ({
@@ -293,7 +318,7 @@ export function planTemplateInstantiation(
     if (!newDbId || reusedBoardIds.has(srcDb)) continue;
     writes.push({
       collection: 'views',
-      id: viewMap.get(vid) ?? deps.id(),
+      id: viewMap.get(vid) ?? newId('views', vid),
       patch: {
         databaseId: newDbId,
         name: substituteVars(v.name ?? 'View', vars),
@@ -332,7 +357,7 @@ export function planTemplateInstantiation(
   }
 
   // --- blocks (page bodies AND copied-record bodies) ---
-  for (const [, b] of Object.entries(snap.blocks).filter(([, blk]) => ownedByCopiedSet(blk))) {
+  for (const [bid, b] of Object.entries(snap.blocks).filter(([, blk]) => ownedByCopiedSet(blk))) {
     const newOwnerId = pageMap.get(String(b.pageId)) ?? taskMap.get(String(b.pageId))!;
     let text = substituteVars(b.text, vars);
     // Page/record mentions inside the template re-point at the copies.
@@ -373,8 +398,15 @@ export function planTemplateInstantiation(
         });
       }
     }
-    writes.push({ collection: 'blocks', id: deps.id(), patch });
+    writes.push({ collection: 'blocks', id: newId('blocks', bid), patch });
   }
 
-  return { writes, rootPageId: pageMap.get(opts.templateId)! };
+  const rootPageId = pageMap.get(opts.templateId)!;
+  // P3-R1: the marker write is ordered LAST — sequential appliers (client
+  // mutate() loop, MCP batched write()) only stamp templateKey after every
+  // other planned row landed, so an interrupted install is never reported
+  // complete and a stable-id replay converges to the full set.
+  const ri = writes.findIndex((w) => w.collection === 'pages' && w.id === rootPageId);
+  if (ri >= 0) writes.push(writes.splice(ri, 1)[0]);
+  return { writes, rootPageId };
 }

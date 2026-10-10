@@ -97,6 +97,7 @@ export async function instantiateTemplate(
     reuseBoards?: Record<string, string>;
     preserveTemplates?: boolean;
     packInstall?: boolean;
+    stableIds?: boolean;
   } = {},
 ): Promise<string | null> {
   const snap = opts.snapshot ?? await (async () => {
@@ -123,6 +124,7 @@ export async function instantiateTemplate(
       reuseBoards: opts.reuseBoards,
       preserveTemplates: opts.preserveTemplates,
       packInstall: opts.packInstall,
+      stableIds: opts.stableIds,
     },
     { id: uuid, now: Date.now() },
   );

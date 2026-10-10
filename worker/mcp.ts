@@ -3438,7 +3438,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'install_template',
     {
-      description: `Install a bundled template pack (${Object.keys(BUNDLED).map((k) => `'${k}'`).join(' | ')}) into this workspace: creates its databases (reusing ones whose templateDbKey matches an authored key), views, records, pages, links and page templates. dryRun previews the plan. A completed install is detected by a page stamped templateKey; re-running after an interrupted install reuses databases and returns alreadyInstalled once the marker page exists. force re-installs (databases still dedupe, pages duplicate).`,
+      description: `Install a bundled template pack (${Object.keys(BUNDLED).map((k) => `'${k}'`).join(' | ')}) into this workspace: creates its databases (reusing ones whose templateDbKey matches an authored key), views, records, pages, links and page templates. dryRun previews the plan. A completed install is detected by the stamped ROOT page (templateKey on the root only, written last). An interrupted install leaves no marker — re-running reconciles the missing rows via stable deterministic ids and never duplicates. force re-applies the install (databases still dedupe, rows reconcile in place).`,
       inputSchema: z.object({
         bundled: z.string().describe('Bundled template key'),
         dryRun: dryRunInput,
@@ -3461,19 +3461,34 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const reuseBoards = findReusableBoards(existing, BUNDLED_AUTHORS[a.bundled]);
       const plan = planTemplateInstantiation(
         bundle.snapshot,
-        { templateId: bundle.root, templateKey: a.bundled, preserveTemplates: true, reuseBoards, packInstall: true, parentId: a.parentId ?? null, actorId: ctx.userId },
+        { templateId: bundle.root, templateKey: a.bundled, preserveTemplates: true, reuseBoards, packInstall: true, stableIds: true, parentId: a.parentId ?? null, actorId: ctx.userId },
         { id: uuid, now: Date.now() },
       );
       if (!plan) return err(`bundled template '${a.bundled}' has no root page`);
 
-      // Write order inside the one changeset: non-page collections first, then
-      // blocks, then pages with the marker root page LAST — write() applies the
-      // array in ≤500-record atomic batches, so an interrupted install leaves
-      // no templateKey page and a re-run dedupes databases via templateDbKey
-      // instead of reporting alreadyInstalled on a partial install.
+      // P3-R1 reconcile: stable ids mean a re-run after interruption targets
+      // the SAME rows — write only the ones still missing so a partial install
+      // resumes instead of duplicating. The planner orders the stamped root
+      // page last, so its absence below is what lets a partial install proceed
+      // (the marker exists ⇒ we returned alreadyInstalled above).
+      const byCol = new Map<Collection, WriteOp[]>();
+      for (const w of plan.writes) {
+        const col = w.collection as Collection;
+        byCol.set(col, [...(byCol.get(col) ?? []), w]);
+      }
+      const existingIds = new Set<string>();
+      for (const col of byCol.keys()) {
+        // Tombstoned rows count as existing: a re-run must never resurrect
+        // rows the user deliberately deleted.
+        for (const r of await recs(ctx.env, col)) existingIds.add(r.id);
+      }
+      const missing: WriteOp[] = plan.writes.filter((w) => !existingIds.has(w.id));
+      const already = plan.writes.length - missing.length;
+      // Planner already orders the root marker last; keep non-page→block→page
+      // ordering for deterministic batching.
       const rank = (w: WriteOp): number =>
         w.collection === 'pages' ? (w.id === plan.rootPageId ? 3 : 2) : w.collection === 'blocks' ? 1 : 0;
-      const ordered: WriteOp[] = [...plan.writes].sort((x, y) => rank(x) - rank(y));
+      const ordered: WriteOp[] = [...missing].sort((x, y) => rank(x) - rank(y));
       ordered.push(activityOp(ctx.userId, ctx.clientName, 'created', 'page', plan.rootPageId, `Install ${bundle.name}`, ctx.cs?.id));
       await write(ctx, ordered);
 
@@ -3485,6 +3500,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         rootPageId: plan.rootPageId,
         url: pageUrl(ctx, plan.rootPageId),
         reuse: { databases: Object.keys(reuseBoards).length, boardIds: Object.values(reuseBoards) },
+        reconciled: already > 0 ? already : undefined,
         counts,
       });
     },
