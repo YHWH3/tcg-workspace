@@ -8,7 +8,7 @@ import { sanitizeSvg } from '../../../shared/svgSanitize';
 import { validateDiagramSpec } from '../../../shared/diagramLayout';
 import {
   cardRef,
-  connectorRetiresLink,
+  connectorLinkPlan,
   itemBounds,
   normalizeItem,
   type ItemRef,
@@ -168,11 +168,17 @@ export async function addConnector(
   }
 }
 
-/** Soft-delete an item; connectors retire a mirrored links row they solely own. */
+/** Soft-delete an item; connector mirror lifecycle follows `connectorLinkPlan` (global referrers). */
 export async function removeItem(item: MoodItem): Promise<void> {
   const all = (await db.mooditems.where('boardId').equals(String(item.boardId)).toArray()) as MoodItem[];
-  if (item.type === 'connector' && item.linkId && connectorRetiresLink(item, all.filter((c) => c.type === 'connector'), item.id)) {
-    await unlink(String(item.linkId));
+  if (item.type === 'connector' && item.linkId) {
+    // links rows are global — account for connectors on EVERY board, tombstoned included.
+    const onLink = (await db.mooditems
+      .filter((c) => c.type === 'connector' && c.linkId === item.linkId)
+      .toArray()) as MoodItem[];
+    const plan = connectorLinkPlan(item, onLink, item.id);
+    if (plan.retireLink) await unlink(String(item.linkId));
+    if (plan.transferTo) await mutate('mooditems', plan.transferTo, { linkOwned: true });
   }
   // Detach members when a frame goes away (they keep their geometry).
   if (item.type === 'frame') {

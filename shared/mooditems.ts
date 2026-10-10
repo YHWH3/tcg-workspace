@@ -303,16 +303,34 @@ export function normalizeItem(item: Partial<MoodItem> & { id: string }): MoodIte
 }
 
 /**
- * Whether deleting/restoring `connector` should also retire/restore its
- * mirrored `links` row. True only when the connector owns the row
- * (`linkOwned !== false`) AND no *other* live connector on the board
- * references the same linkId — a link a user created first, or one shared
- * by a second connector, must survive.
+ * Lifecycle plan for the mirrored `links` row when a connector is deleted.
+ * `links` rows are GLOBAL: connectors on different moodboards between the
+ * same record pair share one deterministic `linkId`, so `connectorsOnLink`
+ * must be every connector (live AND tombstoned, every board) referencing it.
+ *
+ * Rules:
+ * - Other live referrers exist → the link survives. If the dying connector
+ *   owned it, ownership transfers to the first live referrer (id order —
+ *   deterministic and identical on every client) so the chain still ends.
+ * - Sole live referrer → retire iff the link was connector-minted, i.e. ANY
+ *   referrer (self or tombstoned) carries `linkOwned === true`. A row nobody
+ *   ever owned is user data (dependency/relation) and is never touched.
+ * - Unmarked `linkOwned` (pre-remediation connectors) means NOT owned —
+ *   conservative: legacy connectors can never retire anything.
  */
-export function connectorRetiresLink(connector: Pick<MoodItem, 'linkId' | 'linkOwned'>, otherConnectors: readonly Pick<MoodItem, 'id' | 'linkId' | 'deleted'>[], connectorId: string): boolean {
-  if (!connector.linkId) return false;
-  if (connector.linkOwned === false) return false;
-  return !otherConnectors.some((c) => c.id !== connectorId && !c.deleted && c.linkId === connector.linkId);
+export function connectorLinkPlan(
+  connector: Pick<MoodItem, 'linkId' | 'linkOwned'>,
+  connectorsOnLink: readonly Pick<MoodItem, 'id' | 'linkOwned' | 'deleted'>[],
+  connectorId: string,
+): { retireLink: boolean; transferTo: string | null } {
+  if (!connector.linkId) return { retireLink: false, transferTo: null };
+  const others = connectorsOnLink.filter((c) => c.id !== connectorId);
+  const liveOthers = others.filter((c) => !c.deleted).map((c) => c.id);
+  if (liveOthers.length) {
+    return { retireLink: false, transferTo: connector.linkOwned === true ? liveOthers.sort()[0] : null };
+  }
+  const everOwned = connector.linkOwned === true || others.some((c) => c.linkOwned === true);
+  return { retireLink: everOwned, transferTo: null };
 }
 
 /**

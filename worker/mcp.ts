@@ -15,7 +15,7 @@ import { cmpOrder, orderBetween, uuid } from '../shared/order';
 import { blocksToMarkdown, markdownToBlocks, renderMentionText, resolveMentionText } from '../shared/markdown';
 import { planTemplateInstantiation, type RecSnapshot } from '../shared/templates';
 import { coerceFieldValue, fieldsOf, formatFieldValue, isSelectType, optionByName, propKey, type FieldDef } from '../shared/fields';
-import { normalizeItem, cardRef, connectorRetiresLink, DEFAULT_ITEM_SIZE, itemBounds, type MoodItem, type ItemRef } from '../shared/mooditems';
+import { normalizeItem, cardRef, connectorLinkPlan, DEFAULT_ITEM_SIZE, itemBounds, type MoodItem, type ItemRef } from '../shared/mooditems';
 import { layoutBoard, type CanvasLayoutAlgorithm } from '../shared/canvasLayout';
 import { validateDiagramSpec } from '../shared/diagramLayout';
 import { sanitizeSvg, SVG_MAX_BYTES } from '../shared/svgSanitize';
@@ -1442,15 +1442,20 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const skipped: string[] = [];
       // Connector lifecycle bookkeeping: linkId/linkKind/from/to are connector
       // shape — retarget or re-mirror via connect_items, never by raw patch.
-      // A delete/undelete (or type change away) reconciles the mirrored links
-      // row in the same batch when this connector solely owns it.
+      // links rows are GLOBAL (deterministic linkId is shared across boards):
+      // referrer accounting must span every moodboard, tombstoned connectors
+      // included — only connectorLinkPlan decides retire/transfer.
       const beingDeleted = new Set<string>();
-      const connectorsByBoard = new Map<string, MoodItem[]>();
-      const boardConnectors = async (boardId: string): Promise<MoodItem[]> => {
-        let list = connectorsByBoard.get(boardId);
+      const referrersByLink = new Map<string, MoodItem[]>();
+      const connectorsOnLink = async (lid: string): Promise<MoodItem[]> => {
+        let list = referrersByLink.get(lid);
         if (!list) {
-          list = (await boardItems(boardId)).map((i) => ({ id: i.id, ...(i.data as Record<string, unknown>) }) as MoodItem);
-          connectorsByBoard.set(boardId, list);
+          const { results } = await ctx.env.DB
+            .prepare(`SELECT id, data FROM records WHERE collection = 'mooditems' AND json_extract(data, '$.type') = 'connector' AND json_extract(data, '$.linkId') = ?`)
+            .bind(lid)
+            .all<{ id: string; data: string }>();
+          list = results.map((r) => ({ id: r.id, ...(JSON.parse(r.data) as Record<string, unknown>) }) as MoodItem);
+          referrersByLink.set(lid, list);
         }
         return list;
       };
@@ -1482,20 +1487,22 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         }
         const deletesItem = patch.deleted === true || (patch.type !== undefined && patch.type !== 'connector');
         if (isConnector && deletesItem && typeof row.data.linkId === 'string') {
-          const siblings = (await boardConnectors(String(row.data.boardId))).filter((c) => c.id !== upd.id && !beingDeleted.has(c.id));
-          if (connectorRetiresLink(row.data as MoodItem, siblings, upd.id)) {
-            ops.push({ collection: 'links', id: String(row.data.linkId), patch: { deleted: true } });
-          }
+          const lid = String(row.data.linkId);
+          // Referrers deleted earlier in this batch aren't live any more, but
+          // their ownership flags still count for the connector-minted check.
+          const all = (await connectorsOnLink(lid)).map((c) => (beingDeleted.has(c.id) ? { ...c, deleted: true } : c));
+          const plan = connectorLinkPlan(row.data as MoodItem, all, upd.id);
+          if (plan.retireLink) ops.push({ collection: 'links', id: lid, patch: { deleted: true } });
+          if (plan.transferTo) ops.push({ collection: 'mooditems', id: plan.transferTo, patch: { linkOwned: true } });
           if (patch.deleted === true) beingDeleted.add(upd.id);
         }
         const restoresItem = isConnector && patch.deleted === false && typeof row.data.linkId === 'string';
-        if (restoresItem) {
-          // Restore an owned mirror — only when no other live connector now
-          // references it (a shared/adopted row is left alone).
-          const siblings = (await boardConnectors(String(row.data.boardId))).filter((c) => c.id !== upd.id);
-          if ((row.data as MoodItem).linkOwned === true && !siblings.some((c) => !c.deleted && c.linkId === row.data.linkId)) {
-            ops.push({ collection: 'links', id: String(row.data.linkId), patch: { deleted: false } });
-          }
+        if (restoresItem && (row.data as MoodItem).linkOwned === true) {
+          // Resurrect a mirror this connector owned — only if the row is
+          // actually dead (resurrection also un-dangles any other referrer).
+          const lid = String(row.data.linkId);
+          const linkRow = await getRec(ctx.env, lid);
+          if (linkRow?.data.deleted === true) ops.push({ collection: 'links', id: lid, patch: { deleted: false } });
         }
         if (patch.svg !== undefined) {
           const s = sanitizeSvg(patch.svg);

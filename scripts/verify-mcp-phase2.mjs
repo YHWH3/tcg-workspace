@@ -364,6 +364,66 @@ check('restore deleted connector', resOwn.updated === 2 && !delOwn2.error, JSON.
 const linkRestored = await pullRow(connOwn.linkId);
 check('owned mirror restored with connector', linkRestored?.data.deleted !== true, JSON.stringify(linkRestored?.data).slice(0, 120));
 
+// R2a: links rows are GLOBAL — a connector on a SECOND board referencing the
+// same record pair shares connOwn's linkId and must keep it alive.
+const mb2 = j(await call('create_moodboard', { title: 'P2 Canvas B' }));
+check('second moodboard', !!mb2.id, JSON.stringify(mb2).slice(0, 120));
+const cardsDE2 = j(await call('add_mood_items', { moodboardId: mb2.id, items: deIds.map((id) => ({ type: 'card', ref: { type: 'record', id } })) }));
+const gmDE2 = j(await call('get_moodboard', { moodboardId: mb2.id }));
+const deCardIds2 = gmDE2.items.filter((i) => i.type === 'card' && deIds.includes(i.ref?.id)).map((i) => i.id);
+const cCross = j(await call('connect_items', { moodboardId: mb2.id, from: deCardIds2[0], to: deCardIds2[1], linkKind: 'related' }));
+const gmCross = j(await call('get_moodboard', { moodboardId: mb2.id }));
+const connB = gmCross.items.find((i) => i.type === 'connector' && i.from === deCardIds2[0]);
+check('cross-board connector shares same linkId (adopter)', connB?.linkId === connOwn.linkId && connB.linkOwned === false, JSON.stringify(connB));
+
+// Order 2 first: delete the OWNER on board A while board B's adopter is live —
+// the link survives AND ownership transfers to B's connector (deterministic).
+const delOwnerA = j(await call('update_mood_items', { items: [{ id: connOwn.id, patch: { deleted: true } }] }));
+check('delete owner on board A (item + transfer ops)', delOwnerA.updated === 2, JSON.stringify(delOwnerA).slice(0, 160));
+const linkAfterOwner = await pullRow(connOwn.linkId);
+const connBAfter = await pullRow(connB.id);
+check('link survives cross-board (B still references)', linkAfterOwner?.data.deleted !== true, JSON.stringify(linkAfterOwner?.data).slice(0, 120));
+check('ownership transferred to board B connector', connBAfter?.data.linkOwned === true && connBAfter.data.deleted !== true, JSON.stringify(connBAfter?.data).slice(0, 160));
+const gmB2 = j(await call('get_moodboard', { moodboardId: mb2.id }));
+check('board B connector not dangling', gmB2.items.find((i) => i.id === connB.id)?.dangling === false);
+
+// Then the (now-owning) board B connector dies last → the mirror retires.
+const delB = j(await call('update_mood_items', { items: [{ id: connB.id, patch: { deleted: true } }] }));
+check('delete transferred-owner connector (item + link ops)', delB.updated === 2, JSON.stringify(delB).slice(0, 160));
+const linkFinal = await pullRow(connOwn.linkId);
+check('connector-minted link retired at last referrer', linkFinal?.data.deleted === true, JSON.stringify(linkFinal?.data).slice(0, 120));
+
+// Order 1 (adopter first, owner last) on a fresh pair F/G.
+const recs3 = j(await call('create_records', { databaseId: db.id, records: [{ title: 'Card F' }, { title: 'Card G' }] }));
+const fgIds = (recs3.created ?? []).map((r) => r.id);
+await call('add_mood_items', { moodboardId: mb.id, items: fgIds.map((id) => ({ type: 'card', ref: { type: 'record', id }, x: 2400, y: 0 })) });
+await call('add_mood_items', { moodboardId: mb.id, items: fgIds.map((id) => ({ type: 'card', ref: { type: 'record', id }, x: 2400, y: 300 })) });
+const gmFG = j(await call('get_moodboard', { moodboardId: mb.id }));
+const fgCardIds = gmFG.items.filter((i) => i.type === 'card' && fgIds.includes(i.ref?.id)).map((i) => i.id);
+const cF1 = j(await call('connect_items', { moodboardId: mb.id, from: fgCardIds[0], to: fgCardIds[1], linkKind: 'blocks' }));
+const cF2 = j(await call('connect_items', { moodboardId: mb.id, from: fgCardIds[2], to: fgCardIds[3], linkKind: 'blocks' }));
+const gmFG2 = j(await call('get_moodboard', { moodboardId: mb.id }));
+const fgConns = gmFG2.items.filter((i) => i.type === 'connector' && fgCardIds.includes(i.from));
+const fOwner = fgConns.find((i) => i.linkOwned === true);
+const fAdopter = fgConns.find((i) => i.linkOwned === false);
+check('F/G: one owner + one adopter on shared link', !!fOwner && !!fAdopter && fOwner.linkId === fAdopter.linkId, JSON.stringify(fgConns.map((i) => i.linkOwned)));
+await call('update_mood_items', { items: [{ id: fAdopter.id, patch: { deleted: true } }] });
+const fgAfterAdopter = await pullRow(fOwner.linkId);
+check('order1: adopter dies first, owner keeps link', fgAfterAdopter?.data.deleted !== true, JSON.stringify(fgAfterAdopter?.data).slice(0, 120));
+await call('update_mood_items', { items: [{ id: fOwner.id, patch: { deleted: true } }] });
+const fgAfterOwner = await pullRow(fOwner.linkId);
+check('order1: sole owner last → link retired', fgAfterOwner?.data.deleted === true, JSON.stringify(fgAfterOwner?.data).slice(0, 120));
+
+// R2b: a pre-remediation connector (no linkOwned flag) referencing a
+// user-created dependency must NEVER retire it — nobody owns that row.
+const legacy = { id: `legacyconn-${Date.now()}`, collection: 'mooditems', patch: { type: 'connector', boardId: mb.id, from: cardIds[0], to: cardIds[1], linkKind: 'blocks', linkId: dep.linkId, label: 'legacy' }, ts: Date.now() };
+const pushLegacy = await api('/api/sync/push', { method: 'POST', token: session, body: { changes: [legacy] } });
+check('legacy connector seeded without linkOwned', pushLegacy.status === 200, `status=${pushLegacy.status}`);
+const delLegacy = j(await call('update_mood_items', { items: [{ id: legacy.id, patch: { deleted: true } }] }));
+check('delete legacy connector (item op only — no link/transfer)', delLegacy.updated === 1, JSON.stringify(delLegacy).slice(0, 160));
+const depAfterLegacy = await pullRow(dep.linkId);
+check('user-created dependency survives legacy connector delete (R2b)', depAfterLegacy?.data.deleted !== true, JSON.stringify(depAfterLegacy?.data).slice(0, 120));
+
 /* ---------- R1+R3: public canvas media honors board lifecycle + revocation ---------- */
 // R3: token-scoped media must never be immutable.
 const hdrCheck = await api(`/api/public/canvas/${shr.token}/files/${fid}`, { raw: true });

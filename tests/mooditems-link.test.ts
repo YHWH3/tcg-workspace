@@ -1,33 +1,56 @@
 import { describe, expect, it } from 'vitest';
-import { connectorRetiresLink } from '../shared/mooditems';
+import { connectorLinkPlan } from '../shared/mooditems';
 
-const conn = (id: string, linkId: string | null, linkOwned?: boolean, deleted = false) => ({ id, linkId, linkOwned, deleted });
+const conn = (id: string, linkOwned?: boolean, deleted = false) => ({ id, linkOwned, deleted });
+const L = 'links|blocks||a|b';
 
-describe('connectorRetiresLink (connector↔link lifecycle)', () => {
-  it('retires a solely-owned mirror', () => {
-    expect(connectorRetiresLink(conn('c1', 'L', true), [], 'c1')).toBe(true);
+describe('connectorLinkPlan — global connector↔link lifecycle', () => {
+  it('no linkId → no-op', () => {
+    expect(connectorLinkPlan({ linkId: null }, [], 'c1')).toEqual({ retireLink: false, transferTo: null });
   });
 
-  it('legacy connectors (no flag) are treated as owners', () => {
-    expect(connectorRetiresLink(conn('c1', 'L'), [], 'c1')).toBe(true);
+  it('owner delete with live referrers (any board) → survives + transfers ownership to first live referrer', () => {
+    const plan = connectorLinkPlan({ linkId: L, linkOwned: true }, [conn('b2', false), conn('a1', false), conn('b1', true, true)], 'owner');
+    expect(plan).toEqual({ retireLink: false, transferTo: 'a1' }); // argmin by id
   });
 
-  it('never retires an adopted (pre-existing/shared) link', () => {
-    expect(connectorRetiresLink(conn('c1', 'L', false), [], 'c1')).toBe(false);
-    expect(connectorRetiresLink(conn('c1', 'L', false), [conn('c2', 'L', false)], 'c1')).toBe(false);
+  it('adopter delete with live referrers → survives, no transfer', () => {
+    expect(connectorLinkPlan({ linkId: L, linkOwned: false }, [conn('o', true)], 'c1')).toEqual({ retireLink: false, transferTo: null });
   });
 
-  it('keeps the link while another live connector shares it', () => {
-    const siblings = [conn('c2', 'L', false), conn('c3', 'L2', true)];
-    expect(connectorRetiresLink(conn('c1', 'L', true), siblings, 'c1')).toBe(false);
+  it('sole live owner → retires', () => {
+    expect(connectorLinkPlan({ linkId: L, linkOwned: true }, [], 'c1')).toEqual({ retireLink: true, transferTo: null });
   });
 
-  it('ignores already-deleted siblings when deciding sole ownership', () => {
-    expect(connectorRetiresLink(conn('c1', 'L', true), [conn('c2', 'L', false, true)], 'c1')).toBe(true);
+  it('sole live adopter + tombstoned owner → retires (connector-minted row)', () => {
+    // owner deleted earlier (transferred or not), this adopter is last — row
+    // was connector-minted, so it must not become a permanent orphan.
+    const plan = connectorLinkPlan({ linkId: L, linkOwned: false }, [conn('deadOwner', true, true)], 'c1');
+    expect(plan).toEqual({ retireLink: true, transferTo: null });
   });
 
-  it('no-op without a linkId', () => {
-    expect(connectorRetiresLink(conn('c1', null, true), [], 'c1')).toBe(false);
-    expect(connectorRetiresLink({}, [], 'c1')).toBe(false);
+  it('sole live referrer but NOBODY ever owned → keeps (user-created dependency)', () => {
+    // R2b: a connector illustrating a pre-existing user dependency can never
+    // take that dependency down — including via an unmarked legacy row.
+    expect(connectorLinkPlan({ linkId: L, linkOwned: false }, [], 'c1')).toEqual({ retireLink: false, transferTo: null });
+    expect(connectorLinkPlan({ linkId: L }, [], 'legacy')).toEqual({ retireLink: false, transferTo: null });
+    expect(connectorLinkPlan({ linkId: L }, [conn('dead', undefined, true)], 'legacy')).toEqual({ retireLink: false, transferTo: null });
+  });
+
+  it('ownership chain: transferred owner then deleted → last holder retires', () => {
+    // Order 2 from R2c: owner dies first (transfers to adopter), then the
+    // now-owning adopter dies → sole + owned → retires. No orphan either order.
+    const adopterNowOwner = { linkId: L, linkOwned: true };
+    expect(connectorLinkPlan(adopterNowOwner, [conn('deadOwner', true, true), conn('deadOther', false, true)], 'adopter')).toEqual({
+      retireLink: true,
+      transferTo: null,
+    });
+  });
+
+  it('deleted referrers do not count as live (same-batch batch semantics)', () => {
+    // two connectors on one link, both being deleted — the second sees the
+    // first as tombstoned; owner flag still counts → retire.
+    const plan = connectorLinkPlan({ linkId: L, linkOwned: false }, [conn('other', true, true)], 'c1');
+    expect(plan.retireLink).toBe(true);
   });
 });
