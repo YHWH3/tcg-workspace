@@ -121,6 +121,11 @@ export interface AuthorTemplate {
   databases: AuthorDb[];
   pages: AuthorPage[];
   links?: AuthorLink[];
+  /** Phase 4 — automation configs (`{id, databaseId, trigger, conditions, actions}`;
+   * authored db/page/form ids inside are remapped by the planner at install). */
+  automations?: ({ id: string } & Record<string, unknown>)[];
+  /** Phase 4 — public form configs (same authored-id remap). */
+  forms?: ({ id: string } & Record<string, unknown>)[];
 }
 
 /** Author names that differ from stored block type ids. */
@@ -246,8 +251,19 @@ export function toBundled(key: string, t: AuthorTemplate): BundledTemplate {
     };
   }
 
+  const automations: NonNullable<RecSnapshot['automations']> = {};
+  const forms: NonNullable<RecSnapshot['forms']> = {};
+  for (const a of t.automations ?? []) {
+    const { id, ...cfg } = a;
+    automations[id] = cfg;
+  }
+  for (const f of t.forms ?? []) {
+    const { id, ...cfg } = f;
+    forms[id] = cfg;
+  }
+
   const root = t.pages[0]?.id ?? 'root';
-  return { key, name: t.name, description: t.description, icon: t.icon, root, snapshot: { pages, blocks, boards, tasks, views, links } };
+  return { key, name: t.name, description: t.description, icon: t.icon, root, snapshot: { pages, blocks, boards, tasks, views, links, automations, forms } };
 }
 
 /* ---------- install preview + reuse ---------- */

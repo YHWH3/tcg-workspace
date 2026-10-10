@@ -95,7 +95,7 @@ export async function processOutbox(env: { DB: D1Database }, outboxId: string): 
     await maintainDateIndex(env, ev.applied);
     await notificationsForEvent(env, semantic, { source: ev.source, userId: ev.userId });
     if (ev.source !== 'automation') {
-      await runAutomationsForEvent(env, semantic, { source: ev.source, userId: ev.userId });
+      await runAutomationsForEvent(env, semantic, { source: ev.source, userId: ev.userId, outboxId });
     }
     await env.DB.prepare('UPDATE event_outbox SET processed_at = ? WHERE id = ?')
       .bind(Date.now(), outboxId)
@@ -109,7 +109,7 @@ export async function processOutbox(env: { DB: D1Database }, outboxId: string): 
 }
 
 /** Resync one changed record's date_index rows: drop stale, insert current
- * date-valued fields (builtin `due` + any p_<fid> whose value is yyyy-mm-dd).
+ * date-valued fields (builtin `dueDate` + any p_<fid> whose value is yyyy-mm-dd).
  * Deleted/archived rows are removed — reminders never fire on dead records. */
 export async function maintainDateIndex(env: { DB: D1Database }, applied: AppliedLike[]): Promise<void> {
   const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -128,7 +128,7 @@ export async function maintainDateIndex(env: { DB: D1Database }, applied: Applie
         });
       }
     };
-    add('due', after.due);
+    add('dueDate', after.dueDate);
     for (const k of Object.keys(after)) {
       if (k.startsWith('p_')) add(k, after[k]);
     }

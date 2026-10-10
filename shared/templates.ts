@@ -26,6 +26,9 @@ export interface RecSnapshot {
   tasks: Record<string, Record<string, unknown>>;
   views?: Record<string, Record<string, unknown>>;
   links?: Record<string, Record<string, unknown>>;
+  /** Phase 4 — synced CONFIG collections authored into packs (install-copied). */
+  automations?: Record<string, Record<string, unknown>>;
+  forms?: Record<string, Record<string, unknown>>;
 }
 
 export interface TemplateOpts {
@@ -65,7 +68,7 @@ export interface TemplateOpts {
 }
 
 export interface PlannedWrite {
-  collection: 'pages' | 'blocks' | 'boards' | 'tasks' | 'moodboards' | 'mooditems' | 'views' | 'links';
+  collection: 'pages' | 'blocks' | 'boards' | 'tasks' | 'moodboards' | 'mooditems' | 'views' | 'links' | 'automations' | 'forms';
   id: string;
   patch: Record<string, unknown>;
 }
@@ -354,6 +357,55 @@ export function planTemplateInstantiation(
         createdAt: deps.now,
       },
     });
+  }
+
+  // --- Phase 4: automation + form configs (pack installs only) ---
+  // Ids authored inside these configs remap through the maps above; field
+  // keys (p_<fid>) and user ids pass through unchanged.
+  if (opts.packInstall) {
+    const formMap = new Map<string, string>();
+    for (const [fid, f] of Object.entries(snap.forms ?? {})) {
+      if (f.deleted) continue;
+      formMap.set(fid, newId('forms', fid));
+    }
+    const remapDb = (v: unknown): unknown => boardMap.get(String(v ?? '')) ?? v;
+    const remapCfgRef = (v: unknown): unknown =>
+      pageMap.get(String(v ?? '')) ?? taskMap.get(String(v ?? '')) ?? v;
+
+    for (const [aid, a] of Object.entries(snap.automations ?? {})) {
+      if (a.deleted) continue;
+      const cfg = JSON.parse(JSON.stringify(a)) as Record<string, unknown>;
+      if (cfg.databaseId !== undefined) cfg.databaseId = remapDb(cfg.databaseId);
+      const t = cfg.trigger as Record<string, unknown> | undefined;
+      if (t && typeof t === 'object') {
+        if (t.databaseId !== undefined) t.databaseId = remapDb(t.databaseId);
+        if (t.formId !== undefined) t.formId = formMap.get(String(t.formId)) ?? t.formId;
+      }
+      for (const act of (cfg.actions as Record<string, unknown>[] | undefined) ?? []) {
+        if (!act || typeof act !== 'object') continue;
+        if (act.databaseId !== undefined) act.databaseId = remapDb(act.databaseId);
+        if (act.templateId !== undefined) act.templateId = remapCfgRef(act.templateId);
+        const link = act.link as Record<string, unknown> | undefined;
+        if (link && typeof link === 'object' && link.toId !== undefined) link.toId = remapCfgRef(link.toId);
+      }
+      cfg.createdBy = opts.actorId ?? null;
+      cfg.createdAt = deps.now;
+      writes.push({ collection: 'automations', id: newId('automations', aid), patch: cfg });
+    }
+
+    for (const [fid, f] of Object.entries(snap.forms ?? {})) {
+      if (f.deleted) continue;
+      const cfg = JSON.parse(JSON.stringify(f)) as Record<string, unknown>;
+      if (cfg.databaseId !== undefined) cfg.databaseId = remapDb(cfg.databaseId);
+      for (const r of (cfg.createRelations as Record<string, unknown>[] | undefined) ?? []) {
+        if (!r || typeof r !== 'object') continue;
+        if (r.databaseId !== undefined) r.databaseId = remapDb(r.databaseId);
+        if (r.toId !== undefined) r.toId = remapCfgRef(r.toId);
+      }
+      cfg.createdBy = opts.actorId ?? null;
+      cfg.createdAt = deps.now;
+      writes.push({ collection: 'forms', id: formMap.get(fid)!, patch: cfg });
+    }
   }
 
   // --- blocks (page bodies AND copied-record bodies) ---

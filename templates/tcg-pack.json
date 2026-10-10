@@ -5537,5 +5537,362 @@
       "to": "r_parambu",
       "kind": "related"
     }
+  ],
+  "automations": [
+    {
+      "id": "auto_project_review",
+      "databaseId": "db_projects",
+      "name": "Project completed → review task",
+      "enabled": true,
+      "trigger": {
+        "kind": "stage_changed",
+        "to": "completed"
+      },
+      "conditions": [],
+      "actions": [
+        {
+          "type": "create_record",
+          "databaseId": "db_tasks",
+          "title": "Complete Project Review — {{record.title}}",
+          "link": {
+            "fieldId": "f_project"
+          }
+        },
+        {
+          "type": "notify",
+          "userField": "f_owner",
+          "message": "\"{{record.title}}\" moved to Completed — a review task was created."
+        }
+      ]
+    },
+    {
+      "id": "auto_experiment_doc",
+      "databaseId": "db_experiments",
+      "name": "Experiment documented → documentation review",
+      "enabled": true,
+      "trigger": {
+        "kind": "stage_changed",
+        "to": "documented"
+      },
+      "conditions": [],
+      "actions": [
+        {
+          "type": "create_record",
+          "databaseId": "db_tasks",
+          "title": "Documentation review — {{record.title}}",
+          "link": {
+            "fieldId": null
+          }
+        },
+        {
+          "type": "notify",
+          "userField": "f_lead",
+          "message": "\"{{record.title}}\" moved to Documented — a review task was created."
+        }
+      ]
+    },
+    {
+      "id": "auto_opportunity_deadline",
+      "databaseId": "db_opportunities",
+      "name": "Deadline approaching (14 days)",
+      "enabled": true,
+      "trigger": {
+        "kind": "date_offset",
+        "dateKey": "p_f_deadline",
+        "days": -14
+      },
+      "conditions": [],
+      "actions": [
+        {
+          "type": "notify",
+          "userField": "f_owner",
+          "message": "Deadline for \"{{record.title}}\" is in 14 days ({{field:Deadline}})."
+        }
+      ]
+    },
+    {
+      "id": "auto_opportunity_proposal",
+      "databaseId": "db_opportunities",
+      "name": "Proposal sent → follow-up task",
+      "enabled": true,
+      "trigger": {
+        "kind": "stage_changed",
+        "to": "proposal"
+      },
+      "conditions": [],
+      "actions": [
+        {
+          "type": "create_record",
+          "databaseId": "db_tasks",
+          "title": "Follow up on proposal — {{record.title}}",
+          "link": {
+            "fieldId": null
+          }
+        },
+        {
+          "type": "notify",
+          "userField": "f_owner",
+          "message": "\"{{record.title}}\" moved to Proposal — a follow-up task was created."
+        }
+      ]
+    },
+    {
+      "id": "auto_member_onboarding",
+      "databaseId": "db_people",
+      "name": "New member → onboarding checklist",
+      "enabled": true,
+      "trigger": {
+        "kind": "record.created"
+      },
+      "conditions": [
+        {
+          "key": "p_f_membership",
+          "op": "contains",
+          "value": "member"
+        }
+      ],
+      "actions": [
+        {
+          "type": "add_subrecords",
+          "titles": [
+            "Welcome conversation with {{record.title}}",
+            "Add {{record.title}} to the member directory",
+            "Confirm contact details for {{record.title}}",
+            "Introduce {{record.title}} to a project lead"
+          ]
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "id": "form_volunteer",
+      "databaseId": "db_people",
+      "title": "Volunteer registration",
+      "description": "Register to volunteer with us — tell us how to reach you and what you can offer.",
+      "enabled": true,
+      "submitLabel": "Register",
+      "successMessage": "Thank you — we will be in touch soon.",
+      "peopleMatch": {
+        "emailField": "p_f_email"
+      },
+      "notifyUserIds": [],
+      "fields": [
+        {
+          "fieldKey": "title",
+          "label": "Full name",
+          "required": true,
+          "order": "a0"
+        },
+        {
+          "fieldKey": "p_f_email",
+          "label": "Email",
+          "required": true,
+          "order": "a1"
+        },
+        {
+          "fieldKey": "p_f_phone",
+          "label": "Phone",
+          "order": "a2"
+        },
+        {
+          "fieldKey": "p_f_skills",
+          "label": "Skills you can offer",
+          "order": "a3"
+        },
+        {
+          "fieldKey": "p_f_availability",
+          "label": "Availability",
+          "order": "a4"
+        },
+        {
+          "fieldKey": "p_f_pnotes",
+          "label": "Anything else we should know",
+          "order": "a5"
+        }
+      ]
+    },
+    {
+      "id": "form_event_registration",
+      "databaseId": "db_people",
+      "title": "Event registration",
+      "description": "Register to attend an event.",
+      "enabled": true,
+      "submitLabel": "Register",
+      "successMessage": "You are registered — see you there.",
+      "peopleMatch": {
+        "emailField": "p_f_email"
+      },
+      "notifyUserIds": [],
+      "createRelations": [
+        {
+          "fieldId": "f_ev_participating",
+          "toId": null
+        }
+      ],
+      "fields": [
+        {
+          "fieldKey": "title",
+          "label": "Full name",
+          "required": true,
+          "order": "a0"
+        },
+        {
+          "fieldKey": "p_f_email",
+          "label": "Email",
+          "required": true,
+          "order": "a1"
+        },
+        {
+          "fieldKey": "p_f_phone",
+          "label": "Phone",
+          "order": "a2"
+        }
+      ]
+    },
+    {
+      "id": "form_participant_feedback",
+      "databaseId": "db_fieldlog",
+      "title": "Participant feedback",
+      "description": "Tell us how it went — every note is read.",
+      "enabled": true,
+      "submitLabel": "Send feedback",
+      "successMessage": "Thank you for the feedback.",
+      "notifyUserIds": [],
+      "fields": [
+        {
+          "fieldKey": "title",
+          "label": "Subject",
+          "required": true,
+          "order": "a0"
+        },
+        {
+          "fieldKey": "p_f_observation",
+          "label": "Your feedback",
+          "required": true,
+          "order": "a1",
+          "help": "What worked, what did not, what should change?"
+        },
+        {
+          "fieldKey": "p_f_date",
+          "label": "Date of visit / event",
+          "order": "a2"
+        }
+      ]
+    },
+    {
+      "id": "form_partnership_inquiry",
+      "databaseId": "db_orgs",
+      "title": "Partnership inquiry",
+      "description": "Interested in partnering? Tell us about your organization.",
+      "enabled": true,
+      "submitLabel": "Send inquiry",
+      "successMessage": "Thank you — our partnerships team will reply.",
+      "notifyUserIds": [],
+      "createRelations": [
+        {
+          "fieldId": "f_opportunities",
+          "toId": null
+        }
+      ],
+      "fields": [
+        {
+          "fieldKey": "title",
+          "label": "Organization name",
+          "required": true,
+          "order": "a0"
+        },
+        {
+          "fieldKey": "p_f_website",
+          "label": "Website",
+          "order": "a1"
+        },
+        {
+          "fieldKey": "p_f_industry",
+          "label": "Sector",
+          "order": "a2"
+        },
+        {
+          "fieldKey": "p_f_focus",
+          "label": "Focus areas",
+          "order": "a3"
+        },
+        {
+          "fieldKey": "p_f_onotes",
+          "label": "What would you like to do together?",
+          "required": true,
+          "order": "a4"
+        }
+      ]
+    },
+    {
+      "id": "form_field_observation",
+      "databaseId": "db_fieldlog",
+      "title": "Field observation",
+      "description": "Log a field observation — measurement, note, or photo link.",
+      "enabled": true,
+      "submitLabel": "Log observation",
+      "successMessage": "Observation logged — thank you.",
+      "notifyUserIds": [],
+      "fields": [
+        {
+          "fieldKey": "title",
+          "label": "What did you observe?",
+          "required": true,
+          "order": "a0"
+        },
+        {
+          "fieldKey": "p_f_date",
+          "label": "Date observed",
+          "required": true,
+          "order": "a1"
+        },
+        {
+          "fieldKey": "p_f_observation",
+          "label": "Details",
+          "order": "a2"
+        },
+        {
+          "fieldKey": "p_f_measurement",
+          "label": "Measurement (number)",
+          "order": "a3"
+        },
+        {
+          "fieldKey": "p_f_unit",
+          "label": "Unit",
+          "order": "a4",
+          "help": "e.g. mm, kg, °C"
+        },
+        {
+          "fieldKey": "p_f_photos",
+          "label": "Photo link",
+          "order": "a5",
+          "help": "Paste a link to a photo (Drive etc.)"
+        }
+      ]
+    },
+    {
+      "id": "form_general_inquiry",
+      "databaseId": "db_ideas",
+      "title": "General inquiry",
+      "description": "Have an idea or question for us? Drop it here.",
+      "enabled": true,
+      "submitLabel": "Send",
+      "successMessage": "Thank you — we will get back to you.",
+      "notifyUserIds": [],
+      "fields": [
+        {
+          "fieldKey": "title",
+          "label": "Your idea or question",
+          "required": true,
+          "order": "a0"
+        },
+        {
+          "fieldKey": "p_f_theme",
+          "label": "Theme",
+          "order": "a1"
+        }
+      ]
+    }
   ]
 }
