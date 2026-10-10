@@ -11,3 +11,14 @@ export const BUNDLED: Record<string, BundledTemplate> = {
   'starter-people': toBundled('starter-people', rawPeople as unknown as AuthorTemplate),
   'tcg-pack': toBundled('tcg-pack', rawPack as unknown as AuthorTemplate),
 };
+
+/** Raw author JSON per key — `findReusableBoards` matches on the authored databases. */
+export const BUNDLED_AUTHORS: Record<string, AuthorTemplate> = {
+  'starter-people': rawPeople as unknown as AuthorTemplate,
+  'tcg-pack': rawPack as unknown as AuthorTemplate,
+};
+
+/** Bundled key → compiled snapshot; undefined for unknown keys. */
+export function bundledTemplate(key: string): BundledTemplate | undefined {
+  return BUNDLED[key];
+}

@@ -21,6 +21,10 @@ import { validateDiagramSpec } from '../shared/diagramLayout';
 import { sanitizeSvg, SVG_MAX_BYTES } from '../shared/svgSanitize';
 import { linkId } from '../shared/linkid';
 import { edgesOf, wouldCreateDependencyCycle } from '../shared/deps';
+import { planConversion } from '../shared/conversion';
+import { archivePatch, isArchived } from '../shared/archive';
+import { findReusableBoards, planInstallPreview } from '../shared/bundled';
+import { BUNDLED, BUNDLED_AUTHORS, bundledTemplate } from './bundledTemplates';
 import { COLUMN_COLORS } from '../src/modules/boards/model';
 import type { Collection } from '../shared/collections';
 
@@ -3419,6 +3423,244 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
   );
 
+  /* ---------- 22. Phase 3: bundled installs, archive, conversion ---------- */
+
+  /** Live boards → the minimal shape findReusableBoards/planInstallPreview match on. */
+  const existingBoards = async (): Promise<{ id: string; templateDbKey?: string; templateKey?: string; name?: string; deleted?: boolean }[]> =>
+    live(await recs(ctx.env, 'boards')).map((b) => ({
+      id: b.id,
+      templateDbKey: b.data.templateDbKey as string | undefined,
+      templateKey: b.data.templateKey as string | undefined,
+      name: b.data.name as string | undefined,
+      deleted: b.data.deleted as boolean | undefined,
+    }));
+
+  reg(
+    'install_template',
+    {
+      description: `Install a bundled template pack (${Object.keys(BUNDLED).map((k) => `'${k}'`).join(' | ')}) into this workspace: creates its databases (reusing ones whose templateDbKey matches an authored key), views, records, pages, links and page templates. dryRun previews the plan. A completed install is detected by a page stamped templateKey; re-running after an interrupted install reuses databases and returns alreadyInstalled once the marker page exists. force re-installs (databases still dedupe, pages duplicate).`,
+      inputSchema: z.object({
+        bundled: z.string().describe('Bundled template key'),
+        dryRun: dryRunInput,
+        force: z.boolean().optional().describe('Install even when a page already carries this templateKey'),
+        parentId: z.string().nullable().optional().describe('Parent page for the new root page (default: top level)'),
+      }),
+      annotations: { idempotentHint: false },
+    },
+    async (a) => {
+      const bundle = bundledTemplate(a.bundled);
+      if (!bundle) return err(`unknown bundled template '${a.bundled}' — have: ${Object.keys(BUNDLED).join(', ')}`);
+      const existing = await existingBoards();
+      const marker = live(await recs(ctx.env, 'pages')).find((p) => p.data.templateKey === a.bundled);
+      if (a.dryRun) return txt({ dryRun: true, bundled: a.bundled, alreadyInstalled: !!marker, ...planInstallPreview(bundle, existing) });
+      if (marker && !a.force) return txt({ alreadyInstalled: true, pageId: marker.id, pageUrl: pageUrl(ctx, marker.id), url: pageUrl(ctx, marker.id) });
+      if (a.parentId) {
+        const pp = await rec(ctx.env, 'pages', a.parentId);
+        if (!pp || pp.data.deleted) return err('parentId page not found');
+      }
+      const reuseBoards = findReusableBoards(existing, BUNDLED_AUTHORS[a.bundled]);
+      const plan = planTemplateInstantiation(
+        bundle.snapshot,
+        { templateId: bundle.root, templateKey: a.bundled, preserveTemplates: true, reuseBoards, packInstall: true, parentId: a.parentId ?? null, actorId: ctx.userId },
+        { id: uuid, now: Date.now() },
+      );
+      if (!plan) return err(`bundled template '${a.bundled}' has no root page`);
+
+      // Write order inside the one changeset: non-page collections first, then
+      // blocks, then pages with the marker root page LAST — write() applies the
+      // array in ≤500-record atomic batches, so an interrupted install leaves
+      // no templateKey page and a re-run dedupes databases via templateDbKey
+      // instead of reporting alreadyInstalled on a partial install.
+      const rank = (w: WriteOp): number =>
+        w.collection === 'pages' ? (w.id === plan.rootPageId ? 3 : 2) : w.collection === 'blocks' ? 1 : 0;
+      const ordered: WriteOp[] = [...plan.writes].sort((x, y) => rank(x) - rank(y));
+      ordered.push(activityOp(ctx.userId, ctx.clientName, 'created', 'page', plan.rootPageId, `Install ${bundle.name}`, ctx.cs?.id));
+      await write(ctx, ordered);
+
+      const counts: Record<string, number> = {};
+      for (const w of plan.writes) counts[w.collection] = (counts[w.collection] ?? 0) + 1;
+      return txt({
+        installed: true,
+        bundled: a.bundled,
+        rootPageId: plan.rootPageId,
+        url: pageUrl(ctx, plan.rootPageId),
+        reuse: { databases: Object.keys(reuseBoards).length, boardIds: Object.values(reuseBoards) },
+        counts,
+      });
+    },
+  );
+
+  const ARCHIVE_COLLECTIONS: Record<'page' | 'database' | 'record', Collection> = { page: 'pages', database: 'boards', record: 'tasks' };
+  const ARCHIVE_NAMES = new Map<Collection, string>(Object.entries(ARCHIVE_COLLECTIONS).map(([k, v]) => [v, k]));
+
+  const archiveCore = async (a: { id: string; collection?: 'page' | 'database' | 'record'; expectedRev?: number }, archived: boolean): Promise<ToolResult> => {
+    let row: Rec | null = null;
+    let col: Collection | null = null;
+    if (a.collection) {
+      col = ARCHIVE_COLLECTIONS[a.collection];
+      const r = await rec(ctx.env, col, a.id);
+      if (r && !r.data.deleted) row = r;
+    } else {
+      for (const c of ['tasks', 'boards', 'pages'] as Collection[]) {
+        const r = await rec(ctx.env, c, a.id);
+        if (r && !r.data.deleted) { row = r; col = c; break; }
+      }
+    }
+    if (!row || !col) return err('item not found');
+    if (isArchived(row) === archived) return txt({ archived, changed: false, id: row.id, collection: ARCHIVE_NAMES.get(col), rev: row.rev });
+    const expect = a.expectedRev !== undefined ? new Map([[row.id, a.expectedRev]]) : undefined;
+    await write(ctx, [{ collection: col, id: row.id, patch: archivePatch(archived) }], { expect });
+    const after = await getRec(ctx.env, row.id);
+    return txt({ archived, changed: true, id: row.id, collection: ARCHIVE_NAMES.get(col), rev: after?.rev ?? row.rev });
+  };
+
+  reg(
+    'archive_item',
+    {
+      description: 'Archive a page, database or record (hides it from the sidebar and default views; still searchable and linked — distinct from delete). Resolves the collection automatically when omitted.',
+      inputSchema: z.object({
+        id: z.string(),
+        collection: z.enum(['page', 'database', 'record']).optional(),
+        expectedRev: z.number().optional(),
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => archiveCore(a, true),
+  );
+
+  reg(
+    'unarchive_item',
+    {
+      description: 'Restore an archived page, database or record. Resolves the collection automatically when omitted.',
+      inputSchema: z.object({
+        id: z.string(),
+        collection: z.enum(['page', 'database', 'record']).optional(),
+        expectedRev: z.number().optional(),
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => archiveCore(a, false),
+  );
+
+  /** Block types that pull a database embed — never copied into a record body. */
+  const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork']);
+
+  const convertCore = async (a: { recordId: string; toDatabaseId: string; templateId?: string; linkKind?: string; sourceStage?: string; title?: string }): Promise<ToolResult> => {
+    const src = await rec(ctx.env, 'tasks', a.recordId);
+    if (!src || src.data.deleted) return err('record not found');
+    const srcBoardId = String(src.data.boardId ?? 'board-default');
+    const srcBoard = await rec(ctx.env, 'boards', srcBoardId);
+    if (!srcBoard || srcBoard.data.deleted) return err('source database not found');
+    const destBoard = await rec(ctx.env, 'boards', a.toDatabaseId);
+    if (!destBoard || destBoard.data.deleted) return err('destination database not found');
+    const destKind = String(destBoard.data.kind ?? 'tasks');
+    if (destKind !== 'records' && destKind !== 'tasks') return err(`destination kind '${destKind}' is not a records/tasks database`);
+
+    // Dedupe: a live record in the dest database already converted from this one.
+    const destRows = live((await listBy(ctx.env, 'tasks', 'boardId', a.toDatabaseId)).map(toRec));
+    const prior = destRows.find((t) => t.data.convertedFrom === a.recordId);
+    if (prior) {
+      return txt({ alreadyConverted: true, destId: prior.id, srcId: a.recordId, destUrl: recordUrl(a.toDatabaseId, prior.id), srcUrl: recordUrl(srcBoardId, src.id) });
+    }
+
+    const plan = planConversion(
+      { src: { id: src.id, data: src.data }, srcBoard: { id: srcBoard.id, data: srcBoard.data }, destBoard: { id: destBoard.id, data: destBoard.data }, templateId: a.templateId, linkKind: a.linkKind, sourceStage: a.sourceStage, title: a.title, actorId: ctx.userId },
+      { id: uuid, now: Date.now() },
+    );
+    if ('error' in plan) return err(plan.error);
+    const ops: WriteOp[] = [...plan.ops];
+    const warnings = [...plan.warnings];
+
+    // templateId: copy the template page's content blocks into the new record's
+    // body (blocks with pageId = record id + parentType 'record'). Database
+    // embeds (tasks/dashboard blocks) are skipped — copying them would spawn
+    // board copies; the record links to live databases instead.
+    if (a.templateId) {
+      const tpl = await rec(ctx.env, 'pages', a.templateId);
+      if (!tpl || tpl.data.deleted) return err(`template page ${a.templateId} not found`);
+      const tplBlocks = live((await listBy(ctx.env, 'blocks', 'pageId', a.templateId)).map(toRec))
+        .filter((b) => b.data.parentType !== 'record')
+        .sort(byOrder);
+      let copied = 0;
+      const skipped = new Set<string>();
+      for (const b of tplBlocks) {
+        const type = String(b.data.type ?? 'p');
+        if (RECORD_BODY_SKIP_TYPES.has(type)) { skipped.add(type); continue; }
+        copied++;
+        ops.push({
+          collection: 'blocks',
+          id: uuid(),
+          patch: {
+            pageId: plan.destId,
+            parentType: 'record',
+            order: b.data.order ?? null,
+            type,
+            text: b.data.text ?? '',
+            ...(b.data.checked !== undefined ? { checked: b.data.checked } : {}),
+            ...(b.data.url !== undefined ? { url: b.data.url } : {}),
+          },
+        });
+      }
+      if (skipped.size) warnings.push(`template body: skipped database-embed block types [${[...skipped].join(', ')}] — record bodies link to live databases instead of copying them`);
+      if (copied === 0 && tplBlocks.length === 0) warnings.push(`template page '${titleOf(tpl, a.templateId)}' has no content blocks`);
+    }
+
+    await write(ctx, ops);
+    const link = ops.find((o) => o.collection === 'links');
+    return txt({
+      destId: plan.destId,
+      srcId: a.recordId,
+      srcUrl: recordUrl(srcBoardId, src.id),
+      destUrl: recordUrl(a.toDatabaseId, plan.destId),
+      linkId: link?.id,
+      warnings,
+    });
+  };
+
+  reg(
+    'convert_record',
+    {
+      description: "Convert a record into a record of another database: creates the destination record (status = dest's first stage), copies title/description plus custom fields whose id+type exist on BOTH databases (dropped fields come back in warnings), links dest → src ('related' by default), and optionally sets the source record's stage (sourceStage = a column id on the source database, e.g. 'converted'). templateId additionally copies a page template's content blocks into the new record's body.",
+      inputSchema: z.object({
+        recordId: z.string(),
+        toDatabaseId: z.string(),
+        templateId: z.string().optional().describe('Page template whose content blocks seed the new record body'),
+        linkKind: z.enum(['related', 'blocks']).optional(),
+        sourceStage: z.string().optional().describe('Column id on the source database to set the source record to'),
+        title: z.string().optional().describe('Destination record title (defaults to the source title)'),
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => convertCore(a),
+  );
+
+  reg(
+    'convert_idea_to_project',
+    {
+      description: "Convert an Ideas-database record into the Projects database (resolves both by templateDbKey 'ideas'/'projects', falling back to TCG-pack installs by name) and sets the idea's stage to 'converted'.",
+      inputSchema: z.object({
+        ideaId: z.string(),
+        templateId: z.string().optional(),
+        title: z.string().optional(),
+      }),
+      annotations: { idempotentHint: true },
+    },
+    async (a) => {
+      const boards = live(await recs(ctx.env, 'boards'));
+      const findDb = (key: string, name: string): Rec | undefined =>
+        boards.find((b) => b.data.templateDbKey === key) ??
+        boards.find((b) => b.data.templateKey === 'tcg-pack' && String(b.data.name ?? '').toLowerCase() === name.toLowerCase());
+      const ideasDb = findDb('ideas', 'Ideas');
+      const projectsDb = findDb('projects', 'Projects');
+      if (!ideasDb) return err("Ideas database not found (templateDbKey 'ideas' or tcg-pack 'Ideas')");
+      if (!projectsDb) return err("Projects database not found (templateDbKey 'projects' or tcg-pack 'Projects')");
+      const idea = await rec(ctx.env, 'tasks', a.ideaId);
+      if (!idea || idea.data.deleted) return err('idea not found');
+      if (String(idea.data.boardId ?? '') !== ideasDb.id) return err(`record ${a.ideaId} is not in the Ideas database`);
+      return convertCore({ recordId: a.ideaId, toDatabaseId: projectsDb.id, templateId: a.templateId, title: a.title, linkKind: 'related', sourceStage: 'converted' });
+    },
+  );
+
   server.registerTool(
     'query_records',
     {
@@ -3430,6 +3672,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         limit: z.number().optional(),
         cursor: z.string().optional(),
         include: z.array(z.enum(['fields', 'relations', 'subrecords', 'deps'])).optional(),
+        includeArchived: z.boolean().optional().describe('Include archived rows (hidden by default)'),
       }),
       annotations: { readOnlyHint: true },
     },
@@ -3449,6 +3692,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const view = {
         filters: (a.filters ?? []).map((f) => ({ key: resolveFieldKey(board.data, f.field), op: f.op as import('../shared/views').FilterOp, value: f.value })),
         sorts: (a.sorts ?? []).map((s) => ({ key: resolveFieldKey(board.data, s.field), dir: (s.dir ?? 'asc') as 'asc' | 'desc' })),
+        includeArchived: a.includeArchived === true,
       };
       const startIdx = a.cursor ? rows.findIndex((r) => r.id === a.cursor) + 1 : 0;
       const applied = applyView(rows.map((r) => ({ ...r.data, id: r.id })), view, { meId: ctx.userId, fieldsById: fmap, relationTitles, columnsById: new Map(boardColumns(board).map((c, i) => [c.id, i])) });
@@ -3458,7 +3702,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const depEdges = (await listCollection(ctx.env, 'links')).filter((l) => l.data.kind === 'blocks').map((l) => [String(l.data.fromId), String(l.data.toId)] as [string, string]);
       const out = page.map((data) => {
         const id = String(data.id ?? '');
-        const rec: Record<string, unknown> = { id, rev: undefined, title: data.title, status: data.status, url: recordUrl(a.databaseId, id) };
+        const rec: Record<string, unknown> = { id, rev: undefined, title: data.title, status: data.status, archived: data.archived === true, url: recordUrl(a.databaseId, id) };
         if (include.has('fields')) {
           const fields: Record<string, unknown> = {};
           for (const f of fieldsOf(board.data)) fields[f.name] = f.type === 'relation' ? relationTitles(id, f.id) : data[propKey(f.id)];
@@ -3643,6 +3887,90 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           content: {
             type: 'text' as const,
             text: `File these notes into the workspace. Call workspace_overview to find relevant pages/boards, append content to the right page(s) with edit_page appendMarkdown, and create_tasks for action items (pick a sensible board and stage). Summarize what went where with links.\n\nNotes:\n${notes}`,
+          },
+        },
+      ],
+    }),
+  );
+
+  /* ---------- Phase 3 operating prompts ---------- */
+
+  server.registerPrompt(
+    'weekly_operating_review',
+    {
+      title: 'Weekly operating review',
+      description: 'Pull live workspace data and produce a weekly review: progress, blocked, decisions needed, next actions.',
+      argsSchema: z.object({}),
+    },
+    async () => ({
+      messages: [
+        {
+          role: 'user' as const,
+          content: {
+            type: 'text' as const,
+            text: `Run the weekly operating review for this workspace.
+
+1. Call workspace_overview to find the Projects, Tasks, Opportunities and Events databases (get_board for their stages/fields). If the workspace doesn't have them, say so and adapt to the databases that exist.
+2. Query real data — never invent metrics:
+   - Projects: query_records for stages like Active and Blocked (match the actual stage names on the board).
+   - Tasks: query_records for open tasks (not Done), flag overdue/blocked.
+   - Opportunities: query_records, report any with a deadline within the next 14 days.
+   - Events: query_records, report events in the next 14 days.
+   - recent_activity for what changed this week.
+3. Produce the review with sections — Progress this week / Blocked / Decisions needed / Next actions — and cite record ids (and URLs) for every claim so each line clicks through to its record.
+4. If a database is empty or missing, say exactly that instead of estimating.
+5. If you propose record writes (stage changes, new tasks), list the proposed changes first and only apply them with update_records/create_records (with requestId + expectedRev) after the user confirms.`,
+          },
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
+    'project_review',
+    {
+      title: 'Project review',
+      description: 'Guide a project review using the Project Review template: pull the project and its linked records, draft the review sections, write on confirm.',
+      argsSchema: z.object({ projectId: z.string().optional().describe('Record id of the project to review (resolve via search/query_records if omitted)') }),
+    },
+    async ({ projectId }) => ({
+      messages: [
+        {
+          role: 'user' as const,
+          content: {
+            type: 'text' as const,
+            text: `Guide a project review${projectId ? ` for project record ${projectId}` : ''}.
+
+1. ${projectId ? `Fetch the project with get_record(${projectId})` : 'Find the project: workspace_overview for the Projects database, then query_records or search for the project the user means — ask the user to confirm which one if ambiguous'}.
+2. Pull everything relevant: the project's own fields, plus its related Tasks, Experiments, Decisions and Media via the record's relations and links (query_records on those databases filtered by their project relation, or follow the link ids get_record returns).
+3. Draft the Project Review against the template's 8 sections — what was planned / what happened / what worked / what failed / what we learned / what we would change / what to document / what could become a course, article or video — citing record ids for every claim. Never invent outcomes; if a section has no evidence, say so.
+4. When the draft is confirmed by the user, write it into the project record's body with edit_record_body (appendMarkdown), passing expectedRev and a requestId. Offer the draft for review first; do not write before confirmation.`,
+          },
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
+    'field_notes_to_log',
+    {
+      title: 'Field notes to log',
+      description: 'File raw field notes as records in the Field Log database, linked to their context — after confirming ambiguous context/units/targets.',
+      argsSchema: z.object({ notes: z.string().optional().describe('Raw field notes to file (observations, measurements, expenses)') }),
+    },
+    async ({ notes }) => ({
+      messages: [
+        {
+          role: 'user' as const,
+          content: {
+            type: 'text' as const,
+            text: `File these field notes into the Field Log.
+
+${notes ? `Notes:\n${notes}\n` : 'The user will paste raw field notes next.\n'}
+1. Find the Field Log database: workspace_overview, pick the one with templateDbKey 'field_log' — or named like "Field log" — then read its fields with get_board so each note maps to the right field names (measurement, unit, observation text, date, photos).
+2. Work out the context each note belongs to (project, experiment, place). Ask the user to CONFIRM any ambiguous context, units, dates or linked records before writing — never fabricate a measurement, date or link. If a field value is unclear or missing, ask rather than guessing.
+3. Create one record per distinct note with create_records (requestId on the call), then link each record to its context record/page with link_items kind 'related'. Use expectedRev on any follow-up updates.
+4. Report the created record ids and links, grouped by context.`,
           },
         },
       ],
