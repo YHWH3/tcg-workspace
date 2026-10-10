@@ -297,6 +297,12 @@ export interface InstallPreview {
   links: number;
   records: number;
   blocks: number;
+  /** Views/records the install does not count as its own creates: authored
+   * content on boards that will be reused, plus content on shared databases
+   * (the people/organizations keys) — a shared database's authored content
+   * belongs to its canonical bundle's lifecycle even when this install has to
+   * bootstrap the board itself. */
+  reused: { views: number; records: number };
 }
 
 /**
@@ -304,6 +310,10 @@ export interface InstallPreview {
  * `install_template` dry-run result. Counts mirror the planner: boards/records/
  * views of REUSED databases are not written, and links only land when both
  * ends are inside the copied set. `create`/`reuse` list database names.
+ * Views/records on shared databases (people/organizations keys — reusable
+ * across bundles via NAME_FALLBACK_KEYS) are accounted in `reused`, never in
+ * `views`/`records`: their content lifecycle belongs to the shared bundle, so
+ * the preview stays truthful whether the shared boards already exist or not.
  */
 export function planInstallPreview(bundle: BundledTemplate, existing: ExistingBoardLike[]): InstallPreview {
   const snap = bundle.snapshot;
@@ -314,16 +324,22 @@ export function planInstallPreview(bundle: BundledTemplate, existing: ExistingBo
   }));
   const reuseMap = matchReusableBoards(existing, boardEntries);
   const reused = new Set(Object.keys(reuseMap));
+  // Reused boards ∪ shared databases: views/records on either are reused-side
+  // accounting, not this install's creates.
+  const excludedDbIds = new Set<string>(reused);
+  for (const e of boardEntries) if (e.key !== undefined && NAME_FALLBACK_KEYS.has(e.key)) excludedDbIds.add(e.refId);
 
   const pageIds = new Set(Object.entries(snap.pages ?? {}).filter(([, p]) => !p.deleted).map(([id]) => id));
   const recordIds = new Set(
     Object.entries(snap.tasks ?? {})
-      .filter(([, t]) => !t.deleted && !reused.has(String(t.boardId ?? 'board-default')))
+      .filter(([, t]) => !t.deleted && !excludedDbIds.has(String(t.boardId ?? 'board-default')))
       .map(([id]) => id),
   );
   const insideCopy = (x: unknown): boolean => pageIds.has(String(x)) || recordIds.has(String(x));
 
-  const views = Object.values(snap.views ?? {}).filter((v) => !v.deleted && !reused.has(String(v.databaseId ?? ''))).length;
+  const authoredViews = Object.values(snap.views ?? {}).filter((v) => !v.deleted);
+  const views = authoredViews.filter((v) => !excludedDbIds.has(String(v.databaseId ?? ''))).length;
+  const authoredRecords = Object.values(snap.tasks ?? {}).filter((t) => !t.deleted);
   const links = Object.values(snap.links ?? {}).filter((l) => !l.deleted && insideCopy(l.fromId) && insideCopy(l.toId)).length;
   const blocks = Object.values(snap.blocks ?? {}).filter((b) => !b.deleted && insideCopy(b.pageId)).length;
 
@@ -337,5 +353,6 @@ export function planInstallPreview(bundle: BundledTemplate, existing: ExistingBo
     links,
     records: recordIds.size,
     blocks,
+    reused: { views: authoredViews.length - views, records: authoredRecords.length - recordIds.size },
   };
 }

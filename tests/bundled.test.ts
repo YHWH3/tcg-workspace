@@ -164,13 +164,45 @@ describe('planInstallPreview', () => {
       links: 2,
       records: 1,
       blocks: 11, // 8 on pg_home + 1 on pg_review + 2 record-body blocks
+      reused: { views: 0, records: 0 },
     });
     const reused = planInstallPreview(toBundled('tcg-pack', pack), [{ id: 'live-1', templateDbKey: 'projects' }]);
     expect(reused.databases).toEqual({ create: ['Organizations', 'Field Log', 'Transactions'], reuse: ['Projects'] });
     expect(reused.records).toBe(0); // r_parambu lives on reused db_projects
     expect(reused.views).toBe(0); // v_projects lives on the reused board
+    expect(reused.reused).toEqual({ views: 1, records: 1 }); // the excluded content is accounted for
     expect(reused.links).toBe(0); // both authored links touch r_parambu — outside the copied set
     expect(reused.blocks).toBe(9); // page blocks still copy; r_parambu's body blocks don't
     expect(reused.pages).toBe(2);
+  });
+
+  it('views/records on shared databases (people/organizations keys) are reused-side, not creates', () => {
+    const author: AuthorTemplate = {
+      name: 'x', description: '', icon: 'x',
+      databases: [
+        { id: 'db_people', key: 'people', name: 'People', views: [{ id: 'v_p1', name: 'All people', type: 'table' }], records: [{ id: 'r_p1', title: 'Ada' }] },
+        { id: 'db_orgs', key: 'organizations', name: 'Organizations', views: [{ id: 'v_o1', name: 'All orgs', type: 'table' }] },
+        { id: 'db_projects', key: 'projects', name: 'Projects', views: [{ id: 'v_pr', name: 'All projects', type: 'table' }] },
+      ],
+      pages: [],
+    };
+    // Even on an empty workspace the shared dbs' views/records are reused-side
+    // content — the shared bundle's lifecycle owns them; this pack only
+    // bootstraps the board. Apply-side counts then match the preview in the
+    // canonical flow (starter-people installed first) and on re-run.
+    const p = planInstallPreview(toBundled('x', author), []);
+    expect(p.databases.create).toEqual(['People', 'Organizations', 'Projects']); // boards still create when absent
+    expect(p.views).toBe(1); // only the pack-owned db's view
+    expect(p.records).toBe(0); // r_p1 sits on the shared db
+    expect(p.reused).toEqual({ views: 2, records: 1 });
+    // With the shared boards already installed (live-matched), same accounting.
+    const withShared = planInstallPreview(toBundled('x', author), [
+      { id: 'live-p', templateKey: 'starter-people', name: 'People' },
+      { id: 'live-o', templateKey: 'starter-people', name: 'Organizations' },
+    ]);
+    expect(withShared.databases).toEqual({ create: ['Projects'], reuse: ['People', 'Organizations'] });
+    expect(withShared.views).toBe(1);
+    expect(withShared.records).toBe(0);
+    expect(withShared.reused).toEqual({ views: 2, records: 1 });
   });
 });
