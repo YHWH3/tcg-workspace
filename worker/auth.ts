@@ -27,6 +27,98 @@ const USER_COLORS = ['#e5484d', '#e93d82', '#8e4ec6', '#6e56cf', '#0091ff', '#12
 
 type Ctx = Context<{ Bindings: Env; Variables: { user: AuthUser } }>;
 
+/* ---------- Notification prefs (Phase 4 §4, Workstream B) ----------
+ * users.prefs is a JSON blob; NULL = all defaults. Only the shape below is
+ * stored — PATCH /api/me sanitizes unknown keys/values away. Notification
+ * data itself lives in the server-controlled `notifications` table, never
+ * in a synced collection. */
+export type NotifKind =
+  | 'mention'
+  | 'assigned'
+  | 'comment_on_mine'
+  | 'due_soon'
+  | 'overdue'
+  | 'approval_requested'
+  | 'approval_decided'
+  | 'form_submission'
+  | 'automation';
+
+export const NOTIF_KINDS: readonly NotifKind[] = [
+  'mention',
+  'assigned',
+  'comment_on_mine',
+  'due_soon',
+  'overdue',
+  'approval_requested',
+  'approval_decided',
+  'form_submission',
+  'automation',
+];
+
+export interface UserPrefs {
+  /** Per-kind delivery: 'inbox' (default) or 'off'. */
+  notifications?: Partial<Record<NotifKind, 'inbox' | 'off'>>;
+  /** Quiet digest: low-urgency kinds still land in the Inbox but do not
+   * count against the nav badge. */
+  quietDigest?: boolean;
+}
+
+/** Drop every key/value that isn't part of the prefs contract. */
+export function sanitizePrefs(raw: unknown): UserPrefs {
+  const out: UserPrefs = {};
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out;
+  const n = (raw as Record<string, unknown>).notifications;
+  if (typeof n === 'object' && n !== null && !Array.isArray(n)) {
+    const notif: Partial<Record<NotifKind, 'inbox' | 'off'>> = {};
+    for (const k of NOTIF_KINDS) {
+      const v = (n as Record<string, unknown>)[k];
+      if (v === 'inbox' || v === 'off') notif[k] = v;
+    }
+    if (Object.keys(notif).length) out.notifications = notif;
+  }
+  if (typeof (raw as Record<string, unknown>).quietDigest === 'boolean') {
+    out.quietDigest = (raw as Record<string, unknown>).quietDigest as boolean;
+  }
+  return out;
+}
+
+/** Deep-merge an incoming (already sanitized) prefs patch onto stored prefs. */
+export function mergePrefs(stored: UserPrefs, patch: UserPrefs): UserPrefs {
+  const out: UserPrefs = { ...stored, notifications: { ...(stored.notifications ?? {}) } };
+  if (patch.notifications) {
+    for (const k of NOTIF_KINDS) {
+      const v = patch.notifications[k];
+      if (v === undefined) continue;
+      if (v === 'inbox') delete out.notifications![k]; // 'inbox' is the default — store nothing
+      else out.notifications![k] = v;
+    }
+    if (out.notifications && !Object.keys(out.notifications).length) delete out.notifications;
+  }
+  if (patch.quietDigest !== undefined) out.quietDigest = patch.quietDigest;
+  return out;
+}
+
+/** The server-side delivery gate used by notify(): per-kind inbox|off.
+ * Recipient restriction (e.g. form notifyUserIds) is the caller's job. */
+export function kindAllowed(prefs: UserPrefs | null | undefined, kind: NotifKind): boolean {
+  return prefs?.notifications?.[kind] !== 'off';
+}
+
+/** Parse the users.prefs column (NULL/malformed → {}). */
+export function parsePrefs(raw: unknown): UserPrefs {
+  if (typeof raw !== 'string' || !raw) return {};
+  try {
+    return sanitizePrefs(JSON.parse(raw));
+  } catch {
+    return {};
+  }
+}
+
+export async function loadPrefs(db: D1Database, userId: string): Promise<UserPrefs> {
+  const row = await db.prepare('SELECT prefs FROM users WHERE id = ?').bind(userId).first<{ prefs: string | null }>();
+  return parsePrefs(row?.prefs);
+}
+
 export async function userByToken(db: D1Database, token: string): Promise<AuthUser | null> {
   const tokenHash = await sha256Hex(token);
   const row = await db
@@ -177,16 +269,30 @@ auth.post('/logout', requireAuth, async (c) => {
 export const me = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 me.use('*', requireAuth);
 
-me.get('/', async (c) => c.json({ user: publicUser(c.get('user')) }));
+me.get('/', async (c) => {
+  const user = c.get('user');
+  const row = await c.env.DB.prepare('SELECT prefs FROM users WHERE id = ?').bind(user.id).first<{ prefs: string | null }>();
+  return c.json({ user: publicUser(user), prefs: parsePrefs(row?.prefs) });
+});
 
 me.patch('/', async (c) => {
-  const body = await c.req.json<{ name?: string; color?: string }>().catch(() => null);
+  const body = await c.req.json<{ name?: string; color?: string; prefs?: unknown }>().catch(() => null);
   if (!body) return c.json({ error: 'invalid body' }, 400);
   const user = c.get('user');
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : user.name;
   const color = typeof body.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.color) ? body.color : user.color;
-  await c.env.DB.prepare('UPDATE users SET name = ?, color = ? WHERE id = ?').bind(name, color, user.id).run();
-  return c.json({ user: publicUser({ ...user, name, color }) });
+  let prefs: UserPrefs | undefined;
+  if (body.prefs !== undefined) {
+    const existing = await loadPrefs(c.env.DB, user.id);
+    prefs = mergePrefs(existing, sanitizePrefs(body.prefs));
+    await c.env.DB.prepare('UPDATE users SET name = ?, color = ?, prefs = ? WHERE id = ?')
+      .bind(name, color, JSON.stringify(prefs), user.id)
+      .run();
+  } else {
+    await c.env.DB.prepare('UPDATE users SET name = ?, color = ? WHERE id = ?').bind(name, color, user.id).run();
+    prefs = await loadPrefs(c.env.DB, user.id);
+  }
+  return c.json({ user: publicUser({ ...user, name, color }), prefs });
 });
 
 me.post('/password', async (c) => {
