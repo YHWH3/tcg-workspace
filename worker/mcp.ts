@@ -3545,7 +3545,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   /** Block types that pull a database embed — never copied into a record body. */
   const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork']);
 
-  const convertCore = async (a: { recordId: string; toDatabaseId: string; templateId?: string; linkKind?: string; sourceStage?: string; title?: string }): Promise<ToolResult> => {
+  const convertCore = async (a: { recordId: string; toDatabaseId: string; templateId?: string; linkKind?: string; sourceStage?: string; title?: string; expectedRev?: number }): Promise<ToolResult> => {
     const src = await rec(ctx.env, 'tasks', a.recordId);
     if (!src || src.data.deleted) return err('record not found');
     const srcBoardId = String(src.data.boardId ?? 'board-default');
@@ -3605,7 +3605,15 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (copied === 0 && tplBlocks.length === 0) warnings.push(`template page '${titleOf(tpl, a.templateId)}' has no content blocks`);
     }
 
-    await write(ctx, ops);
+    // expectedRev CAS-guards the SOURCE record's stored seq (sibling-tool
+    // convention). applyChanges only reads expectation rows for ids present in
+    // the op batch — planConversion emits a source tasks op only when
+    // sourceStage is set — so when it isn't, pin the source row into the batch
+    // with a no-op patch: mergeRecord leaves it changed:false (never written),
+    // but the row lands in `existing` and the §4.2 precheck CAS applies.
+    const expect = a.expectedRev !== undefined ? new Map([[a.recordId, a.expectedRev]]) : undefined;
+    if (expect && !ops.some((o) => o.collection === 'tasks' && o.id === a.recordId)) ops.push({ collection: 'tasks', id: a.recordId, patch: {} });
+    await write(ctx, ops, { expect });
     const link = ops.find((o) => o.collection === 'links');
     return txt({
       destId: plan.destId,
@@ -3628,6 +3636,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         linkKind: z.enum(['related', 'blocks']).optional(),
         sourceStage: z.string().optional().describe('Column id on the source database to set the source record to'),
         title: z.string().optional().describe('Destination record title (defaults to the source title)'),
+        expectedRev: z.number().optional().describe("Source record rev from a read (get_record/query_records) — CAS-guards the conversion against writes since you saw it"),
       }),
       annotations: { idempotentHint: true },
     },
@@ -3642,6 +3651,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         ideaId: z.string(),
         templateId: z.string().optional(),
         title: z.string().optional(),
+        expectedRev: z.number().optional().describe("Idea record rev from a read — CAS-guards against writes since you saw it"),
       }),
       annotations: { idempotentHint: true },
     },
@@ -3657,7 +3667,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const idea = await rec(ctx.env, 'tasks', a.ideaId);
       if (!idea || idea.data.deleted) return err('idea not found');
       if (String(idea.data.boardId ?? '') !== ideasDb.id) return err(`record ${a.ideaId} is not in the Ideas database`);
-      return convertCore({ recordId: a.ideaId, toDatabaseId: projectsDb.id, templateId: a.templateId, title: a.title, linkKind: 'related', sourceStage: 'converted' });
+      return convertCore({ recordId: a.ideaId, toDatabaseId: projectsDb.id, templateId: a.templateId, title: a.title, expectedRev: a.expectedRev, linkKind: 'related', sourceStage: 'converted' });
     },
   );
 
