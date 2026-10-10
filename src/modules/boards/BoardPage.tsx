@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { Archive, ArchiveRestore, CheckSquare, LayoutGrid, List, ListPlus, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, CheckSquare, LayoutGrid, List, ListPlus, MoreHorizontal, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { authStore } from '../../core/auth';
 import { useIsMobile } from '../../core/mobile';
 import { PresenceStack } from '../../core/presence';
 import { FieldsEditor } from './FieldsEditor';
+import { GateEditor, GateMoveHost, noteGatedMove } from './GateMove'; // P4-D gate UX
 import { FieldChips, useFieldFilterOptions } from './FieldValue';
 import { Avatar, EmptyState, IconButton, Menu, Popover, Select, Sheet } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
@@ -157,6 +158,7 @@ export function BoardPage() {
         </div>
       </div>
       {taskId && <TaskDetail taskId={taskId} onClose={closeDetail} />}
+      <GateMoveHost /> {/* P4-D: gated-stage request dialog */}
     </div>
   );
 }
@@ -166,12 +168,18 @@ function BoardMenu({ board, deletable }: { board: BoardRow; deletable: boolean }
   const mobile = useIsMobile();
   const [renaming, setRenaming] = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [gateOpen, setGateOpen] = useState(false); // P4-D
   const [name, setName] = useState(String(board.name ?? ''));
   return (
     <>
     {fieldsOpen && (
       <Sheet onClose={() => setFieldsOpen(false)} side={mobile ? 'bottom' : 'right'}>
         <FieldsEditor board={board} />
+      </Sheet>
+    )}
+    {gateOpen && (
+      <Sheet onClose={() => setGateOpen(false)} side={mobile ? 'bottom' : 'right'}>
+        <GateEditor board={board} />
       </Sheet>
     )}
     <Popover
@@ -208,6 +216,7 @@ function BoardMenu({ board, deletable }: { board: BoardRow; deletable: boolean }
               close={close}
               items={[
                 { label: 'Fields', icon: ListPlus, onClick: () => setFieldsOpen(true) },
+                { label: 'Approval gate', icon: ShieldCheck, onClick: () => setGateOpen(true) }, // P4-D
                 { label: 'Rename board', icon: Pencil, onClick: () => setRenaming(true) },
                 {
                   label: isArchived(board) ? 'Unarchive board' : 'Archive board',
@@ -307,7 +316,9 @@ function ListRow({ task, board, onOpen }: { task: TaskRow; board: BoardRow; onOp
         style={{ width: 18, height: 18 }}
         onClick={(e) => {
           e.stopPropagation();
-          void mutate('tasks', task.id, { status: done ? columnsOf(board)[0].id : lastColumnId(board) });
+          const next = done ? columnsOf(board)[0].id : lastColumnId(board);
+          noteGatedMove(board, task.id, next); // P4-D
+          void mutate('tasks', task.id, { status: next });
         }}
       >
         {done && (

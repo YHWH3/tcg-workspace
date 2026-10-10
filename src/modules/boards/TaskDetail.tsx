@@ -15,6 +15,7 @@ import { cn, debounce, todayISO } from '../../core/utils';
 import { modules } from '..';
 import { Slot } from '../slots';
 import { columnsOf, columnIdFor, deleteTask, isDone, moveTaskToBoard, PRIORITIES, setTaskField, taskBoardId, useBoards, type TaskRow } from './api';
+import { noteGatedMove } from './GateMove';
 import { fieldsOf } from './model';
 import { FieldRow } from './FieldValue';
 import { archivePatch, isArchived } from '../../../shared/archive';
@@ -150,7 +151,14 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
               ))}
             </Select>
             <span className="text-xs text-neutral-400">Stage</span>
-            <Select value={curCol} onChange={(e) => void setTaskField(task.id, { status: e.target.value })} className="py-1.5">
+            <Select
+              value={curCol}
+              onChange={(e) => {
+                noteGatedMove(board, task.id, e.target.value); // P4-D: gated stage → request dialog
+                void setTaskField(task.id, { status: e.target.value });
+              }}
+              className="py-1.5"
+            >
               {cols.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}

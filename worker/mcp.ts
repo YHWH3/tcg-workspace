@@ -26,6 +26,7 @@ import { archivePatch, isArchived } from '../shared/archive';
 import { findReusableBoards, planInstallPreview } from '../shared/bundled';
 import { BUNDLED, BUNDLED_AUTHORS, bundledTemplate } from './bundledTemplates';
 import { COLUMN_COLORS } from '../src/modules/boards/model';
+import { registerApprovalTools } from './mcpApprovals'; // P4-D
 import type { Collection } from '../shared/collections';
 
 const MAX_WRITE_RECORDS = 500;
@@ -4002,6 +4003,9 @@ ${notes ? `Notes:\n${notes}\n` : 'The user will paste raw field notes next.\n'}
       ],
     }),
   );
+
+  /* ---------- Phase 4 approvals (Workstream D — delimited) ---------- */
+  registerApprovalTools(server, reg, ctx);
 
   return server;
 }
