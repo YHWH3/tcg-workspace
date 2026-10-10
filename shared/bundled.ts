@@ -302,7 +302,7 @@ export interface InstallPreview {
    * (the people/organizations keys) — a shared database's authored content
    * belongs to its canonical bundle's lifecycle even when this install has to
    * bootstrap the board itself. */
-  reused: { views: number; records: number };
+  reused: { views: number; records: number; links: number };
 }
 
 /**
@@ -340,7 +340,14 @@ export function planInstallPreview(bundle: BundledTemplate, existing: ExistingBo
   const authoredViews = Object.values(snap.views ?? {}).filter((v) => !v.deleted);
   const views = authoredViews.filter((v) => !excludedDbIds.has(String(v.databaseId ?? ''))).length;
   const authoredRecords = Object.values(snap.tasks ?? {}).filter((t) => !t.deleted);
-  const links = Object.values(snap.links ?? {}).filter((l) => !l.deleted && insideCopy(l.fromId) && insideCopy(l.toId)).length;
+  // A link is only written when BOTH ends resolve into the copied set; links
+  // touching reused/shared-database records are skipped and reported under
+  // `reused.links` so the count is honest about what the install writes.
+  const authoredLinks = Object.values(snap.links ?? {}).filter((l) => !l.deleted);
+  const authoredRecordIds = new Set(Object.keys(snap.tasks ?? {}));
+  const insideAuthored = (x: unknown): boolean => pageIds.has(String(x)) || authoredRecordIds.has(String(x));
+  const links = authoredLinks.filter((l) => insideCopy(l.fromId) && insideCopy(l.toId)).length;
+  const reusedLinks = authoredLinks.filter((l) => insideAuthored(l.fromId) && insideAuthored(l.toId)).length - links;
   const blocks = Object.values(snap.blocks ?? {}).filter((b) => !b.deleted && insideCopy(b.pageId)).length;
 
   return {
@@ -353,6 +360,6 @@ export function planInstallPreview(bundle: BundledTemplate, existing: ExistingBo
     links,
     records: recordIds.size,
     blocks,
-    reused: { views: authoredViews.length - views, records: authoredRecords.length - recordIds.size },
+    reused: { views: authoredViews.length - views, records: authoredRecords.length - recordIds.size, links: reusedLinks },
   };
 }

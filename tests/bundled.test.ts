@@ -164,13 +164,13 @@ describe('planInstallPreview', () => {
       links: 2,
       records: 1,
       blocks: 11, // 8 on pg_home + 1 on pg_review + 2 record-body blocks
-      reused: { views: 0, records: 0 },
+      reused: { views: 0, records: 0, links: 0 },
     });
     const reused = planInstallPreview(toBundled('tcg-pack', pack), [{ id: 'live-1', templateDbKey: 'projects' }]);
     expect(reused.databases).toEqual({ create: ['Organizations', 'Field Log', 'Transactions'], reuse: ['Projects'] });
     expect(reused.records).toBe(0); // r_parambu lives on reused db_projects
     expect(reused.views).toBe(0); // v_projects lives on the reused board
-    expect(reused.reused).toEqual({ views: 1, records: 1 }); // the excluded content is accounted for
+    expect(reused.reused).toEqual({ views: 1, records: 1, links: 2 }); // excluded content accounted — links touching r_parambu are reused-side
     expect(reused.links).toBe(0); // both authored links touch r_parambu — outside the copied set
     expect(reused.blocks).toBe(9); // page blocks still copy; r_parambu's body blocks don't
     expect(reused.pages).toBe(2);
@@ -194,7 +194,7 @@ describe('planInstallPreview', () => {
     expect(p.databases.create).toEqual(['People', 'Organizations', 'Projects']); // boards still create when absent
     expect(p.views).toBe(1); // only the pack-owned db's view
     expect(p.records).toBe(0); // r_p1 sits on the shared db
-    expect(p.reused).toEqual({ views: 2, records: 1 });
+    expect(p.reused).toEqual({ views: 2, records: 1, links: 0 });
     // With the shared boards already installed (live-matched), same accounting.
     const withShared = planInstallPreview(toBundled('x', author), [
       { id: 'live-p', templateKey: 'starter-people', name: 'People' },
@@ -203,6 +203,6 @@ describe('planInstallPreview', () => {
     expect(withShared.databases).toEqual({ create: ['Projects'], reuse: ['People', 'Organizations'] });
     expect(withShared.views).toBe(1);
     expect(withShared.records).toBe(0);
-    expect(withShared.reused).toEqual({ views: 2, records: 1 });
+    expect(withShared.reused).toEqual({ views: 2, records: 1, links: 0 });
   });
 });
