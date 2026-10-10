@@ -10,7 +10,7 @@
  */
 import { useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, ClipboardList, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users } from 'lucide-react';
 import { authStore } from '../auth';
 import { useIsMobile } from '../mobile';
 import { PresenceStack } from '../presence';
@@ -130,6 +130,9 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
               <div className="w-52 p-1 text-sm">
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setFieldsOpen(true); }}>
                   <Pencil size={14} /> Fields…
+                </button>
+                <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); navigate(`/forms/${board.id}`); }}>
+                  <ClipboardList size={14} /> Forms…
                 </button>
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); void mutate('boards', board.id, archivePatch(!isArchived(board))); }}>
                   {isArchived(board) ? <ArchiveRestore size={14} /> : <Archive size={14} />} {isArchived(board) ? 'Unarchive' : 'Archive'} database

@@ -1,5 +1,5 @@
 export type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'file';
-export type ParentType = 'task' | 'block' | 'mooditem';
+export type ParentType = 'task' | 'block' | 'mooditem' | 'form-pending';
 
 export function kindOf(mime: string): FileKind {
   if (mime.startsWith('image/')) return 'image';

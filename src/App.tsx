@@ -11,6 +11,7 @@ import { useStore } from './core/store';
 import { modules } from './modules';
 import { PublicView } from './public/PublicView';
 import { PublicCanvas } from './public/PublicCanvas';
+import { FormView } from './public/FormView';
 
 function Loading() {
   return (
@@ -33,6 +34,7 @@ const router = createBrowserRouter([
   { path: 's/canvas/:token', element: <PublicCanvas /> },
   { path: 's/:token', element: <PublicView /> },
   { path: 's/:token/:pageId', element: <PublicView /> },
+  { path: 'f/:token', element: <FormView /> },
   {
     element: (
       <RequireAuth>
@@ -52,8 +54,8 @@ let engineStarted = false;
 export default function App() {
   useEffect(() => {
     initTheme();
-    // Public share routes must never touch auth or the sync engine.
-    if (location.pathname.startsWith('/s/')) return;
+    // Public share/form routes must never touch auth or the sync engine.
+    if (location.pathname.startsWith('/s/') || location.pathname.startsWith('/f/')) return;
     void initAuth().then(() => {
       if (!engineStarted) {
         engineStarted = true;
