@@ -4212,6 +4212,12 @@
               "title",
               "status",
               "p_f_owner"
+            ],
+            "filters": [
+              {
+                "key": "archived",
+                "op": "checked"
+              }
             ]
           },
           "heading": "Archived projects"
@@ -4226,6 +4232,12 @@
               "status",
               "assigneeId",
               "dueDate"
+            ],
+            "filters": [
+              {
+                "key": "archived",
+                "op": "checked"
+              }
             ]
           },
           "heading": "Archived records"

@@ -25,14 +25,14 @@ import { registerBlockType, type MediaBlockProps } from '../../pages/blocks/regi
 import { BlockNotice, DashBlock, DatabasePicker, HeadingField, LimitField, blockInline, pickableBoards, saveBlockCfg, str, num, useBoardsQuery, useTasksQuery } from './shared';
 import { isArchived } from '../../../../shared/archive';
 
-function renderBlockView(board: BoardRow, view: ViewRow, records: TaskRow[], allTasks: TaskRow[]) {
+function renderBlockView(board: BoardRow, view: ViewRow, records: TaskRow[]) {
   const type = view.type ?? 'table';
   const cols = stagesOf(board);
   if (type === 'board') {
     const groupBy = view.config?.groupBy;
     if (!groupBy || groupBy === 'status') {
       if (!cols.length) return <ListView board={board} view={{ ...view, type: 'list' }} records={records} />;
-      return <Board board={board} tasks={boardTasks(allTasks, board.id)} />;
+      return <Board board={board} tasks={records} />;
     }
     return <GroupBoard board={board} view={view} records={records} />;
   }
@@ -73,7 +73,7 @@ function ViewBlockInner({ block }: { block: LocalRow }) {
   const rows = applyView(baseRows, view.config, ctx).rows;
   const sliced = limit ? rows.slice(0, limit) : rows;
 
-  return <div className="dashboard-view -mx-1">{renderBlockView(board, view, sliced, tasks)}</div>;
+  return <div className="dashboard-view -mx-1">{renderBlockView(board, view, sliced)}</div>;
 }
 
 function ViewBlock({ block }: MediaBlockProps) {

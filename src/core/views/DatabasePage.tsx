@@ -17,13 +17,14 @@ import { PresenceStack } from '../presence';
 import { useStore } from '../store';
 import { mutate } from '../sync/engine';
 import { Button, Dialog, Popover, Select, Sheet } from '../ui';
-import { cn } from '../utils';
+import { cn, todayISO } from '../utils';
 import { Board } from '../../modules/boards/Board';
 import { BoardPage } from '../../modules/boards/BoardPage';
 import { FieldsEditor } from '../../modules/boards/FieldsEditor';
 import { useBoard, useTasks, boardTasks, deleteBoard, type BoardRow } from '../../modules/boards/api';
 import { fieldsOf } from '../../modules/boards/model';
 import {
+  applyView,
   availableFieldKeys,
   createRecord,
   createView,
@@ -39,6 +40,7 @@ import {
   updateView,
   useDbRecords,
   useViews,
+  viewCtx,
   VIEW_TYPE_LABELS,
   type FieldKey,
   type ViewConfig,
@@ -235,7 +237,8 @@ function renderView(board: BoardRow, view: ViewRow, records: ReturnType<typeof u
     const groupBy = view.config?.groupBy;
     if (!groupBy || groupBy === 'status') {
       if (!cols.length) return <ListView board={board} view={{ ...view, type: 'list' }} records={records} />; // no stages → list fallback
-      return <Board board={board} tasks={boardTasks(deps.tasks, board.id)} />;
+      const ctx = viewCtx(board, deps.tasks, deps.links, deps.meId, todayISO());
+      return <Board board={board} tasks={applyView(records, view.config, ctx).rows} />;
     }
     return <GroupBoard board={board} view={view} records={records} />;
   }
