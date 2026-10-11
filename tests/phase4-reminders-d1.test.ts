@@ -2,7 +2,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 import {afterEach,beforeEach,expect,it} from 'vitest';
-import {runDueReminders} from '../worker/reminders';
+import {REMINDER_BEHIND_CAP,runDueReminders} from '../worker/reminders';
 import {withD1Budget,D1BudgetExhausted} from '../worker/d1budget';
 import {applyChanges} from '../worker/sync';
 import {todayUtc,addDays} from '../shared/recurrence';
@@ -162,3 +162,151 @@ it('reaches one urgent row among 1000 indexed dates without a second send',async
   await runDueReminders(env,today);
   expect(await notes('fresh')).toBe(1);
 },30_000);
+
+it('C14-T01 reaches a valid task after a full page of undeliverable rows when the forward range is empty',async()=>{
+  const early=addDays(today,-2);
+  await db.prepare("INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES('reminders','2099-01-01','z','dueDate')").run();
+  await db.batch(Array.from({length:60},(_,i)=>db.prepare('INSERT INTO date_index(record_id,field_key,date) VALUES(?,?,?)').bind(`skip_${String(i).padStart(2,'0')}`,'dueDate',early)));
+  await task('valid_urgent',early);
+  await runDueReminders(env,today);
+  expect(await sent('valid_urgent')).toBe(0);
+  const behind=await db.prepare("SELECT record_id FROM rhythm_sweep_cursors WHERE name='reminders-behind'").first<{record_id:string}>();
+  expect(behind?.record_id).toBe('skip_39');
+  await runDueReminders(env,today);
+  expect(await sent('valid_urgent')).toBe(1);
+  expect(await notes('valid_urgent')).toBe(1);
+  await runDueReminders(env,today);
+  expect(await notes('valid_urgent')).toBe(1);
+  expect(61).toBeLessThanOrEqual(REMINDER_BEHIND_CAP*2);
+},30_000);
+
+it('C14-T02 delivers after an assignee is added and C14-T03 after reminders are re-enabled',async()=>{
+  const early=addDays(today,-2);
+  await db.prepare("INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES('reminders','2099-01-01','z','dueDate')").run();
+  await task('a_needs',early,'');
+  await db.prepare("UPDATE records SET data=json_remove(data,'$.assigneeId') WHERE id='a_needs'").run();
+  await db.batch(Array.from({length:44},(_,i)=>db.prepare('INSERT INTO date_index(record_id,field_key,date) VALUES(?,?,?)').bind(`b_${String(i).padStart(2,'0')}`,'dueDate',early)));
+  await runDueReminders(env,today);
+  expect(await sent('a_needs')).toBe(0);
+  await db.prepare("UPDATE records SET data=json_set(data,'$.assigneeId','alice') WHERE id='a_needs'").run();
+  for(let n=0;n<4 && await sent('a_needs')===0;n++) await runDueReminders(env,today);
+  expect(await sent('a_needs')).toBe(1);
+  expect(await notes('a_needs')).toBe(1);
+  await task('a_quiet',early,'bob');
+  await db.batch(Array.from({length:44},(_,i)=>db.prepare('INSERT INTO date_index(record_id,field_key,date) VALUES(?,?,?)').bind(`c_${String(i).padStart(2,'0')}`,'dueDate',early)));
+  await runDueReminders(env,today);
+  expect(await sent('a_quiet')).toBe(0);
+  await db.prepare("UPDATE users SET prefs=? WHERE id='bob'").bind(JSON.stringify({notifications:{due_soon:'inbox',overdue:'inbox'}})).run();
+  for(let n=0;n<4 && await sent('a_quiet')===0;n++) await runDueReminders(env,today);
+  expect(await sent('a_quiet')).toBe(1);
+  const owner=await db.prepare("SELECT user_id FROM notifications WHERE target_id='a_quiet'").first<{user_id:string}>();
+  expect(owner?.user_id).toBe('bob');
+},30_000);
+
+it('C14-T04 does not permanently skip a deadline inserted behind the lookbehind cursor',async()=>{
+  const early=addDays(today,-2);
+  await db.prepare("INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES('reminders','2099-01-01','z','dueDate')").run();
+  await db.batch(Array.from({length:50},(_,i)=>db.prepare('INSERT INTO date_index(record_id,field_key,date) VALUES(?,?,?)').bind(`skip_${String(i).padStart(2,'0')}`,'dueDate',early)));
+  await runDueReminders(env,today);
+  await task('000_new',early);
+  for(let n=0;n<4 && await sent('000_new')===0;n++) await runDueReminders(env,today);
+  expect(await sent('000_new')).toBe(1);
+  expect(await notes('000_new')).toBe(1);
+},30_000);
+
+it('C14-T05 dedupes a deadline that moves earlier, later, and back into the window',async()=>{
+  await task('shift',addDays(today,20));
+  await runDueReminders(env,today);
+  expect(await sent('shift')).toBe(0);
+  await db.prepare('UPDATE date_index SET date=? WHERE record_id=?').bind(today,'shift').run();
+  await db.prepare("UPDATE records SET data=json_set(data,'$.dueDate',?) WHERE id='shift'").bind(today).run();
+  for(let n=0;n<3 && await sent('shift')===0;n++) await runDueReminders(env,today);
+  expect(await sent('shift')).toBe(1);
+  await db.prepare('UPDATE date_index SET date=? WHERE record_id=?').bind(addDays(today,20),'shift').run();
+  await runDueReminders(env,today);
+  expect(await sent('shift')).toBe(1);
+  const tomorrow=addDays(today,1);
+  await db.prepare('UPDATE date_index SET date=? WHERE record_id=?').bind(tomorrow,'shift').run();
+  await db.prepare("UPDATE records SET data=json_set(data,'$.dueDate',?) WHERE id='shift'").bind(tomorrow).run();
+  for(let n=0;n<3 && await sent('shift')<2;n++) await runDueReminders(env,today);
+  expect(await sent('shift')).toBe(2);
+  await runDueReminders(env,today);
+  expect(await notes('shift')).toBe(2);
+});
+
+it('C14-T06 sends one notification when two reminder runs overlap',async()=>{
+  await task('race',today);
+  await Promise.all([runDueReminders(env,today),runDueReminders(env,today)]);
+  expect(await sent('race')).toBe(1);
+  expect(await notes('race')).toBe(1);
+});
+
+it('C14-T07 retries after a cursor write failure, a notification failure, and budget exhaustion',async()=>{
+  await task('cursor',today);
+  await db.prepare("CREATE TRIGGER cursor_fault BEFORE INSERT ON rhythm_sweep_cursors BEGIN SELECT RAISE(ABORT,'cursor fault'); END").run();
+  await expect(runDueReminders(env,today)).rejects.toThrow(/cursor fault/);
+  expect(await sent('cursor')).toBe(1);
+  expect(await notes('cursor')).toBe(1);
+  await db.prepare('DROP TRIGGER cursor_fault').run();
+  await runDueReminders(env,today);
+  expect(await notes('cursor')).toBe(1);
+  await task('boom',today);
+  await db.prepare("CREATE TRIGGER note_fault BEFORE INSERT ON notifications BEGIN SELECT RAISE(ABORT,'note fault'); END").run();
+  await expect(runDueReminders(env,today)).rejects.toThrow(/note fault/);
+  expect(await sent('boom')).toBe(0);
+  await db.prepare('DROP TRIGGER note_fault').run();
+  await runDueReminders(env,today);
+  expect(await sent('boom')).toBe(1);
+  expect(await notes('boom')).toBe(1);
+  await task('tight',addDays(today,-1));
+  try { await runDueReminders(withD1Budget(env,6),today); } catch(error) { expect(error).toBeInstanceOf(D1BudgetExhausted); }
+  await runDueReminders(env,today);
+  expect(await sent('tight')).toBeLessThanOrEqual(1);
+  expect(await notes('tight')).toBeLessThanOrEqual(1);
+});
+
+it('C14-T08 keeps progress across 1000 already-sent rows and a 60-row undeliverable prefix',async()=>{
+  const early=addDays(today,-4);
+  await db.batch(Array.from({length:1000},(_,i)=>db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES(?,'dueDate','2020-01-01')").bind(`old_${String(i).padStart(4,'0')}`)));
+  for(let start=0;start<1000;start+=100) await db.batch(Array.from({length:100},(_,i)=>db.prepare("INSERT INTO reminder_sent(record_id,field_key,date,kind,created_at) VALUES(?,'dueDate','2020-01-01','overdue',?)").bind(`old_${String(start+i).padStart(4,'0')}`,Date.now())));
+  await db.batch(Array.from({length:60},(_,i)=>db.prepare('INSERT INTO date_index(record_id,field_key,date) VALUES(?,?,?)').bind(`skip_${String(i).padStart(2,'0')}`,'dueDate',early)));
+  await db.prepare("INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES('reminders','2099-01-01','z','dueDate')").run();
+  await task('tail_urgent',early);
+  await runDueReminders(env,today);
+  expect(await sent('tail_urgent')).toBe(0);
+  expect(await db.prepare("SELECT record_id FROM rhythm_sweep_cursors WHERE name='reminders-behind'").first<{record_id:string}>()).toMatchObject({record_id:'skip_39'});
+  await runDueReminders(env,today);
+  expect(await sent('tail_urgent')).toBe(1);
+  expect(await notes('tail_urgent')).toBe(1);
+  expect((await db.prepare("SELECT COUNT(*) n FROM reminder_sent WHERE record_id LIKE 'old_%'").first<{n:number}>())!.n).toBe(1000);
+},60_000);
+
+it('delivers an earlier urgent reminder while a not-yet-due tail keeps the forward page full',async()=>{
+  const soon=addDays(today,10), later=addDays(today,20);
+  const many=async(prefix:string,count:number,due:string)=>{
+    const ids=Array.from({length:count},(_,i)=>`${prefix}_${String(i).padStart(3,'0')}`);
+    for(let i=0;i<ids.length;i+=40){
+      const slice=ids.slice(i,i+40);
+      await applyChanges(env,'alice',slice.map((id)=>({id,collection:'tasks',patch:{boardId:'board',title:id,status:'open',dueDate:due,assigneeId:'alice',createdBy:'alice'},ts:1})));
+      await db.batch(slice.map((id)=>db.prepare('INSERT INTO date_index(record_id,field_key,date) VALUES(?,?,?)').bind(id,'dueDate',due)));
+    }
+  };
+  await many('near',45,soon);
+  await many('far',600,later);
+  await runDueReminders(env,today);
+  await runDueReminders(env,today);
+  await many('more',250,later);
+  await task('urgent',addDays(today,-1));
+  // No other overdue row sorts before it, so the bound is ceil(1 / 4) = 1 run.
+  const bound=1;
+  for(let n=0;n<bound && (await sent('urgent'))===0;n++) await runDueReminders(env,today);
+  expect(await sent('urgent')).toBe(1);
+  expect(await notes('urgent')).toBe(1);
+  const forward=await db.prepare("SELECT date FROM rhythm_sweep_cursors WHERE name='reminders'").first<{date:string}>();
+  expect(forward && forward.date>today).toBe(true);
+  expect(await sent('more_000')).toBe(0);
+  await many('again',40,later);
+  await runDueReminders(env,today);
+  expect(await sent('urgent')).toBe(1);
+  expect(await notes('urgent')).toBe(1);
+},90_000);
