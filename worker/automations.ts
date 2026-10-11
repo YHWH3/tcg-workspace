@@ -13,7 +13,7 @@ import { applyChanges } from './sync';
 import { getRec, listBy, listCollection } from './records';
 import { beginChangeset } from './changesets';
 import { notify, type NewNotification } from './notifications';
-import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
+import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase,d1RawDatabase} from './d1budget';
 import {
   automationDbId,
   conditionsMatch,
@@ -273,29 +273,261 @@ export function dateOffsetEvent(recordId: string, boardId: string | undefined, d
   return { kind: 'record.field_changed', recordId, collection: 'tasks', boardId, fieldKey: dateKey, to: date,from:'cron:date_offset' };
 }
 
+const DATE_OFFSET_PAGE = 80;
+
+type DateOffsetRow = { record_id: string; collection: string | null; data: string | null };
+type DateOffsetScan = {
+  auto: AutomationRow;
+  rawKey: string;
+  lookupKey: string;
+  want: string;
+  /** Last record already passed by the forward scan. Empty means start. */
+  forward: string;
+  /** Last record already re-checked for holes before `forward`. */
+  wrap: string;
+  forwardDone: boolean;
+  wrapDone: boolean;
+};
+
+function dateOffsetCursorName(automationId: string, wrap: boolean): string {
+  return `${wrap ? 'dateoffw' : 'dateoff'}:${automationId}`;
+}
+
+function indexedDateKey(key: string | undefined): string {
+  return key === 'due' ? 'dueDate' : (key ?? 'dueDate');
+}
+
+function flagged(value: unknown): boolean {
+  return value === true || value === 1;
+}
+
+/** Compare-and-swap the sweep cursor and remember every record this page handled. */
+async function persistDateOffsetPage(
+  db: D1Database,
+  scan: DateOffsetScan,
+  wrap: boolean,
+  fromId: string,
+  handled: string[],
+): Promise<boolean> {
+  if (!handled.length) return true;
+  const toId = handled[handled.length - 1]!;
+  const name = dateOffsetCursorName(scan.auto.id, wrap);
+  const marks = handled.map((recordId) =>
+    db.prepare('INSERT OR IGNORE INTO date_offset_marks(automation_id,date,field_key,record_id) VALUES(?,?,?,?)')
+      .bind(scan.auto.id, scan.want, scan.lookupKey, recordId));
+  marks.push(db.prepare(
+    `INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES(?,?,?,?)
+     ON CONFLICT(name) DO UPDATE SET date=excluded.date, record_id=excluded.record_id, field_key=excluded.field_key
+     WHERE rhythm_sweep_cursors.date!=excluded.date
+        OR rhythm_sweep_cursors.field_key!=excluded.field_key
+        OR rhythm_sweep_cursors.record_id=?`,
+  ).bind(name, scan.want, toId, scan.lookupKey, fromId));
+  const wrote = await db.batch(marks);
+  const meta = wrote[wrote.length - 1]?.meta;
+  let moved = (meta?.changes ?? 0) > 0;
+  if (!moved) {
+    const stored = await db.prepare('SELECT record_id FROM rhythm_sweep_cursors WHERE name=? AND date=? AND field_key=?')
+      .bind(name, scan.want, scan.lookupKey).first<{ record_id: string }>();
+    moved = stored?.record_id === toId;
+  }
+  if (moved) {
+    if (wrap) scan.wrap = toId;
+    else scan.forward = toId;
+  }
+  return moved;
+}
+
+async function loadDateOffsetScan(env: Env, auto: AutomationRow, today: string): Promise<DateOffsetScan | null> {
+  const trigger = auto.data.trigger;
+  if (trigger?.kind !== 'date_offset') return null;
+  const days = Number(trigger.days ?? 0);
+  if (!Number.isFinite(days)) return null;
+  const rawKey = trigger.dateKey ?? 'dueDate';
+  const lookupKey = indexedDateKey(trigger.dateKey);
+  const want = addDays(today, -Math.trunc(days));
+  const db = env.DB;
+  await db.prepare('DELETE FROM date_offset_marks WHERE automation_id=? AND (date!=? OR field_key!=?)')
+    .bind(auto.id, want, lookupKey).run();
+  const names = [dateOffsetCursorName(auto.id, false), dateOffsetCursorName(auto.id, true)];
+  const read = async (name: string) => db.prepare('SELECT date, record_id, field_key FROM rhythm_sweep_cursors WHERE name=?')
+    .bind(name).first<{ date: string; record_id: string; field_key: string }>();
+  let forward = await read(names[0]!);
+  let wrap = await read(names[1]!);
+  if ((forward && (forward.date !== want || forward.field_key !== lookupKey)) || (wrap && (wrap.date !== want || wrap.field_key !== lookupKey))) {
+    await db.batch(names.map((name) => db.prepare('DELETE FROM rhythm_sweep_cursors WHERE name=?').bind(name)));
+    forward = null;
+    wrap = null;
+  }
+  return {
+    auto, rawKey, lookupKey, want,
+    forward: forward?.record_id ?? '',
+    wrap: wrap?.record_id ?? '',
+    forwardDone: false,
+    wrapDone: false,
+  };
+}
+
+async function dateOffsetPage(env: Env, scan: DateOffsetScan, after: string, until: string | null): Promise<DateOffsetRow[]> {
+  const sql = until === null
+    ? `SELECT d.record_id, r.collection, r.data FROM date_index d
+         LEFT JOIN records r ON r.id=d.record_id
+        WHERE d.field_key=? AND d.date=? AND d.record_id>?
+        ORDER BY d.record_id LIMIT ?`
+    : `SELECT d.record_id, r.collection, r.data FROM date_index d
+         LEFT JOIN records r ON r.id=d.record_id
+        WHERE d.field_key=? AND d.date=? AND d.record_id>? AND d.record_id<=?
+        ORDER BY d.record_id LIMIT ?`;
+  const stmt = env.DB.prepare(sql).bind(
+    ...(until === null
+      ? [scan.lookupKey, scan.want, after, DATE_OFFSET_PAGE]
+      : [scan.lookupKey, scan.want, after, until, DATE_OFFSET_PAGE]),
+  );
+  return (await stmt.all<DateOffsetRow>()).results;
+}
+
+function parsedTask(row: DateOffsetRow): { id: string; collection: string; data: Record<string, unknown> } | null {
+  if (!row.data) return null;
+  try {
+    const data = JSON.parse(row.data) as Record<string, unknown>;
+    return { id: row.record_id, collection: row.collection ?? '', data };
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Cron step 4 (B calls this from runScheduled): for every enabled
- * date_offset automation, fire records whose indexed date is `today - days`.
+ * One bounded page. Completed and ineligible rows are marked and skipped.
+ * A budget failure keeps the cursor on the last finished record and rethrows
+ * so the run stays retryable instead of terminally failed.
+ */
+async function advanceDateOffsetPage(env: Env, scan: DateOffsetScan, today: string, wrap: boolean): Promise<'more' | 'end' | 'budget' | 'lost'> {
+  const fromId = wrap ? scan.wrap : scan.forward;
+  if (wrap && (!scan.forward || fromId >= scan.forward)) return 'end';
+  if (!hasD1Budget(env.DB, 4)) return 'budget';
+  const rows = await dateOffsetPage(env, scan, fromId, wrap ? scan.forward : null);
+  if (!rows.length) return 'end';
+  const scope = automationDbId(scan.auto.data);
+  const marked = new Set<string>();
+  if (wrap) {
+    const placeholders = rows.map(() => '?').join(',');
+    const found = await env.DB.prepare(
+      `SELECT record_id FROM date_offset_marks WHERE automation_id=? AND date=? AND field_key=? AND record_id IN (${placeholders})`,
+    ).bind(scan.auto.id, scan.want, scan.lookupKey, ...rows.map((row) => row.record_id)).all<{ record_id: string }>();
+    for (const row of found.results) marked.add(row.record_id);
+  }
+  const candidates = rows.map((row) => {
+    const rec = parsedTask(row);
+    const boardId = typeof rec?.data.boardId === 'string' ? rec.data.boardId : '';
+    const ineligible = marked.has(row.record_id) || !rec || rec.collection !== 'tasks' || flagged(rec.data.deleted) || flagged(rec.data.archived) || (scope !== undefined && boardId !== scope);
+    const event = ineligible || !rec ? null : dateOffsetEvent(row.record_id, boardId, scan.rawKey, scan.want);
+    return { row, rec, boardId, ineligible, event, eventKey: event ? runEventKey(scan.auto.id, event, `cron:${today}`) : '' };
+  });
+  const known = new Map<string, { status: string; lease_until: number | null }>();
+  const eventKeys = candidates.flatMap((candidate) => candidate.eventKey ? [candidate.eventKey] : []);
+  if (eventKeys.length) {
+    const found = await env.DB.prepare(
+      `SELECT event_key, status, lease_until FROM automation_runs WHERE event_key IN (${eventKeys.map(() => '?').join(',')})`,
+    ).bind(...eventKeys).all<{ event_key: string; status: string; lease_until: number | null }>();
+    for (const row of found.results) known.set(row.event_key, row);
+  }
+  let pending: string[] = [];
+  let cursorFrom = fromId;
+  let stoppedEarly = false;
+  const flush = async (target: D1Database) => {
+    if (!pending.length) return true;
+    const moved = await persistDateOffsetPage(target, scan, wrap, cursorFrom, pending);
+    if (moved) cursorFrom = pending[pending.length - 1]!;
+    pending = [];
+    return moved;
+  };
+  try {
+    for (const candidate of candidates) {
+      if (candidate.ineligible || !candidate.rec || !candidate.event) {
+        pending.push(candidate.row.record_id);
+        continue;
+      }
+      const existing = known.get(candidate.eventKey);
+      const liveLease = existing?.status === 'running' && Number(existing.lease_until ?? 0) > Date.now();
+      if (existing && (existing.status === 'completed' || existing.status === 'terminal_failure')) {
+        pending.push(candidate.row.record_id);
+        continue;
+      }
+      if (liveLease || !hasD1Budget(env.DB, 8)) {
+        stoppedEarly = true;
+        break;
+      }
+      if (!(await flush(env.DB))) return 'lost';
+      await runOneAutomation(env, scan.auto, candidate.event, {
+        source: 'automation',
+        userId: String(candidate.rec.data.createdBy ?? '') || 'system',
+        outboxId: `cron:${today}`,
+      }, candidate.rec.data, today);
+      const settled = await env.DB.prepare('SELECT status FROM automation_runs WHERE event_key=?').bind(candidate.eventKey).first<{ status: string }>();
+      if (settled?.status !== 'completed' && settled?.status !== 'terminal_failure') {
+        stoppedEarly = true;
+        break;
+      }
+      pending.push(candidate.row.record_id);
+    }
+  } catch (error) {
+    if (error instanceof D1BudgetExhausted) {
+      await flush(d1CleanupDatabase(env.DB)).catch(() => {});
+      throw error;
+    }
+    throw error;
+  }
+  if (!(await flush(env.DB))) return 'lost';
+  if (stoppedEarly) return 'budget';
+  return rows.length < DATE_OFFSET_PAGE ? 'end' : 'more';
+}
+
+/**
+ * Cron date_offset sweep. Each invocation reads a bounded page per automation
+ * and stores how far it got. Later eligible rows are not stuck behind a
+ * completed prefix, and a budget stop is not a failed automation.
  */
 export async function runDateOffsetAutomations(env: { DB: D1Database }, today: string = todayUtc()): Promise<void> {
-  const e = env as unknown as Env;
-  const autos = await enabledAutomations(e);
-  for (const auto of autos) {
-    const t = auto.data.trigger;
-    if (t?.kind !== 'date_offset') continue;
-    const days = Number(t.days ?? 0);
-    if (!Number.isFinite(days)) continue;
-    const dateKey = t.dateKey ?? 'dueDate';
-    const want = addDays(today, -Math.trunc(days));
-    const { results } = await env.DB.prepare('SELECT record_id FROM date_index WHERE field_key = ? AND date = ?')
-      .bind(dateKey === 'due' ? 'dueDate' : dateKey, want)
-      .all<{ record_id: string }>();
-    for (const row of results) {
-      const rec = await getRec(e, row.record_id);
-      if (!rec || rec.collection !== 'tasks' || rec.data.deleted === true || rec.data.archived === true) continue;
-      await runOneAutomation(e, auto, dateOffsetEvent(row.record_id, String(rec.data.boardId ?? ''), dateKey, want), { source: 'automation', userId: String(rec.data.createdBy ?? '') || 'system', outboxId: `cron:${today}` }, rec.data, today).catch(() => {});
-    }
+  const e = env as Env;
+  if (!hasD1Budget(e.DB, 4)) return;
+  const scans: DateOffsetScan[] = [];
+  for (const auto of (await enabledAutomations(e)).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    if (!hasD1Budget(e.DB, 4)) break;
+    const scan = await loadDateOffsetScan(e, auto, today);
+    if (scan) scans.push(scan);
   }
+  const step = async (wrap: boolean) => {
+    let moved = false;
+    for (const scan of scans) {
+      if (wrap ? scan.wrapDone : scan.forwardDone) continue;
+      if (!hasD1Budget(e.DB, 4)) return;
+      const outcome = await advanceDateOffsetPage(e, scan, today, wrap);
+      if (outcome === 'lost') {
+        if (wrap) scan.wrapDone = true;
+        else scan.forwardDone = true;
+        continue;
+      }
+      if (outcome === 'end') {
+        if (wrap) scan.wrapDone = true;
+        else scan.forwardDone = true;
+        continue;
+      }
+      if (outcome === 'budget') {
+        if (wrap) scan.wrapDone = true;
+        else scan.forwardDone = true;
+        if (!hasD1Budget(e.DB, 4)) return;
+        continue;
+      }
+      moved = true;
+    }
+    return moved;
+  };
+  for (let round = 0; round < 40; round++) {
+    const moved = await step(false);
+    if (moved === undefined || !moved) break;
+  }
+  // Holes inserted behind the forward cursor. One page each, so a quiet
+  // prefix cannot spend the invocation before every automation is considered.
+  await step(true);
 }
 
 /** One (automation, event) run: dedupe → validate → plan → single batch. */
@@ -355,6 +587,7 @@ export async function runOneAutomation(
       });
       await Promise.all(nested);
       if(res.rejected) {terminal=true;throw new Error(`rejected: ${JSON.stringify(res.rejectedItems)}`);}
+      if(res.partialError && /budget/i.test(res.partialError)) throw new D1BudgetExhausted();
       if(res.partialError||res.conflict||res.conflicts?.length) throw new Error(res.partialError??'write conflict; retry');
     }
     for (const a of plan.side.approvals) {
@@ -370,7 +603,9 @@ export async function runOneAutomation(
     await env.DB.prepare(`UPDATE automation_runs SET status='completed',error=NULL,lease_id=NULL,lease_until=NULL,updated_at=? WHERE id=? AND lease_id=?`).bind(Date.now(),runId,lease).run();
   } catch (err) {
     if(err instanceof D1BudgetExhausted) {
-      await d1CleanupDatabase(env.DB).prepare("UPDATE automation_runs SET status='retryable_failure',attempts=MAX(0,attempts-1),error=?,retry_at=?,lease_id=NULL,lease_until=NULL,updated_at=? WHERE id=? AND lease_id=?").bind(err.message,Date.now()+60_000,Date.now(),runId,lease).run();
+      const releaseSql="UPDATE automation_runs SET status='retryable_failure',attempts=MAX(0,attempts-1),error=?,retry_at=?,lease_id=NULL,lease_until=NULL,updated_at=? WHERE id=? AND lease_id=?";
+      const releaseAt=Date.now();
+      await d1CleanupDatabase(env.DB).prepare(releaseSql).bind(err.message,releaseAt,releaseAt,runId,lease).run().catch(()=>d1RawDatabase(env.DB).prepare(releaseSql).bind(err.message,releaseAt,releaseAt,runId,lease).run());
       throw err;
     }
     const exhausted=claimed.attempts>=EXECUTION_MAX_ATTEMPTS;

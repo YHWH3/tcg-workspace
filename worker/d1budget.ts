@@ -4,7 +4,7 @@
 // Leave headroom below the documented D1 Free 50 read-subrequest allowance for
 // other service calls. Incomplete durable work remains recoverable next tick.
 const BUDGET=Symbol('invocation D1 binding budget');
-type Budget={remaining:number;reserve:number;cleanup?:D1Database};
+type Budget={remaining:number;reserve:number;cleanup?:D1Database;raw?:D1Database};
 function budget(db:D1Database):Budget|undefined{return (db as D1Database&{[BUDGET]?:Budget})[BUDGET];}
 export class D1BudgetExhausted extends Error {
   constructor(){super('D1 invocation budget reached; retry pending work');this.name='D1BudgetExhausted';}
@@ -12,11 +12,13 @@ export class D1BudgetExhausted extends Error {
 export function d1BudgetRemaining(db:D1Database):number {const state=budget(db);return state?Math.max(0,state.remaining-state.reserve):Infinity;}
 export function hasD1Budget(db:D1Database,minimum:number):boolean {return d1BudgetRemaining(db)>=minimum;}
 export function d1CleanupDatabase(db:D1Database):D1Database{return budget(db)?.cleanup??db;}
+/** The unmetered binding. Lease release only — never ordinary reads or writes. */
+export function d1RawDatabase(db:D1Database):D1Database{return budget(db)?.raw??db;}
 
 export function withD1Budget<T extends {DB:D1Database}>(env:T,limit=45):T {
   if(budget(env.DB))return env;
   if(!Number.isInteger(limit)||limit<2)throw new Error('D1 binding budget must be at least two');
-  const state:Budget={remaining:limit,reserve:Math.min(5,Math.max(1,Math.floor(limit/4)))},originals=new WeakMap<object,D1PreparedStatement>();
+  const state:Budget={remaining:limit,reserve:Math.min(5,Math.max(1,Math.floor(limit/4))),raw:env.DB},originals=new WeakMap<object,D1PreparedStatement>();
   const consume=(cleanup=false)=>{if(state.remaining<=(cleanup?0:state.reserve))throw new D1BudgetExhausted();state.remaining--;};
   const statement=(source:D1PreparedStatement,cleanup=false):D1PreparedStatement=>{
     const wrapped=new Proxy(source,{get(target,key){

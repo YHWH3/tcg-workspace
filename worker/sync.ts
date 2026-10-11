@@ -62,14 +62,23 @@ interface Plan {
 
 async function readRows(db: D1Database, ids: string[]): Promise<Map<string, RecordRow>> {
   const out = new Map<string, RecordRow>();
-  for (let i = 0; i < ids.length; i += 100) {
-    const chunk = ids.slice(i, i + 100);
+  if (!ids.length) return out;
+  // One binding call for the whole id set. A 100-parameter chunk made a
+  // 150-row write spend its budget on reads and commit nothing.
+  // At most 100 placeholders keeps the fake D1 fixtures and D1's parameter cap.
+  if (ids.length > 100) {
     const { results } = await db
-      .prepare(`SELECT id, collection, data, field_ts, seq, updated_by, updated_at FROM records WHERE id IN (${chunk.map(() => '?').join(',')})`)
-      .bind(...chunk)
+      .prepare(`SELECT id, collection, data, field_ts, seq, updated_by, updated_at FROM records WHERE id IN (SELECT value FROM json_each(?))`)
+      .bind(JSON.stringify(ids))
       .all<RecordRow>();
     for (const row of results) out.set(row.id, row);
+    return out;
   }
+  const { results } = await db
+    .prepare(`SELECT id, collection, data, field_ts, seq, updated_by, updated_at FROM records WHERE id IN (${ids.map(() => '?').join(',')})`)
+    .bind(...ids)
+    .all<RecordRow>();
+  for (const row of results) out.set(row.id, row);
   return out;
 }
 

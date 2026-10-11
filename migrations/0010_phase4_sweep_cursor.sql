@@ -6,6 +6,15 @@ CREATE TABLE rhythm_sweep_cursors (
   record_id TEXT NOT NULL DEFAULT '',
   field_key TEXT NOT NULL DEFAULT ''
 );
+-- Examined date-offset rows. Survives automation_runs retention so a later
+-- sweep cannot execute the same record again for the same target date.
+CREATE TABLE date_offset_marks (
+  automation_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  field_key TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  PRIMARY KEY (automation_id, date, field_key, record_id)
+);
 CREATE INDEX idx_date_sweep ON date_index(date,record_id,field_key);
 CREATE INDEX idx_notif_inbox ON notifications(user_id,created_at DESC);
 DROP INDEX idx_outbox_pending;

@@ -37,14 +37,16 @@ async function submit(id:string,bindings=env){return publicFormsApi.request('htt
 
 it('keeps fresh invocation budgets isolated, shares session accounting, and counts a native D1 batch as one binding call',async()=>{
   const a=withD1Budget(env,3),b=withD1Budget(env,3);
-  expect(a).not.toBe(env);expect(a.DB).not.toBe(b.DB);expect(withD1Budget(a)).toBe(a);
+  // Reference checks stay off expect().not.toBe: a failed Object.is walks the
+  // D1 proxy and Miniflare tries to RPC `asymmetricMatch`.
+  expect(a===env).toBe(false);expect(a.DB===b.DB).toBe(false);expect(withD1Budget(a)).toBe(a);
   await a.DB.batch([a.DB.prepare('SELECT 1'),a.DB.prepare('SELECT 2')]);
-  expect(d1BudgetRemaining(a.DB)).toBe(2);expect(d1BudgetRemaining(b.DB)).toBe(3);
+  // Limit 3 keeps one call in reserve, so one batch leaves one usable call (not two).
+  expect(d1BudgetRemaining(a.DB)).toBe(1);expect(d1BudgetRemaining(b.DB)).toBe(2);
   await a.DB.withSession('first-primary').prepare('SELECT 1').first();
-  await a.DB.prepare('SELECT ? n').bind(3).all();
   expect(d1BudgetRemaining(a.DB)).toBe(0);
-  expect(()=>a.DB.prepare('SELECT 1').run()).toThrow(D1BudgetExhausted);
-  await b.DB.prepare('SELECT 1').first();expect(d1BudgetRemaining(b.DB)).toBe(2);
+  expect(()=>a.DB.prepare('SELECT ? n').bind(3).all()).toThrow(D1BudgetExhausted);
+  await b.DB.prepare('SELECT 1').first();expect(d1BudgetRemaining(b.DB)).toBe(1);
   expect(d1BudgetRemaining(env.DB)).toBe(Infinity);
 });
 
