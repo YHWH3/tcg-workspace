@@ -142,3 +142,88 @@ it('uses the same event key as a previously completed cron run',()=>{
   const ev=dateOffsetEvent('candidate_0000','board','dueDate',today);
   expect(runEventKey('date-auto',ev,`cron:${today}`)).toMatch(/^ar_[0-9a-f]+$/);
 });
+
+async function oppTask(id:string,status='open',extra:Record<string,unknown>={}){
+  await applyChanges(env,'alice',[{id,collection:'tasks',patch:{boardId:'opp',title:id,status,dueDate:today,createdBy:'alice',...extra},ts:2}]);
+  await db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES(?,'dueDate',?)").bind(id,today).run();
+}
+async function crossAuto(id:string,actions:unknown[],conditions:unknown[]=[]){
+  await applyChanges(env,'alice',[{id,collection:'automations',patch:{name:id,enabled:true,databaseId:'opp',trigger:{kind:'date_offset',dateKey:'dueDate',days:0},conditions,actions},ts:2}]);
+}
+
+it('C15 creates a record in another database, copies a template, and refuses a missing or deleted destination',async()=>{
+  await applyChanges(env,'alice',[
+    {id:'opp',collection:'boards',patch:{name:'Opportunities',columns:[{id:'open',name:'Open'},{id:'done',name:'Done'}],fields:[{id:'note',name:'Note',type:'text'}]},ts:2},
+    {id:'tasks',collection:'boards',patch:{name:'Tasks',columns:[{id:'open',name:'Open'}],fields:[{id:'rel',name:'Opp',type:'relation',relation:{target:'opp'}}]},ts:2},
+    {id:'gone',collection:'boards',patch:{name:'Gone',columns:[{id:'open'}],fields:[]},ts:2},
+    {id:'tpl',collection:'pages',patch:{title:'Template {{name}}',isTemplate:true,parentId:null},ts:2},
+    {id:'tpl-child',collection:'pages',patch:{title:'Child of template',parentId:'tpl'},ts:2},
+  ]);
+  await crossAuto('cross',[{type:'create_record',databaseId:'tasks',title:'Follow up',link:{fieldId:'rel'}}],[{key:'status',op:'is',value:'open'},{key:'p_note',op:'contains',value:'go'}]);
+  await oppTask('deal','done',{p_note:'go'});
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Follow up')).toBe(0);
+  await db.prepare("UPDATE records SET data=json_set(data,'$.status','open') WHERE id='deal'").run();
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Follow up')).toBe(1);
+  const made=await db.prepare("SELECT json_extract(data,'$.boardId') board FROM records WHERE collection='tasks' AND json_extract(data,'$.title')='Follow up'").first<{board:string}>();
+  expect(made?.board).toBe('tasks');
+  expect((await db.prepare("SELECT COUNT(*) n FROM records WHERE collection='links'").first<{n:number}>())!.n).toBe(1);
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Follow up')).toBe(1);
+  await crossAuto('from-tpl',[{type:'create_from_template',templateId:'tpl',vars:{name:'Ada'}}],[{key:'title',op:'is',value:'templated'}]);
+  await oppTask('templated');
+  await runDateOffsetAutomations(env,today);
+  const copy=await db.prepare("SELECT id FROM records WHERE collection='pages' AND json_extract(data,'$.title')='Template Ada'").first<{id:string}>();
+  expect(copy?.id).toBeTruthy();
+  expect((await db.prepare("SELECT COUNT(*) n FROM records WHERE collection='pages' AND json_extract(data,'$.parentId')=?").bind(copy!.id).first<{n:number}>())!.n).toBe(1);
+  await runDateOffsetAutomations(env,today);
+  expect((await db.prepare("SELECT COUNT(*) n FROM records WHERE collection='pages' AND json_extract(data,'$.title')='Template Ada'").first<{n:number}>())!.n).toBe(1);
+  await crossAuto('bad-db',[{type:'create_record',databaseId:'missing',title:'Should not exist'}]);
+  await crossAuto('dead-db',[{type:'create_record',databaseId:'gone',title:'Should not exist'}]);
+  await db.prepare("UPDATE records SET data=json_set(data,'$.deleted',json('true')) WHERE id='gone'").run();
+  await oppTask('nowhere');
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Should not exist')).toBe(0);
+  expect((await db.prepare("SELECT COUNT(*) n FROM automation_runs WHERE automation_id IN ('bad-db','dead-db') AND status='completed'").first<{n:number}>())!.n).toBe(0);
+},60_000);
+
+it('C15 notifies a real member, requests approval, and does not run an unknown recipient',async()=>{
+  await applyChanges(env,'alice',[{id:'opp',collection:'boards',patch:{name:'Opportunities',columns:[{id:'open',name:'Open'}],fields:[]},ts:2}]);
+  await crossAuto('ping',[{type:'notify',userIds:['alice'],message:'Ping'},{type:'request_approval',approverId:'alice'}]);
+  await crossAuto('ghost',[{type:'notify',userIds:['ghost'],message:'No'}]);
+  await oppTask('ready');
+  await runDateOffsetAutomations(env,today);
+  expect((await db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id='alice' AND kind='automation'").first<{n:number}>())!.n).toBe(1);
+  expect((await db.prepare("SELECT COUNT(*) n FROM approvals WHERE approver_id='alice' AND status='pending'").first<{n:number}>())!.n).toBe(1);
+  expect((await db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id='ghost'").first<{n:number}>())!.n).toBe(0);
+  await runDateOffsetAutomations(env,today);
+  expect((await db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id='alice' AND kind='automation'").first<{n:number}>())!.n).toBe(1);
+});
+
+it('C15 resumes a budget-limited cross-database automation once and still reaches a 1000-row tail',async()=>{
+  await applyChanges(env,'alice',[
+    {id:'opp',collection:'boards',patch:{name:'Opportunities',columns:[{id:'open'}],fields:[]},ts:2},
+    {id:'tasks',collection:'boards',patch:{name:'Tasks',columns:[{id:'open'}],fields:[]},ts:2},
+  ]);
+  await crossAuto('budgeted',[{type:'create_record',databaseId:'tasks',title:'Budget follow'}]);
+  await oppTask('only');
+  try { await runDateOffsetAutomations(withD1Budget(env,4),today); } catch(error) { expect(error).toBeInstanceOf(D1BudgetExhausted); }
+  const mid=await db.prepare("SELECT status FROM automation_runs WHERE automation_id='budgeted'").all<{status:string}>();
+  expect(mid.results.every(row=>row.status!=='terminal_failure')).toBe(true);
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Budget follow')).toBe(1);
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Budget follow')).toBe(1);
+  await crossAuto('tail-a',[{type:'create_record',databaseId:'tasks',title:'Tail A'}],[{key:'title',op:'is',value:'mix_0999'}]);
+  await crossAuto('tail-b',[{type:'create_record',databaseId:'tasks',title:'Tail B'}],[{key:'title',op:'is',value:'mix_0999'}]);
+  const stmts:D1PreparedStatement[]=[];
+  for(let i=0;i<999;i++) stmts.push(db.prepare('INSERT INTO date_index(record_id,field_key,date) VALUES(?,?,?)').bind(`mix_${String(i).padStart(4,'0')}`,i%5?'other':'dueDate','1999-01-01'));
+  for(let i=0;i<stmts.length;i+=100) await db.batch(stmts.slice(i,i+100));
+  await oppTask('mix_0999');
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Tail A')).toBe(1);
+  expect(await created('Tail B')).toBe(1);
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Tail A')).toBe(1);
+},60_000);

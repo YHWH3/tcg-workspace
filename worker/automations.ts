@@ -10,7 +10,7 @@ import type { SemanticEvent } from '../shared/events';
 import type { EventSource } from './events';
 import { requireAuth, type Env, type AuthUser } from './auth';
 import { applyChanges } from './sync';
-import { getRec, listBy, listCollection } from './records';
+import { getRec, getRecs, listBy, listCollection } from './records';
 import { beginChangeset } from './changesets';
 import { notify, type NewNotification } from './notifications';
 import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase,d1RawDatabase} from './d1budget';
@@ -24,6 +24,7 @@ import {
   validateAutomation,
   type AutomationAction,
   type AutomationConfig,
+  type ValidationCtx,
 } from '../shared/automations';
 import type { ViewCtx } from '../shared/views';
 import { coerceFieldValue, fieldsOf, type FieldDef } from '../shared/fields';
@@ -403,6 +404,28 @@ function parsedTask(row: DateOffsetRow): { id: string; collection: string; data:
   }
 }
 
+/** Source board plus every action destination, member, and template. Deleted
+ * boards are omitted so a removed destination fails validation instead of
+ * being treated as unknown-but-present. One lookup set per page, not per row. */
+async function loadValidationCtx(env: Env, config: AutomationConfig, extraBoardIds: Iterable<string> = [], includeForms = false): Promise<ValidationCtx> {
+  const ids = new Set<string>();
+  const source = automationDbId(config);
+  if (source) ids.add(source);
+  for (const id of extraBoardIds) if (id) ids.add(id);
+  for (const action of config.actions ?? []) if (action.type === 'create_record' && action.databaseId) ids.add(action.databaseId);
+  const boardsById = new Map<string, Record<string, unknown>>();
+  const found = await getRecs(env, [...ids]);
+  for (const [id, row] of found) {
+    if (row.collection !== 'boards' || flagged(row.data.deleted) || flagged(row.data.archived)) continue;
+    boardsById.set(id, row.data);
+  }
+  const { results: users } = await env.DB.prepare('SELECT id FROM users').all<{ id: string }>();
+  const templates = await listBy(env, 'pages', 'isTemplate', true);
+  const ctx: ValidationCtx = { boardsById, memberIds: new Set(users.map((user) => user.id)), templateIds: new Set(templates.map((page) => page.id)) };
+  if (includeForms) ctx.formIds = new Set((await listCollection(env, 'forms')).map((form) => form.id));
+  return ctx;
+}
+
 /**
  * One bounded page. Completed and ineligible rows are marked and skipped.
  * A budget failure keeps the cursor on the last finished record and rethrows
@@ -448,15 +471,9 @@ async function advanceDateOffsetPage(env: Env, scan: DateOffsetScan, today: stri
     pending = [];
     return moved;
   };
-  const boardIds = [...new Set(candidates.flatMap((candidate) => candidate.boardId ? [candidate.boardId] : []))];
-  const boards = new Map<string, Record<string, unknown>>();
-  if (boardIds.length) {
-    const found = await env.DB.prepare(`SELECT id, data FROM records WHERE id IN (${boardIds.map(() => '?').join(',')})`).bind(...boardIds).all<{ id: string; data: string }>();
-    for (const row of found.results) {
-      try { boards.set(row.id, JSON.parse(row.data) as Record<string, unknown>); } catch { /* skip malformed board */ }
-    }
-  }
-  const configErrors = validateAutomation(scan.auto.data, { boardsById: boards });
+  const validation = await loadValidationCtx(env, scan.auto.data, candidates.flatMap((candidate) => candidate.boardId ? [candidate.boardId] : []));
+  const boards = validation.boardsById instanceof Map ? validation.boardsById : new Map<string, Record<string, unknown>>();
+  const configErrors = validateAutomation(scan.auto.data, validation);
   try {
     for (const candidate of candidates) {
       if (candidate.ineligible || !candidate.rec || !candidate.event) {
@@ -589,20 +606,11 @@ export async function runOneAutomation(
   cs.id=claimed.changeset_id??`cs_${runId}`;
   let terminal=false;
   try {
-    const board = ev.boardId ? (await getRec(env, ev.boardId))?.data : undefined;
-    const boardsById = new Map<string, Record<string, unknown>>();
-    if (ev.boardId && board) boardsById.set(ev.boardId, board);
-    for (const a of auto.data.actions ?? []) {
-      if (a.type === 'create_record' && a.databaseId && !boardsById.has(a.databaseId)) {
-        const b = await getRec(env, a.databaseId);
-        if (b) boardsById.set(a.databaseId, b.data);
-      }
-    }
-    // Fail fast on config errors — nothing partial is written. Boards-only
-    // ctx: missing-member/template checks stay advisory at the API layer.
-    const {results:users}=await env.DB.prepare('SELECT id FROM users').all<{id:string}>();
-    const templates=await listBy(env,'pages','isTemplate',true);
-    const errors = validateAutomation(auto.data, { boardsById,memberIds:new Set(users.map(u=>u.id)),templateIds:new Set(templates.map(t=>t.id)) });
+    const validation = await loadValidationCtx(env, auto.data, ev.boardId ? [ev.boardId] : []);
+    const boardsById = validation.boardsById instanceof Map ? validation.boardsById : new Map<string, Record<string, unknown>>();
+    const board = ev.boardId ? boardsById.get(ev.boardId) : undefined;
+    // Fail fast on config errors — nothing partial is written.
+    const errors = validateAutomation(auto.data, validation);
     if (errors.length) {terminal=true;throw new Error(errors.join('; '));}
     let plan:{ops:Mutation[];side:PlannedSideEffects};
     if(claimed.plan) plan=JSON.parse(claimed.plan);
@@ -726,22 +734,6 @@ automationsApi.get('/:id/validate', async (c) => {
   const rec = await getRec(c.env, c.req.param('id'));
   if (!rec || rec.collection !== 'automations') return c.json({ error: 'not found' }, 404);
   const cfg = rec.data as AutomationConfig;
-  const dbIds = new Set<string>();
-  if (automationDbId(cfg)) dbIds.add(automationDbId(cfg)!);
-  for (const a of cfg.actions ?? []) if (a.databaseId) dbIds.add(a.databaseId);
-  const boardsById = new Map<string, Record<string, unknown>>();
-  for (const id of dbIds) {
-    const b = await getRec(c.env, id);
-    if (b) boardsById.set(id, b.data);
-  }
-  const { results: users } = await c.env.DB.prepare('SELECT id FROM users').all<{ id: string }>();
-  const templates = await listBy(c.env, 'pages', 'isTemplate', true);
-  const forms = await listCollection(c.env, 'forms');
-  const errors = validateAutomation(cfg, {
-    boardsById,
-    memberIds: new Set(users.map((u) => u.id)),
-    templateIds: new Set(templates.map((t) => t.id)),
-    formIds: new Set(forms.map((f) => f.id)),
-  });
+  const errors = validateAutomation(cfg, await loadValidationCtx(c.env, cfg, [], true));
   return c.json({ errors });
 });
