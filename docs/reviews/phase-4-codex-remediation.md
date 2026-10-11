@@ -117,7 +117,8 @@ statement sequence on an error: [D1 Database batch API](https://developers.cloud
   37 PASS; multiuser MCP 52 PASS / 7 FAIL; Phase 2 MCP 110 PASS / 3 FAIL;
   Phase 4 MCP 38 PASS / 3 FAIL; v4 palette extraction FAIL. Structured conflict,
   absent undo acceleration context and new run-status compatibility corrections
-  landed after that run; these failures are NOT relabelled PASS until rerun.
+  landed after that run. Those counts stay as the record of that run. The
+  open-gate rerun section at the end of this file is the later result.
 - v9 is authored and its first Chromium run exposed C06. Several first-run
   failures were verifier errors (wrong comment field, originless localStorage,
   obsolete Cron URL), not app defects. The harness now invokes Wrangler's
@@ -147,4 +148,17 @@ P4-C09. An enabled public form returns 200 with `cache-control: no-store`. After
 
 P4-C06. Playwright 1.63.0 drove `http://localhost:5173/f/token-a` in headless Chromium. The public form API was fulfilled in the browser so the check is the React route, not a production Turnstile or Worker upload. Form A was filled, an image named `secret-a.png` was attached, and it was submitted. An in-page `popstate` navigation to `/f/token-b` kept the same document. Form B opened with an empty answer, an empty attachment link, no Form A receipt, no Form A file name, and a new submission id. Form B's submit body did not include Form A's upload claim or answer.
 
-Not run in this pass: full v4, v6, v7, v8, and v9 browser suites, smoke, MCP suites, physical iPhone/Android, and assistive technology. `npm audit` still reports 9 high findings. No `npm audit fix` was applied. No production deploy was run. Draft PR #4 stays unmerged.
+Not run in the pass above: full v4, v6, v7, v8, and v9 browser suites, smoke, MCP suites, physical iPhone/Android, and assistive technology. The next section records the gates that were rerun after that sentence. `npm audit` still reports 9 high findings. No `npm audit fix` was applied. No production deploy was run. Draft PR #4 stays unmerged.
+
+## Open-gate rerun (local Worker on port 8788)
+
+Fresh disposable local D1, migrations `0001`–`0010` applied, `npx wrangler dev --local --port 8788`. Users came from `scripts/smoke.sh`. This is not a production deploy.
+
+- `bash scripts/smoke.sh http://127.0.0.1:8788`: PASS **44/44**, including the 2.5 MiB file stored as 1 MiB chunks, byte-identical download, and rejection of a chunk larger than the cap.
+- `node scripts/verify-mcp-multiuser.mjs http://127.0.0.1:8788`: PASS **59/59**. The earlier 52 pass / 7 fail result is not reused.
+- `node scripts/verify-mcp-phase2.mjs http://127.0.0.1:8788`: PASS **113/113**. The earlier 110 pass / 3 fail result is not reused.
+- `node scripts/verify-mcp-phase4.mjs http://127.0.0.1:8788`: PASS **41/41**. The earlier 38 pass / 3 fail result is not reused.
+- `node scripts/verify-v4.mjs http://127.0.0.1:8788`: PASS. `extract palette adds 5 swatches` passed. The script printed `ALL PASS`.
+- P4-C06 again, Playwright against `http://localhost:5173`: PASS. In-page navigation from `/f/token-a` to `/f/token-b` left the answer empty. Form B submitted a different submission id and did not send Form A's upload claim. The public form API was still fulfilled in the browser.
+
+Still not run: v6, v7, v8, v9, Phase 1 MCP, Phase 3 MCP, physical iPhone/Android, and assistive technology.
