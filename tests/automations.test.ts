@@ -51,17 +51,19 @@ describe('matchesTrigger', () => {
     expect(matchesTrigger({ kind: 'field_changed' }, e)).toBe(true);
   });
 
-  it('date_offset fires when the changed date equals today - days', () => {
+  it('date_offset fires only for the explicit Cron date-offset event at today - days', () => {
     const today = todayUtc();
     const hit = addDays(today, 14); // days = -14 → want today+14
-    const e = ev({ kind: 'record.field_changed', fieldKey: 'p_f_deadline', to: hit });
+    const e = ev({ kind: 'record.field_changed', from: 'cron:date_offset', fieldKey: 'p_f_deadline', to: hit });
     expect(matchesTrigger({ kind: 'date_offset', dateKey: 'p_f_deadline', days: -14 }, e, { today })).toBe(true);
     // Wrong date → no fire.
-    const other = ev({ kind: 'record.field_changed', fieldKey: 'p_f_deadline', to: '2020-01-01' });
+    const other = ev({ kind: 'record.field_changed', from: 'cron:date_offset', fieldKey: 'p_f_deadline', to: '2020-01-01' });
     expect(matchesTrigger({ kind: 'date_offset', dateKey: 'p_f_deadline', days: -14 }, other, { today })).toBe(false);
     // Different field key → no fire.
-    const wrongField = ev({ kind: 'record.field_changed', fieldKey: 'p_f_note', to: hit });
+    const wrongField = ev({ kind: 'record.field_changed', from: 'cron:date_offset', fieldKey: 'p_f_note', to: hit });
     expect(matchesTrigger({ kind: 'date_offset', dateKey: 'p_f_deadline', days: -14 }, wrongField, { today })).toBe(false);
+    expect(matchesTrigger({ kind: 'date_offset', dateKey: 'p_f_deadline', days: -14 }, { ...e, from: undefined }, { today })).toBe(false);
+    expect(matchesTrigger({ kind: 'date_offset', dateKey: 'p_f_deadline', days: -14 }, { ...e, from: '2026-01-01' }, { today })).toBe(false);
   });
 
   it('form.submitted matches by formId', () => {
@@ -88,7 +90,10 @@ describe('matchesScope + automationDbId', () => {
   });
 
   it('form.submitted events only scope form triggers', () => {
-    expect(matchesScope(auto({ trigger: { kind: 'form.submitted' } }), ev({ kind: 'form.submitted' }))).toBe(true);
+    expect(matchesScope(auto({ trigger: { kind: 'form.submitted' } }), ev({ kind: 'form.submitted', boardId: 'db1' }))).toBe(true);
+    expect(matchesScope(auto({ trigger: { kind: 'form.submitted' } }), ev({ kind: 'form.submitted', boardId: 'db2' }))).toBe(false);
+    expect(matchesScope(auto({ trigger: { kind: 'form.submitted' } }), ev({ kind: 'form.submitted' }))).toBe(false);
+    expect(matchesScope({ trigger: { kind: 'form.submitted' } }, ev({ kind: 'form.submitted' }))).toBe(true);
     expect(matchesScope(auto({ trigger: { kind: 'record.created' } }), ev({ kind: 'form.submitted' }))).toBe(false);
   });
 

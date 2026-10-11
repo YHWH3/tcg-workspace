@@ -11,12 +11,15 @@ import { applyChanges } from './sync';
 import { kindAllowed, loadPrefs, type Env, type UserPrefs } from './auth';
 import type { SemanticEvent } from '../shared/events';
 import type { Mutation } from '../shared/types';
+import { beginChangeset } from './changesets';
+import { fnv1a64hex } from '../shared/linkid';
+import {hasD1Budget,d1BudgetRemaining,D1BudgetExhausted} from './d1budget';
 
 const OUTBOX_BATCH = 20;
-const OUTBOX_MAX_ATTEMPTS = 5;
 const OUTBOX_STALE_MS = 60_000;
 
-const DATE_INDEX_SCAN_CAP = 500;
+const DATE_INDEX_SCAN_CAP = 250;
+const REMINDER_DELIVERY_CAP = 4;
 /** Boards may configure a longer reminderLeadDays; the scan window must be
  * wider than any sane lead so custom leads aren't silently clipped. */
 const MAX_LEAD_DAYS = 30;
@@ -89,12 +92,20 @@ function dueLabel(date: string, today: string): string {
 /** due_soon / overdue: scan the date index once per cron tick, dedupe through
  * reminder_sent, and notify the assignee (else owner/lead person field). */
 async function runDueReminders(env: { DB: D1Database }, today: string): Promise<number> {
+  const cursor=await env.DB.prepare("SELECT date,record_id,field_key FROM rhythm_sweep_cursors WHERE name='reminders'").first<{date:string;record_id:string;field_key:string}>();
   const { results: rows } = await env.DB.prepare(
-    `SELECT record_id, field_key, date FROM date_index WHERE date <= ? ORDER BY date LIMIT ?`,
+    `SELECT d.record_id, d.field_key, d.date FROM date_index d
+      WHERE d.date<=? AND (d.date,d.record_id,d.field_key)>(?,?,?)
+      AND NOT EXISTS(SELECT 1 FROM reminder_sent s WHERE s.record_id=d.record_id AND s.field_key=d.field_key AND s.date=d.date
+        AND s.kind=CASE WHEN d.date<? THEN 'overdue' ELSE 'due_soon' END)
+      ORDER BY d.date,d.record_id,d.field_key LIMIT ?`,
   )
-    .bind(addDays(today, MAX_LEAD_DAYS), DATE_INDEX_SCAN_CAP)
+    .bind(addDays(today, MAX_LEAD_DAYS),cursor?.date??'',cursor?.record_id??'',cursor?.field_key??'',today,DATE_INDEX_SCAN_CAP)
     .all<{ record_id: string; field_key: string; date: string }>();
-  if (!rows.length) return 0;
+  if (!rows.length) {
+    await env.DB.prepare("DELETE FROM rhythm_sweep_cursors WHERE name='reminders'").run();
+    return 0;
+  }
 
   const recs = await fetchRecs(env.DB, [...new Set(rows.map((r) => r.record_id))]);
   const boardIds = new Set<string>();
@@ -111,7 +122,10 @@ async function runDueReminders(env: { DB: D1Database }, today: string): Promise<
   };
 
   let sent = 0;
+  let last=rows[0];
   for (const row of rows) {
+    if(!hasD1Budget(env.DB,8))break;
+    last=row;
     const rec = recs.get(row.record_id);
     if (!rec || rec.collection !== 'tasks') continue;
     if (rec.data.deleted === true || rec.data.archived === true) continue;
@@ -121,7 +135,7 @@ async function runDueReminders(env: { DB: D1Database }, today: string): Promise<
     const kind = row.date < today ? 'overdue' : reminderKind(row.date, today, leadDays(board));
     if (!kind) continue;
 
-    const recipient = typeof rec.data.assignee === 'string' && rec.data.assignee ? rec.data.assignee : ownerFieldRecipient(rec.data, board);
+    const recipient = typeof rec.data.assigneeId === 'string' && rec.data.assigneeId ? rec.data.assigneeId : ownerFieldRecipient(rec.data, board);
     if (!recipient) continue;
 
     // Prefs before dedupe: an opted-out kind must not burn the reminder slot —
@@ -129,13 +143,6 @@ async function runDueReminders(env: { DB: D1Database }, today: string): Promise<
     if (!kindAllowed(await prefsFor(recipient), kind)) continue;
 
     // Dedupe before notify: the row lands or it doesn't — never notify twice.
-    const ins = await env.DB.prepare(
-      `INSERT OR IGNORE INTO reminder_sent (record_id, field_key, date, kind, created_at) VALUES (?, ?, ?, ?, ?)`,
-    )
-      .bind(row.record_id, row.field_key, row.date, kind, Date.now())
-      .run();
-    if (!(ins.meta.changes ?? 0)) continue;
-
     const title = titleOf(rec.data) || 'A record';
     await notify(env, {
       userId: recipient,
@@ -145,9 +152,14 @@ async function runDueReminders(env: { DB: D1Database }, today: string): Promise<
       title: kind === 'overdue' ? `"${title}" is overdue` : `"${title}" is due ${dueLabel(row.date, today)}`,
       body: `Due ${row.date}${row.field_key !== 'dueDate' ? ` (${row.field_key})` : ''}`,
       url: `/tasks/${rec.id}`,
-    });
+      dedupeKey:`reminder:${row.record_id}:${row.field_key}:${row.date}:${kind}`,
+    },[env.DB.prepare('INSERT OR IGNORE INTO reminder_sent(record_id,field_key,date,kind,created_at) VALUES(?,?,?,?,?)').bind(row.record_id,row.field_key,row.date,kind,Date.now())]);
     sent++;
+    if(sent>=REMINDER_DELIVERY_CAP) break;
   }
+  // Save only after successful delivery work; a failure leaves this page
+  // recoverable and delivery keys suppress completed earlier rows on retry.
+  await env.DB.prepare("INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES('reminders',?,?,?) ON CONFLICT(name) DO UPDATE SET date=excluded.date,record_id=excluded.record_id,field_key=excluded.field_key").bind(last.date,last.record_id,last.field_key).run();
   return sent;
 }
 
@@ -161,13 +173,13 @@ function titleOf(data: Record<string, unknown>): string {
 async function runRetention(env: { DB: D1Database }, now: number): Promise<void> {
   const db = env.DB;
   const stmts = [
-    db.prepare('DELETE FROM form_submissions WHERE created_at < ?').bind(now - RETENTION.formSubmissionMs),
+    db.prepare("DELETE FROM form_submissions WHERE state IN ('accepted','rejected') AND created_at < ?").bind(now - RETENTION.formSubmissionMs),
     db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?').bind(now - RETENTION.readNotificationMs),
     db.prepare('DELETE FROM reminder_sent WHERE created_at < ?').bind(now - RETENTION.reminderSentMs),
     db.prepare(
       `DELETE FROM automation_runs WHERE id NOT IN (
          SELECT id FROM automation_runs r2 WHERE r2.automation_id = automation_runs.automation_id
-         ORDER BY created_at DESC LIMIT ${RETENTION.automationRunsPer})`,
+         ORDER BY created_at DESC LIMIT ${RETENTION.automationRunsPer}) AND status IN ('completed','terminal_failure')`,
     ),
   ];
   await db.batch(stmts).catch(() => {});
@@ -194,23 +206,14 @@ async function runRetention(env: { DB: D1Database }, now: number): Promise<void>
  * 3) date_offset automation triggers,
  * 4) retention sweeps (rate_limits, stale submissions, old runs/notifs). */
 export async function runScheduled(env: { DB: D1Database }): Promise<void> {
-  // 1. Event outbox sweep — the durable-processing guarantee.
-  const { results: pending } = await env.DB.prepare(
-    'SELECT id FROM event_outbox WHERE processed_at IS NULL AND created_at < ? ORDER BY created_at LIMIT ?'
+  const events=async()=>{
+    const { results: pending } = await env.DB.prepare(
+    'SELECT id FROM event_outbox INDEXED BY idx_outbox_pending WHERE processed_at IS NULL AND terminal_at IS NULL AND created_at < ? AND COALESCE(lease_until,0)<=? ORDER BY created_at LIMIT ?'
   )
-    .bind(Date.now() - OUTBOX_STALE_MS, OUTBOX_BATCH)
+    .bind(Date.now() - OUTBOX_STALE_MS,Date.now(), OUTBOX_BATCH)
     .all<{ id: string }>();
   for (const row of pending) {
-    const { attempts } = (await env.DB.prepare('SELECT attempts FROM event_outbox WHERE id = ?')
-      .bind(row.id)
-      .first<{ attempts: number }>()) ?? { attempts: 0 };
-    if (attempts >= OUTBOX_MAX_ATTEMPTS) {
-      // Poisoned event: park it processed with the error on record — never loop.
-      await env.DB.prepare('UPDATE event_outbox SET processed_at = ? WHERE id = ?')
-        .bind(Date.now(), row.id)
-        .run();
-      continue;
-    }
+    if(!hasD1Budget(env.DB,18))break;
     try {
       await processOutbox(env, row.id);
     } catch {
@@ -218,19 +221,30 @@ export async function runScheduled(env: { DB: D1Database }): Promise<void> {
     }
   }
   // Retention: drop processed outbox + stale rate-limit rows.
-  await env.DB.prepare('DELETE FROM event_outbox WHERE processed_at IS NOT NULL').run().catch(() => {});
+  await env.DB.prepare('UPDATE event_outbox SET terminal_at=? WHERE processed_at IS NULL AND terminal_at IS NULL AND attempts>=8 AND COALESCE(lease_until,0)<=?').bind(Date.now(),Date.now()).run();
+  await env.DB.prepare('DELETE FROM event_outbox WHERE processed_at IS NOT NULL AND processed_at<?').bind(Date.now()-30*DAY).run();
   await env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(Date.now()).run().catch(() => {});
-
+  };
   const today = todayUtc();
-  // 2. due_soon / overdue via date_index + reminder_sent.
-  await runDueReminders(env, today).catch(() => {});
-  // 3. date_offset automation triggers (E's engine — fires date_offset
-  // triggers only; synthetic field_changed events would misfire real
-  // field-changed automations).
-  const { runDateOffsetAutomations } = await import('./automations');
-  await runDateOffsetAutomations(env as unknown as Env, today).catch(() => {});
-  // 4. notification/run/submission/orphan-file retention sweeps.
-  await runRetention(env, Date.now());
+  const { runDateOffsetAutomations,recoverAutomationRuns } = await import('./automations');
+  const {recoverFormSubmissions}=await import('./forms');
+  const phases:{minimum:number;run:()=>Promise<unknown>}[]=[
+    {minimum:18,run:events},
+    {minimum:18,run:()=>runDueReminders(env,today)},
+    {minimum:24,run:()=>recoverAutomationRuns(env)},
+    {minimum:28,run:async()=>{const nested:Promise<unknown>[]=[];await recoverFormSubmissions(env as Env,{waitUntil:p=>nested.push(p)});await Promise.all(nested);}},
+    {minimum:24,run:()=>runDateOffsetAutomations(env as Env,today)},
+    {minimum:10,run:()=>runRetention(env,Date.now())},
+  ];
+  // Each scheduled invocation has its own budget. Rotate the first phase
+  // every 15-minute slot so a sustained event backlog cannot starve receipts,
+  // automation retries, reminders or retention indefinitely. Plain test
+  // bindings retain the historical ordering unless explicitly budgeted.
+  const offset=d1BudgetRemaining(env.DB)===Infinity?0:Math.floor(Date.now()/900_000)%phases.length;
+  for(const phase of [...phases.slice(offset),...phases.slice(0,offset)]) {
+    if(!hasD1Budget(env.DB,phase.minimum))continue;
+    try {await phase.run();}catch(error){if(error instanceof D1BudgetExhausted)return;throw error;}
+  }
 }
 
 /* ---------- Recurrence (event-driven, §5) ---------- */
@@ -246,7 +260,6 @@ export async function recurrencesForEvent(env: { DB: D1Database }, semantic: Sem
   const boardCache = new Map<string, StoredRec | null>();
   for (const ev of semantic) {
     if (ev.kind !== 'record.stage_changed') continue;
-    try {
       const rec = await fetchRecs(env.DB, [ev.recordId]).then((m) => m.get(ev.recordId));
       if (!rec || rec.collection !== 'tasks') continue;
       const boardId = typeof rec.data.boardId === 'string' ? rec.data.boardId : 'board-default';
@@ -261,9 +274,6 @@ export async function recurrencesForEvent(env: { DB: D1Database }, semantic: Sem
       const next = nextDate(recurrence, srcDue);
       if (!next) continue;
       await spawnNextOccurrence(env, ctx.userId, rec, board ?? null, next);
-    } catch {
-      /* a failed spawn must not poison the outbox event */
-    }
   }
 }
 
@@ -286,7 +296,7 @@ export async function spawnNextOccurrence(
   nextDue: string,
 ): Promise<void> {
   const now = Date.now();
-  const spawnId = `rec_${src.id}_${nextDue}`.slice(0, 64);
+  const spawnId = `rec_${fnv1a64hex(src.id+'|'+nextDue)}`;
   const cols = columnsOf(board);
 
   const patch: Record<string, unknown> = { ...src.data };
@@ -331,13 +341,13 @@ export async function spawnNextOccurrence(
   // with any internal parent references remapped the same way.
   const { results: blocks } = await env.DB.prepare(
     `SELECT id, data FROM records WHERE collection = 'blocks' AND json_extract(data, '$.pageId') = ?
-       AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`,
+       AND COALESCE(json_extract(data, '$.deleted'), 0) != 1 ORDER BY id`,
   )
     .bind(src.id)
     .all<{ id: string; data: string }>();
   if (blocks.length) {
     const idMap = new Map<string, string>();
-    blocks.forEach((b, i) => idMap.set(b.id, `rec_${src.id}_${nextDue}_b${i}`.slice(0, 64)));
+    blocks.forEach((b, i) => idMap.set(b.id,`${spawnId}_b${i}`));
     for (const b of blocks) {
       let d: Record<string, unknown>;
       try {
@@ -357,9 +367,12 @@ export async function spawnNextOccurrence(
   const shimCtx = { waitUntil(p: Promise<unknown>) { nested.push(p); } };
   // applyChanges wants the full Env but only touches env.DB (+ event ctx);
   // the {DB} contract is what processOutbox threads down to us.
-  await applyChanges(env as Parameters<typeof applyChanges>[0], userId, mutations, {
+  const cs=beginChangeset({userId,tool:'recurrence',source:'automation',summary:'Create next recurring record'});cs.id=`cs_${spawnId}`;
+  const result=await applyChanges(env as Parameters<typeof applyChanges>[0], userId, mutations, {
     serverTs: true,
-    event: { source: 'automation', ctx: shimCtx },
+    atomic:true,createOnly:new Set(mutations.map(m=>m.id)),journal:cs,
+    event: { source: 'automation', ctx: shimCtx,changesetId:cs.id },
   });
+  if(result.partialError||result.rejected||result.conflict||result.conflicts?.length) throw new Error(result.partialError??'recurrence write rejected');
   await Promise.all(nested);
 }

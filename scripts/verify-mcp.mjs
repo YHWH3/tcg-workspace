@@ -7,14 +7,46 @@ import { chromium } from 'playwright';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import crypto from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, relative, resolve } from 'node:path';
 
-const BASE = process.argv[2] ?? 'http://localhost:8788';
+const requestedBase = process.argv[2] ?? 'http://localhost:8788';
+const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+let BASE;
+try {
+  const parsedBase = new URL(requestedBase);
+  if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (parsedBase.pathname !== '/' && parsedBase.pathname !== '') || parsedBase.username || parsedBase.password || parsedBase.search || parsedBase.hash) throw new Error('not a loopback HTTP origin');
+  BASE = parsedBase.origin;
+} catch {
+  console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
+  process.exit(2);
+}
 const SHOTS = '/tmp/notion-shots/v5';
 mkdirSync(SHOTS, { recursive: true });
 const USER = process.env.MCP_USER ?? 'admin';
 const PASS = process.env.MCP_PASS ?? 'password123';
 const TASK_COUNT = Number(process.env.MCP_TASK_COUNT ?? 12); // ~100 on staging for CPU check
+const fixtureConfig = process.env.PHASE4_FIXTURE_CONFIG?.trim() ?? '';
+const fixtureState = process.env.PHASE4_FIXTURE_STATE?.trim() ?? '';
+if (!fixtureConfig || !fixtureState) {
+  console.error('FATAL: PHASE4_FIXTURE_CONFIG and PHASE4_FIXTURE_STATE are required together for the destructive deleted-user check');
+  process.exit(2);
+}
+const configPath = resolve(fixtureConfig);
+const statePath = resolve(fixtureState);
+try {
+  if (!existsSync(configPath) || !statSync(configPath).isFile() || !existsSync(statePath) || !statSync(statePath).isDirectory()) throw new Error('fixture config/state does not exist with the expected types');
+  const configParent = realpathSync(dirname(configPath));
+  const realConfig = realpathSync(configPath);
+  const realState = realpathSync(statePath);
+  const tempRoot = realpathSync(tmpdir());
+  const relativeFixture = relative(tempRoot, configParent);
+  if (basename(realConfig) !== 'wrangler.json' || basename(realState) !== 'state' || dirname(realState) !== configParent || !basename(configParent).startsWith('tcg-phase4-disposable-') || !relativeFixture || relativeFixture.startsWith('..') || resolve(tempRoot, relativeFixture) !== configParent) throw new Error('fixture config/state must be the exact disposable helper layout under the OS temp directory');
+} catch (error) {
+  console.error(`FATAL: refusing fixture config/state targets: ${error?.message ?? error}`);
+  process.exit(2);
+}
 
 let PASS_COUNT = 0,
   FAIL_COUNT = 0;
@@ -380,25 +412,22 @@ await browser.close();
 console.log('\n== deleted user token ==');
 // Snapshot a spare user's row, delete it, expect 401, restore it.
 const secondToken = accessToken; // token is bound to USER; delete USER and restore
-const isLocal = BASE.includes('localhost') || BASE.includes('127.0.0.1');
-if (isLocal) {
-  const { execSync } = await import('node:child_process');
-  const rowJson = execSync(`npx wrangler d1 execute workspace-db --local --json --command "SELECT * FROM users WHERE username='${USER}'"`, { cwd: process.cwd() }).toString();
-  const rows = JSON.parse(rowJson);
-  const row = Array.isArray(rows) ? rows[0]?.results?.[0] : rows.results?.[0];
-  execSync(`npx wrangler d1 execute workspace-db --local --command "DELETE FROM users WHERE username='${USER}'"`, { cwd: process.cwd() });
-  await new Promise((r) => setTimeout(r, 400));
-  const dead = await api('/mcp', { method: 'POST', token: accessToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
-  check('token with deleted user → 401', dead.status === 401, `status=${dead.status}`);
-  if (row) {
-    const cols = Object.keys(row).join(', ');
-    const vals = Object.values(row).map((v) => (v === null ? 'NULL' : `'${String(v).replaceAll("'", "''")}'`)).join(', ');
-    execSync(`npx wrangler d1 execute workspace-db --local --command "INSERT INTO users (${cols}) VALUES (${vals})"`, { cwd: process.cwd() });
-    const back = await api('/api/auth/login', { method: 'POST', body: { username: USER, password: PASS } });
-    check('restored user can log in again', !!back.data.token);
-  }
-} else {
-  console.log('  (skipped — non-local base; deleting prod/staging users is not allowed)');
+const { execFileSync } = await import('node:child_process');
+const d1Args = ['wrangler', 'd1', 'execute', 'workspace-db', '--local', '--config', configPath, '--persist-to', statePath];
+const d1 = (args) => execFileSync('npx', [...d1Args, ...args], { cwd: process.cwd() }).toString();
+const rowJson = d1(['--json', '--command', `SELECT * FROM users WHERE username='${USER}'`]);
+const rows = JSON.parse(rowJson);
+const row = Array.isArray(rows) ? rows[0]?.results?.[0] : rows.results?.[0];
+d1(['--command', `DELETE FROM users WHERE username='${USER}'`]);
+await new Promise((r) => setTimeout(r, 400));
+const dead = await api('/mcp', { method: 'POST', token: accessToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
+check('token with deleted user → 401', dead.status === 401, `status=${dead.status}`);
+if (row) {
+  const cols = Object.keys(row).join(', ');
+  const vals = Object.values(row).map((v) => (v === null ? 'NULL' : `'${String(v).replaceAll("'", "''")}'`)).join(', ');
+  d1(['--command', `INSERT INTO users (${cols}) VALUES (${vals})`]);
+  const back = await api('/api/auth/login', { method: 'POST', body: { username: USER, password: PASS } });
+  check('restored user can log in again', !!back.data.token);
 }
 void secondToken;
 

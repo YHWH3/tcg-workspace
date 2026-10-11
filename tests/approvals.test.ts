@@ -130,6 +130,19 @@ class FakeD1 {
 
   exec(sql: string, binds: unknown[]): { results: unknown[]; changes: number } {
     this.seen.push(sql.slice(0, 70));
+    if (/SELECT CASE WHEN NOT EXISTS/.test(sql) && /approvalGate/.test(sql)) {
+      const next = JSON.parse(String(binds[0]));
+      const previous = JSON.parse(String(binds[3]));
+      const board = this.records.get(next.boardId ?? 'board-default');
+      const gate = board?.collection === 'boards' ? parseGate(JSON.parse(board.data)) : null;
+      if (gate && next.status === gate.stageId && (next.status !== previous.status || next.boardId !== previous.boardId || gate.approverField)) {
+        const approved = [...this.approvals.values()].some(row => row.target_type === 'record' && row.target_id === binds[6]
+          && row.status === 'approved' && (row.stage_id === gate.stageId || row.stage_id === null)
+          && (!gate.approverField || row.approver_id === next[`p_${gate.approverField}`]));
+        if (!approved) throw new Error('malformed JSON');
+      }
+      return { results: [{ allowed: 1 }], changes: 0 };
+    }
     // applyChanges readRows: full record projection.
     if (/SELECT id, collection, data, field_ts, seq, updated_by, updated_at FROM records WHERE id IN/.test(sql)) {
       const results = binds.map((id) => this.records.get(String(id))).filter((r): r is RecRow => !!r);
@@ -142,7 +155,7 @@ class FakeD1 {
       if (row && row.seq !== baseSeq) return { results: [], changes: 0 };
       this.seq += 1;
       this.records.set(id, { id, collection, data, field_ts: fieldTs, seq: this.seq, updated_by: userId, updated_at: now });
-      return { results: [], changes: 1 };
+      return { results: [{ seq: this.seq }], changes: 1 };
     }
     if (/SELECT id, data FROM records WHERE id IN/.test(sql)) {
       const results = binds.map((id) => this.records.get(String(id))).filter((r): r is RecRow => !!r).map((r) => ({ id: r.id, data: r.data }));
@@ -233,12 +246,14 @@ class FakeD1 {
 
   async batch(stmts: D1PreparedStatement[]): Promise<D1Result<unknown>[]> {
     const snapshot = new Map([...this.records].map(([k, v]) => [k, { ...v }]));
+    const approvals = new Map([...this.approvals].map(([k, v]) => [k, { ...v }]));
     const seq0 = this.seq;
     const out: D1Result<unknown>[] = [];
     try {
       for (const s of stmts) out.push((await s.run()) as D1Result<unknown>);
     } catch (e) {
       this.records = snapshot;
+      this.approvals = approvals;
       this.seq = seq0;
       throw e;
     }
@@ -445,9 +460,9 @@ describe('loadTargetMeta / userExists / validateApprovalRequest', () => {
 
 /* ---------- applyChanges-level: the gate binds EVERY write pathway ----------
  * Client push, MCP update_records, automations and undo all funnel through
- * applyChanges in worker/sync.ts — proving the rejection here proves it for
- * each pathway (update_records maps `stage` → patch.status, then calls this
- * same function via worker/mcp.ts write()). */
+ * applyChanges in worker/sync.ts. These fake-backed tests cover that shared
+ * function's control flow; actual REST/MCP paths and SQLite transactions have
+ * separate integration coverage. */
 describe('applyChanges approval gate (covers MCP update_records pathway)', () => {
   let db: FakeD1;
   beforeEach(() => {

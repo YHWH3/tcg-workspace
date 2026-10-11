@@ -247,10 +247,16 @@ describe('planSubmissionChanges', () => {
     expect(link.patch).toMatchObject({ fieldId: 'fRel', fromId: recId, toId: 'proj1', kind: 'relation', deleted: false });
   });
 
-  it('email match → related link to the person; name-similar → notes marker on the record', () => {
+  it('email match reuses the person without creating a duplicate or self-link; name-similar adds a review marker', () => {
     const emailOps = planSubmissionChanges({ ...base, personMatch: { kind: 'email', personId: 'p1', personTitle: 'Ada' } });
-    const rel = emailOps.find((o) => o.collection === 'links' && o.patch.kind === 'related')!;
-    expect(rel.id).toBe(linkId('related', '', submissionRecordId('form1', 's1'), 'p1'));
+    expect(emailOps.filter(o => o.collection === 'tasks')).toEqual([]);
+    expect(emailOps.filter(o => o.collection === 'links' && o.patch.kind === 'related')).toEqual([]);
+    const relation = emailOps.find(o => o.collection === 'links' && o.patch.kind === 'relation')!;
+    expect(relation.id).toBe(linkId('relation', 'fRel', 'p1', 'proj1'));
+    expect(relation.patch).toMatchObject({ fromId: 'p1', toId: 'proj1', fieldId: 'fRel', kind: 'relation' });
+    expect(emailOps.some(o => o.patch.fromId === o.patch.toId && typeof o.patch.fromId === 'string')).toBe(false);
+    const files = planSubmissionChanges({ ...base, personMatch: { kind: 'email', personId: 'p1', personTitle: 'Ada' }, pendingFileIds: ['upload'] });
+    expect(files.find(o => o.id === 'upload')?.patch).toMatchObject({ parentType: 'task', parentId: 'p1' });
 
     const simOps = planSubmissionChanges({ ...base, personMatch: { kind: 'name-similar', personId: 'p2', personTitle: 'Bob' } });
     const rec = simOps.find((o) => o.collection === 'tasks')!;

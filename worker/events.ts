@@ -1,13 +1,16 @@
 // Phase 4 — unified server event pipeline.
 // One emission point: applyChanges callers pass opts.event; we durably stage
-// the event in event_outbox (same request, post-commit) and process it in
+// the event in event_outbox (same D1 transaction) and process it in
 // waitUntil; the cron sweeper recovers unprocessed rows. All semantic events
 // derive from successfully applied changes — never from client intentions.
 
 import { deriveEvents, type SemanticEvent, type AppliedLike } from '../shared/events';
 import type { AppliedChange } from './sync';
 import { notificationsForEvent, notify } from './notifications';
+import type { NewNotification } from './notifications';
 import { runAutomationsForEvent } from './automations';
+import { fnv1a64hex } from '../shared/linkid';
+import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
 
 export type EventSource = 'client' | 'mcp' | 'automation' | 'form' | 'undo';
 
@@ -24,47 +27,38 @@ interface CtxLike {
   waitUntil(p: Promise<unknown>): void;
 }
 
-function fnv1a(s: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = (h * 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, '0');
-}
-
 /** Deterministic outbox id → replay of the same write batch dedupes. */
 export function outboxIdFor(ev: ChangeEvent): string {
   const seed =
     ev.source + '|' + (ev.changesetId ?? '') + '|' + ev.applied.map((a) => a.id + ':' + a.rev).join(',');
-  return 'ev_' + fnv1a(seed);
+  return 'ev_' + fnv1a64hex(seed);
 }
 
-/** Stage + schedule processing. Called from applyChanges post-commit. Never
- * awaited by callers: the durable row survives; processing is best-effort now,
- * guaranteed by the scheduled sweeper. */
-export function emitChanges(env: { DB: D1Database }, ctx: CtxLike, ev: ChangeEvent): void {
-  if (!ev.applied.length && !ev.extra?.length) return;
-  const id = outboxIdFor(ev);
-  const payload = JSON.stringify({
-    source: ev.source,
-    userId: ev.userId,
-    changesetId: ev.changesetId ?? null,
-    applied: ev.applied,
-    extra: ev.extra ?? [],
-  });
-  const staged = env.DB.prepare(
-    'INSERT OR IGNORE INTO event_outbox (id, payload, created_at) VALUES (?, ?, ?)'
-  )
-    .bind(id, payload, Date.now())
-    .run();
-  ctx.waitUntil(
-    staged
-      .then(() => processOutbox(env, id))
-      .catch(() => {
-        /* sweeper recovers */
-      })
-  );
+/** Must immediately follow its record CAS statement in the SAME batch.
+ * SQLite changes() is zero for a missed CAS and one for a landed upsert.
+ * The actual revision is read inside that transaction, before any other
+ * writer can interleave. A failed event INSERT rolls back the record write. */
+export function stageAppliedEvent(db: D1Database, ev: ChangeEvent, now: number): { id: string; statement: D1PreparedStatement } {
+  const ch = ev.applied[0];
+  const id = 'ev_' + fnv1a64hex(JSON.stringify([ev.source, ev.changesetId ?? '', ch.id,ch.rev, ch.fieldTs,ch.before,ch.after]));
+  const payload = JSON.stringify({ ...ev, extra: ev.extra ?? [] });
+  return {
+    id,
+    statement: db.prepare(`INSERT OR IGNORE INTO event_outbox (id, payload, created_at)
+      SELECT ?, json_set(?, '$.applied[0].rev', seq), ? FROM records
+      WHERE id = ? AND changes() = 1`).bind(id, payload, now, ch.id),
+  };
+}
+
+/** Scheduling is optional acceleration; persistence has already committed. */
+export function scheduleOutbox(env: { DB: D1Database }, ctx: CtxLike | undefined, ids: string[]): void {
+  if (!ctx) return;
+  ctx.waitUntil((async () => {
+    for (const id of ids) {
+      if(!hasD1Budget(env.DB,18))break;
+      try { await processOutbox(env, id); } catch { /* durable retry by Cron */ }
+    }
+  })());
 }
 
 interface OutboxRow {
@@ -77,10 +71,11 @@ interface OutboxRow {
  * (skipped for automation-sourced events; depth-1 loop guard). Idempotent:
  * downstream writes use deterministic dedupe keys. */
 export async function processOutbox(env: { DB: D1Database }, outboxId: string): Promise<void> {
-  const row = await env.DB.prepare('SELECT id, payload, attempts, processed_at FROM event_outbox WHERE id = ?')
-    .bind(outboxId)
-    .first<OutboxRow & { processed_at: number | null }>();
-  if (!row || row.processed_at !== null) return;
+  const lease=crypto.randomUUID(),now=Date.now();
+  const row = await env.DB.prepare(`UPDATE event_outbox SET lease_id=?,lease_until=?,attempts=attempts+1
+    WHERE id=? AND processed_at IS NULL AND terminal_at IS NULL AND COALESCE(lease_until,0)<=? AND attempts<8
+    RETURNING id,payload,attempts`).bind(lease,now+60_000,outboxId,now).first<OutboxRow>();
+  if (!row) return;
 
   const ev = JSON.parse(row.payload) as {
     source: EventSource;
@@ -88,21 +83,27 @@ export async function processOutbox(env: { DB: D1Database }, outboxId: string): 
     changesetId: string | null;
     applied: AppliedLike[];
     extra?: SemanticEvent[];
+    notifications?:NewNotification[];
   };
 
   try {
     const semantic = [...deriveEvents(ev.applied), ...(ev.extra ?? [])];
     await maintainDateIndex(env, ev.applied);
-    await notificationsForEvent(env, semantic, { source: ev.source, userId: ev.userId });
+    await notificationsForEvent(env, semantic, { source: ev.source, userId: ev.userId, outboxId });
+    for(const notification of ev.notifications??[]) await notify(env,notification);
     if (ev.source !== 'automation') {
       await runAutomationsForEvent(env, semantic, { source: ev.source, userId: ev.userId, outboxId });
     }
-    await env.DB.prepare('UPDATE event_outbox SET processed_at = ? WHERE id = ?')
-      .bind(Date.now(), outboxId)
+    await env.DB.prepare('UPDATE event_outbox SET processed_at=?,last_error=NULL,lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?')
+      .bind(Date.now(), outboxId,lease)
       .run();
   } catch (err) {
-    await env.DB.prepare('UPDATE event_outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?')
-      .bind(err instanceof Error ? err.message : String(err), outboxId)
+    if(err instanceof D1BudgetExhausted) {
+      await d1CleanupDatabase(env.DB).prepare('UPDATE event_outbox SET attempts=MAX(0,attempts-1),last_error=?,lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?').bind(err.message,outboxId,lease).run();
+      throw err;
+    }
+    await env.DB.prepare('UPDATE event_outbox SET last_error=?,terminal_at=?,lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?')
+      .bind(err instanceof Error ? err.message : String(err),row.attempts>=8?Date.now():null,outboxId,lease)
       .run();
     throw err;
   }
@@ -111,30 +112,35 @@ export async function processOutbox(env: { DB: D1Database }, outboxId: string): 
 /** Resync one changed record's date_index rows: drop stale, insert current
  * date-valued fields (builtin `dueDate` + any p_<fid> whose value is yyyy-mm-dd).
  * Deleted/archived rows are removed — reminders never fire on dead records. */
-export async function maintainDateIndex(env: { DB: D1Database }, applied: AppliedLike[]): Promise<void> {
-  const DATE = /^\d{4}-\d{2}-\d{2}$/;
-  const stmts: { q: string; b: unknown[] }[] = [];
+export async function maintainDateIndex(env: { DB: D1Database }, applied: AppliedLike[], force=false): Promise<void> {
+  const ids = new Set<string>();
   for (const ch of applied) {
-    if (ch.collection !== 'tasks') continue;
-    const dead = ch.after.deleted === true || ch.after.archived === true;
-    stmts.push({ q: 'DELETE FROM date_index WHERE record_id = ?', b: [ch.id] });
-    if (dead) continue;
-    const after = ch.after;
-    const add = (fieldKey: string, v: unknown) => {
-      if (typeof v === 'string' && DATE.test(v)) {
-        stmts.push({
-          q: 'INSERT OR IGNORE INTO date_index (record_id, field_key, date) VALUES (?, ?, ?)',
-          b: [ch.id, fieldKey, v],
-        });
-      }
-    };
-    add('dueDate', after.dueDate);
-    for (const k of Object.keys(after)) {
-      if (k.startsWith('p_')) add(k, after[k]);
+    if (ch.collection === 'tasks' && (force || ch.created || ch.fields.some(k=>k==='dueDate'||k.startsWith('p_')||['boardId','deleted','archived'].includes(k)))) ids.add(ch.id);
+    if (ch.collection === 'boards' && ch.fields.some(k=>['fields','deleted','archived'].includes(k))) {
+      const {results}=await env.DB.prepare(`SELECT id FROM records WHERE collection='tasks' AND COALESCE(json_extract(data,'$.boardId'),'board-default')=?`).bind(ch.id).all<{id:string}>();
+      for(const r of results) ids.add(r.id);
     }
   }
-  if (stmts.length) {
-    await env.DB.batch(stmts.map((s) => env.DB.prepare(s.q).bind(...(s.b as never[]))));
+  // Read and rebuild inside the same transaction. No stale JS snapshot can
+  // overwrite a concurrent deadline edit, and sparse events are harmless.
+  for (const id of ids) {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM date_index WHERE record_id=?').bind(id),
+      env.DB.prepare(`INSERT OR IGNORE INTO date_index(record_id,field_key,date)
+        SELECT id, field_key, value FROM (
+          SELECT t.id, 'dueDate' AS field_key, json_extract(t.data,'$.dueDate') AS value
+          FROM records t LEFT JOIN records b ON b.id=COALESCE(json_extract(t.data,'$.boardId'),'board-default') AND b.collection='boards'
+          WHERE t.id=? AND t.collection='tasks' AND COALESCE(json_extract(t.data,'$.deleted'),0)!=1 AND COALESCE(json_extract(t.data,'$.archived'),0)!=1
+            AND COALESCE(json_extract(b.data,'$.deleted'),0)!=1 AND COALESCE(json_extract(b.data,'$.archived'),0)!=1
+          UNION ALL
+          SELECT t.id, 'p_'||json_extract(f.value,'$.id'), json_extract(t.data,'$.p_'||json_extract(f.value,'$.id'))
+          FROM records t JOIN records b ON b.id=COALESCE(json_extract(t.data,'$.boardId'),'board-default') AND b.collection='boards'
+          JOIN json_each(b.data,'$.fields') f
+          WHERE t.id=? AND t.collection='tasks' AND json_extract(f.value,'$.type')='date'
+            AND COALESCE(json_extract(t.data,'$.deleted'),0)!=1 AND COALESCE(json_extract(t.data,'$.archived'),0)!=1
+            AND COALESCE(json_extract(b.data,'$.deleted'),0)!=1 AND COALESCE(json_extract(b.data,'$.archived'),0)!=1
+        ) WHERE typeof(value)='text' AND length(value)=10 AND value GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(value)=value`).bind(id,id),
+    ]);
   }
 }
 

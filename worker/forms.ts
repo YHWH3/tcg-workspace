@@ -16,20 +16,19 @@
 
 import { Hono } from 'hono';
 import { applyChanges, pokeLive } from './sync';
-import { beginChangeset, commitChangeset } from './changesets';
-import { notify } from './notifications';
+import { beginChangeset } from './changesets';
 import { getRec, listBy } from './records';
 import { requireAuth, type Env, type AuthUser } from './auth';
 import { coerceFieldValue, fieldsOf, propKey, type FieldDef } from '../shared/fields';
 import { cmpOrder, orderBetween, uuid } from '../shared/order';
 import { fnv1a64hex, linkId } from '../shared/linkid';
 import type { SemanticEvent } from '../shared/events';
+import { sha256Hex, randomToken } from './password';
+import { completedRecords, executionOptions, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
+import type { ChangesetCtx } from './changesets';
+import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
 
-type Bindings = Env & {
-  /** When set, Turnstile runs for real; unset = test mode ('pass'/'fail'). */
-  TURNSTILE_SECRET?: string;
-  TURNSTILE_SITE_KEY?: string;
-};
+type Bindings = Env;
 
 /* ------------------------------------------------------------------ */
 /* Config model + pure helpers                                         */
@@ -329,12 +328,13 @@ export function submissionRecordId(formId: string, submissionId: string): string
 /** tok_ + 22 base62 chars (128 random bits). */
 export function mintToken(): string {
   const alphabet = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  // Rejection-free base64url → base62-ish: we don't need uniform crypto-grade
-  // distribution, just uniqueness + token secrecy (both satisfied).
   let s = '';
-  for (const b of bytes) s += alphabet[b % alphabet.length];
+  // 22 independent base62 symbols provide >128 bits, without modulo bias or
+  // deterministic padding. Rejection sampling discards the eight high bytes.
+  while(s.length<22) for(const b of crypto.getRandomValues(new Uint8Array(32))) {
+    if(b<248)s+=alphabet[b%62];
+    if(s.length===22)break;
+  }
   return `tok_${s.padEnd(22, '0').slice(0, 22)}`;
 }
 
@@ -397,20 +397,39 @@ async function rateLimitHit(env: Bindings, bucket: string, key: string, windowMs
 
 export const TURNSTILE_TEST_SITEKEY = 'test';
 
-async function turnstileOk(env: Bindings, token: unknown, ip: string): Promise<boolean> {
-  const secret = env.TURNSTILE_SECRET;
-  if (!secret) return token === 'pass'; // test mode — 'fail' exercises the 403 path
-  if (typeof token !== 'string' || !token) return false;
+export async function boundedRequestBody(request:Request,limit:number):Promise<Uint8Array|null> {
+  if(Number(request.headers.get('content-length'))>limit) return null;
+  const reader=request.body?.getReader();if(!reader) return new Uint8Array();
+  const chunks:Uint8Array[]=[];let size=0;
+  try {
+    while(true) {const {value,done}=await reader.read();if(done) break;size+=value.length;if(size>limit) {await reader.cancel();return null;}chunks.push(value);}
+  } finally {reader.releaseLock();}
+  const out=new Uint8Array(size);let offset=0;for(const chunk of chunks) {out.set(chunk,offset);offset+=chunk.length;}return out;
+}
+
+export function localTurnstileTest(env: Bindings, requestUrl: string): boolean {
+  const url=new URL(requestUrl);
+  return env.WORKSPACE_ENV==='local-test' && env.TURNSTILE_LOCAL_TEST==='1' && url.protocol==='http:' && ['localhost','127.0.0.1','[::1]'].includes(url.hostname);
+}
+
+export async function verifyFormChallenge(env: Bindings, token: unknown, ip: string, requestUrl: string): Promise<'ok'|'challenge'|'configuration'|'unavailable'> {
+  if(localTurnstileTest(env,requestUrl)) return token==='pass'?'ok':'challenge';
+  const hosts=(env.TURNSTILE_HOSTNAMES??'').split(',').map(h=>h.trim()).filter(Boolean);
+  if(!env.TURNSTILE_SECRET?.trim() || !env.TURNSTILE_SITE_KEY?.trim() || !hosts.length || hosts.some(h=>['localhost','127.0.0.1','[::1]'].includes(h))) return 'configuration';
+  if (typeof token !== 'string' || !token || token.length>2048 || token==='pass') return 'challenge';
   try {
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret, response: token, remoteip: ip }),
+      body: JSON.stringify({ secret:env.TURNSTILE_SECRET, response: token, remoteip: ip }),
+      signal:AbortSignal.timeout(10_000),
     });
-    const j = (await res.json()) as { success?: boolean };
-    return j.success === true;
+    if(!res.ok) return 'unavailable';
+    const j = (await res.json()) as { success?: boolean; hostname?:string; action?:string; 'error-codes'?:string[] };
+    if(j['error-codes']?.includes('invalid-input-secret') || j['error-codes']?.includes('missing-input-secret')) return 'configuration';
+    return j.success===true && j.action==='form_submit' && hosts.includes(j.hostname??'') && j.hostname===new URL(requestUrl).hostname ? 'ok':'challenge';
   } catch {
-    return false;
+    return 'unavailable';
   }
 }
 
@@ -441,9 +460,10 @@ export function planSubmissionChanges(args: {
   pendingFileIds: string[];
   fileLink?: string;
   at: number;
+  recordId?:string;
 }): WriteOp[] {
   const { form, formId, boardData, coerced, submissionId, personMatch } = args;
-  const recordId = submissionRecordId(formId, submissionId);
+  const recordId = args.recordId ?? (personMatch.kind==='email'?personMatch.personId:submissionRecordId(formId, submissionId));
   const columns = Array.isArray(boardData.columns) ? (boardData.columns as { id: string }[]) : [];
   const patch: Record<string, unknown> = {
     boardId: form.databaseId,
@@ -468,7 +488,7 @@ export function planSubmissionChanges(args: {
       patch[key] = `${existing}${duplicateMarker(personMatch.personTitle, args.at)}`;
     }
   }
-  const ops: WriteOp[] = [{ id: recordId, collection: 'tasks', patch }];
+  const ops: WriteOp[] = personMatch.kind==='email' ? [] : [{ id: recordId, collection: 'tasks', patch }];
 
   // fixed relations — normalise to the primary direction like link_items
   for (const rel of form.createRelations ?? []) {
@@ -506,7 +526,7 @@ export function planSubmissionChanges(args: {
   }
 
   // peopleMatch email-hit → see-also link between the submission and the person
-  if (personMatch.kind === 'email') {
+  if (personMatch.kind === 'email' && personMatch.personId!==recordId) {
     ops.push({
       id: linkId('related', '', recordId, personMatch.personId),
       collection: 'links',
@@ -537,7 +557,7 @@ export function planSubmissionChanges(args: {
   // member-side "attach link" feature; never uploads bytes)
   if (args.fileLink) {
     ops.push({
-      id: `f_${uuid()}`,
+      id: `f_${fnv1a64hex(`${formId}|${submissionId}|link`)}`,
       collection: 'files',
       patch: {
         kind: 'link',
@@ -580,7 +600,10 @@ formsApi.post('/', async (c) => {
   }
   for (const rel of form.createRelations ?? []) {
     const target = await getRec(c.env, rel.toId);
-    if (!target || target.data.deleted) errors.push(`createRelations target ${rel.toId} not found`);
+    const def=fieldsOf(board.data).find(f=>f.id===rel.fieldId&&f.type==='relation');
+    const expected=def?.relation?.target;
+    const valid=target&&!target.data.deleted&&(expected==='pages'?target.collection==='pages':target.collection==='tasks'&&target.data.boardId===expected);
+    if (!valid) errors.push(`createRelations target ${rel.toId} is not in the configured relation database`);
   }
   if (errors.length) return c.json({ error: 'validation', details: errors }, 422);
 
@@ -606,10 +629,11 @@ formsApi.post('/', async (c) => {
     patch.createdBy = user.id;
     patch.createdAt = Date.now();
   }
-  await applyChanges(c.env, user.id, [{ id, collection: 'forms', patch, ts: Date.now() }], {
+  const written=await applyChanges(c.env, user.id, [{ id, collection: 'forms', patch, ts: Date.now() }], {
     serverTs: true,
     event: { source: 'client', ctx: c.executionCtx },
   });
+  if(written.partialError||written.conflicts?.length||written.rejected) return c.json({error:'form_write_interrupted',retryable:true},503);
   pokeLive(c.env, c.executionCtx);
   return c.json({ id });
 });
@@ -670,6 +694,7 @@ export function validateFormConfig(form: FormConfig, boardData: Record<string, u
 /* ------------------------------------------------------------------ */
 
 export const publicFormsApi = new Hono<{ Bindings: Bindings }>();
+publicFormsApi.use('*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
 
 const UNAVAILABLE = (c: { json: (o: unknown, s: number) => Response }) => c.json({ error: 'unavailable' }, 410);
 
@@ -677,7 +702,9 @@ const UNAVAILABLE = (c: { json: (o: unknown, s: number) => Response }) => c.json
 publicFormsApi.get('/:token', async (c) => {
   const hit = await formByToken(c.env, c.req.param('token'));
   if (!hit || !hit.form.enabled) return UNAVAILABLE(c);
-  const siteKey = c.env.TURNSTILE_SECRET ? (c.env.TURNSTILE_SITE_KEY ?? TURNSTILE_TEST_SITEKEY) : TURNSTILE_TEST_SITEKEY;
+  const local=localTurnstileTest(c.env,c.req.url);
+  if(!local && (!c.env.TURNSTILE_SECRET || !c.env.TURNSTILE_SITE_KEY || !c.env.TURNSTILE_HOSTNAMES)) return c.json({error:'challenge_configuration',retryable:false},503);
+  const siteKey = local ? TURNSTILE_TEST_SITEKEY : c.env.TURNSTILE_SITE_KEY!;
   return c.json(publicFormSchema(hit.form, hit.board.data, siteKey));
 });
 
@@ -689,20 +716,26 @@ publicFormsApi.post('/:token/files', async (c) => {
   const used = await rateLimitHit(c.env, 'form', `${ip}:${c.req.param('token')}`, FORM_RATE_WINDOW_MS);
   if (used > FORM_RATE_LIMIT) return c.json({ error: 'rate_limited' }, 429);
 
-  const fd = await c.req.formData().catch(() => null);
+  const raw=await boundedRequestBody(c.req.raw,FORM_MAX_IMAGE+64*1024);
+  if(!raw) return c.json({error:'too_large'},413);
+  const fd = await new Request(c.req.url,{method:'POST',headers:c.req.raw.headers,body:new Uint8Array(raw).buffer}).formData().catch(() => null);
+  const challenge=await verifyFormChallenge(c.env,fd?.get('turnstileToken'),ip,c.req.url);
+  if(challenge!=='ok') return c.json({error:challenge==='challenge'?'challenge':'challenge_unavailable'},challenge==='challenge'?403:503);
   const file = fd?.get('file');
   if (!file || !(file instanceof File)) return c.json({ error: 'file required' }, 400);
   if (!file.type.startsWith('image/')) return c.json({ error: 'images only' }, 415);
   if (file.size > FORM_MAX_IMAGE) return c.json({ error: 'too_large' }, 413);
 
   const id = `f_${uuid()}`;
+  const claim=randomToken();
   const bytes = new Uint8Array(await file.arrayBuffer());
   const now = Date.now();
   await c.env.DB.batch([
-    c.env.DB.prepare('INSERT INTO files (id, uploaded_by, created_at, complete, mime, size) VALUES (?, NULL, ?, 1, ?, ?)').bind(id, now, file.type, file.size),
-    c.env.DB.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, 0, ?)').bind(id, bytes),
+    c.env.DB.prepare('INSERT INTO files (id, uploaded_by, created_at, complete, mime, size) SELECT ?, NULL, ?, 1, ?, ? WHERE (SELECT COALESCE(SUM(size),0) FROM files)+?<=?').bind(id, now, file.type, file.size,file.size,450*1024*1024),
+    c.env.DB.prepare('INSERT INTO file_chunks (file_id, idx, data) SELECT ?, 0, ? WHERE EXISTS(SELECT 1 FROM files WHERE id=?)').bind(id, bytes,id),
   ]);
-  await applyChanges(c.env, 'form', [{ id, collection: 'files', patch: {
+  if(!await c.env.DB.prepare('SELECT id FROM files WHERE id=?').bind(id).first()) return c.json({error:'workspace_full'},507);
+  const uploaded=await applyChanges(c.env, 'form', [{ id, collection: 'files', patch: {
     name: file.name || 'upload',
     mime: file.type,
     size: file.size,
@@ -712,145 +745,186 @@ publicFormsApi.post('/:token/files', async (c) => {
     uploadedBy: null,
     createdAt: now,
     deleted: false,
+    uploadClaimHash:await sha256Hex(claim),
   }, ts: now }], { serverTs: true, event: { source: 'form', ctx: c.executionCtx } });
+  if(uploaded.partialError||uploaded.rejected) return c.json({error:'temporary_failure'},503);
   pokeLive(c.env, c.executionCtx);
-  return c.json({ id });
+  return c.json({ id,claim });
 });
 
 /**
  * POST a submission. Ordered pipeline (spec §6):
  * token+enabled → rate+size → Turnstile → dedupe → validate → write → notify.
  */
+interface SubmissionPlan {
+  ops:WriteOp[]; recordId:string; cs:ChangesetCtx;
+  receipt:{state:'accepted';submissionId:string;message:string;at:number};
+  event:SemanticEvent;
+}
+interface SubmissionPayload { token:string; body:Record<string,unknown>; form:FormConfig; formId:string; board:RecRowLite }
+type SubmissionOutcome={status:200|202|403|409|410|422|503;body:Record<string,unknown>};
+
+/** Recover a reservation under a short, fenced lease. Plans and per-record
+ * checkpoints survive interruption; accepted receipts never depend on HTTP
+ * response delivery. Challenges are redeemed once, before reservation. */
+export async function resumeSubmission(env:Bindings,submissionId:string,ctx:{waitUntil(p:Promise<unknown>):void}):Promise<SubmissionOutcome> {
+  const row=await env.DB.prepare('SELECT * FROM form_submissions WHERE submission_id=?').bind(submissionId).first<{form_id:string;state:string;receipt:string|null;error:string|null;payload:string|null;plan:string|null;attempts:number}>();
+  if(!row) return {status:410,body:{error:'unavailable'}};
+  if(row.state==='accepted'&&row.receipt) return {status:200,body:JSON.parse(row.receipt)};
+  if(row.state==='rejected') return {status:422,body:row.error?JSON.parse(row.error):{error:'rejected'}};
+  if(!row.payload) return {status:503,body:{state:'retryable_failure',error:'retry_required',retryable:true}};
+  const now=Date.now(),lease=crypto.randomUUID();
+  const claimed=await env.DB.prepare(`UPDATE form_submissions SET state='processing',lease_id=?,lease_until=?,attempts=attempts+1,updated_at=?
+    WHERE submission_id=? AND attempts<? AND retry_at<=? AND (state IN ('pending','retryable_failure') OR (state='processing' AND COALESCE(lease_until,0)<=?))
+    RETURNING attempts`).bind(lease,now+EXECUTION_LEASE_MS,now,submissionId,EXECUTION_MAX_ATTEMPTS,now,now).first<{attempts:number}>();
+  if(!claimed) {
+    if(row.attempts>=EXECUTION_MAX_ATTEMPTS) {
+      await env.DB.prepare("UPDATE form_submissions SET state='rejected',error=? WHERE submission_id=? AND state!='accepted' AND COALESCE(lease_until,0)<=?").bind(JSON.stringify({error:'attempt_limit',retryable:false}),submissionId,now).run();
+      return {status:422,body:{error:'attempt_limit',retryable:false}};
+    }
+    return {status:202,body:{state:'processing',retryable:true,retryAfter:2}};
+  }
+  const reject=async(body:Record<string,unknown>,status:410|422=422):Promise<SubmissionOutcome>=>{
+    await env.DB.prepare("UPDATE form_submissions SET state='rejected',error=?,lease_id=NULL,lease_until=NULL,updated_at=? WHERE submission_id=? AND lease_id=?").bind(JSON.stringify(body),Date.now(),submissionId,lease).run();
+    return {status,body};
+  };
+  try {
+    const p=JSON.parse(row.payload) as SubmissionPayload;
+    const live=await formByToken(env,p.token);
+    if(!live||!live.form.enabled||live.formId!==row.form_id) return await reject({error:'unavailable',retryable:false},410);
+    // A reservation captures member-authorized configuration, not perpetual
+    // authority to write into an old database after the form is remapped.
+    if(JSON.stringify(live.form)!==JSON.stringify(p.form)) return await reject({error:'form_configuration_changed',retryable:false},422);
+    let plan:SubmissionPlan;
+    if(row.plan) plan=JSON.parse(row.plan);
+    else {
+      const {form,formId,board,body}=p;
+      const configErrors=validateFormConfig(form,board.data);
+      if(configErrors.length) return await reject({error:'form_configuration',retryable:false});
+      for(const rel of form.createRelations??[]) {
+        const def=fieldsOf(board.data).find(f=>f.id===rel.fieldId);
+        const target=await getRec(env,rel.toId);
+        const valid=target&&!target.data.deleted && (def?.relation?.target==='pages'?target.collection==='pages':target.collection==='tasks'&&target.data.boardId===def?.relation?.target);
+        if(!valid) return await reject({error:'form_configuration',retryable:false});
+      }
+      const res=validateSubmissionValues(form,board.data,body.values);
+      if(!res.ok) return await reject({error:'validation',fieldErrors:res.errors});
+      const pendingFileIds:string[]=[];
+      const fileIds=Array.isArray(body.fileIds)?body.fileIds:[];
+      if(fileIds.length>FORM_MAX_FILES) return await reject({error:'validation',fieldErrors:{files:'Too many files'}});
+      const claims=body.fileClaims&&typeof body.fileClaims==='object'?body.fileClaims as Record<string,unknown>:{};
+      for(const fid of fileIds) {
+        if(typeof fid!=='string') return await reject({error:'validation',fieldErrors:{files:'Invalid upload'}});
+        const file=await getRec(env,fid);
+        if(!file||file.collection!=='files'||file.data.deleted||file.data.parentType!=='form-pending'||file.data.parentId!==formId ||
+          typeof claims[fid]!=='string'||file.data.uploadClaimHash!==await sha256Hex(String(claims[fid]))) return await reject({error:'validation',fieldErrors:{files:'Upload is unavailable'}});
+        pendingFileIds.push(fid);
+      }
+      let fileLink:string|undefined;
+      if(typeof body.fileLink==='string'&&body.fileLink.trim()) {
+        try {const url=new URL(body.fileLink.trim());if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.href.length>1000) throw new Error();fileLink=url.href;}
+        catch {return await reject({error:'validation',fieldErrors:{fileLink:'Invalid link'}});}
+      }
+      const existing=form.peopleMatch?await listBy(env,'tasks','boardId',form.databaseId):[];
+      let match:PersonMatch={kind:'none'};
+      let recordId=submissionRecordId(formId,submissionId);
+      if(form.peopleMatch) {
+        const emailKey=peopleEmailKey(form.peopleMatch.emailField),email=normalizeEmail(res.coerced[emailKey]);
+        if(email) {
+          match=findPersonMatch(emailKey,email,res.coerced.title,existing.map(r=>({id:r.id,data:r.data,title:r.data.title})));
+          const candidate=match.kind==='email'?match.personId:`person_${(await sha256Hex(form.databaseId+'|'+emailKey+'|'+email)).slice(0,48)}`;
+          await env.DB.prepare('INSERT OR IGNORE INTO form_people_keys(database_id,field_key,email,record_id) VALUES(?,?,?,?)').bind(form.databaseId,emailKey,email,candidate).run();
+          const reserved=await env.DB.prepare('SELECT record_id FROM form_people_keys WHERE database_id=? AND field_key=? AND email=?').bind(form.databaseId,emailKey,email).first<{record_id:string}>();
+          recordId=reserved!.record_id;
+          const person=await getRec(env,recordId);
+          if(person&&!person.data.deleted) match={kind:'email',personId:recordId,personTitle:String(person.data.title??'')};
+          res.coerced[emailKey]=email;
+        }
+      }
+      const lastOrder=form.peopleMatch?existing.map(r=>String(r.data.order??'')).sort(cmpOrder).pop():
+        (await env.DB.prepare("SELECT json_extract(data,'$.order') AS value FROM records WHERE collection='tasks' AND json_extract(data,'$.boardId')=? AND COALESCE(json_extract(data,'$.deleted'),0)!=1 ORDER BY json_extract(data,'$.order') DESC LIMIT 1").bind(form.databaseId).first<{value:string|null}>())?.value??undefined;
+      const ops=planSubmissionChanges({form,formId,boardData:board.data,coerced:res.coerced,submissionId,lastOrder,personMatch:match,pendingFileIds,fileLink,at:row.attempts?now:now,recordId});
+      const cs=beginChangeset({userId:'form',clientName:'form',tool:'form_submit',summary:`Submission on "${form.title}"`,source:'form'});
+      cs.id=`cs_sub_${fnv1a64hex(formId+'|'+submissionId)}`;
+      plan={ops,recordId,cs,receipt:{state:'accepted',submissionId,message:form.successMessage,at:now},event:{kind:'form.submitted',recordId,collection:'tasks',boardId:form.databaseId,formId}};
+      await env.DB.prepare('UPDATE form_submissions SET plan=?,record_id=?,changeset_id=? WHERE submission_id=? AND lease_id=?').bind(JSON.stringify(plan),recordId,cs.id,submissionId,lease).run();
+    }
+    const operationId='form:'+submissionId;
+    const done=await completedRecords(env.DB,operationId);
+    let ops=plan.ops.filter(o=>!done.has(o.id));
+    // A concurrent email reservation may already have created the Person.
+    // Never overwrite that person's fields with another visitor's answers.
+    if(plan.recordId.startsWith('person_') && await getRec(env,plan.recordId)) ops=ops.filter(o=>!(o.collection==='tasks'&&o.id===plan.recordId));
+    if(ops.length) {
+      const execution=executionOptions(env,'form_submissions',submissionId,lease);
+      execution.checkpoint=id=>env.DB.prepare('INSERT OR IGNORE INTO execution_steps(operation_id,step_id,done_at) VALUES(?,?,?)').bind(operationId,'record:'+id,Date.now());
+      const result=await applyChanges(env,'form',ops.map(o=>({...o,ts:now})),{serverTs:true,atomic:true,createOnly:plan.recordId.startsWith('person_')?new Set([plan.recordId]):undefined,journal:plan.cs,execution,event:{source:'form',ctx,changesetId:plan.cs.id}});
+      if(result.rejected) return await reject({error:'submission_rejected',retryable:false});
+      if(result.partialError||result.conflict||result.conflicts?.length) throw new Error(result.partialError??'write conflict');
+    }
+    const outboxId='ev_form_'+fnv1a64hex(row.form_id+'|'+submissionId);
+    // The receipt and synthetic form event share their acknowledgement
+    // transaction. Per-record writes/audit/events already share theirs.
+    await env.DB.batch([
+      executionOptions(env,'form_submissions',submissionId,lease).guard(),
+      env.DB.prepare('INSERT OR IGNORE INTO event_outbox(id,payload,created_at) VALUES(?,?,?)').bind(outboxId,JSON.stringify({source:'form',userId:'form',changesetId:plan.cs.id,applied:[],extra:[plan.event]}),now),
+      env.DB.prepare("UPDATE form_submissions SET state='accepted',receipt=?,record_id=?,error=NULL,lease_id=NULL,lease_until=NULL,updated_at=? WHERE submission_id=? AND lease_id=?").bind(JSON.stringify(plan.receipt),plan.recordId,Date.now(),submissionId,lease),
+    ]);
+    const {scheduleOutbox}=await import('./events');scheduleOutbox(env,ctx,[outboxId]);
+    return {status:200,body:plan.receipt};
+  } catch(error) {
+    if(error instanceof D1BudgetExhausted) {
+      await d1CleanupDatabase(env.DB).prepare("UPDATE form_submissions SET state='retryable_failure',attempts=MAX(0,attempts-1),error=?,retry_at=?,lease_id=NULL,lease_until=NULL,updated_at=? WHERE submission_id=? AND lease_id=?").bind(JSON.stringify({error:'processing_budget',retryable:true}),Date.now()+60_000,Date.now(),submissionId,lease).run();
+      return {status:503,body:{error:'processing_budget',retryable:true}};
+    }
+    const terminal=claimed.attempts>=EXECUTION_MAX_ATTEMPTS;
+    const body={error:terminal?'attempt_limit':'temporary_failure',retryable:!terminal};
+    await env.DB.prepare('UPDATE form_submissions SET state=?,error=?,retry_at=?,lease_id=NULL,lease_until=NULL,updated_at=? WHERE submission_id=? AND lease_id=?')
+      .bind(terminal?'rejected':'retryable_failure',JSON.stringify(body),Date.now()+retryDelay(claimed.attempts),Date.now(),submissionId,lease).run();
+    return {status:terminal?422:503,body};
+  }
+}
+
+export async function recoverFormSubmissions(env:Bindings,ctx:{waitUntil(p:Promise<unknown>):void}):Promise<void> {
+  const now=Date.now();
+  const {results}=await env.DB.prepare(`SELECT submission_id FROM form_submissions WHERE payload IS NOT NULL AND retry_at<=? AND (state IN ('pending','retryable_failure') OR (state='processing' AND COALESCE(lease_until,0)<=?)) ORDER BY created_at LIMIT 20`).bind(now,now).all<{submission_id:string}>();
+  for(const row of results){if(!hasD1Budget(env.DB,28))break;await resumeSubmission(env,row.submission_id,ctx);}
+}
+
 publicFormsApi.post('/:token', async (c) => {
-  const token = c.req.param('token');
-  const hit = await formByToken(c.env, token);
-  if (!hit || !hit.form.enabled) return UNAVAILABLE(c);
-  const { form, formId, board } = hit;
-
-  const raw = await c.req.text();
-  if (raw.length > FORM_MAX_PAYLOAD) return c.json({ error: 'rate_limited' }, 429);
-  const ip = clientIp(c);
-  const used = await rateLimitHit(c.env, 'form', `${ip}:${token}`, FORM_RATE_WINDOW_MS);
-  if (used > FORM_RATE_LIMIT) return c.json({ error: 'rate_limited' }, 429);
-
-  const body = (() => { try { return JSON.parse(raw) as Record<string, unknown>; } catch { return null; } })();
-  if (!body) return c.json({ error: 'invalid json' }, 400);
-  if (!(await turnstileOk(c.env, body.turnstileToken, ip))) return c.json({ error: 'challenge' }, 403);
-
-  const submissionId = typeof body.submissionId === 'string' ? body.submissionId : '';
-  if (!SUBMISSION_ID_RE.test(submissionId)) return c.json({ error: 'submissionId required (1–64 chars)' }, 400);
-
-  const fileIds = Array.isArray(body.fileIds) ? (body.fileIds as unknown[]).filter((f): f is string => typeof f === 'string').slice(0, FORM_MAX_FILES) : [];
-
-  // Idempotency: first-writer-wins on submission_id; replays get the stored
-  // outcome verbatim (accepted → receipt, rejected → error, processing → state).
-  const ins = await c.env.DB
-    .prepare("INSERT OR IGNORE INTO form_submissions (submission_id, form_id, state, receipt, record_id, error, created_at) VALUES (?, ?, 'processing', NULL, NULL, NULL, ?)")
-    .bind(submissionId, formId, Date.now())
-    .run();
-  if (!ins.meta.changes) {
-    const stored = await c.env.DB.prepare('SELECT state, receipt, error FROM form_submissions WHERE submission_id = ? AND form_id = ?').bind(submissionId, formId).first<{ state: string; receipt: string | null; error: string | null }>();
-    if (!stored) return c.json({ error: 'unavailable' }, 410);
-    if (stored.state === 'accepted' && stored.receipt) return c.json(JSON.parse(stored.receipt));
-    if (stored.state === 'rejected') return c.json({ error: 'validation', fieldErrors: stored.error ? JSON.parse(stored.error) : {} }, 422);
-    return c.json({ state: 'processing' }, 202);
+  const token=c.req.param('token'),hit=await formByToken(c.env,token);
+  if(!hit) return UNAVAILABLE(c);
+  const bytes=await boundedRequestBody(c.req.raw,FORM_MAX_PAYLOAD);
+  if(!bytes) return c.json({error:'too_large'},413);
+  let body:Record<string,unknown>;
+  try {const parsed=JSON.parse(new TextDecoder().decode(bytes));if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)) throw new Error();body=parsed;}
+  catch {return c.json({error:'invalid json'},400);}
+  const submissionId=typeof body.submissionId==='string'?body.submissionId:'';
+  if(!SUBMISSION_ID_RE.test(submissionId)) return c.json({error:'submissionId required (1–64 chars)'},400);
+  const safeBody={...body};delete safeBody.turnstileToken;
+  const requestHash=await sha256Hex(JSON.stringify(safeBody));
+  const stored=await c.env.DB.prepare('SELECT form_id,request_hash,state,receipt FROM form_submissions WHERE submission_id=?').bind(submissionId).first<{form_id:string;request_hash:string|null;state:string;receipt:string|null}>();
+  if(stored) {
+    if(stored.form_id!==hit.formId||stored.request_hash&&stored.request_hash!==requestHash) return c.json({error:'submission_conflict'},409);
+    if(stored.state==='accepted'&&stored.receipt) return c.json(JSON.parse(stored.receipt));
+    // Legacy reservations had no durable payload; a verified retry can repair
+    // them rather than returning an unresumable Processing forever.
+    if(stored.request_hash) {const result=await resumeSubmission(c.env,submissionId,c.executionCtx);return c.json(result.body,result.status);}
   }
-
-  const fail = async (state: 'rejected', error: Record<string, unknown>, http: 400 | 422, body2: Record<string, unknown>) => {
-    await c.env.DB.prepare('UPDATE form_submissions SET state = ?, error = ? WHERE submission_id = ?').bind(state, JSON.stringify(error), submissionId).run();
-    return c.json(body2, http);
-  };
-
-  const res = validateSubmissionValues(form, board.data, body.values);
-  if (!res.ok) return fail('rejected', res.errors, 422, { error: 'validation', fieldErrors: res.errors });
-
-  // fileIds must be pending uploads scoped to THIS form (blocks attaching
-  // foreign uploads / other forms' staged files).
-  const pendingFileIds: string[] = [];
-  for (const fid of fileIds) {
-    const f = await getRec(c.env, fid);
-    if (f && f.collection === 'files' && !f.data.deleted && f.data.parentType === 'form-pending' && f.data.parentId === formId) pendingFileIds.push(fid);
-  }
-
-  // peopleMatch over the form's own database rows
-  let personMatch: PersonMatch = { kind: 'none' };
-  if (form.peopleMatch) {
-    const emailKey = peopleEmailKey(form.peopleMatch.emailField);
-    const rows = await listBy(c.env, 'tasks', 'boardId', form.databaseId);
-    const email = normalizeEmail(res.coerced[emailKey]);
-    const name = normalizePersonName(res.coerced.title);
-    personMatch = findPersonMatch(emailKey, email, name, rows.map((r) => ({ id: r.id, title: r.data.title, data: r.data })));
-  }
-
-  // optional pasted attachment link — validated http(s) URL, ≤1000 chars
-  let fileLink: string | undefined;
-  if (typeof body.fileLink === 'string' && body.fileLink.trim()) {
-    const u = body.fileLink.trim().slice(0, 1000);
-    if (!/^https?:\/\/.+/i.test(u)) return fail('rejected', { fileLink: 'invalid' }, 422, { error: 'validation', fieldErrors: { fileLink: 'invalid' } });
-    fileLink = u;
-  }
-
-  const existing = await listBy(c.env, 'tasks', 'boardId', form.databaseId);
-  const lastOrder = existing.map((r) => String(r.data.order ?? '')).sort(cmpOrder).pop();
-
-  const recordId = submissionRecordId(formId, submissionId);
-  const ops = planSubmissionChanges({
-    form, formId, boardData: board.data, coerced: res.coerced, submissionId,
-    lastOrder, personMatch, pendingFileIds, fileLink, at: Date.now(),
-  });
-
-  const cs = beginChangeset({ userId: 'form', clientName: 'form', tool: 'form_submit', summary: `Submission on "${form.title}"`, source: 'form' });
-  const event: SemanticEvent = {
-    kind: 'form.submitted',
-    recordId,
-    collection: 'tasks',
-    boardId: form.databaseId,
-    formId,
-  };
-  const applied = await applyChanges(
-    c.env,
-    'form',
-    ops.map((o) => ({ id: o.id, collection: o.collection, patch: o.patch, ts: Date.now() })),
-    { serverTs: true, event: { source: 'form', ctx: c.executionCtx, changesetId: cs.id, extra: [event] } },
-  );
-  cs.items.push(...applied.applied);
-  await commitChangeset(c.env, cs).catch(() => null);
-
-  const receipt = {
-    state: 'accepted' as const,
-    submissionId,
-    recordId,
-    recordUrl: `/boards/${form.databaseId}/tasks/${recordId}`,
-    message: form.successMessage,
-    at: Date.now(),
-  };
-  await c.env.DB.prepare('UPDATE form_submissions SET state = ?, receipt = ?, record_id = ? WHERE submission_id = ?')
-    .bind('accepted', JSON.stringify(receipt), recordId, submissionId)
-    .run();
-  pokeLive(c.env, c.executionCtx);
-
-  // notify configured members — fire-and-forget, never blocks the receipt
-  if (form.notifyUserIds.length) {
-    const title = typeof res.coerced.title === 'string' ? res.coerced.title : form.title;
-    c.executionCtx.waitUntil(
-      Promise.all(
-        form.notifyUserIds.map((userId) =>
-          notify(c.env, {
-            userId,
-            kind: 'form_submission',
-            targetType: 'record',
-            targetId: recordId,
-            title: `New submission: ${form.title}`,
-            body: title,
-            url: receipt.recordUrl,
-          }).catch(() => undefined),
-        ),
-      ),
-    );
-  }
-  return c.json(receipt);
+  if(!hit.form.enabled) return UNAVAILABLE(c);
+  const ip=clientIp(c);
+  if(await rateLimitHit(c.env,'form',ip+':'+token,FORM_RATE_WINDOW_MS)>FORM_RATE_LIMIT) return c.json({error:'rate_limited'},429);
+  const challenge=await verifyFormChallenge(c.env,body.turnstileToken,ip,c.req.url);
+  if(challenge!=='ok') return c.json({error:challenge==='configuration'?'challenge_configuration':challenge==='unavailable'?'challenge_unavailable':'challenge',retryable:challenge!=='configuration'},challenge==='challenge'?403:503);
+  const payload=JSON.stringify({token,body:safeBody,form:hit.form,formId:hit.formId,board:hit.board});
+  await c.env.DB.prepare("INSERT OR IGNORE INTO form_submissions(submission_id,form_id,state,created_at,request_hash,payload) VALUES(?,?,'pending',?,?,?)").bind(submissionId,hit.formId,Date.now(),requestHash,payload).run();
+  if(stored&&!stored.request_hash) await c.env.DB.prepare("UPDATE form_submissions SET payload=?,request_hash=?,state='pending' WHERE submission_id=? AND form_id=? AND state='processing' AND payload IS NULL").bind(payload,requestHash,submissionId,hit.formId).run();
+  const reserved=await c.env.DB.prepare('SELECT form_id,request_hash FROM form_submissions WHERE submission_id=?').bind(submissionId).first<{form_id:string;request_hash:string}>();
+  if(reserved?.form_id!==hit.formId||reserved.request_hash!==requestHash) return c.json({error:'submission_conflict'},409);
+  const result=await resumeSubmission(c.env,submissionId,c.executionCtx);
+  if(result.status===200) pokeLive(c.env,c.executionCtx);
+  return c.json(result.body,result.status);
 });
-
 /** Orphan sweep — deletes staged 'form-pending' uploads older than 24h
  *  (record + D1 blob). runScheduled (Workstream B) calls this from cron;
  *  exported here so the C surface stays self-contained. */

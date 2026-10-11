@@ -157,7 +157,7 @@ function ConditionRow({ board, keys, filter, onChange }: {
           aria-label="Condition value"
         />
       )}
-      <button className="shrink-0 text-neutral-400 hover:text-red-500" onClick={() => onChange(null)} aria-label="Remove condition">
+      <button className="min-h-8 min-w-8 shrink-0 rounded-md text-neutral-400 hover:text-red-500 focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => onChange(null)} aria-label="Remove condition">
         <Trash2 size={12} />
       </button>
     </div>
@@ -229,9 +229,9 @@ function ActionEditor({ board, allBoards, action, onChange, onMove, onDelete, fi
             <option key={t.id} value={t.id}>{t.label}</option>
           ))}
         </Select>
-        <button className="p-1 text-neutral-400 hover:text-neutral-600 disabled:opacity-30 dark:hover:text-neutral-300" disabled={first} onClick={() => onMove(-1)} aria-label="Move up"><ArrowUp size={13} /></button>
-        <button className="p-1 text-neutral-400 hover:text-neutral-600 disabled:opacity-30 dark:hover:text-neutral-300" disabled={last} onClick={() => onMove(1)} aria-label="Move down"><ArrowDown size={13} /></button>
-        <button className="p-1 text-neutral-400 hover:text-red-500" onClick={onDelete} aria-label="Delete action"><Trash2 size={13} /></button>
+        <button className="min-h-8 min-w-8 rounded-md text-neutral-400 hover:text-neutral-600 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-30 dark:hover:text-neutral-300" disabled={first} onClick={() => onMove(-1)} aria-label="Move up"><ArrowUp size={13} aria-hidden="true" /></button>
+        <button className="min-h-8 min-w-8 rounded-md text-neutral-400 hover:text-neutral-600 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-30 dark:hover:text-neutral-300" disabled={last} onClick={() => onMove(1)} aria-label="Move down"><ArrowDown size={13} aria-hidden="true" /></button>
+        <button className="min-h-8 min-w-8 rounded-md text-neutral-400 hover:text-red-500 focus-visible:outline-2 focus-visible:outline-offset-2" onClick={onDelete} aria-label="Delete action"><Trash2 size={13} aria-hidden="true" /></button>
       </div>
 
       {a.type === 'create_record' && (
@@ -309,11 +309,26 @@ function ActionEditor({ board, allBoards, action, onChange, onMove, onDelete, fi
 
 interface RunRow {
   id: string;
-  status: 'ok' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'retryable_failure' | 'terminal_failure';
   error: string | null;
   changeset_id: string | null;
   created_at: number;
 }
+
+const RUN_STATUS_LABELS: Record<RunRow['status'], string> = {
+  pending: 'Pending',
+  running: 'Running',
+  completed: 'Completed',
+  retryable_failure: 'Retryable failure',
+  terminal_failure: 'Terminal failure',
+};
+
+const runStatusLabel = (status: string): string => RUN_STATUS_LABELS[status as RunRow['status']] ?? 'Unknown status';
+const runStatusClass = (status: string): string => {
+  if (status === 'completed') return 'text-emerald-600 dark:text-emerald-400';
+  if (status === 'retryable_failure' || status === 'terminal_failure') return 'text-red-500 dark:text-red-400';
+  return 'text-neutral-500 dark:text-neutral-400';
+};
 
 function RunHistory({ autoId }: { autoId: string }) {
   const [runs, setRuns] = useState<RunRow[] | null>(null);
@@ -335,14 +350,15 @@ function RunHistory({ autoId }: { autoId: string }) {
       {runs === null && <p className="text-neutral-400">Loading runs…</p>}
       {runs !== null && !runs.length && <p className="text-neutral-400">No runs yet.</p>}
       {undoMsg && <p className="mb-1 text-neutral-500">{undoMsg}</p>}
+      <div role="list" aria-label="Automation runs">
       {(runs ?? []).map((r) => (
-        <div key={r.id} className="mb-1 flex items-center gap-2">
-          <span className={r.status === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}>{r.status === 'ok' ? 'ok' : 'failed'}</span>
+        <div key={r.id} role="listitem" className="mb-1 flex min-h-8 items-center gap-2">
+          <span className={runStatusClass(r.status)}>{runStatusLabel(r.status)}</span>
           <span className="text-neutral-400">{new Date(r.created_at).toLocaleString()}</span>
           {r.error && <span className="min-w-0 flex-1 truncate text-neutral-500" title={r.error}>{r.error}</span>}
-          {r.changeset_id && (
+          {r.status === 'completed' && r.changeset_id && (
             <button
-              className="shrink-0 rounded-md px-1.5 py-0.5 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
+              className="min-h-8 shrink-0 rounded-md px-2 py-1 text-blue-600 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:text-blue-400 dark:hover:bg-blue-950/40"
               onClick={() => void api(`/api/changes/${r.changeset_id}/undo`, { method: 'POST' }).then(() => setUndoMsg(`Undid changeset ${r.changeset_id!.slice(0, 8)}…`)).catch((e) => setUndoMsg(`Undo failed: ${e instanceof Error ? e.message : String(e)}`))}
             >
               Undo
@@ -350,6 +366,7 @@ function RunHistory({ autoId }: { autoId: string }) {
           )}
         </div>
       ))}
+      </div>
     </div>
   );
 }
@@ -423,7 +440,7 @@ function AutomationCard({ row, board, allBoards, allForms }: {
         </button>
       </div>
 
-      <button className="mt-2 flex items-center gap-1 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300" onClick={() => setShowRuns((s) => !s)}>
+      <button className="mt-2 flex min-h-8 items-center gap-1 rounded-md px-1 text-xs text-neutral-400 hover:text-neutral-600 focus-visible:outline-2 focus-visible:outline-offset-2 dark:hover:text-neutral-300" aria-expanded={showRuns} onClick={() => setShowRuns((s) => !s)}>
         {showRuns ? <ChevronDown size={12} /> : <ChevronRight size={12} />} <History size={12} /> Run history
       </button>
       {showRuns && <RunHistory autoId={row.id} />}

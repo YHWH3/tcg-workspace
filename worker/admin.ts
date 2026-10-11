@@ -72,7 +72,7 @@ admin.post('/admin/reindex-dates', requireAdmin, async (c) => {
       }
       return { id: r.id, collection: 'tasks', created: false, fields: [] as string[], before: {}, after: data };
     });
-    await maintainDateIndex(c.env, applied);
+    await maintainDateIndex(c.env, applied, true);
     reindexed += applied.length;
   }
   return c.json({ ok: true, reindexed });

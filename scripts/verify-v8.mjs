@@ -8,13 +8,23 @@
 // Usage: node scripts/verify-v8.mjs              — full run (servers managed)
 //        node scripts/verify-v8.mjs --no-spawn   — reuse a wrangler dev on :8788
 //        node scripts/verify-v8.mjs --only=chromium
-import { spawn, execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, existsSync, mkdirSync, writeFileSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir, cpus, totalmem } from 'node:os';
 import { join } from 'node:path';
 import { chromium, firefox, webkit } from 'playwright';
 
-const BASE = process.env.V8_BASE ?? 'http://localhost:8788';
+const requestedBase = process.env.V8_BASE ?? 'http://localhost:8788';
+const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+let BASE;
+try {
+  const parsedBase = new URL(requestedBase);
+  if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (parsedBase.pathname !== '/' && parsedBase.pathname !== '')) throw new Error('not loopback HTTP');
+  BASE = parsedBase.origin;
+} catch {
+  console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
+  process.exit(2);
+}
 const PASS = process.env.MCP_PASS ?? 'password123';
 const NO_SPAWN = process.argv.includes('--no-spawn');
 const SHOTS = '/tmp/p3-shots';
@@ -44,13 +54,15 @@ writeFileSync(`${FIX}/big.bin`, Buffer.alloc(21 * 1024 * 1024, 7)); // >20MB lim
 /* ---------------- servers (v7 conventions) ---------------- */
 const procs = [];
 const killTree = () => {
-  for (const p of procs) { try { process.kill(-p.pid, 'SIGKILL'); } catch { try { p.kill('SIGKILL'); } catch {} } }
-  try { execSync("lsof -ti:8788 | xargs -r kill -9; pkill -9 -f 'wrangler-dist/cli.j[s] de[v]'; pkill -9 -f 'worker[d]-linux'", { stdio: 'ignore' }); } catch {}
+  if (NO_SPAWN) return;
+  for (const p of procs) {
+    if (!p?.pid || p.exitCode !== null || p.signalCode) continue;
+    try { process.kill(-p.pid, 'SIGTERM'); } catch { try { p.kill('SIGTERM'); } catch {} }
+  }
 };
+if (!NO_SPAWN) process.on('exit', killTree);
 
 if (!NO_SPAWN) {
-  try { execSync("lsof -ti:8788 | xargs -r kill -9; pkill -9 -f 'wrangler-dist/cli.j[s] de[v]'; pkill -9 -f 'worker[d]-linux'", { stdio: 'ignore' }); } catch {}
-  await sleep(300);
   const distIndex = 'dist/client/index.html';
   const stale = !existsSync(distIndex) || (() => {
     const built = statSync(distIndex).mtimeMs;
@@ -83,7 +95,6 @@ if (!NO_SPAWN) {
   }
   if (!ok) { console.log('FATAL: wrangler dev never came up / schema missing'); process.exit(2); }
 }
-process.on('exit', killTree);
 
 /* ---------------- REST helpers ---------------- */
 const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}) => {

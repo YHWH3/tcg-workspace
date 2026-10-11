@@ -129,7 +129,7 @@ export function registerApprovalTools(server: McpServer, reg: Reg, ctx: Approval
         note: v.note,
         requestKey,
       });
-      if (!replayed) {
+      {
         await notify(ctx.env, {
           userId: v.approverId,
           kind: 'approval_requested',
@@ -140,6 +140,7 @@ export function registerApprovalTools(server: McpServer, reg: Reg, ctx: Approval
           body: v.note,
           url: v.meta.url,
           groupKey: `approval:${row.id}`,
+          dedupeKey:`approval_requested:${row.id}`,
         });
       }
       return txt({ approval: await decorate(row), url: v.meta.url, replayed });
@@ -203,7 +204,7 @@ export function registerApprovalTools(server: McpServer, reg: Reg, ctx: Approval
       if (out.outcome === 'stale_rev') return txt({ error: 'conflict', conflicts: [{ type: 'stale_rev', id: a.approvalId, current: await decorate(out.row!) }] });
       if (out.outcome === 'already_decided') return txt({ error: 'already_decided', approval: await decorate(out.row!) });
       const meta = await loadTargetMeta(db, out.row!.target_type, out.row!.target_id);
-      if (!out.replayed) {
+      {
         await notify(ctx.env, {
           userId: out.row!.requested_by,
           kind: 'approval_decided',
@@ -214,6 +215,7 @@ export function registerApprovalTools(server: McpServer, reg: Reg, ctx: Approval
           body: a.note,
           url: meta?.url,
           groupKey: `approval:${out.row!.id}`,
+          dedupeKey:`approval_decided:${out.row!.id}`,
         });
       }
       return txt({ approval: { ...(await decorate(out.row!)), targetTitle: meta?.title, url: meta?.url }, replayed: out.replayed === true });

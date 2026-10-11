@@ -6,6 +6,12 @@ import { hashPassword, inviteCode, newSalt, randomToken, sha256Hex, verifyPasswo
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 
 export interface Env {
+  TURNSTILE_SECRET?: string;
+  TURNSTILE_SITE_KEY?: string;
+  TURNSTILE_HOSTNAMES?: string;
+  /** Disposable loopback HTTP fixtures only; omitted in deployed config. */
+  WORKSPACE_ENV?: string;
+  TURNSTILE_LOCAL_TEST?: string;
   DB: D1Database;
   AI: Ai;
   LIVE: DurableObjectNamespace;

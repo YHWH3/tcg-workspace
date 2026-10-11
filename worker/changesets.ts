@@ -35,18 +35,20 @@ export function beginChangeset(init: { userId: string; clientName?: string | nul
 
 /** No items → no row. Items are chunked at 100 per batch. */
 export async function commitChangeset(env: Env, cs: ChangesetCtx): Promise<string | null> {
-  if (!cs.items.length) return null;
-  const now = Date.now();
-  await env.DB.prepare('INSERT INTO changesets (id, user_id, source, client_name, tool, summary, request_id, undoes, item_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(cs.id, cs.userId, cs.source, cs.clientName, cs.tool, cs.summary, cs.requestId, cs.undoes, cs.items.length, now)
-    .run();
-  for (let i = 0; i < cs.items.length; i += 100) {
-    await env.DB.batch(
-      cs.items.slice(i, i + 100).map((it, j) =>
-        env.DB.prepare('INSERT INTO changeset_items (changeset_id, idx, collection, record_id, created, before, after, field_ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-          .bind(cs.id, i + j, it.collection, it.id, it.created ? 1 : 0, JSON.stringify(it.before), JSON.stringify(it.after), JSON.stringify(it.fieldTs)),
-      ),
-    );
+  if(!cs.items.length) {
+    const existing=await env.DB.prepare('SELECT id FROM changesets WHERE id=?').bind(cs.id).first();
+    return existing?cs.id:null;
+  }
+  const now=Date.now();
+  for(let i=0;i<cs.items.length;i+=100) {
+    const statements:D1PreparedStatement[]=[env.DB.prepare('INSERT OR IGNORE INTO changesets (id,user_id,source,client_name,tool,summary,request_id,undoes,item_count,created_at) VALUES (?,?,?,?,?,?,?,?,0,?)')
+      .bind(cs.id,cs.userId,cs.source,cs.clientName,cs.tool,cs.summary,cs.requestId,cs.undoes,now)];
+    for(const it of cs.items.slice(i,i+100)) statements.push(env.DB.prepare(`INSERT INTO changeset_items(changeset_id,idx,collection,record_id,created,before,after,field_ts)
+      SELECT ?,(SELECT COALESCE(MAX(idx),-1)+1 FROM changeset_items WHERE changeset_id=?),?,?,?,?,?,?
+      WHERE NOT EXISTS(SELECT 1 FROM changeset_items WHERE changeset_id=? AND record_id=? AND field_ts=?)`)
+      .bind(cs.id,cs.id,it.collection,it.id,it.created?1:0,JSON.stringify(it.before),JSON.stringify(it.after),JSON.stringify(it.fieldTs),cs.id,it.id,JSON.stringify(it.fieldTs)));
+    statements.push(env.DB.prepare('UPDATE changesets SET item_count=(SELECT COUNT(*) FROM changeset_items WHERE changeset_id=?) WHERE id=?').bind(cs.id,cs.id));
+    await env.DB.batch(statements);
   }
   return cs.id;
 }
@@ -54,7 +56,7 @@ export async function commitChangeset(env: Env, cs: ChangesetCtx): Promise<strin
 export interface UndoOutcome {
   ok: boolean;
   error?: string;
-  /** HTTP status the error maps to (403/404/409) — callers must not guess. */
+  /** HTTP status the error maps to — callers must not guess. */
   status?: number;
   changesetId?: string;
   undoChangesetId?: string;
@@ -75,6 +77,18 @@ export async function undoChangeset(env: Env, user: AuthUser, changesetId: strin
     if (undone) return { ok: false, status: 409, error: 'already undone' };
     return { ok: false, status: 409, error: 'already undone' };
   }
+  // Revoke recoverable work before reading the inverse snapshot. A crashed
+  // operation must not resume after undo and recreate records/side effects.
+  // Its transaction fence observes the cleared lease even if a worker already
+  // acquired the old claim. Completed work remains a historical success.
+  try {
+    await env.DB.batch([
+      env.DB.prepare("UPDATE automation_runs SET status='terminal_failure',error='cancelled by undo',lease_id=NULL,lease_until=NULL,updated_at=? WHERE changeset_id=? AND status NOT IN ('completed','terminal_failure')").bind(Date.now(),changesetId),
+      env.DB.prepare("UPDATE form_submissions SET state='rejected',error=?,receipt=NULL,lease_id=NULL,lease_until=NULL,updated_at=? WHERE changeset_id=? AND state NOT IN ('accepted','rejected')").bind(JSON.stringify({error:'cancelled_by_undo',retryable:false}),Date.now(),changesetId),
+    ]);
+  } catch {
+    return { ok:false,status:503,error:'undo could not fence pending work; retry',changesetId };
+  }
   const { results } = await env.DB.prepare('SELECT collection, record_id, created, before, after, field_ts FROM changeset_items WHERE changeset_id = ? ORDER BY idx').bind(changesetId).all<{ collection: string; record_id: string; created: number; before: string; after: string; field_ts: string }>();
   const items: ChangesetItem[] = results.map((r) => ({ collection: r.collection, record_id: r.record_id, created: r.created, before: JSON.parse(r.before), after: JSON.parse(r.after), field_ts: JSON.parse(r.field_ts) }));
   const current = await getRecs(env, items.map((i) => i.record_id));
@@ -94,18 +108,26 @@ export async function undoChangeset(env: Env, user: AuthUser, changesetId: strin
     const cur = current.get(p.id);
     if (cur) expect.set(p.id, cur.rev);
   }
-  const res = await applyChanges(env, user.id, plan.patches.map((p) => ({ id: p.id, collection: p.collection, patch: p.patch, ts: Date.now() })), { serverTs: true, expect, atomic: false, event: ectx ? { source: 'undo' as const, ctx: ectx } : undefined });
+  const res = await applyChanges(env, user.id, plan.patches.map((p) => ({ id: p.id, collection: p.collection, patch: p.patch, ts: Date.now() })), {
+    serverTs:true,expect,atomic:false,journal:undoCs,
+    event:{source:'undo',changesetId:undoCs.id,...(ectx?{ctx:ectx}:{})},
+  });
   undoCs.items = res.applied;
   const conflicts = (res.conflicts ?? []).map((c) => ({ id: c.id, collection: c.collection, expectedRev: c.expectedRev, currentRev: c.currentRev }));
+  if (res.partialError || res.rejectedItems?.length) return {
+    ok:false,status:503,error:'undo interrupted; committed inverses are journalled; retry',changesetId,
+    ...(res.applied.length?{undoChangesetId:undoCs.id}:{}),restored:res.applied.length,conflicts,skipped:plan.skipped,
+  };
   if (!res.applied.length) {
     // Nothing landed under the guards — leave the change set undoable so the
     // caller can re-read and retry; report what raced.
     if (conflicts.length) return { ok: false, status: 409, error: 'undo raced with newer writes — nothing restored', changesetId, conflicts, skipped: plan.skipped };
     return { ok: true, changesetId, skipped: plan.skipped, restored: 0 };
   }
-  const undoId = await commitChangeset(env, undoCs);
-  await env.DB.prepare('UPDATE changesets SET undone_by = ? WHERE id = ?').bind(undoId ?? undoCs.id, changesetId).run();
-  return { ok: true, changesetId, undoChangesetId: undoId ?? undoCs.id, skipped: plan.skipped, restored: res.applied.length, ...(conflicts.length ? { conflicts } : {}) };
+  // applyChanges commits the inverse, its event and audit item together. No
+  // second journal transaction may strand an already-restored record.
+  await env.DB.prepare('UPDATE changesets SET undone_by = ? WHERE id = ?').bind(undoCs.id, changesetId).run();
+  return { ok: true, changesetId, undoChangesetId: undoCs.id, skipped: plan.skipped, restored: res.applied.length, ...(conflicts.length ? { conflicts } : {}) };
 }
 
 /* ---- HTTP API (session auth; members undo own, admins any) ---- */
@@ -147,6 +169,6 @@ changesApi.get('/:id', async (c) => {
 changesApi.post('/:id/undo', async (c) => {
   const user = c.get('user');
   const out = await undoChangeset(c.env, user, c.req.param('id'), c.executionCtx);
-  if (!out.ok) return c.json({ error: out.error, conflicts: out.conflicts }, (out.status ?? 409) as 403 | 404 | 409);
+  if (!out.ok) return c.json(out, (out.status ?? 409) as 403 | 404 | 409 | 503);
   return c.json(out);
 });

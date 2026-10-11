@@ -87,11 +87,13 @@ async function write(c: Ctx, ops: WriteOp[], opts: { expect?: Map<string, number
       c.env,
       c.userId,
       chunk.map((o) => ({ id: o.id, collection: o.collection, patch: o.patch, ts: 0 })),
-      { serverTs: true, expect: opts.expect, event: { source: 'mcp', ctx: c.ectx } },
+      { serverTs: true, expect: opts.expect, journal:c.cs??undefined,event: { source: 'mcp', ctx: c.ectx,changesetId:c.cs?.id } },
     );
-    if (r.conflicts?.length) throw new WriteConflict(r.conflicts);
-    if (r.conflict) throw new Error('write conflict, retry');
     c.cs?.items.push(...r.applied.filter((a) => a.collection !== 'activity'));
+    if(r.partialError) throw new Error('write interrupted; retry');
+    if (r.conflicts?.length) throw new WriteConflict(r.conflicts);
+    if(r.rejected) throw new Error((r.rejectedItems??[]).map(x=>x.reason).join('; ')||'write rejected');
+    if (r.conflict) throw new Error('write conflict, retry');
   }
   pokeLive(c.env, c.ectx);
 }
@@ -434,7 +436,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
    * attribution) and records landed writes into the change set inside
    * casUpdate itself — nothing can land unrecorded before a later push. */
   const cas = (collection: string, id: string, mutate: Parameters<typeof casUpdate>[4]) =>
-    casUpdate(ctx.env, ctx.userId, collection, id, mutate, { recordTo: ctx.cs?.items ?? undefined, ectx: ctx.ectx, source: 'mcp' });
+    casUpdate(ctx.env, ctx.userId, collection, id, mutate, { journal:ctx.cs??undefined,recordTo: ctx.cs?.items ?? undefined, ectx: ctx.ectx, source: 'mcp' });
 
   /* ---------- 1-2. search / fetch (ChatGPT connector contract) ---------- */
 
@@ -3454,7 +3456,6 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const existing = await existingBoards();
       const marker = live(await recs(ctx.env, 'pages')).find((p) => p.data.templateKey === a.bundled);
       if (a.dryRun) return txt({ dryRun: true, bundled: a.bundled, alreadyInstalled: !!marker, ...planInstallPreview(bundle, existing) });
-      if (marker && !a.force) return txt({ alreadyInstalled: true, pageId: marker.id, pageUrl: pageUrl(ctx, marker.id), url: pageUrl(ctx, marker.id) });
       if (a.parentId) {
         const pp = await rec(ctx.env, 'pages', a.parentId);
         if (!pp || pp.data.deleted) return err('parentId page not found');
@@ -3485,6 +3486,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       }
       const missing: WriteOp[] = plan.writes.filter((w) => !existingIds.has(w.id));
       const already = plan.writes.length - missing.length;
+      // An older Phase 3 root marker does not prove newly authored Phase 4
+      // configurations are present. Reconcile missing stable rows even when
+      // installed, never overwrite edited or tombstoned user rows.
+      if(marker&&!missing.length) return txt({alreadyInstalled:true,pageId:marker.id,pageUrl:pageUrl(ctx,marker.id),url:pageUrl(ctx,marker.id)});
       // Planner already orders the root marker last; keep non-page→block→page
       // ordering for deterministic batching.
       const rank = (w: WriteOp): number =>

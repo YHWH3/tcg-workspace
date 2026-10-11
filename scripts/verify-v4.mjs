@@ -364,8 +364,10 @@ check('non-descendant page denied publicly', (await api(`/api/public/${shareToke
 
 // revoke → inactive message
 await api(`/api/shares/${root}`, { method: 'DELETE', token: admin.token });
-await ppage.reload({ waitUntil: 'networkidle' });
-await sleep(1600);
+await ppage.reload({ waitUntil: 'domcontentloaded' });
+// Assert the requested server-confirmed inactive surface, not an unrelated
+// global network-idle condition (PWA/background requests may remain active).
+await ppage.getByText('no longer active',{exact:false}).first().waitFor({timeout:15000});
 check('revoked link shows inactive message', (await ppage.locator('text=no longer active').count()) > 0);
 await ppage.screenshot({ path: `${OUT}/public-inactive.png` });
 

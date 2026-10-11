@@ -8,6 +8,7 @@ import type { SemanticEvent } from '../shared/events';
 import type { EventSource } from './events';
 import { kindAllowed, loadPrefs, requireAuth, type Env, type AuthUser, type UserPrefs } from './auth';
 import { recurrencesForEvent } from './reminders';
+import { fnv1a64hex } from '../shared/linkid';
 
 export interface NewNotification {
   userId: string;
@@ -28,11 +29,14 @@ export interface NewNotification {
   body?: string;
   url?: string;
   groupKey?: string;
+  /** One immutable key per logical delivery, preserved across all retries. */
+  dedupeKey?: string;
 }
 
 export interface EventCtx {
   source: EventSource;
   userId: string;
+  outboxId?: string;
 }
 
 const GROUP_WINDOW_MS = 30 * 60 * 1000;
@@ -79,40 +83,38 @@ export function reminderKind(date: string, today: string, leadDays: number): 'du
  * Same (user_id, group_key) with an unread row <30min old → UPDATE the
  * existing row (count++, fresh title/body, items append capped at 20) —
  * never a pile of near-identical rows. */
-export async function notify(env: { DB: D1Database }, n: NewNotification): Promise<void> {
+export async function notify(env: { DB: D1Database }, n: NewNotification, transaction: D1PreparedStatement[] = []): Promise<void> {
+  const user=await env.DB.prepare('SELECT id FROM users WHERE id=?').bind(n.userId).first();
+  if(!user) return;
   const prefs = await loadPrefs(env.DB, n.userId);
   if (!kindAllowed(prefs, n.kind)) return;
   const now = Date.now();
-
+  let id: string | undefined;
   if (n.groupKey) {
     const existing = await env.DB.prepare(
-      `SELECT id, items, group_count FROM notifications
-       WHERE user_id = ? AND group_key = ? AND read_at IS NULL AND created_at > ?
-       ORDER BY created_at DESC LIMIT 1`,
+      `SELECT id, items, group_count,read_at FROM notifications
+       WHERE user_id = ? AND group_key = ? AND created_at > ?
+       ORDER BY (read_at IS NULL) DESC,created_at DESC LIMIT 1`,
     )
       .bind(n.userId, n.groupKey, now - GROUP_WINDOW_MS)
-      .first<{ id: string; items: string | null; group_count: number }>();
-    if (existing) {
-      const items = appendGroupItem(existing.items, { actorId: n.actorId, at: now, summary: n.body ?? n.title });
-      await env.DB.prepare(
-        `UPDATE notifications
-         SET group_count = ?, title = ?, body = ?, url = ?, actor_id = ?, items = ?, created_at = ?
-         WHERE id = ?`,
-      )
-        .bind((existing.group_count ?? 1) + 1, n.title, n.body ?? null, n.url ?? null, n.actorId ?? null, items, now, existing.id)
-        .run();
-      return;
-    }
+      .first<{ id: string; items: string | null; group_count: number;read_at:number|null }>();
+    id=existing&&existing.read_at===null?existing.id:`ntf_${fnv1a64hex(JSON.stringify([n.userId,n.kind,n.groupKey,Math.floor(now/GROUP_WINDOW_MS),existing?.id??'',existing?.read_at??'']))}`;
   }
-
-  const id = `ntf_${crypto.randomUUID().replace(/-/g, '')}`;
-  const items = n.groupKey ? appendGroupItem(null, { actorId: n.actorId, at: now, summary: n.body ?? n.title }) : null;
-  await env.DB.prepare(
+  id ??= n.dedupeKey ? `ntf_${fnv1a64hex(n.userId+'|'+n.dedupeKey)}` : `ntf_${crypto.randomUUID().replace(/-/g,'')}`;
+  const key=n.dedupeKey ? n.userId+'|'+n.dedupeKey : crypto.randomUUID();
+  const item=JSON.stringify({actorId:n.actorId,at:now,summary:n.body??n.title});
+  await env.DB.batch([
+    env.DB.prepare('INSERT OR IGNORE INTO notification_deliveries(delivery_key,notification_id,created_at) VALUES(?,?,?)').bind(key,id,now),
+    env.DB.prepare(
     `INSERT INTO notifications (id, user_id, kind, actor_id, target_type, target_id, title, body, url, group_key, group_count, items, read_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NULL, ?)`,
-  )
-    .bind(id, n.userId, n.kind, n.actorId ?? null, n.targetType ?? null, n.targetId ?? null, n.title, n.body ?? null, n.url ?? null, n.groupKey ?? null, items, now)
-    .run();
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, json_array(json(?)), NULL, ? WHERE changes()=1
+     ON CONFLICT(id) DO UPDATE SET group_count=notifications.group_count+1,
+       title=excluded.title,body=excluded.body,url=excluded.url,actor_id=excluded.actor_id,
+       items=(SELECT json_group_array(json(value)) FROM (SELECT value FROM json_each(json_insert(COALESCE(notifications.items,'[]'),'$[#]',json(?))) ORDER BY key DESC LIMIT ${ITEMS_CAP})),
+       created_at=excluded.created_at,read_at=NULL`)
+    .bind(id,n.userId,n.kind,n.actorId??null,n.targetType??null,n.targetId??null,n.title,n.body??null,n.url??null,n.groupKey??null,item,now,item),
+    ...transaction,
+  ]);
 }
 
 /* ---------- Event → recipient routing ---------- */
@@ -183,8 +185,9 @@ export async function notificationsForEvent(
   const nameCache = new Map<string, string>();
   const actor = () => userName(env.DB, actorId, nameCache);
 
-  for (const ev of semantic) {
-    try {
+  for (let index=0;index<semantic.length;index++) {
+    const ev=semantic[index];
+    const dedupeKey=`event:${ctx.outboxId??JSON.stringify(ev)}:${index}`;
       if (ev.kind === 'record.assigned') {
         const to = typeof ev.to === 'string' ? ev.to : '';
         if (!to || to === actorId) continue;
@@ -200,12 +203,13 @@ export async function notificationsForEvent(
           body: t || undefined,
           url: `/tasks/${ev.recordId}`,
           groupKey: `assigned:${ev.recordId}`,
+          dedupeKey,
         });
       } else if (ev.kind === 'comment.created') {
         // "on mine" = record assignee (documented simplification: no assignee → skip).
         if (ev.targetType !== 'task' || !ev.targetId) continue;
         const rec = await fetchRec(env.DB, ev.targetId, recCache);
-        const assignee = rec?.data?.assignee;
+        const assignee = rec?.data?.assigneeId;
         if (typeof assignee !== 'string' || !assignee || assignee === actorId) continue;
         const comment = await fetchRec(env.DB, ev.recordId, recCache);
         const t = titleOf(rec);
@@ -219,6 +223,7 @@ export async function notificationsForEvent(
           body: excerpt(comment?.data?.body) || undefined,
           url: `/tasks/${ev.targetId}`,
           groupKey: `comment:${ev.targetId}`,
+          dedupeKey,
         });
       } else if (ev.kind === 'mention.created') {
         const uid = typeof ev.to === 'string' ? ev.to : '';
@@ -242,11 +247,17 @@ export async function notificationsForEvent(
           body: text || undefined,
           url,
           groupKey: ev.targetId ? `mention:${ev.targetId}` : undefined,
+          dedupeKey,
+        });
+      } else if(ev.kind==='form.submitted' && ev.formId) {
+        const form=await fetchRec(env.DB,ev.formId,recCache);
+        const rec=await fetchRec(env.DB,ev.recordId,recCache);
+        const recipients=Array.isArray(form?.data.notifyUserIds)?form.data.notifyUserIds:[];
+        for(const uid of new Set(recipients)) if(typeof uid==='string') await notify(env,{
+          userId:uid,kind:'form_submission',targetType:'record',targetId:ev.recordId,
+          title:`New submission: ${String(form?.data.title??'Form')}`,body:titleOf(rec),url:`/tasks/${ev.recordId}`,dedupeKey,
         });
       }
-    } catch {
-      /* one bad event must not poison the batch — outbox stays retryable */
-    }
   }
 
   // Recurrence is event-driven: stage → done here spawns the next occurrence.

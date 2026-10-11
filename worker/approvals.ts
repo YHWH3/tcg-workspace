@@ -105,7 +105,7 @@ export async function guardStageWrites(
         })
       : undefined;
 
-    const ok = await findApprovedApproval(env.DB, ch.id, to, requiredApprover);
+    const ok = (!gate.approverField||!!requiredApprover) && await findApprovedApproval(env.DB, ch.id, to, requiredApprover);
     if (!ok) {
       reject(ch.id, ch.collection, 'approval_required');
       // Strip the forbidden transition; other fields in the patch still merge.
@@ -182,6 +182,7 @@ export async function insertApproval(
   db: D1Database,
   input: { targetType: string; targetId: string; stageId?: string; requestedBy: string; approverId: string; note?: string; requestKey: string },
 ): Promise<{ row: ApprovalRow; replayed: boolean }> {
+  const scopedKey=input.requestedBy+':'+input.requestKey;
   const id = 'ap_' + crypto.randomUUID();
   const res = await db
     .prepare(
@@ -189,11 +190,14 @@ export async function insertApproval(
          (id, target_type, target_id, stage_id, requested_by, approver_id, status, note, request_key, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
     )
-    .bind(id, input.targetType, input.targetId, input.stageId ?? null, input.requestedBy, input.approverId, input.note ?? null, input.requestKey, Date.now())
+    .bind(id, input.targetType, input.targetId, input.stageId ?? null, input.requestedBy, input.approverId, input.note ?? null, scopedKey, Date.now())
     .run();
   if ((res.meta.changes ?? 0) === 0) {
-    const existing = await db.prepare('SELECT * FROM approvals WHERE request_key = ?').bind(input.requestKey).first<ApprovalRow>();
-    if (existing) return { row: existing, replayed: true };
+    const existing = await db.prepare('SELECT * FROM approvals WHERE request_key = ?').bind(scopedKey).first<ApprovalRow>();
+    if (existing) {
+      if(existing.target_id!==input.targetId||existing.target_type!==input.targetType||existing.approver_id!==input.approverId||existing.stage_id!==(input.stageId??null)) throw new Error('approval requestId reused with different input');
+      return { row: existing, replayed: true };
+    }
   }
   const row = await db.prepare('SELECT * FROM approvals WHERE id = ?').bind(id).first<ApprovalRow>();
   return { row: row!, replayed: false };
@@ -350,7 +354,7 @@ approvalsApi.post('/', async (c) => {
     note: v.note,
     requestKey,
   });
-  if (!replayed) {
+  {
     await notify(c.env, {
       userId: v.approverId,
       kind: 'approval_requested',
@@ -361,6 +365,7 @@ approvalsApi.post('/', async (c) => {
       body: v.note,
       url: v.meta.url,
       groupKey: `approval:${row.id}`,
+      dedupeKey:`approval_requested:${row.id}`,
     });
   }
   return c.json({ approval: approvalJson(row, { targetTitle: v.meta.title, url: v.meta.url }), replayed }, replayed ? 200 : 201);
@@ -384,7 +389,7 @@ approvalsApi.post('/:id/decide', async (c) => {
   if (out.outcome === 'stale_rev') return c.json({ error: 'conflict', approval: approvalJson(out.row!) }, 409);
   if (out.outcome === 'already_decided') return c.json({ error: 'already decided', approval: approvalJson(out.row!) }, 409);
   const meta = await loadTargetMeta(c.env.DB, out.row!.target_type, out.row!.target_id);
-  if (!out.replayed) {
+  {
     await notify(c.env, {
       userId: out.row!.requested_by,
       kind: 'approval_decided',
@@ -395,6 +400,7 @@ approvalsApi.post('/:id/decide', async (c) => {
       body: body.note,
       url: meta?.url,
       groupKey: `approval:${out.row!.id}`,
+      dedupeKey:`approval_decided:${out.row!.id}`,
     });
   }
   return c.json({ approval: approvalJson(out.row!, { targetTitle: meta?.title, url: meta?.url }), replayed: out.replayed === true });

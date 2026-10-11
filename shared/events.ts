@@ -10,6 +10,7 @@ export interface AppliedLike {
   fields: string[];
   before: Record<string, unknown>;
   after: Record<string, unknown>;
+  snapshot?: Record<string, unknown>;
 }
 
 export interface SemanticEvent {
@@ -21,6 +22,7 @@ export interface SemanticEvent {
     | 'comment.created'
     | 'mention.created'
     | 'form.submitted';
+  snapshot?:Record<string,unknown>;
   recordId: string;
   collection: string;
   /** Owning board id for record/db-scoped triggers (tasks rows only). */
@@ -54,7 +56,7 @@ export function deriveEvents(applied: AppliedLike[]): SemanticEvent[] {
   for (const ch of applied) {
     const { id, collection } = ch;
     const before = ch.before ?? {};
-    const after = ch.after ?? {};
+    const after = ch.snapshot ?? ch.after ?? {};
     const changed = new Set(ch.fields);
 
     if (collection === 'comments' && ch.created) {
@@ -86,20 +88,20 @@ export function deriveEvents(applied: AppliedLike[]): SemanticEvent[] {
           to: after.status,
         });
       }
-      if (changed.has('assignee') && before.assignee !== after.assignee) {
+      if (changed.has('assigneeId') && before.assigneeId !== after.assigneeId) {
         events.push({
           kind: 'record.assigned',
           recordId: id,
           collection,
           boardId: typeof after.boardId === 'string' ? (after.boardId as string) : undefined,
-          fieldKey: 'assignee',
-          from: before.assignee,
-          to: after.assignee,
+          fieldKey: 'assigneeId',
+          from: before.assigneeId,
+          to: after.assigneeId,
         });
       }
       let n = 0;
       for (const f of ch.fields) {
-        if (f === 'status' || f === 'assignee' || n >= FIELD_CAP) continue;
+        if (f === 'status' || f === 'assigneeId' || n >= FIELD_CAP) continue;
         if (before[f] === after[f]) continue;
         n++;
         events.push({
@@ -116,7 +118,7 @@ export function deriveEvents(applied: AppliedLike[]): SemanticEvent[] {
 
     // Newly-introduced @[user:id] tokens in block text or comment bodies.
     const textField = collection === 'comments' ? 'body' : 'text';
-    if (collection === 'blocks' || collection === 'comments') {
+    if ((collection === 'blocks' || collection === 'comments') && changed.has(textField)) {
       const prev = new Set(mentionedUsers(before[textField]));
       for (const uid of mentionedUsers(after[textField])) {
         if (prev.has(uid)) continue;
@@ -143,5 +145,6 @@ export function deriveEvents(applied: AppliedLike[]): SemanticEvent[] {
       }
     }
   }
+  for(const event of events) event.snapshot=applied.find(ch=>ch.id===event.recordId)?.snapshot;
   return events;
 }

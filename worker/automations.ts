@@ -9,10 +9,11 @@ import { Hono } from 'hono';
 import type { SemanticEvent } from '../shared/events';
 import type { EventSource } from './events';
 import { requireAuth, type Env, type AuthUser } from './auth';
-import { applyChanges, type AppliedChange } from './sync';
+import { applyChanges } from './sync';
 import { getRec, listBy, listCollection } from './records';
-import { beginChangeset, commitChangeset } from './changesets';
+import { beginChangeset } from './changesets';
 import { notify, type NewNotification } from './notifications';
+import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
 import {
   automationDbId,
   conditionsMatch,
@@ -29,8 +30,9 @@ import { coerceFieldValue, fieldsOf, type FieldDef } from '../shared/fields';
 import { addDays, todayUtc } from '../shared/recurrence';
 import { linkId } from '../shared/linkid';
 import { planTemplateInstantiation, type RecSnapshot } from '../shared/templates';
-import { uuid } from '../shared/order';
+import { fnv1a64hex } from '../shared/linkid';
 import type { Mutation } from '../shared/types';
+import { completedRecords, executionOptions, executionFence, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
 
 export interface EventCtx {
   source: EventSource;
@@ -170,11 +172,12 @@ async function planActions(
       }
       case 'create_from_template': {
         if (!a.templateId) throw new Error(`action ${i}: templateId required`);
+        let templateIndex=0;
         const plan = planTemplateInstantiation(await loadSnapshot(env), {
           templateId: a.templateId,
           variables: Object.fromEntries(Object.entries(a.vars ?? {}).map(([k, v]) => [k, String(render(v) ?? '')])),
           actorId: ctx.userId,
-        }, { id: uuid, now: Date.now() });
+        }, { id: ()=>`auto_${fnv1a64hex(`${runId}:${i}:${templateIndex++}`)}`, now: Date.now() });
         if (!plan) throw new Error(`action ${i}: template ${a.templateId} not found`);
         for (const w of plan.writes) ops.push({ id: w.id, collection: w.collection, patch: w.patch, ts: Date.now() });
         break;
@@ -207,6 +210,7 @@ async function planActions(
             body,
             url: recordUrl(ev.boardId, rec.id),
             groupKey: `automation:${auto.id}`,
+            dedupeKey:`${runId}:notify:${i}:${uid}`,
           });
         }
         break;
@@ -228,16 +232,6 @@ async function planActions(
           note: typeof a.note === 'string' ? renderStr(a.note) : null,
           request_key: key,
           created_at: Date.now(),
-        });
-        side.notifications.push({
-          userId: approver,
-          kind: 'approval_requested',
-          actorId: ctx.userId,
-          targetType: 'record',
-          targetId: rec.id,
-          title: `Approval requested: ${String(rec.data.title ?? 'record')}`,
-          body: typeof a.note === 'string' ? renderStr(a.note) : undefined,
-          url: recordUrl(ev.boardId, rec.id),
         });
         break;
       }
@@ -276,7 +270,7 @@ async function loadSnapshot(env: Env): Promise<RecSnapshot> {
 
 /** Synthetic `record.field_changed` event for a date_offset hit (cron §5.4 contract). */
 export function dateOffsetEvent(recordId: string, boardId: string | undefined, dateKey: string, date: string): SemanticEvent {
-  return { kind: 'record.field_changed', recordId, collection: 'tasks', boardId, fieldKey: dateKey, to: date };
+  return { kind: 'record.field_changed', recordId, collection: 'tasks', boardId, fieldKey: dateKey, to: date,from:'cron:date_offset' };
 }
 
 /**
@@ -305,7 +299,7 @@ export async function runDateOffsetAutomations(env: { DB: D1Database }, today: s
 }
 
 /** One (automation, event) run: dedupe → validate → plan → single batch. */
-async function runOneAutomation(
+export async function runOneAutomation(
   env: Env,
   auto: AutomationRow,
   ev: SemanticEvent,
@@ -315,18 +309,17 @@ async function runOneAutomation(
 ): Promise<void> {
   const eventKey = runEventKey(auto.id, ev, ctx.outboxId);
   const runId = `arun_${eventKey}`;
-  // Dedupe guard: INSERT OR IGNORE claims the run; a replay sees it and stops.
-  const staged = await env.DB.prepare(
-    `INSERT OR IGNORE INTO automation_runs (id, automation_id, event_key, status, error, created_at)
-     VALUES (?, ?, ?, 'failed', 'in progress', ?)`
-  ).bind(runId, auto.id, eventKey, Date.now()).run();
-  if ((staged.meta.changes ?? 0) === 0) return;
-
-  const finish = async (status: 'ok' | 'failed', error: string | null, changesetId: string | null) => {
-    await env.DB.prepare('UPDATE automation_runs SET status = ?, error = ?, changeset_id = ? WHERE id = ?')
-      .bind(status, error, changesetId, runId).run();
-  };
-
+  const payload=JSON.stringify({auto,ev,ctx,recData,today});
+  await env.DB.prepare(`INSERT OR IGNORE INTO automation_runs(id,automation_id,event_key,status,created_at,payload)
+    VALUES(?,?,?,'pending',?,?)`).bind(runId,auto.id,eventKey,Date.now(),payload).run();
+  const lease=crypto.randomUUID(), now=Date.now();
+  const claimed=await env.DB.prepare(`UPDATE automation_runs SET status='running',lease_id=?,lease_until=?,attempts=attempts+1,updated_at=?,payload=COALESCE(payload,?)
+    WHERE id=? AND attempts<? AND retry_at<=? AND (status IN ('pending','retryable_failure') OR (status='running' AND COALESCE(lease_until,0)<=?))
+    RETURNING attempts,plan,changeset_id`).bind(lease,now+EXECUTION_LEASE_MS,now,payload,runId,EXECUTION_MAX_ATTEMPTS,now,now).first<{attempts:number;plan:string|null;changeset_id:string|null}>();
+  if(!claimed) return;
+  const cs=beginChangeset({userId:ctx.userId,tool:'automation',summary:`Automation: ${String(auto.data.name??auto.id)}`,source:'automation'});
+  cs.id=claimed.changeset_id??`cs_${runId}`;
+  let terminal=false;
   try {
     const board = ev.boardId ? (await getRec(env, ev.boardId))?.data : undefined;
     const boardsById = new Map<string, Record<string, unknown>>();
@@ -339,52 +332,70 @@ async function runOneAutomation(
     }
     // Fail fast on config errors — nothing partial is written. Boards-only
     // ctx: missing-member/template checks stay advisory at the API layer.
-    const errors = validateAutomation(auto.data, { boardsById });
-    if (errors.length) throw new Error(errors.join('; '));
-
-    const { ops, side } = await planActions(env, auto, ev, { id: ev.recordId, data: recData }, board, ctx, runId, today);
-
-    const cs = beginChangeset({
-      userId: ctx.userId,
-      tool: 'automation',
-      summary: `Automation: ${String(auto.data.name ?? auto.id)}`,
-      source: 'automation',
-    });
-    let applied: AppliedChange[] = [];
-    const rejectedReasons: string[] = [];
+    const {results:users}=await env.DB.prepare('SELECT id FROM users').all<{id:string}>();
+    const templates=await listBy(env,'pages','isTemplate',true);
+    const errors = validateAutomation(auto.data, { boardsById,memberIds:new Set(users.map(u=>u.id)),templateIds:new Set(templates.map(t=>t.id)) });
+    if (errors.length) {terminal=true;throw new Error(errors.join('; '));}
+    let plan:{ops:Mutation[];side:PlannedSideEffects};
+    if(claimed.plan) plan=JSON.parse(claimed.plan);
+    else {
+      terminal=true;
+      plan=await planActions(env,auto,ev,{id:ev.recordId,data:recData},board,ctx,runId,today);
+      terminal=false;
+      await env.DB.prepare('UPDATE automation_runs SET plan=?,changeset_id=? WHERE id=? AND lease_id=?').bind(JSON.stringify(plan),cs.id,runId,lease).run();
+    }
+    const done=await completedRecords(env.DB,runId);
+    const ops=plan.ops.filter(o=>!done.has(o.id));
     if (ops.length) {
+      const nested:Promise<unknown>[]=[];
       const res = await applyChanges(env, ctx.userId, ops, {
         serverTs: true,
-        event: { source: 'automation', ctx: { waitUntil: (p) => void p.catch(() => {}) }, changesetId: cs.id },
+        atomic:true,journal:cs,execution:executionOptions(env,'automation_runs',runId,lease),
+        event: { source: 'automation', ctx: { waitUntil: p=>nested.push(p) }, changesetId: cs.id },
       });
-      applied = res.applied;
-      for (const r of res.rejectedItems ?? []) rejectedReasons.push(`${r.id}: ${r.reason}`);
+      await Promise.all(nested);
+      if(res.rejected) {terminal=true;throw new Error(`rejected: ${JSON.stringify(res.rejectedItems)}`);}
+      if(res.partialError||res.conflict||res.conflicts?.length) throw new Error(res.partialError??'write conflict; retry');
     }
-    cs.items = applied;
-    const changesetId = await commitChangeset(env, cs);
-
-    for (const a of side.approvals) {
-      await env.DB.prepare(
+    for (const a of plan.side.approvals) {
+      await env.DB.batch([executionFence(env.DB,'automation_runs',runId,lease)(),env.DB.prepare(
         `INSERT OR IGNORE INTO approvals (id, target_type, target_id, stage_id, requested_by, approver_id, status, note, request_key, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(a.id, a.target_type, a.target_id, a.stage_id, a.requested_by, a.approver_id, a.status, a.note, a.request_key, a.created_at).run();
+      ).bind(a.id, a.target_type, a.target_id, a.stage_id, a.requested_by, a.approver_id, a.status, a.note, a.request_key, a.created_at)]);
     }
-    for (const n of side.notifications) await notify(env, n);
-
-    if (rejectedReasons.length) {
-      await finish('failed', `partial: ${rejectedReasons.join('; ')}`, changesetId);
-    } else {
-      await finish('ok', null, changesetId);
+    for (const n of plan.side.notifications) {
+      await env.DB.batch([executionFence(env.DB,'automation_runs',runId,lease)()]);
+      await notify(env,n);
     }
+    await env.DB.prepare(`UPDATE automation_runs SET status='completed',error=NULL,lease_id=NULL,lease_until=NULL,updated_at=? WHERE id=? AND lease_id=?`).bind(Date.now(),runId,lease).run();
   } catch (err) {
-    await finish('failed', err instanceof Error ? err.message : String(err), null);
+    if(err instanceof D1BudgetExhausted) {
+      await d1CleanupDatabase(env.DB).prepare("UPDATE automation_runs SET status='retryable_failure',attempts=MAX(0,attempts-1),error=?,retry_at=?,lease_id=NULL,lease_until=NULL,updated_at=? WHERE id=? AND lease_id=?").bind(err.message,Date.now()+60_000,Date.now(),runId,lease).run();
+      throw err;
+    }
+    const exhausted=claimed.attempts>=EXECUTION_MAX_ATTEMPTS;
+    await env.DB.prepare(`UPDATE automation_runs SET status=?,error=?,retry_at=?,lease_id=NULL,lease_until=NULL,updated_at=? WHERE id=? AND lease_id=?`)
+      .bind(terminal||exhausted?'terminal_failure':'retryable_failure',err instanceof Error?err.message:String(err),Date.now()+retryDelay(claimed.attempts),Date.now(),runId,lease).run();
   }
 
   // Retention: keep the last MAX_RUNS_KEPT runs per automation.
   await env.DB.prepare(
     `DELETE FROM automation_runs WHERE automation_id = ? AND id NOT IN
-       (SELECT id FROM automation_runs WHERE automation_id = ? ORDER BY created_at DESC LIMIT ?)`
+       (SELECT id FROM automation_runs WHERE automation_id = ? ORDER BY created_at DESC LIMIT ?) AND status IN ('completed','terminal_failure')`
   ).bind(auto.id, auto.id, MAX_RUNS_KEPT).run().catch(() => {});
+}
+
+/** Cron independently resumes leased/failed runs even after their input event
+ * has completed. No already-completed record or delivery is blindly replayed. */
+export async function recoverAutomationRuns(env:Pick<Env,'DB'>):Promise<void> {
+  const now=Date.now();
+  await env.DB.prepare(`UPDATE automation_runs SET status='terminal_failure',error=COALESCE(error,'execution attempt limit reached') WHERE attempts>=? AND status IN ('pending','running','retryable_failure') AND COALESCE(lease_until,0)<=?`).bind(EXECUTION_MAX_ATTEMPTS,now).run();
+  const {results}=await env.DB.prepare(`SELECT payload FROM automation_runs WHERE payload IS NOT NULL AND retry_at<=? AND (status IN ('pending','retryable_failure') OR (status='running' AND COALESCE(lease_until,0)<=?)) ORDER BY created_at LIMIT 20`).bind(now,now).all<{payload:string}>();
+  for(const row of results) {
+    if(!hasD1Budget(env.DB,24))break;
+    const p=JSON.parse(row.payload) as {auto:AutomationRow;ev:SemanticEvent;ctx:EventCtx;recData:Record<string,unknown>;today:string};
+    await runOneAutomation(env as Env,p.auto,p.ev,p.ctx,p.recData,p.today);
+  }
 }
 
 /**
@@ -407,7 +418,6 @@ export async function runAutomationsForEvent(
 
   let autos: AutomationRow[] | null = null;
   for (const ev of semantic) {
-    try {
       autos ??= await enabledAutomations(env as Env);
       for (const auto of autos) {
         // boardId is absent from update events (after = touched fields only):
@@ -416,19 +426,16 @@ export async function runAutomationsForEvent(
         if (!rec || rec.collection !== 'tasks') continue;
         const ev2: SemanticEvent = ev.boardId ? ev : { ...ev, boardId: String(rec.data.boardId ?? '') };
         if (!matchesScope(auto.data, ev2)) continue;
-        if (!matchesTrigger(auto.data.trigger, ev2, { today })) continue;
+        if (auto.data.trigger?.kind==='date_offset' || !matchesTrigger(auto.data.trigger, ev2, { today })) continue;
         const board = ev2.boardId ? (await fetchRec(ev2.boardId))?.data : undefined;
         const vctx: ViewCtx = { meId: ctx.userId, today, fieldsById: new Map(fieldsOf(board).map((f: FieldDef) => [f.id, f])) };
         try {
-          if (!conditionsMatch(auto.data.conditions, { id: rec.id, ...rec.data }, vctx)) continue;
+          if (!conditionsMatch(auto.data.conditions, { id: rec.id, ...(ev.snapshot??rec.data) }, vctx)) continue;
         } catch {
           continue;
         }
-        await runOneAutomation(env as Env, auto, ev2, ctx, rec.data, today);
+        await runOneAutomation(env as Env, auto, ev2, ctx, ev.snapshot??rec.data, today);
       }
-    } catch {
-      /* one bad event/automation must not take the batch down */
-    }
   }
 }
 

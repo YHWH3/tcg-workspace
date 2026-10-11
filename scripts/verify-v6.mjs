@@ -14,7 +14,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, firefox, webkit } from 'playwright';
 
-const BASE = process.env.V6_BASE ?? 'http://localhost:8788';
+const requestedBase = process.env.V6_BASE ?? 'http://localhost:8788';
+const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+let BASE;
+try {
+  const parsedBase = new URL(requestedBase);
+  if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (parsedBase.pathname !== '/' && parsedBase.pathname !== '')) throw new Error('not loopback HTTP');
+  BASE = parsedBase.origin;
+} catch {
+  console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
+  process.exit(2);
+}
 const DEV = 'http://localhost:5173';
 const PASS = process.env.MCP_PASS ?? 'password123';
 const NO_SPAWN = process.argv.includes('--no-spawn');
@@ -28,6 +38,14 @@ const note = (engine, viewport, check, status) => {
 
 /* ---------------- servers ---------------- */
 const procs = [];
+const cleanupOwned = () => {
+  if (NO_SPAWN) return;
+  for (const p of procs) {
+    if (!p?.pid || p.exitCode !== null || p.signalCode) continue;
+    try { process.kill(-p.pid, 'SIGTERM'); } catch { try { p.kill('SIGTERM'); } catch {} }
+  }
+};
+if (!NO_SPAWN) process.on('exit', cleanupOwned);
 async function waitHttp(url, timeoutMs = 90000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
@@ -48,10 +66,10 @@ if (!NO_SPAWN) {
   const persistDir = mkdtempSync(join(tmpdir(), 'ws-v6-d1-'));
   console.log('wrangler persist dir:', persistDir);
   // apply migrations into the disposable persist dir BEFORE wrangler dev binds it
-  procs.push(spawn('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', persistDir], { stdio: 'inherit' }));
+  procs.push(spawn('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', persistDir], { stdio: 'inherit', detached: true }));
   await new Promise((res) => procs.pop().on('exit', res));
-  procs.push(spawn('npx', ['wrangler', 'dev', '--local', '--port', '8788', '--persist-to', persistDir], { stdio: ['ignore', 'pipe', 'pipe'] }));
-  procs.push(spawn('npx', ['vite', 'dev', '--port', '5173', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] }));
+  procs.push(spawn('npx', ['wrangler', 'dev', '--local', '--port', '8788', '--persist-to', persistDir], { stdio: ['ignore', 'pipe', 'pipe'], detached: true }));
+  procs.push(spawn('npx', ['vite', 'dev', '--port', '5173', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true }));
   // status endpoint 500s until schema exists; poll until non-error
   const t0 = Date.now();
   let ok = false;
@@ -62,7 +80,6 @@ if (!NO_SPAWN) {
   if (!ok) { console.log('FATAL: wrangler dev never came up / schema missing'); process.exit(2); }
   await waitHttp(DEV); // vite dev is best-effort
 }
-process.on('exit', () => procs.forEach((p) => { try { p.kill('SIGKILL'); } catch {} }));
 
 /* ---------------- REST helpers ---------------- */
 const api = async (path, { method = 'GET', token, body, base = BASE } = {}) => {

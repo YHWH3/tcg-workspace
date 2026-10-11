@@ -122,7 +122,7 @@ export function matchesTrigger(
         (trigger.fieldId === undefined || event.fieldKey === trigger.fieldId)
       );
     case 'date_offset': {
-      if (event.kind !== 'record.field_changed') return false;
+      if (event.kind !== 'record.field_changed' || event.from!=='cron:date_offset') return false;
       const days = Number(trigger.days ?? 0);
       if (!Number.isFinite(days)) return false;
       if (event.fieldKey !== normalizeDateKey(trigger.dateKey)) return false;
@@ -139,7 +139,7 @@ export function matchesTrigger(
 /** Should this automation even be considered for the event's scope? */
 export function matchesScope(auto: AutomationConfig, event: SemanticEvent): boolean {
   if (auto.enabled === false || auto.deleted === true) return false;
-  if (event.kind === 'form.submitted') return auto.trigger?.kind === 'form.submitted';
+  if (event.kind === 'form.submitted') return auto.trigger?.kind === 'form.submitted' && (!automationDbId(auto)||automationDbId(auto)===event.boardId);
   const dbId = automationDbId(auto);
   if (!dbId || !event.boardId) return false;
   return dbId === event.boardId;
@@ -214,6 +214,7 @@ const inSet = (set: Set<string> | string[] | undefined, id: string): boolean =>
   !set ? true : set instanceof Set ? set.has(id) : set.includes(id);
 
 const BUILTIN_FIELD_KEYS = new Set(['title', 'status', 'assigneeId', 'dueDate', 'priority', 'createdAt', 'createdBy']);
+const ACTION_FIELD_KEYS=new Set(['title','status','assigneeId','dueDate','priority','description']);
 
 const FILTER_OPS: ReadonlySet<FilterOp> = new Set([
   'is', 'is_not', 'contains', 'not_contains', 'empty', 'not_empty',
@@ -288,6 +289,8 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
   }
 
   const actions = auto.actions ?? [];
+  if(!Array.isArray(actions)) return [...errors,'actions must be an array'];
+  if(actions.length>20) errors.push('at most 20 actions');
   if (!actions.length) errors.push('at least one action is required');
   for (const [i, a] of actions.entries()) {
     const at = `action ${i + 1}`;
@@ -300,6 +303,12 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
         if (!a.databaseId) errors.push(`${at}: databaseId is required`);
         else if (ctx.boardsById && !boardOf(ctx, a.databaseId)) errors.push(`${at}: database ${a.databaseId} not found`);
         if (!a.title || !String(a.title).trim()) errors.push(`${at}: title is required`);
+        const target=boardOf(ctx,a.databaseId);
+        for(const key of Object.keys(a.fields??{})) if(!ACTION_FIELD_KEYS.has(key)&&(!fieldDefByKey(target,key)||fieldDefByKey(target,key)?.type==='relation')) errors.push(`${at}: field ${key} is not writable on target database`);
+        if(a.link?.fieldId) {
+          const relation=fieldsOf(target).find(f=>f.id===a.link!.fieldId);
+          if(ctx.boardsById&&(!relation||relation.type!=='relation'||relation.relation?.target!==dbId)) errors.push(`${at}: relation field cannot link to the trigger database`);
+        }
         break;
       }
       case 'create_from_template': {
@@ -309,17 +318,20 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
       }
       case 'set_field': {
         if (!a.fieldKey || !String(a.fieldKey).trim()) errors.push(`${at}: fieldKey is required`);
+        else if(ctx.boardsById&&!ACTION_FIELD_KEYS.has(a.fieldKey)&&(!fieldDefByKey(board,a.fieldKey)||fieldDefByKey(board,a.fieldKey)?.type==='relation')) errors.push(`${at}: field ${a.fieldKey} is not writable`);
         break;
       }
       case 'notify': {
         if (!a.userField && !(a.userIds && a.userIds.length)) errors.push(`${at}: a recipient is required`);
         for (const uid of a.userIds ?? []) if (!inSet(ctx.memberIds, uid)) errors.push(`${at}: user ${uid} is not a member`);
         if (!a.message || !String(a.message).trim()) errors.push(`${at}: message is required`);
+        if(a.userField&&ctx.boardsById&&a.userField!=='assigneeId'&&fieldsOf(board).find(f=>f.id===a.userField)?.type!=='person') errors.push(`${at}: userField must be a person field`);
         break;
       }
       case 'request_approval': {
         if (!a.approverField && !a.approverId) errors.push(`${at}: an approver is required`);
         if (a.approverId && !inSet(ctx.memberIds, a.approverId)) errors.push(`${at}: user ${a.approverId} is not a member`);
+        if(a.approverField&&ctx.boardsById&&a.approverField!=='assigneeId'&&fieldsOf(board).find(f=>f.id===a.approverField)?.type!=='person') errors.push(`${at}: approverField must be a person field`);
         break;
       }
       case 'add_subrecords': {

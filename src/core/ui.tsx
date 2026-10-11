@@ -445,16 +445,16 @@ export function AdaptiveDialog({ children, onClose, title, guard }: OverlayProps
       guard={guard}
       labelledBy={title ? titleId : undefined}
       label={title ? undefined : 'Dialog'}
-      className={cn('flex', compact ? 'flex-col justify-end' : 'h-full items-center justify-center p-4')}
+      className={cn('flex h-full min-h-0', compact ? 'flex-col justify-end' : 'items-center justify-center p-4')}
     >
       <div
         className={cn(
           'flex min-h-0 flex-col border-neutral-200 bg-white shadow-xl dark:border-neutral-800 dark:bg-neutral-900',
-          compact ? 'anim-slide-bottom max-h-[92%] w-full rounded-t-2xl border-t pb-safe' : 'anim-slide-up w-full max-w-md rounded-2xl border p-5',
+          compact ? 'anim-slide-bottom max-h-[92%] w-full rounded-t-2xl border-t pb-safe' : 'anim-slide-up max-h-full w-full max-w-md rounded-2xl border p-5',
         )}
       >
         {title && (
-          <div className={cn('flex items-center justify-between', compact ? 'px-4 pb-2 pt-4' : 'mb-3')}>
+          <div className={cn('flex shrink-0 items-center justify-between', compact ? 'px-4 pb-2 pt-4' : 'mb-3')}>
             <h2 id={titleId} className="text-sm font-semibold">
               {title}
             </h2>

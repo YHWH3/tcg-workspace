@@ -5,12 +5,12 @@
 // convert_idea_to_project (destId replay, link, stage, errors, expectedRev,
 // undo), phase-3 prompts, second-user isolation.
 // Mirrors verify-mcp-phase2.mjs conventions; self-managed disposable local D1
-// like verify-v7.mjs (kills :8788, fresh --persist-to dir, migrations, build
-// if dist is stale).
+// like verify-v7.mjs (fresh --persist-to dir, migrations, build if dist is
+// stale). Managed cleanup is limited to process groups spawned by this run.
 //
 // Usage: node scripts/verify-mcp-phase3.mjs [base]        — spawn everything
 //        node scripts/verify-mcp-phase3.mjs --no-spawn    — reuse :8788 server
-import { spawn, execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,7 +18,17 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import crypto from 'node:crypto';
 
-const BASE = process.argv.find((a) => a.startsWith('http')) ?? 'http://localhost:8788';
+const requestedBase = process.argv.find((a) => a.startsWith('http')) ?? process.env.PHASE3_BASE ?? 'http://localhost:8788';
+const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+let BASE;
+try {
+  const parsedBase = new URL(requestedBase);
+  if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (parsedBase.pathname !== '/' && parsedBase.pathname !== '')) throw new Error('not loopback HTTP');
+  BASE = parsedBase.origin;
+} catch {
+  console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
+  process.exit(2);
+}
 const PASS = process.env.MCP_PASS ?? 'password123';
 const NO_SPAWN = process.argv.includes('--no-spawn');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -34,13 +44,15 @@ const check = (name, cond, extra = '') => {
 /* ---------------- server management (v7 conventions) ---------------- */
 const procs = [];
 const killTree = () => {
-  for (const p of procs) { try { process.kill(-p.pid, 'SIGKILL'); } catch { try { p.kill('SIGKILL'); } catch {} } }
-  try { execSync("lsof -ti:8788 | xargs -r kill -9; pkill -9 -f 'wrangler-dist/cli.j[s] de[v]'; pkill -9 -f 'worker[d]-linux'", { stdio: 'ignore' }); } catch {}
+  if (NO_SPAWN) return;
+  for (const p of procs) {
+    if (!p?.pid || p.exitCode !== null || p.signalCode) continue;
+    try { process.kill(-p.pid, 'SIGTERM'); } catch { try { p.kill('SIGTERM'); } catch {} }
+  }
 };
+if (!NO_SPAWN) process.on('exit', killTree);
 
 if (!NO_SPAWN) {
-  try { execSync("lsof -ti:8788 | xargs -r kill -9; pkill -9 -f 'wrangler-dist/cli.j[s] de[v]'; pkill -9 -f 'worker[d]-linux'", { stdio: 'ignore' }); } catch {}
-  await sleep(300);
   const distIndex = 'dist/client/index.html';
   const stale = !existsSync(distIndex) || (() => {
     const built = statSync(distIndex).mtimeMs;
@@ -73,7 +85,6 @@ if (!NO_SPAWN) {
   }
   if (!ok) { console.log('FATAL: wrangler dev never came up / schema missing'); process.exit(2); }
 }
-process.on('exit', killTree);
 
 /* ---------------- REST + OAuth + MCP helpers (phase-2 conventions) ---------------- */
 const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}) => {

@@ -3,6 +3,7 @@
 
 import { applyChanges, type AppliedChange, type ApplyResult } from './sync';
 import type { Env } from './auth';
+import type { ChangesetCtx } from './changesets';
 
 export interface RecRow {
   id: string;
@@ -87,6 +88,7 @@ export async function casUpdate(
   opts: {
     attempts?: number;
     recordTo?: AppliedChange[];
+    journal?:ChangesetCtx;
     /** Phase 4: emit semantic events for applied changes (MCP/automation callers). */
     ectx?: { waitUntil(p: Promise<unknown>): void };
     source?: 'mcp' | 'automation';
@@ -101,8 +103,11 @@ export async function casUpdate(
     const result = await applyChanges(env, userId, [{ id, collection, patch, ts: Date.now() }], {
       serverTs: true,
       expect: new Map([[id, row.rev]]),
-      event: opts.ectx ? { source: opts.source ?? 'mcp', ctx: opts.ectx } : undefined,
+      journal:opts.journal,
+      event: { source: opts.source ?? 'mcp',ctx:opts.ectx,changesetId:opts.journal?.id },
     });
+    if(result.partialError) throw new Error('write interrupted; retry');
+    if(result.rejectedItems?.length) throw new Error(result.rejectedItems.map(r=>r.reason).join('; '));
     if (!result.conflicts?.length) {
       // Record landed writes into the caller's change set synchronously — no
       // write can be stranded by a later failure in the tool call (§4.2).
