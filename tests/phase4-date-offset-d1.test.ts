@@ -43,7 +43,7 @@ it('reaches a later automation without waiting for an earlier completed prefix',
   await task('bee');
   try{await runDateOffsetAutomations(withD1Budget(env,45),today);}catch(error){expect(error).toBeInstanceOf(D1BudgetExhausted);}
   expect(await created('B result')).toBe(1);
-});
+},30_000);
 
 it('resumes a budget interruption without a terminal failure or a second task',async()=>{
   await automation('date-auto','Once');
@@ -99,6 +99,42 @@ it('walks 1000 mixed date-index rows and fires only the eligible tail once',asyn
   expect(await created('Tail')).toBe(1);
   await runDateOffsetAutomations(env,today);
   expect(await created('Tail')).toBe(1);
+},30_000);
+
+it('runs a date-offset rule only while its conditions match, including a later match in the same window',async()=>{
+  await applyChanges(env,'alice',[{id:'board',collection:'boards',patch:{name:'Dates',columns:[{id:'open',name:'Open'},{id:'done',name:'Done'}],fields:[{id:'note',name:'Note',type:'text'},{id:'when',name:'When',type:'date'},{id:'who',name:'Who',type:'person'}]},ts:2}]);
+  await applyChanges(env,'alice',[{id:'gated',collection:'automations',patch:{name:'Gated',enabled:true,databaseId:'board',trigger:{kind:'date_offset',dateKey:'dueDate',days:0},conditions:[{key:'status',op:'is',value:'open'},{key:'p_note',op:'contains',value:'go'}],actions:[{type:'create_record',databaseId:'board',title:'Follow up'}]},ts:2}]);
+  await applyChanges(env,'alice',[{id:'hold',collection:'tasks',patch:{boardId:'board',title:'Hold',status:'done',dueDate:today,p_note:'go',createdBy:'alice'},ts:2}]);
+  await db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES('hold','dueDate',?)").bind(today).run();
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Follow up')).toBe(0);
+  await db.prepare("UPDATE records SET data=json_set(data,'$.status','open') WHERE id='hold'").run();
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Follow up')).toBe(1);
+  await db.prepare("UPDATE records SET data=json_set(data,'$.status','done') WHERE id='hold'").run();
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Follow up')).toBe(1);
+  await applyChanges(env,'alice',[{id:'person',collection:'tasks',patch:{boardId:'board',title:'Person',status:'open',dueDate:today,p_note:'go',p_who:'alice',p_when:today,createdBy:'alice'},ts:2}]);
+  await db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES('person','dueDate',?)").bind(today).run();
+  await db.prepare("UPDATE records SET data=json_set(data,'$.conditions',json(?)) WHERE id='gated'").bind(JSON.stringify([{key:'p_who',op:'is',value:'alice'},{key:'p_when',op:'on_or_before',value:today}])).run();
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Follow up')).toBe(2);
+},30_000);
+
+it('does not run a deleted, archived, disabled, or invalid date-offset rule',async()=>{
+  await automation('quiet','Nope');
+  await task('gone');
+  await db.prepare("UPDATE records SET data=json_set(data,'$.deleted',json('true')) WHERE id='gone'").run();
+  await task('box');
+  await db.prepare("UPDATE records SET data=json_set(data,'$.archived',json('true')) WHERE id='box'").run();
+  await task('live');
+  await db.prepare("UPDATE records SET data=json_set(data,'$.enabled',json('false')) WHERE id='quiet'").run();
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Nope')).toBe(0);
+  await db.prepare("UPDATE records SET data=json_set(data,'$.enabled',json('true')) WHERE id='quiet'").run();
+  await db.prepare("UPDATE records SET data=json_set(data,'$.conditions',json(?)) WHERE id='quiet'").bind(JSON.stringify([{key:'status',op:'nope',value:'open'}])).run();
+  await runDateOffsetAutomations(env,today);
+  expect(await created('Nope')).toBe(0);
 },30_000);
 
 it('uses the same event key as a previously completed cron run',()=>{

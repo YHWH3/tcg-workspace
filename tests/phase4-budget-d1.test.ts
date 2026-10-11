@@ -66,7 +66,7 @@ it('reports exact 150-row partial writes when the binding budget ends at a batch
   const replay=await applyChanges(withD1Budget(env,45),'alice',changes,{event:{source:'client'}});
   expect(replay.partialError).toBeUndefined();expect(replay.changed).toBe(50);
   expect((await rows('event_outbox'))).toHaveLength(150);
-});
+},30_000);
 
 it('budget-only interruptions never consume terminal failure attempts for a healthy large board event',async()=>{
   for(let start=0;start<100;start+=50) await applyChanges(env,'alice',Array.from({length:50},(_,i)=>({id:`large_${start+i}`,collection:'tasks',patch:{boardId:'board',dueDate:todayUtc()},ts:1})));

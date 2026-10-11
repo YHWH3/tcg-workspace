@@ -21,15 +21,18 @@ Production data and services are outside this verification scope.
 | Finding | Evidence | Risk / corrective requirement | Status |
 | --- | --- | --- | --- |
 | P4-C01 | Notification/recurrence fan-out catches database errors; outbox is subsequently marked processed. | A transient fan-out failure silently loses work. Propagate recoverable failures and deduplicate every logical notification. | FIXED AND VERIFIED |
-| P4-C02 | Cron marks events processed after five attempts then immediately deletes processed outbox rows. | Failure evidence and recoverable work disappear. Retain terminal errors explicitly; delete only successful retained rows. | FIXED IN SOURCE, NOT VERIFIED |
+| P4-C02 | Cron marks events processed after five attempts then immediately deletes processed outbox rows. | Failure evidence and recoverable work disappear. Retain terminal errors explicitly; delete only successful retained rows. | FIXED AND VERIFIED |
 | P4-C03 | Reminder dedupe inserts before notification independently. | Failure between inserts permanently burns a reminder. Couple dedupe with notification persistence. | FIXED AND VERIFIED |
 | P4-C04 | Public upload ownership is only form-scoped; submitted file IDs need no visitor proof. | A visitor can attach another visitor's pending upload within the same form. Bind uploads to a deliberate visitor/submission capability. | FIXED AND VERIFIED |
 | P4-C05 | Public forms acknowledge acceptance regardless of rejected `applyChanges()` writes and suppress changeset persistence errors. | False success and missing undo after approval-gate rejection or D1 failure. Receipt acceptance requires complete durable operation. | FIXED AND VERIFIED |
-| P4-C06 | The first v9 browser run navigated between public form tokens; React retained the previous token's receipt and transient state. | Token changes must clear receipt, answers, submission identity and upload claims before loading only the destination draft. Source fix remains; this continuation did not rerun the browser. | FIXED IN SOURCE, NOT VERIFIED |
-| P4-C07 | `mintToken()` drew 16 modulo-biased base62 symbols and padded six deterministic zero characters while claiming 128 random bits. | Generate 22 independent base62 symbols by rejection sampling (>128 bits), preserving token syntax and old token lookup compatibility. | FIXED IN SOURCE, NOT VERIFIED |
+| P4-C06 | The first v9 browser run navigated between public form tokens; React retained the previous token's receipt and transient state. | Token changes must clear receipt, answers, submission identity and upload claims before loading only the destination draft. | FIXED AND VERIFIED |
+| P4-C07 | `mintToken()` drew 16 modulo-biased base62 symbols and padded six deterministic zero characters while claiming 128 random bits. | Generate 22 independent base62 symbols by rejection sampling (>128 bits), preserving token syntax and old token lookup compatibility. | FIXED AND VERIFIED |
 | P4-C08 | Grouping could attach a new event to an already-read notification. | A new delivery after a read group must start an unread generation. | FIXED AND VERIFIED |
-| P4-C09 | A disabled public form could be served from a cached enabled response. | Disabled forms must not be treated as submittable from cache. | FIXED IN SOURCE, NOT VERIFIED |
+| P4-C09 | A disabled public form could be served from a cached enabled response. | Disabled forms must not be treated as submittable from cache. | FIXED AND VERIFIED |
 | P4-C10 | `runDateOffsetAutomations()` reread an unbounded completed `date_index` prefix on every Cron tick and starved later rows under the D1 binding budget. | Bounded keyset pages, a durable `rhythm_sweep_cursors` row per automation, and `date_offset_marks` so examined rows are not executed again. Budget exhaustion stays retryable. | FIXED AND VERIFIED |
+| P4-C11 | Public form upload wrote an image of up to 5 MB into one `file_chunks` row. Authenticated uploads allowed a 2 MiB chunk. D1's documented per-row maximum is 2,000,000 bytes. | Shared 1 MiB (`1,048,576` byte) chunks, each strictly under 2,000,000 bytes. Download concatenates consecutive indexes. A failed or interrupted write deletes the file, its chunks, and its record. Success is returned only after the chunk count and byte length match. | FIXED AND VERIFIED |
+| P4-C12 | Date-offset Cron checked the date, scope, and prior run, then called `runOneAutomation()` without `conditionsMatch()`. | The same AND condition engine as event automations, using the source board's fields and the live record. The rule stays eligible for that whole indexed day. A non-match moves the cursor and is not marked, so a later match in the same window still runs once. | FIXED AND VERIFIED |
+| P4-C13 | The reminder keyset cursor skipped a newly earlier date until the forward scan emptied. A sustained backlog could delay that reminder without a bound. | Forward cursor `reminders` plus one lookbehind page, `reminders-behind`. The forward cursor is not reset while later rows remain. A new earlier row is sent on the next run when fewer than 4 unsent rows sort before it, otherwise within `ceil((unsent before it + 1) / 4)` runs. An empty forward page clears both cursors. `reminder_sent` still prevents a second delivery. | FIXED AND VERIFIED |
 
 ## Continuation evidence (2026-10-11, commits `396144f` and `8a50be1`)
 
@@ -47,7 +50,7 @@ These commands were executed in `/Users/trinity/Desktop/notion mock` after the c
 - `tests/phase4-security-d1.test.ts`: PASS **22/22**. Visitor-scoped upload claims (P4-C04), no success receipt on a rejected write (P4-C05), and "a legitimate delivery after a read group starts an unread generation" (P4-C08).
 - `tests/phase4-performance-d1.test.ts`: PASS **1/1** on a disposable 1,000-record Miniflare D1. Local measurements, not production billing: seed 19.7s / 40 subrequests / 5,010 rows read / 13,000 rows written; 100-row commit 2.8s / 2 subrequests / 301 statements / 800 rows read / 1,500 rows written; one Inbox query about 15ms using `idx_notif_inbox`; one date-offset-style automation about 15 subrequests / 23 statements / ~30 rows read / 36 rows written. `EXPLAIN` used `idx_date_sweep` and `idx_notif_inbox`.
 
-P4-C02, P4-C06, P4-C07, and P4-C09 are not marked verified here. No test in this run asserted terminal-outbox retention, token entropy, disabled-form cache behavior, or a browser token change. P4-C06 and the v4 `networkidle` hang have source/harness edits in `8a50be1` only.
+P4-C02, P4-C06, P4-C07, and P4-C09 were not marked verified in the run above. That sentence is historical. The final remediation section at the end of this file is the current status.
 
 Browser suites v4, v6, v7, v8, and v9 were **not executed** in this continuation. Physical iPhone/Android and assistive technology remain NOT RUN.
 
@@ -120,3 +123,28 @@ statement sequence on an error: [D1 Database batch API](https://developers.cloud
   obsolete Cron URL), not app defects. The harness now invokes Wrangler's
   supported `POST /cdn-cgi/handler/scheduled` and rejects SPA HTML as false Cron
   evidence. Full browser and performance gates remain IN PROGRESS.
+
+## Final remediation (P4-C11, P4-C12, P4-C13, and the four open checks)
+
+Executed in `/Users/trinity/Desktop/notion mock` on `grok/phase-4-continuation` after `69083f1`. Miniflare disposable D1. A large Miniflare BLOB is not treated as proof of the production row limit; every bound chunk length is asserted `< 2000000`.
+
+- `npx tsc --noEmit`: PASS.
+- `npm test` (`vitest run`): PASS **53 files / 581 tests**.
+- `npm run build`: PASS. Existing large-chunk and ineffective-dynamic-import warnings remain. Service worker stays IIFE.
+- Phase 4 D1 regression (budget, migrations `0001`–`0010`, events, forms, security, date-offset, file chunks, reminders, residual C02/C07/C09, performance): PASS **10 files / 107 tests**.
+
+P4-C11. `tests/phase4-file-chunks-d1.test.ts` PASS **7/7**. Public upload of 100 KB, 1.9 MB, 2.1 MB, and 4.9 MB images, each chunk `<= 1048576` and `< 2000000`, download bytes equal the original. Over 5 MiB returns 413 and writes nothing. A chunk-insert failure and an interrupted file-record write leave no `files`, `file_chunks`, or file `records` rows. Quota exhaustion returns 507. A guessed claim and a claim used on a different form return 422. An authenticated chunk over 1 MiB returns 413. An authenticated 2.1 MB upload round-trips. A pre-existing two-chunk file still downloads; a missing chunk returns 404. SVG upload still stores the sanitized document without `<script`. Retrying an upload acknowledgement does not change the first file. Two concurrent uploads both return 200.
+
+P4-C12. Date-offset conditions use the same AND filters as event automations. The indexed day stays open: a non-match is not inserted into `date_offset_marks`, so a later match in that same day runs once. `tests/phase4-date-offset-d1.test.ts` PASS **8/8**, including the condition, custom text/date/person, deleted, archived, disabled, and invalid cases, plus the earlier fairness, budget resume, concurrent, and 1,000-row tests. `tests/phase4-budget-d1.test.ts` PASS **7/7**. The 600 completed candidates still do not starve the tail. A budget stop is not stored as a completed run.
+
+P4-C13. `runDueReminders` reads one lookbehind page before the forward page. The forward cursor is not reset while later rows remain. A new earlier reminder is sent on the next run when fewer than 4 unsent rows sort before it, and otherwise within `ceil((unsent rows before it + 1) / 4)` runs. After the lookbehind cursor has moved past a skipped row, it restarts once the unsent rows between it and the forward cursor have been examined, then includes that row on the next pass. `tests/phase4-reminders-d1.test.ts` PASS **6/6**: urgent row during a later backlog, five unsent rows then the sixth within two runs, date moved earlier and later, reassignment, cleared and restored date, archive and unarchive, missing recipient, opted-out recipient, concurrent runs, notification failure, budget stop, cursor restart, and 1,000 indexed rows. Each logical reminder is delivered once.
+
+P4-C02. `tests/phase4-residual-d1.test.ts` keeps an eight-attempt outbox row, sets `terminal_at`, leaves `processed_at` null, and deletes only the already processed row.
+
+P4-C07. Forty `mintToken()` values are unique and match `tok_` plus 22 base62 characters, with no zero-padded body.
+
+P4-C09. An enabled public form returns 200 with `cache-control: no-store`. After `enabled` is set false, the same URL returns 410 `{"error":"unavailable"}` with `no-store`.
+
+P4-C06. Playwright 1.63.0 drove `http://localhost:5173/f/token-a` in headless Chromium. The public form API was fulfilled in the browser so the check is the React route, not a production Turnstile or Worker upload. Form A was filled, an image named `secret-a.png` was attached, and it was submitted. An in-page `popstate` navigation to `/f/token-b` kept the same document. Form B opened with an empty answer, an empty attachment link, no Form A receipt, no Form A file name, and a new submission id. Form B's submit body did not include Form A's upload claim or answer.
+
+Not run in this pass: full v4, v6, v7, v8, and v9 browser suites, smoke, MCP suites, physical iPhone/Android, and assistive technology. `npm audit` still reports 9 high findings. No `npm audit fix` was applied. No production deploy was run. Draft PR #4 stays unmerged.

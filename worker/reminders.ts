@@ -89,25 +89,57 @@ function dueLabel(date: string, today: string): string {
   return `on ${date}`;
 }
 
-/** due_soon / overdue: scan the date index once per cron tick, dedupe through
- * reminder_sent, and notify the assignee (else owner/lead person field). */
-async function runDueReminders(env: { DB: D1Database }, today: string): Promise<number> {
-  const cursor=await env.DB.prepare("SELECT date,record_id,field_key FROM rhythm_sweep_cursors WHERE name='reminders'").first<{date:string;record_id:string;field_key:string}>();
-  const { results: rows } = await env.DB.prepare(
-    `SELECT d.record_id, d.field_key, d.date FROM date_index d
+type SweepCursor = { date: string; record_id: string; field_key: string };
+type DateHit = { record_id: string; field_key: string; date: string };
+
+/** Unsent date-index rows after `after`, optionally not past `until`. */
+async function unsentDateHits(env: { DB: D1Database }, today: string, after: SweepCursor, until: SweepCursor | null, limit: number): Promise<DateHit[]> {
+  const sql = `SELECT d.record_id, d.field_key, d.date FROM date_index d
       WHERE d.date<=? AND (d.date,d.record_id,d.field_key)>(?,?,?)
+      ${until ? 'AND (d.date,d.record_id,d.field_key)<=(?,?,?)' : ''}
       AND NOT EXISTS(SELECT 1 FROM reminder_sent s WHERE s.record_id=d.record_id AND s.field_key=d.field_key AND s.date=d.date
         AND s.kind=CASE WHEN d.date<? THEN 'overdue' ELSE 'due_soon' END)
-      ORDER BY d.date,d.record_id,d.field_key LIMIT ?`,
-  )
-    .bind(addDays(today, MAX_LEAD_DAYS),cursor?.date??'',cursor?.record_id??'',cursor?.field_key??'',today,DATE_INDEX_SCAN_CAP)
-    .all<{ record_id: string; field_key: string; date: string }>();
-  if (!rows.length) {
+      ORDER BY d.date,d.record_id,d.field_key LIMIT ?`;
+  const binds = until
+    ? [addDays(today, MAX_LEAD_DAYS), after.date, after.record_id, after.field_key, until.date, until.record_id, until.field_key, today, limit]
+    : [addDays(today, MAX_LEAD_DAYS), after.date, after.record_id, after.field_key, today, limit];
+  return (await env.DB.prepare(sql).bind(...binds).all<DateHit>()).results;
+}
+
+/**
+ * due_soon / overdue. The forward cursor keeps completed prefixes from being
+ * reread. One lookbehind page per run, stored as `reminders-behind`, picks up
+ * a date that sorts before that cursor (a new or rescheduled urgent task)
+ * without resetting the forward cursor. Already-sent keys stay in
+ * reminder_sent, so the same logical reminder is not delivered twice.
+ * Lookbehind shares the delivery cap and runs before the forward page.
+ * Already-sent rows are excluded. A new earlier row is sent on the next run
+ * when fewer than REMINDER_DELIVERY_CAP unsent rows sort before it. Otherwise
+ * it is sent within ceil((unsent rows before it + 1) / REMINDER_DELIVERY_CAP)
+ * runs. A skipped row (no recipient, or the recipient opted out) is not
+ * written to reminder_sent. If this pass has already moved past it, the
+ * lookbehind cursor restarts after the unsent rows between it and the forward
+ * cursor are examined, and the row is included on the next pass. An empty
+ * forward page clears both cursors so that restart is not left behind a
+ * deleted forward cursor. Later backlog does not reset the forward cursor.
+ */
+const REMINDER_BEHIND_CAP = 40;
+
+export async function runDueReminders(env: { DB: D1Database }, today: string): Promise<number> {
+  const cursor=await env.DB.prepare("SELECT date,record_id,field_key FROM rhythm_sweep_cursors WHERE name='reminders'").first<SweepCursor>();
+  const behindCursor=await env.DB.prepare("SELECT date,record_id,field_key FROM rhythm_sweep_cursors WHERE name='reminders-behind'").first<SweepCursor>();
+  const behindStart: SweepCursor = behindCursor ?? { date: '', record_id: '', field_key: '' };
+  const behindRows = cursor
+    ? await unsentDateHits(env, today, behindStart, cursor, REMINDER_BEHIND_CAP)
+    : [];
+  const rows = await unsentDateHits(env, today, { date: cursor?.date ?? '', record_id: cursor?.record_id ?? '', field_key: cursor?.field_key ?? '' }, null, DATE_INDEX_SCAN_CAP);
+  if (!rows.length && !behindRows.length) {
     await env.DB.prepare("DELETE FROM rhythm_sweep_cursors WHERE name='reminders'").run();
+    await env.DB.prepare("DELETE FROM rhythm_sweep_cursors WHERE name='reminders-behind'").run();
     return 0;
   }
 
-  const recs = await fetchRecs(env.DB, [...new Set(rows.map((r) => r.record_id))]);
+  const recs = await fetchRecs(env.DB, [...new Set([...behindRows, ...rows].map((r) => r.record_id))]);
   const boardIds = new Set<string>();
   for (const r of recs.values()) boardIds.add(typeof r.data.boardId === 'string' ? r.data.boardId : 'board-default');
   const boards = await fetchRecs(env.DB, [...boardIds]);
@@ -122,11 +154,12 @@ async function runDueReminders(env: { DB: D1Database }, today: string): Promise<
   };
 
   let sent = 0;
-  let last=rows[0];
-  for (const row of rows) {
-    if(!hasD1Budget(env.DB,8))break;
-    last=row;
-    const rec = recs.get(row.record_id);
+  const deliver = async (batch: DateHit[], cursorName: string | null): Promise<DateHit | null> => {
+    let lastSeen: DateHit | null = null;
+    for (const row of batch) {
+      if (sent >= REMINDER_DELIVERY_CAP || !hasD1Budget(env.DB, 8)) break;
+      lastSeen = row;
+      const rec = recs.get(row.record_id);
     if (!rec || rec.collection !== 'tasks') continue;
     if (rec.data.deleted === true || rec.data.archived === true) continue;
     const board = boards.get(typeof rec.data.boardId === 'string' ? rec.data.boardId : 'board-default');
@@ -154,12 +187,20 @@ async function runDueReminders(env: { DB: D1Database }, today: string): Promise<
       url: `/tasks/${rec.id}`,
       dedupeKey:`reminder:${row.record_id}:${row.field_key}:${row.date}:${kind}`,
     },[env.DB.prepare('INSERT OR IGNORE INTO reminder_sent(record_id,field_key,date,kind,created_at) VALUES(?,?,?,?,?)').bind(row.record_id,row.field_key,row.date,kind,Date.now())]);
-    sent++;
-    if(sent>=REMINDER_DELIVERY_CAP) break;
+      sent++;
+    }
+    if (cursorName && lastSeen) {
+      await env.DB.prepare("INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET date=excluded.date,record_id=excluded.record_id,field_key=excluded.field_key").bind(cursorName, lastSeen.date, lastSeen.record_id, lastSeen.field_key).run();
+    }
+    return lastSeen;
+  };
+  if (behindRows.length) await deliver(behindRows, 'reminders-behind');
+  else if (cursor) await env.DB.prepare("DELETE FROM rhythm_sweep_cursors WHERE name='reminders-behind'").run();
+  if (rows.length) await deliver(rows, 'reminders');
+  else {
+    await env.DB.prepare("DELETE FROM rhythm_sweep_cursors WHERE name='reminders'").run();
+    await env.DB.prepare("DELETE FROM rhythm_sweep_cursors WHERE name='reminders-behind'").run();
   }
-  // Save only after successful delivery work; a failure leaves this page
-  // recoverable and delivery keys suppress completed earlier rows on retry.
-  await env.DB.prepare("INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES('reminders',?,?,?) ON CONFLICT(name) DO UPDATE SET date=excluded.date,record_id=excluded.record_id,field_key=excluded.field_key").bind(last.date,last.record_id,last.field_key).run();
   return sent;
 }
 

@@ -301,20 +301,28 @@ function flagged(value: unknown): boolean {
   return value === true || value === 1;
 }
 
-/** Compare-and-swap the sweep cursor and remember every record this page handled. */
+type DateOffsetStep = { id: string; mark: boolean };
+
+/**
+ * Date-offset rules stay open for the whole indexed day. Conditions are
+ * read from the live record on every observation. A non-match moves the
+ * cursor but is not marked, so a later edit in the same window can still
+ * run once. A completed or terminal run is marked and is not run again.
+ * Deleted, archived, and out-of-scope rows are marked and skipped.
+ */
 async function persistDateOffsetPage(
   db: D1Database,
   scan: DateOffsetScan,
   wrap: boolean,
   fromId: string,
-  handled: string[],
+  handled: DateOffsetStep[],
 ): Promise<boolean> {
   if (!handled.length) return true;
-  const toId = handled[handled.length - 1]!;
+  const toId = handled[handled.length - 1]!.id;
   const name = dateOffsetCursorName(scan.auto.id, wrap);
-  const marks = handled.map((recordId) =>
+  const marks = handled.filter((step) => step.mark).map((step) =>
     db.prepare('INSERT OR IGNORE INTO date_offset_marks(automation_id,date,field_key,record_id) VALUES(?,?,?,?)')
-      .bind(scan.auto.id, scan.want, scan.lookupKey, recordId));
+      .bind(scan.auto.id, scan.want, scan.lookupKey, step.id));
   marks.push(db.prepare(
     `INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES(?,?,?,?)
      ON CONFLICT(name) DO UPDATE SET date=excluded.date, record_id=excluded.record_id, field_key=excluded.field_key
@@ -430,26 +438,51 @@ async function advanceDateOffsetPage(env: Env, scan: DateOffsetScan, today: stri
     ).bind(...eventKeys).all<{ event_key: string; status: string; lease_until: number | null }>();
     for (const row of found.results) known.set(row.event_key, row);
   }
-  let pending: string[] = [];
+  let pending: DateOffsetStep[] = [];
   let cursorFrom = fromId;
   let stoppedEarly = false;
   const flush = async (target: D1Database) => {
     if (!pending.length) return true;
     const moved = await persistDateOffsetPage(target, scan, wrap, cursorFrom, pending);
-    if (moved) cursorFrom = pending[pending.length - 1]!;
+    if (moved) cursorFrom = pending[pending.length - 1]!.id;
     pending = [];
     return moved;
   };
+  const boardIds = [...new Set(candidates.flatMap((candidate) => candidate.boardId ? [candidate.boardId] : []))];
+  const boards = new Map<string, Record<string, unknown>>();
+  if (boardIds.length) {
+    const found = await env.DB.prepare(`SELECT id, data FROM records WHERE id IN (${boardIds.map(() => '?').join(',')})`).bind(...boardIds).all<{ id: string; data: string }>();
+    for (const row of found.results) {
+      try { boards.set(row.id, JSON.parse(row.data) as Record<string, unknown>); } catch { /* skip malformed board */ }
+    }
+  }
+  const configErrors = validateAutomation(scan.auto.data, { boardsById: boards });
   try {
     for (const candidate of candidates) {
       if (candidate.ineligible || !candidate.rec || !candidate.event) {
-        pending.push(candidate.row.record_id);
+        pending.push({ id: candidate.row.record_id, mark: true });
         continue;
       }
       const existing = known.get(candidate.eventKey);
       const liveLease = existing?.status === 'running' && Number(existing.lease_until ?? 0) > Date.now();
       if (existing && (existing.status === 'completed' || existing.status === 'terminal_failure')) {
-        pending.push(candidate.row.record_id);
+        pending.push({ id: candidate.row.record_id, mark: true });
+        continue;
+      }
+      const board = boards.get(candidate.boardId);
+      let matches = false;
+      try {
+        const fieldsById = new Map(fieldsOf(board).map((field) => [field.id, field]));
+        matches = conditionsMatch(scan.auto.data.conditions, { id: candidate.rec.id, ...candidate.rec.data }, {
+          meId: String(candidate.rec.data.createdBy ?? ''),
+          today,
+          fieldsById,
+        } satisfies ViewCtx);
+      } catch {
+        matches = false;
+      }
+      if (configErrors.length || !matches) {
+        pending.push({ id: candidate.row.record_id, mark: false });
         continue;
       }
       if (liveLease || !hasD1Budget(env.DB, 8)) {
@@ -467,7 +500,7 @@ async function advanceDateOffsetPage(env: Env, scan: DateOffsetScan, today: stri
         stoppedEarly = true;
         break;
       }
-      pending.push(candidate.row.record_id);
+      pending.push({ id: candidate.row.record_id, mark: true });
     }
   } catch (error) {
     if (error instanceof D1BudgetExhausted) {
@@ -507,8 +540,11 @@ export async function runDateOffsetAutomations(env: { DB: D1Database }, today: s
         continue;
       }
       if (outcome === 'end') {
-        if (wrap) scan.wrapDone = true;
-        else scan.forwardDone = true;
+        if (wrap) {
+          await e.DB.prepare('DELETE FROM rhythm_sweep_cursors WHERE name=?').bind(dateOffsetCursorName(scan.auto.id, true)).run().catch(() => {});
+          scan.wrap = '';
+          scan.wrapDone = true;
+        } else scan.forwardDone = true;
         continue;
       }
       if (outcome === 'budget') {

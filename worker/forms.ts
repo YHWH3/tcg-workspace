@@ -27,6 +27,7 @@ import { sha256Hex, randomToken } from './password';
 import { completedRecords, executionOptions, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
 import type { ChangesetCtx } from './changesets';
 import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
+import { D1_MAX_ROW_BYTES, fileChunkSlices } from './files';
 
 type Bindings = Env;
 
@@ -729,12 +730,40 @@ publicFormsApi.post('/:token/files', async (c) => {
   const id = `f_${uuid()}`;
   const claim=randomToken();
   const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.byteLength !== file.size) return c.json({ error: 'too_large' }, 413);
+  const parts = fileChunkSlices(bytes);
+  if (parts.some((part) => part.byteLength >= D1_MAX_ROW_BYTES)) return c.json({ error: 'too_large' }, 413);
   const now = Date.now();
-  await c.env.DB.batch([
-    c.env.DB.prepare('INSERT INTO files (id, uploaded_by, created_at, complete, mime, size) SELECT ?, NULL, ?, 1, ?, ? WHERE (SELECT COALESCE(SUM(size),0) FROM files)+?<=?').bind(id, now, file.type, file.size,file.size,450*1024*1024),
-    c.env.DB.prepare('INSERT INTO file_chunks (file_id, idx, data) SELECT ?, 0, ? WHERE EXISTS(SELECT 1 FROM files WHERE id=?)').bind(id, bytes,id),
+  const db = c.env.DB;
+  const dropFile = () => db.batch([
+    db.prepare('DELETE FROM file_chunks WHERE file_id=?').bind(id),
+    db.prepare('DELETE FROM files WHERE id=?').bind(id),
+    db.prepare('DELETE FROM records WHERE id=?').bind(id),
   ]);
-  if(!await c.env.DB.prepare('SELECT id FROM files WHERE id=?').bind(id).first()) return c.json({error:'workspace_full'},507);
+  try {
+    await db.batch([
+      db.prepare('INSERT INTO files (id, uploaded_by, created_at, complete, mime, size, chunks) SELECT ?, NULL, ?, 0, ?, ?, ? WHERE (SELECT COALESCE(SUM(size),0) FROM files WHERE complete=1)+?<=?')
+        .bind(id, now, file.type, bytes.byteLength, parts.length, bytes.byteLength, 450 * 1024 * 1024),
+      ...parts.map((part, idx) => db.prepare('INSERT INTO file_chunks (file_id, idx, data) SELECT ?, ?, ? WHERE EXISTS(SELECT 1 FROM files WHERE id=?)').bind(id, idx, part, id)),
+      db.prepare('UPDATE files SET complete=1 WHERE id=? AND (SELECT COUNT(*) FROM file_chunks WHERE file_id=?)=? AND (SELECT COALESCE(SUM(LENGTH(data)),0) FROM file_chunks WHERE file_id=?)=?')
+        .bind(id, id, parts.length, id, bytes.byteLength),
+    ]);
+  } catch {
+    await dropFile().catch(() => {});
+    return c.json({ error: 'temporary_failure' }, 503);
+  }
+  const stored = await db.prepare('SELECT complete FROM files WHERE id=? AND complete=1').bind(id).first<{ complete: number }>();
+  if (!stored) {
+    const exists = await db.prepare('SELECT id FROM files WHERE id=?').bind(id).first();
+    await dropFile().catch(() => {});
+    return c.json({ error: exists ? 'temporary_failure' : 'workspace_full' }, exists ? 503 : 507);
+  }
+  const lens = await db.prepare('SELECT idx, LENGTH(data) AS n FROM file_chunks WHERE file_id=? ORDER BY idx').bind(id).all<{ idx: number; n: number }>();
+  const durable = lens.results.length === parts.length && lens.results.every((row, idx) => row.idx === idx && row.n === parts[idx]!.byteLength && row.n < D1_MAX_ROW_BYTES);
+  if (!durable) {
+    await dropFile().catch(() => {});
+    return c.json({ error: 'temporary_failure' }, 503);
+  }
   const uploaded=await applyChanges(c.env, 'form', [{ id, collection: 'files', patch: {
     name: file.name || 'upload',
     mime: file.type,
@@ -747,7 +776,10 @@ publicFormsApi.post('/:token/files', async (c) => {
     deleted: false,
     uploadClaimHash:await sha256Hex(claim),
   }, ts: now }], { serverTs: true, event: { source: 'form', ctx: c.executionCtx } });
-  if(uploaded.partialError||uploaded.rejected) return c.json({error:'temporary_failure'},503);
+  if(uploaded.partialError||uploaded.rejected) {
+    await dropFile().catch(() => {});
+    return c.json({error:'temporary_failure'},503);
+  }
   pokeLive(c.env, c.executionCtx);
   return c.json({ id,claim });
 });

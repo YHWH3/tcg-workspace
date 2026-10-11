@@ -15,7 +15,22 @@ export function svgHeaders(mime: string | null | undefined): Record<string, stri
 
 export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB per file
 export const QUOTA_BYTES = 450 * 1024 * 1024; // 450 MB workspace quota
-const MAX_CHUNK = 2 * 1024 * 1024; // D1 row limit; clients send 1 MiB
+/** Cloudflare D1 rejects a single string/BLOB/row at or above this size. */
+export const D1_MAX_ROW_BYTES = 2_000_000;
+/** Shared chunk contract. 1 MiB is under the D1 row ceiling; 2 MiB is not. */
+export const FILE_CHUNK_BYTES = 1_048_576;
+
+/** Split bytes into consecutive chunks that are each safe to bind as a D1 BLOB. */
+export function fileChunkSlices(bytes: Uint8Array): Uint8Array[] {
+  if (FILE_CHUNK_BYTES >= D1_MAX_ROW_BYTES) throw new Error('chunk contract exceeds D1 row limit');
+  const slices: Uint8Array[] = [];
+  for (let offset = 0; offset < bytes.byteLength; offset += FILE_CHUNK_BYTES) {
+    const part = bytes.subarray(offset, Math.min(offset + FILE_CHUNK_BYTES, bytes.byteLength));
+    if (part.byteLength >= D1_MAX_ROW_BYTES) throw new Error('chunk exceeds D1 row limit');
+    slices.push(part);
+  }
+  return slices;
+}
 export const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const WHISPER_MODEL = '@cf/openai/whisper-large-v3-turbo';
 // Whisper-large-v3-turbo input ceiling; voice notes are also capped client-side at 5 min.
@@ -69,7 +84,7 @@ files.put('/:id/chunks/:idx', async (c) => {
 
   const body = await c.req.arrayBuffer();
   if (body.byteLength === 0) return c.json({ error: 'empty chunk' }, 400);
-  if (body.byteLength > MAX_CHUNK) return c.json({ error: 'chunk too large' }, 413);
+  if (body.byteLength > FILE_CHUNK_BYTES || body.byteLength >= D1_MAX_ROW_BYTES) return c.json({ error: 'chunk too large' }, 413);
 
   const db = c.env.DB;
   const existing = await db.prepare('SELECT id, complete FROM files WHERE id = ?').bind(id).first<{ id: string; complete: number }>();
@@ -127,8 +142,8 @@ files.post('/:id/complete', async (c) => {
     const bytes = new TextEncoder().encode(svg.svg);
     await db.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id).run();
     const chunks: D1PreparedStatement[] = [];
-    for (let off = 0, idx = 0; off < bytes.length; off += MAX_CHUNK, idx++) {
-      chunks.push(db.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, ?, ?)').bind(id, idx, bytes.slice(off, off + MAX_CHUNK)));
+    for (const [idx, part] of fileChunkSlices(bytes).entries()) {
+      chunks.push(db.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, ?, ?)').bind(id, idx, part));
     }
     await db.batch(chunks);
     await db.prepare('UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ?').bind(mime, bytes.length, chunks.length, id).run();
@@ -142,9 +157,10 @@ files.post('/:id/complete', async (c) => {
 files.get('/:id', async (c) => {
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
-  const meta = await c.env.DB.prepare('SELECT mime, size, complete FROM files WHERE id = ?').bind(id).first<FileRow>();
+  const meta = await c.env.DB.prepare('SELECT mime, size, chunks, complete FROM files WHERE id = ?').bind(id).first<FileRow>();
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
-  const { results } = await c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ data: unknown }>();
+  const { results } = await c.env.DB.prepare('SELECT idx, data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ idx: number; data: unknown }>();
+  if (results.length !== (meta.chunks ?? results.length) || results.some((row, index) => row.idx !== index)) return c.json({ error: 'not found' }, 404);
   const out = concatRows(results);
   return new Response(out, {
     headers: {

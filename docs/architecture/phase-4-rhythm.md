@@ -60,6 +60,7 @@ export function emit(env: Env, ctx: ExecutionContext, ev: ChangeEvent): void // 
 
 - Collection `automations` [G]: `{ databaseId, name, enabled, trigger, conditions: Filter[], actions: Action[] }`; D1 `automation_runs(id, automation_id, changeset_id, status, error, created_at)`.
 - Triggers: `record.created`, `stage_changed {to}`, `field_changed {fieldId}`, `date_offset {dateKey, days}` (from cron), `form.submitted {formId}`.
+- Date-offset `conditions` are the same AND filters as every other trigger, including built-in fields and custom text, date, and person properties. The rule stays eligible for that whole indexed day. A non-match is not marked, so a later edit in the same day can still run once. A completed run does not run again. The When / If / Then editor already stores those filters on the automation.
 - Actions: `create_record {databaseId, title template, fields, link}`, `create_from_template {templateId, vars}`, `set_field {fieldKey, value}`, `notify {userField | userIds, message}`, `request_approval {approverField}`, `add_subrecords {titles[]}` (checklist).
 - Template strings: `{{record.title}}`, `{{field:Name}}`, `{{today}}`.
 - Each run = one change set (`source:'automation'`, undoable) + run log; failures visible on the automation.

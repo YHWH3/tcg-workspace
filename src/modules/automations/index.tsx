@@ -407,6 +407,9 @@ function AutomationCard({ row, board, allBoards, allForms }: {
 
       <div className="mt-3">
         <SectionLabel>If all of these match</SectionLabel>
+        {row.trigger?.kind === 'date_offset' && (
+          <p className="mb-1 text-[11px] text-neutral-400">Checked again until this date window ends. A miss does not skip a later match.</p>
+        )}
         {conditions.map((f, i) => (
           <ConditionRow key={i} board={board} keys={keys} filter={f} onChange={(nf) => patch({ conditions: nf ? conditions.map((x, j) => (j === i ? nf : x)) : conditions.filter((_, j) => j !== i) })} />
         ))}
