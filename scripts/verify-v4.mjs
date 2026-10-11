@@ -72,9 +72,9 @@ console.log('== presence + instant sync');
 // Fresh page A + B both open
 const pageId = `pv4_${Date.now()}`;
 await push(admin.token, [{ id: pageId, collection: 'pages', patch: { title: 'Presence test', icon: '👀', order: 'z9' } }]);
-await pageA.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'networkidle' });
+await pageA.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'domcontentloaded' });
 await sleep(2500);
-await pageB.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'networkidle' });
+await pageB.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'domcontentloaded' });
 const t0 = Date.now();
 await pageA.waitForSelector('span[title*="is here"]', { timeout: 8000 }).catch(() => {});
 check("B's presence avatar on A's page <8s", (await pageA.locator('span[title*="is here"]').count()) > 0);
@@ -109,7 +109,7 @@ check("the 'changed' poke reached B's client", sawChanged && changedBefore !== u
 
 // ---------- 2. moodboard ----------
 console.log('== moodboard');
-await pageA.goto(`${BASE}/moodboards`, { waitUntil: 'networkidle' });
+await pageA.goto(`${BASE}/moodboards`, { waitUntil: 'domcontentloaded' });
 await pageA.getByRole('button', { name: 'New board' }).last().click();
 await pageA.waitForURL(/\/moodboards\//);
 const mbId = pageA.url().split('/moodboards/')[1];
@@ -214,8 +214,8 @@ const z1 = await worldScale();
 check('two-finger pinch zooms', Math.abs(z1 - z0) > 0.05);
 
 // reload → everything persists
-await pageA.reload({ waitUntil: 'networkidle' });
-await sleep(1200);
+await pageA.reload({ waitUntil: 'domcontentloaded' });
+await pageA.locator('[data-mooditem]').first().waitFor({ timeout: 20_000 });
 check('items persist after reload', (await pageA.locator('[data-mooditem]').count()) >= 3);
 
 // extract palette on the image item
@@ -255,7 +255,7 @@ check('created task has coverFileId', !!made);
 
 // ---------- 3. comments ----------
 console.log('== comments');
-await pageA.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'networkidle' });
+await pageA.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'domcontentloaded' });
 await sleep(800);
 // desktop: hover block → comment badge → popover thread
 await pageA.locator('[data-block]').first().hover();
@@ -280,7 +280,7 @@ await mpage.addInitScript(([t, u]) => {
   localStorage.setItem('ws_user', JSON.stringify(u));
   localStorage.setItem('ws_uid', u.id);
 }, [admin.token, admin.user]);
-await mpage.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'networkidle' });
+await mpage.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'domcontentloaded' });
 await sleep(1000);
 await mpage.locator('button[aria-label="Block options"]').first().click();
 await sleep(400);
@@ -315,7 +315,7 @@ await push(admin.token, [
 // create a share through the UI (popover screenshot) — via a page we open
 const shareUiId = `shareui_${Date.now()}`;
 await push(admin.token, [{ id: shareUiId, collection: 'pages', patch: { title: 'Share UI', order: 'zC' } }]);
-await pageA.goto(`${BASE}/pages/${shareUiId}`, { waitUntil: 'networkidle' });
+await pageA.goto(`${BASE}/pages/${shareUiId}`, { waitUntil: 'domcontentloaded' });
 await sleep(800);
 await pageA.locator('button[aria-label="Share"]').click();
 await sleep(500);
@@ -333,7 +333,7 @@ check('share token via API', !!shareToken);
 // fresh unauthenticated context
 const pctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const ppage = await pctx.newPage();
-await ppage.goto(`${BASE}/s/${shareToken}`, { waitUntil: 'networkidle' });
+await ppage.goto(`${BASE}/s/${shareToken}`, { waitUntil: 'domcontentloaded' });
 await sleep(1500);
 check('public page renders heading', (await ppage.locator('text=Public page').count()) > 0);
 check('public page renders image', (await ppage.locator(`img[src*="${imgId}"]`).count()) > 0);
@@ -345,7 +345,7 @@ check('public noindex set', (await ppage.locator('meta[name="robots"][content="n
 await ppage.screenshot({ path: `${OUT}/public-page-desktop.png` });
 // sub-page navigation
 await ppage.locator(`a[href="/s/${shareToken}/${sub}"]`).click().catch(async () => {
-  await ppage.goto(`${BASE}/s/${shareToken}/${sub}`, { waitUntil: 'networkidle' });
+  await ppage.goto(`${BASE}/s/${shareToken}/${sub}`, { waitUntil: 'domcontentloaded' });
 });
 await sleep(800);
 check('public sub-page renders', (await ppage.locator('text=child content').count()) > 0);
@@ -353,7 +353,7 @@ check('public sub-page renders', (await ppage.locator('text=child content').coun
 // mobile public render
 const mpctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 const mpp = await mpctx.newPage();
-await mpp.goto(`${BASE}/s/${shareToken}`, { waitUntil: 'networkidle' });
+await mpp.goto(`${BASE}/s/${shareToken}`, { waitUntil: 'domcontentloaded' });
 await sleep(1200);
 check('public page renders on mobile', (await mpp.locator('text=Public page').count()) > 0);
 await mpp.screenshot({ path: `${OUT}/public-page-mobile.png` });
@@ -373,13 +373,13 @@ await ppage.screenshot({ path: `${OUT}/public-inactive.png` });
 
 // ---------- 5. fixed board header screenshots ----------
 console.log('== screenshots');
-await pageA.goto(`${BASE}/boards/board-default`, { waitUntil: 'networkidle' });
+await pageA.goto(`${BASE}/boards/board-default`, { waitUntil: 'domcontentloaded' });
 await sleep(1000);
 await pageA.screenshot({ path: `${OUT}/board-header-desktop.png` });
-await mpage.goto(`${BASE}/boards/board-default`, { waitUntil: 'networkidle' });
+await mpage.goto(`${BASE}/boards/board-default`, { waitUntil: 'domcontentloaded' });
 await sleep(1000);
 await mpage.screenshot({ path: `${OUT}/board-header-mobile.png` });
-await mpage.goto(`${BASE}/moodboards/${mbId}`, { waitUntil: 'networkidle' });
+await mpage.goto(`${BASE}/moodboards/${mbId}`, { waitUntil: 'domcontentloaded' });
 await sleep(1200);
 await mpage.screenshot({ path: `${OUT}/moodboard-mobile.png` });
 

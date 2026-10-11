@@ -8,6 +8,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {chromium,firefox,webkit} from 'playwright';
 import {startFixture,bootstrap,api,push,pull,eventually} from './phase4-fixture.mjs';
+import {verifyPlatformInteractions} from './phase4-platform-checks.mjs';
 
 const output=mkdtempSync(join(tmpdir(),'tcg-phase4-v9-'));
 const results=[],performanceResults=[],browsers={chromium,firefox,webkit};
@@ -167,7 +168,9 @@ try {
       await visible(owner.page,'Approval required');
       assert.equal((await rows()).find(r=>r.id===gated)?.data.status,'open');
       const requested=await request('/api/approvals',{token:admin.token,method:'POST',body:{targetType:'record',targetId:gated,stageId:'done',approverId:bob.user.id,requestId:prefix+'_approval'}});assert.ok([200,201].includes(requested.status),JSON.stringify(requested));
-      await main.page.goto(base+'/boards/'+board+'/tasks/'+gated);await main.page.getByRole('button',{name:'Approve',exact:true}).click();
+      await main.page.goto(base+'/boards/'+board+'/tasks/'+gated);
+      const approvalCard=main.page.locator('div').filter({hasText:'requested approval'}).filter({has:main.page.getByRole('button',{name:'Approve',exact:true})}).last();
+      await approvalCard.getByRole('button',{name:'Approve',exact:true}).click();
       await eventually(async()=>(await request('/api/approvals?targetId='+gated,{token:bob.token})).data.approvals?.some(a=>a.status==='approved'));
       await update([{id:gated,collection:'tasks',patch:{status:'done'}}]);assert.equal((await rows()).find(r=>r.id===gated)?.data.status,'done');
       await update([{id:board,collection:'boards',patch:{approvalGate:null}}]);
@@ -243,6 +246,7 @@ try {
       await main.context.setOffline(true);await main.page.goto(base+'/inbox').catch(()=>{});await main.context.setOffline(false);await main.page.goto(base+'/inbox');await visible(main.page,'Inbox');
       await publicPage.route('**/api/public/forms/'+form.token,async route=>{await new Promise(resolve=>setTimeout(resolve,250));await route.continue();});const started=performance.now();await publicPage.goto(form.url);await publicPage.getByLabel('Your name').waitFor();performanceResults.push({engine,metric:'slow form schema paint',ms:Math.round(performance.now()-started),delayMs:250});await publicPage.unroute('**/api/public/forms/'+form.token);
     });
+    await verifyPlatformInteractions({browser,engine,base,form,board,task,admin,output,check});
     for(const context of [main.context,second.context,owner.context,publicContext])await context.close();await browser.close();
   }
 } finally {
