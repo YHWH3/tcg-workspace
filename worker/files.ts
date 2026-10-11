@@ -20,13 +20,19 @@ export const D1_MAX_ROW_BYTES = 2_000_000;
 /** Shared chunk contract. 1 MiB is under the D1 row ceiling; 2 MiB is not. */
 export const FILE_CHUNK_BYTES = 1_048_576;
 
-/** Split bytes into consecutive chunks that are each safe to bind as a D1 BLOB. */
+/** Split bytes into consecutive chunks that are each safe to bind as a D1 BLOB.
+ * Each slice owns its buffer. A view over the original file would let a binding
+ * send the whole file as one row and exceed D1's per-row maximum. */
 export function fileChunkSlices(bytes: Uint8Array): Uint8Array[] {
   if (FILE_CHUNK_BYTES >= D1_MAX_ROW_BYTES) throw new Error('chunk contract exceeds D1 row limit');
   const slices: Uint8Array[] = [];
   for (let offset = 0; offset < bytes.byteLength; offset += FILE_CHUNK_BYTES) {
-    const part = bytes.subarray(offset, Math.min(offset + FILE_CHUNK_BYTES, bytes.byteLength));
-    if (part.byteLength >= D1_MAX_ROW_BYTES) throw new Error('chunk exceeds D1 row limit');
+    const end = Math.min(offset + FILE_CHUNK_BYTES, bytes.byteLength);
+    const part = new Uint8Array(end - offset);
+    part.set(bytes.subarray(offset, end));
+    if (part.byteLength === 0 || part.byteLength >= D1_MAX_ROW_BYTES || part.buffer.byteLength !== part.byteLength) {
+      throw new Error('chunk exceeds D1 row limit');
+    }
     slices.push(part);
   }
   return slices;
@@ -126,6 +132,8 @@ files.post('/:id/complete', async (c) => {
     .first<{ missing: number }>();
   if (gaps && gaps.missing > 0) return c.json({ error: 'missing chunks' }, 400);
   if (agg.bytes !== body.size) return c.json({ error: 'size mismatch' }, 400);
+  const oversized = await db.prepare('SELECT 1 AS hit FROM file_chunks WHERE file_id=? AND LENGTH(data)>=? LIMIT 1').bind(id, D1_MAX_ROW_BYTES).first<{ hit: number }>();
+  if (oversized) return c.json({ error: 'chunk too large' }, 413);
 
   if ((await usageBytes(db)) + body.size > QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
 

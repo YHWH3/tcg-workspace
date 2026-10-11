@@ -108,6 +108,7 @@ it('runs a date-offset rule only while its conditions match, including a later m
   await db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES('hold','dueDate',?)").bind(today).run();
   await runDateOffsetAutomations(env,today);
   expect(await created('Follow up')).toBe(0);
+  expect((await db.prepare("SELECT COUNT(*) n FROM date_offset_marks WHERE record_id='hold'").first<{n:number}>())!.n).toBe(0);
   await db.prepare("UPDATE records SET data=json_set(data,'$.status','open') WHERE id='hold'").run();
   await runDateOffsetAutomations(env,today);
   expect(await created('Follow up')).toBe(1);

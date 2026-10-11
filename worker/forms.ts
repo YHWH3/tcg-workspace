@@ -27,7 +27,7 @@ import { sha256Hex, randomToken } from './password';
 import { completedRecords, executionOptions, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
 import type { ChangesetCtx } from './changesets';
 import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
-import { D1_MAX_ROW_BYTES, fileChunkSlices } from './files';
+import { D1_MAX_ROW_BYTES, QUOTA_BYTES, fileChunkSlices } from './files';
 
 type Bindings = Env;
 
@@ -743,7 +743,7 @@ publicFormsApi.post('/:token/files', async (c) => {
   try {
     await db.batch([
       db.prepare('INSERT INTO files (id, uploaded_by, created_at, complete, mime, size, chunks) SELECT ?, NULL, ?, 0, ?, ?, ? WHERE (SELECT COALESCE(SUM(size),0) FROM files WHERE complete=1)+?<=?')
-        .bind(id, now, file.type, bytes.byteLength, parts.length, bytes.byteLength, 450 * 1024 * 1024),
+        .bind(id, now, file.type, bytes.byteLength, parts.length, bytes.byteLength, QUOTA_BYTES),
       ...parts.map((part, idx) => db.prepare('INSERT INTO file_chunks (file_id, idx, data) SELECT ?, ?, ? WHERE EXISTS(SELECT 1 FROM files WHERE id=?)').bind(id, idx, part, id)),
       db.prepare('UPDATE files SET complete=1 WHERE id=? AND (SELECT COUNT(*) FROM file_chunks WHERE file_id=?)=? AND (SELECT COALESCE(SUM(LENGTH(data)),0) FROM file_chunks WHERE file_id=?)=?')
         .bind(id, id, parts.length, id, bytes.byteLength),

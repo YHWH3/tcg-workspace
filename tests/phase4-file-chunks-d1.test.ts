@@ -3,7 +3,7 @@ import {fileURLToPath} from 'node:url';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 import {afterEach,beforeEach,expect,it} from 'vitest';
 import {publicFormsApi} from '../worker/forms';
-import {D1_MAX_ROW_BYTES,FILE_CHUNK_BYTES,QUOTA_BYTES,concatRows,files} from '../worker/files';
+import {D1_MAX_ROW_BYTES,FILE_CHUNK_BYTES,QUOTA_BYTES,concatRows,fileChunkSlices,files} from '../worker/files';
 import {sha256Hex} from '../worker/password';
 import {applyChanges} from '../worker/sync';
 import type {Env} from '../worker/auth';
@@ -48,6 +48,8 @@ it('keeps every bound chunk under the D1 row ceiling and round-trips the origina
   const cases=[100*1024, 1_900_000, 2_100_000, 4_900_000];
   for(const size of cases){
     const bytes=image(size);
+    const owned=fileChunkSlices(bytes);
+    expect(owned.every((part)=>part.byteLength>0 && part.byteLength<=FILE_CHUNK_BYTES && part.byteLength<D1_MAX_ROW_BYTES && part.buffer.byteLength===part.byteLength)).toBe(true);
     const response=await upload(bytes);
     expect(response.status, `size ${size}`).toBe(200);
     const {id}=await response.json() as {id:string};
@@ -89,6 +91,15 @@ it('rejects quota exhaustion, a foreign form claim, and an oversized authenticat
   const huge=new Uint8Array(FILE_CHUNK_BYTES+1);
   const rejected=await files.request('http://localhost/file_big/chunks/0',{method:'PUT',headers:{authorization:'Bearer session-alice'},body:huge},env,ctx);
   expect(rejected.status).toBe(413);
+  const ceiling=new Uint8Array(D1_MAX_ROW_BYTES);
+  ceiling[0]=1;
+  await db.batch([
+    db.prepare('INSERT INTO files(id,uploaded_by,created_at,complete) VALUES(?,?,?,0)').bind('too_wide','alice',1),
+    db.prepare('INSERT INTO file_chunks(file_id,idx,data) VALUES(?,?,?)').bind('too_wide',0,ceiling),
+  ]);
+  const blocked=await files.request('http://localhost/too_wide/complete',{method:'POST',headers:{authorization:'Bearer session-alice','content-type':'application/json'},body:JSON.stringify({mime:'image/png',size:ceiling.byteLength,chunks:1})},env,ctx);
+  expect(blocked.status).toBe(413);
+  expect((await db.prepare('SELECT complete FROM files WHERE id=?').bind('too_wide').first<{complete:number}>())!.complete).toBe(0);
 });
 
 it('downloads an existing multi-chunk file and still rejects an unsafe SVG',async()=>{
