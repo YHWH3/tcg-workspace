@@ -1,4 +1,4 @@
-import {readFileSync,readdirSync,writeFileSync,mkdtempSync} from 'node:fs';
+import {readFileSync,readdirSync,writeFileSync,mkdtempSync,mkdirSync} from 'node:fs';
 import {tmpdir,cpus} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -19,14 +19,17 @@ it('measures Phase 4 actual D1 operations on a fixed 1000-record fixture and pro
   const mf=new Miniflare(convertV4MiniflareOptions({workers:[{name:'phase4-performance',modules:true,script:'export default {fetch(){return new Response("local")}}',compatibilityDate:'2026-09-25',d1Databases:{DB:'phase4-performance-disposable'}}]}));
   const db=await mf.getD1Database('DB') as D1Database;
   const metrics:{name:string;ms:number;subrequests:number;statements:number;rowsRead:number;rowsWritten:number;note?:string}[]=[];
-  const directory=mkdtempSync(join(tmpdir(),'tcg-phase4-performance-'));
+  const directory=process.env.CERT_ARTIFACT_DIR?join(process.env.CERT_ARTIFACT_DIR,'performance'):mkdtempSync(join(tmpdir(),'tcg-phase4-performance-'));
+  mkdirSync(directory,{recursive:true});
   let subrequests=0,statements=0,rowsRead=0,rowsWritten=0;
   const unwrap=new WeakMap<object,D1PreparedStatement>();
   function metadata(result:D1Result) {rowsRead+=result.meta.rows_read??0;rowsWritten+=result.meta.rows_written??0;}
   function wrap(statement:D1PreparedStatement):D1PreparedStatement {
     const proxy=new Proxy(statement,{get(target,key){
       if(key==='bind')return (...values:(string|number|null|ArrayBuffer|number[])[])=>wrap(target.bind(...values));
-      if(key==='first')return async (...args:Parameters<D1PreparedStatement['first']>)=>{subrequests++;statements++;return target.first(...args);};
+      // D1 first() does not expose metadata; all() executes the same SQL and
+      // exposes rows read/written before returning the requested first value.
+      if(key==='first')return async (column?:string)=>{subrequests++;statements++;const result=await target.all();metadata(result);const row=result.results[0];if(!row)return null;if(column===undefined)return row;if(!Object.hasOwn(row,column))throw new Error(`D1_COLUMN_NOTFOUND: ${column}`);return row[column];};
       if(key==='all'||key==='run')return async()=>{subrequests++;statements++;const result=await target[key]();metadata(result);return result;};
       const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
     }});unwrap.set(proxy,statement);return proxy;
@@ -78,7 +81,7 @@ it('measures Phase 4 actual D1 operations on a fixed 1000-record fixture and pro
       dateSweep:(await db.prepare("EXPLAIN QUERY PLAN SELECT * FROM date_index WHERE (date,record_id,field_key)>('2020-01-01','','') AND date<='2026-11-11' ORDER BY date,record_id,field_key LIMIT 250").all()).results,
       outbox:(await db.prepare("EXPLAIN QUERY PLAN SELECT id FROM event_outbox WHERE processed_at IS NULL AND terminal_at IS NULL AND lease_until<1 ORDER BY created_at LIMIT 20").all()).results};
     console.log('PHASE4_PERFORMANCE_EVIDENCE',JSON.stringify({directory,records:1000,metrics,plans}));
-    writeFileSync(join(directory,'d1-performance.json'),JSON.stringify({records:1000,runtime:process.version,cpu:cpus()[0]?.model,metrics,plans,limitations:['Local Miniflare latency, not Cloudflare deployed region latency','rows_read/written omit native first() metadata; lower bound, not total','Subrequests count binding RPCs; SQL statements also shown separately','No production resources or billing changed']},null,2));
+    writeFileSync(join(directory,'d1-performance.json'),JSON.stringify({records:1000,runtime:process.version,cpu:cpus()[0]?.model,metrics,plans,limitations:['Local Miniflare latency, not Cloudflare deployed region latency','first() observation executes the same SQL via all() and returns the first value to expose D1 metadata; no SQL rewrite','Subrequests count binding RPCs; SQL statements also shown separately','No production resources or billing changed']},null,2));
     expect(plans.inbox.some(row=>String(row.detail).includes('INDEX'))).toBe(true);
     expect(plans.dateSweep.some(row=>String(row.detail).includes('idx_date_sweep'))).toBe(true);
   } finally {await mf.dispose();}

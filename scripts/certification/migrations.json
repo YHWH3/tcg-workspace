@@ -1,0 +1,42 @@
+[
+  {
+    "name": "0001_init.sql",
+    "sha256": "89c0736cb52d3ad7b3e269eaae9b7cec244b3dc81ea64124acde726321708839"
+  },
+  {
+    "name": "0002_files.sql",
+    "sha256": "489182db8cdad971df1d3fb32f92f40cc080df878562bda30901c229876282d3"
+  },
+  {
+    "name": "0003_shares.sql",
+    "sha256": "53362d0bfb5228a359a7f10038671d595e8e8cec9017d0e188a9646572d52afb"
+  },
+  {
+    "name": "0004_safe_ai.sql",
+    "sha256": "21b9c5a17be73b9eef23ce5a2bf39100d4a7a7a3445401c8be1613c4ba01a758"
+  },
+  {
+    "name": "0005_links_index.sql",
+    "sha256": "24660b0c70ad7abd1ee8849ebcd2a5d2734f93d379027e2ddba366ba6b3e63ee"
+  },
+  {
+    "name": "0006_share_targets.sql",
+    "sha256": "0ec6061fee0f4b7843a7872ebc04e06fac89dcdd0760496da58c30819ea7d00b"
+  },
+  {
+    "name": "0007_phase4.sql",
+    "sha256": "3ba47c8eed3ed496f1666128c845a5ae4e1fdcd8930b48947bd81cc64f3cf149"
+  },
+  {
+    "name": "0008_phase4_recovery.sql",
+    "sha256": "d1ee1ec4d35822329f500c1dbacea270e18a93bc99c7453ff9379668918c22e6"
+  },
+  {
+    "name": "0009_phase4_approval_delivery.sql",
+    "sha256": "9e959d0f765d72a444aca277919fe4fd31e0de21620af9f703e2215681633106"
+  },
+  {
+    "name": "0010_phase4_sweep_cursor.sql",
+    "sha256": "2b5948a03722d6b235f380aeecdac76635aff7366b73d8230c87c2b4d0e440b7"
+  }
+]
