@@ -10,6 +10,9 @@
 //
 // Usage: node scripts/verify-mcp-phase3.mjs [base]        — spawn everything
 //        node scripts/verify-mcp-phase3.mjs --no-spawn    — reuse :8788 server
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+import { assertionManifests } from './certification-manifests.mjs';
+const certification = createCertificationReporter('verify-mcp-phase3', assertionManifests['verify-mcp-phase3']);
 import { spawn } from 'node:child_process';
 import { mkdtempSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,7 +27,7 @@ let BASE;
 try {
   const parsedBase = new URL(requestedBase);
   if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (parsedBase.pathname !== '/' && parsedBase.pathname !== '')) throw new Error('not loopback HTTP');
-  BASE = parsedBase.origin;
+  BASE = localOrigin(parsedBase.href);
 } catch {
   console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
   process.exit(2);
@@ -34,9 +37,10 @@ const NO_SPAWN = process.argv.includes('--no-spawn');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let PASS_COUNT = 0, FAIL_COUNT = 0;
-process.on('unhandledRejection', (e) => { console.log('  💥 UNHANDLED REJECTION:', e?.message ?? e); });
-process.on('uncaughtException', (e) => { console.log('  💥 UNCAUGHT:', e?.stack ?? e); process.exit(3); });
+
+
 const check = (name, cond, extra = '') => {
+  certification.record('none', 'none', name, cond ? 'PASS' : 'FAIL', cond ? null : (extra || 'Assertion evaluated false'));
   if (cond) { PASS_COUNT++; console.log(`  ✅ ${name}`); }
   else { FAIL_COUNT++; console.log(`  ❌ ${name} ${extra}`); }
 };
@@ -386,4 +390,5 @@ await client.close();
 await bobClient.close();
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed ==`);
-process.exit(FAIL_COUNT ? 1 : 0);
+certification.finish();
+process.exit(FAIL_COUNT || process.exitCode ? 1 : 0);

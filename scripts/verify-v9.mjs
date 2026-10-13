@@ -2,19 +2,26 @@
 // Phase 4 independent built-Worker/browser certification. Every run owns an
 // isolated D1 fixture; faults are real SQLite triggers, never production.
 // node scripts/verify-v9.mjs [--only=chromium|firefox|webkit] [--skip-build]
+import { createCertificationReporter } from './certification-report.mjs';
+const mandatoryChecks = ["J1 notifications: assignment/comment/mention, grouping, prefs, read-state and second device", "J2 Cron twice: due indexing and reminder dedupe", "J3 completing recurrence creates exactly one next record", "J4 unauthenticated form browser receives only server-confirmed receipt", "J5 lost accepted HTTP response \u2192 same submission ID/receipt/one record", "J6 offline draft/invalid field/expired challenge/disabled form/stale processing recovery", "J7 equivalent normalized emails reuse one Person without private match data", "J8 UI/direct-sync gate denial; authorized request/decision unlocks stage", "J9 When/If/Then automation: records/subrecords/relations/notices/audit/logs/replay", "J10 actual SQLite failure before automation completion; concurrent recovery/undo", "J11 TCG pack install/reinstall preserves edited records/templates/views and five rules", "J12 shared browser logout/account switch clears private Inbox and account data", "platform keyboard/errors/dialog/reduced-motion/200% text/400% reflow/offline Inbox/slow form", "platform desktop approval dialog keyboard semantics", "platform touch approval request tap and close", "platform touch Inbox notification preferences", "platform public form touch submit accepted without auth"];
+for (const width of [320,390,768,1024,1440]) mandatoryChecks.push(`platform ${width}px form/inbox/automation reflow`);
+const selectedEngine = process.argv.find(a => a.startsWith('--only='))?.slice(7);
+const plannedTests = (selectedEngine ? [selectedEngine] : ['chromium','firefox','webkit']).flatMap(engine => mandatoryChecks.map(name => `${engine}/${name}`));
+const certification = createCertificationReporter('verify-v9', plannedTests);
 import assert from 'node:assert/strict';
-import {mkdtempSync,writeFileSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {chromium,firefox,webkit} from 'playwright';
 import {startFixture,bootstrap,api,push,pull,eventually} from './phase4-fixture.mjs';
 import {verifyPlatformInteractions} from './phase4-platform-checks.mjs';
 
-const output=mkdtempSync(join(tmpdir(),'tcg-phase4-v9-'));
+const output=process.env.CERT_ARTIFACT_DIR ?? mkdtempSync(join(tmpdir(),'tcg-phase4-v9-'));
+mkdirSync(output,{recursive:true});
 const results=[],performanceResults=[],browsers={chromium,firefox,webkit};
 const selected=process.argv.find(a=>a.startsWith('--only='))?.split('=')[1];
 if(selected&&!browsers[selected]) throw new Error('Unknown browser engine');
-const fixture=await startFixture({port:8799,build:!process.argv.includes('--skip-build')});
+const fixture=await startFixture({port:Number(process.env.CERT_FIXTURE_PORT ?? 8799),build:!process.argv.includes('--skip-build'),artifactDirectory:process.env.CERT_ARTIFACT_DIR});
 const {base}=fixture,{admin,bob}=await bootstrap(base);
 const request=(path,opts={})=>api(base,path,opts);
 const update=changes=>push(base,admin.token,changes);
@@ -23,10 +30,12 @@ const allNotifications=async user=>(await request('/api/notifications?limit=100'
 const sqlString=v=>"'"+String(v).replaceAll("'","''")+"'";
 const sqlRows=async sql=>(await fixture.sql(sql)).flatMap(r=>r.results??[]);
 const cron=async()=>{const response=await fetch(base+'/cdn-cgi/handler/scheduled?cron=*/15%20*%20*%20*%20*',{method:'POST'});assert.equal(response.status,200);const text=await response.text();assert.ok(!text.includes('<html'), 'Cron must execute the supported scheduled handler, not the SPA fallback');};
+const viewportFor = name => { const width = /platform (\d+)px/.exec(name)?.[1]; return width ? `${width}px` : name.includes('desktop') ? '1440x1000' : '390x844'; };
 async function check(engine,name,fn) {
   const start=performance.now();
-  try {await fn();results.push({engine,name,status:'PASS',ms:Math.round(performance.now()-start)});console.log(`PASS [${engine}] ${name}`);}
-  catch(error){results.push({engine,name,status:'FAIL',error:String(error?.stack??error)});console.error(`FAIL [${engine}] ${name}: ${error}`);}
+  try {await fn();certification.record(engine, viewportFor(name), name, 'PASS');results.push({engine,name,viewport:viewportFor(name),status:'PASS',ms:Math.round(performance.now()-start)});console.log(`PASS [${engine}] ${name}`);}
+  catch(error){certification.record(engine, viewportFor(name), name, 'FAIL', error);results.push({engine,name,viewport:viewportFor(name),status:'FAIL',error:String(error?.stack??error)});console.error(`FAIL [${engine}] ${name}: ${error}`);}
+  certification.complete(`${engine}/${name}`);
 }
 async function authenticatedPage(browser,user,options={}) {
   const context=await browser.newContext({viewport:{width:390,height:844},...options});
@@ -61,7 +70,7 @@ async function layout(page) {
 try {
   for(const [engine,browserType] of Object.entries(browsers).filter(([name])=>!selected||name===selected)) {
     let browser;
-    try {browser=await browserType.launch({headless:true});}catch(error){results.push({engine,name:'engine launch',status:'FAIL',error:String(error)});continue;}
+    try {browser=await certification.trackBrowser(await browserType.launch({headless:true}),engine);}catch(error){certification.record(engine,'none','mandatory browser launch','FAIL',error);results.push({engine,name:'engine launch',viewport:'none',status:'FAIL',error:String(error)});continue;}
     console.log(`${engine} version ${browser.version()}`);
     const prefix=`v9_${engine}`,board=prefix+'_work',task=prefix+'_task';
     const main=await authenticatedPage(browser,bob),second=await authenticatedPage(browser,bob),owner=await authenticatedPage(browser,admin);
@@ -250,8 +259,11 @@ try {
     for(const context of [main.context,second.context,owner.context,publicContext])await context.close();await browser.close();
   }
 } finally {
-  fixture.stop();
+  await fixture.stop();
   writeFileSync(join(output,'results.json'),JSON.stringify({base,fixture:fixture.directory,results,performance:performanceResults,externalGates:[{name:'Physical iPhone Safari',status:'NOT RUN',reason:'No physical device attached'},{name:'Physical Android',status:'NOT RUN',reason:'No physical device attached'},{name:'Screen reader/assistive technology',status:'NOT RUN',reason:'No human assistive-technology session available'},{name:'Native browser 400% zoom',status:'NOT RUN',reason:'320px reflow-equivalent viewport is tested; native zoom is not falsely equated'}]},null,2));
   console.log(`Evidence: ${output}; PASS ${results.filter(r=>r.status==='PASS').length}; FAIL ${results.filter(r=>r.status==='FAIL').length}`);
 }
-process.exitCode=results.some(r=>r.status==='FAIL')?1:0;
+certification.setMetadata('performance', performanceResults);
+certification.setMetadata('fixture', fixture.directory);
+certification.finish();
+process.exitCode=results.some(r=>r.status==='FAIL') || process.exitCode ? 1 : 0;

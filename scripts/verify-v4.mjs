@@ -1,16 +1,20 @@
 // Phase B verification: presence+instant sync, moodboards, comments, public links.
 // Run against the BUILT app (wrangler dev :8788) so the DO + SW are live.
 // Usage: node scripts/verify-v4.mjs [base]
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+import { assertionManifests } from './certification-manifests.mjs';
+const certification = createCertificationReporter('verify-v4', assertionManifests['verify-v4']);
 import { chromium } from 'playwright';
 import { mkdir, readFile } from 'node:fs/promises';
 
-const BASE = process.argv[2] ?? 'http://localhost:8788';
-const OUT = '/tmp/notion-shots/v4';
-const FIXTURES = '/tmp/ws-fixtures';
+const BASE = localOrigin(process.argv[2] ?? process.env.CERT_BASE ?? 'http://localhost:8788');
+const OUT = process.env.CERT_ARTIFACT_DIR ?? '/tmp/notion-shots/v4';
+const FIXTURES = process.env.CERT_FILE_FIXTURES ?? '/tmp/ws-fixtures';
 await mkdir(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failures = 0;
 const check = (name, cond) => {
+  certification.record('chromium', 'desktop', name, cond ? 'PASS' : 'FAIL');
   console.log(cond ? `  PASS ${name}` : `  FAIL ${name}`);
   if (!cond) failures++;
 };
@@ -46,7 +50,7 @@ if (!admin.token || !bob.token) {
   process.exit(1);
 }
 
-const browser = await chromium.launch();
+const browser = await certification.trackBrowser(await chromium.launch(), 'chromium');
 const ctxA = await browser.newContext({ viewport: { width: 1440, height: 900 }, hasTouch: true });
 const ctxB = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const pageA = await ctxA.newPage();
@@ -385,4 +389,5 @@ await mpage.screenshot({ path: `${OUT}/moodboard-mobile.png` });
 
 await browser.close();
 console.log(failures === 0 ? 'ALL PASS' : `${failures} FAILURES`);
-process.exit(failures ? 1 : 0);
+certification.finish();
+process.exit(failures || process.exitCode ? 1 : 0);

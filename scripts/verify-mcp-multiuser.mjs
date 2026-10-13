@@ -3,11 +3,14 @@
 // dev isolate. Covers docs/architecture/phase-0-safe-ai-editing.md §12.
 // Requires `wrangler dev --port 8788` on the built app + smoke.sh users seeded.
 // Usage: node scripts/verify-mcp-multiuser.mjs [base]   default http://localhost:8788
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+import { assertionManifests } from './certification-manifests.mjs';
+const certification = createCertificationReporter('verify-mcp-multiuser', assertionManifests['verify-mcp-multiuser']);
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import crypto from 'node:crypto';
 
-const BASE = process.argv[2] ?? 'http://localhost:8788';
+const BASE = localOrigin(process.argv[2] ?? process.env.CERT_BASE ?? 'http://localhost:8788');
 const PASS = process.env.MCP_PASS ?? 'password123';
 const USER_A = process.env.MCP_USER_A ?? 'admin';
 const USER_B = process.env.MCP_USER_B ?? 'bob';
@@ -15,6 +18,7 @@ const USER_B = process.env.MCP_USER_B ?? 'bob';
 let PASS_COUNT = 0,
   FAIL_COUNT = 0;
 const check = (name, cond, extra = '') => {
+  certification.record('none', 'none', name, cond ? 'PASS' : 'FAIL', cond ? null : (extra || 'Assertion evaluated false'));
   if (cond) {
     PASS_COUNT++;
     console.log(`  ✅ ${name}`);
@@ -354,4 +358,5 @@ check('requestId+new args → collision error', collided.isError && /different a
 /* ================= later Phase 0 scenarios land here ================= */
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed`);
-process.exit(FAIL_COUNT ? 1 : 0);
+certification.finish();
+process.exit(FAIL_COUNT || process.exitCode ? 1 : 0);

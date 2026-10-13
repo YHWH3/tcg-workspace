@@ -4,15 +4,19 @@
 // public canvas API, svg sanitisation, dryRun/expectedRev/requestId/undo.
 // Requires `wrangler dev --local --port 8788` + smoke.sh users seeded.
 // Usage: node scripts/verify-mcp-phase2.mjs [base]   default http://localhost:8788
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+import { assertionManifests } from './certification-manifests.mjs';
+const certification = createCertificationReporter('verify-mcp-phase2', assertionManifests['verify-mcp-phase2']);
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import crypto from 'node:crypto';
 
-const BASE = process.argv[2] ?? 'http://localhost:8788';
+const BASE = localOrigin(process.argv[2] ?? process.env.CERT_BASE ?? 'http://localhost:8788');
 const PASS = process.env.MCP_PASS ?? 'password123';
 const USER = process.env.MCP_USER ?? 'admin';
 let PASS_COUNT = 0, FAIL_COUNT = 0;
 const check = (name, cond, extra = '') => {
+  certification.record('none', 'none', name, cond ? 'PASS' : 'FAIL', cond ? null : (extra || 'Assertion evaluated false'));
   if (cond) { PASS_COUNT++; console.log(`  ✅ ${name}`); }
   else { FAIL_COUNT++; console.log(`  ❌ ${name} ${extra}`); }
 };
@@ -456,4 +460,5 @@ const pubNew = await api(`/api/public/canvas/${reShare.data.token}`);
 check('new token serves canvas again', pubNew.status === 200, `status=${pubNew.status}`);
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed ==`);
-process.exit(FAIL_COUNT ? 1 : 0);
+certification.finish();
+process.exit(FAIL_COUNT || process.exitCode ? 1 : 0);

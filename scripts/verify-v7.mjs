@@ -8,6 +8,12 @@
 //
 // Usage: node scripts/verify-v7.mjs            — full run (servers managed)
 //        node scripts/verify-v7.mjs --no-spawn — reuse a wrangler dev already up
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+const suiteManifest = {"chromium": {"desktop": ["canvasSuite", "modeSuite", "offlineSuite", "multiUserSuite", "undoSuite", "publicShareSuite", "viewsSuite", "perfSuite"], "compact": ["compactSuite", "viewsSuite"], "tablet": ["viewsSuite"]}, "firefox": {"desktop": ["coreSubset", "publicShareSuite"], "compact": ["compactSuite"]}, "webkit": {"desktop": ["coreSubset", "publicShareSuite"], "compact": ["compactSuite"]}};
+const requestedEngines = process.argv.find(a => a.startsWith('--only='))?.slice(7).split(',') ?? ['chromium', 'firefox', 'webkit'];
+const plannedTests = requestedEngines.flatMap(engine => Object.entries(suiteManifest[engine] ?? {}).flatMap(([viewport, suites]) => suites.map(suite => `${engine}/${viewport}/${suite}`)));
+const certification = createCertificationReporter('verify-v7', plannedTests);
+let activeEngine = 'system', activeViewport = 'none';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, existsSync, mkdirSync, writeFileSync, readFileSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,22 +29,23 @@ let BASE;
 try {
   const parsedBase = new URL(requestedBase);
   if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (parsedBase.pathname !== '/' && parsedBase.pathname !== '')) throw new Error('not loopback HTTP');
-  BASE = parsedBase.origin;
+  BASE = localOrigin(parsedBase.href);
 } catch {
   console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
   process.exit(2);
 }
 const PASS = process.env.MCP_PASS ?? 'password123';
 const NO_SPAWN = process.argv.includes('--no-spawn');
-const SHOTS = '/tmp/p2-shots';
+const SHOTS = process.env.CERT_ARTIFACT_DIR ?? '/tmp/p2-shots';
 const FIX = '/tmp/p2-fixtures';
 mkdirSync(SHOTS, { recursive: true });
 mkdirSync(FIX, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const results = []; // {engine, viewport, check, status}
-const note = (engine, viewport, check, status) => {
-  results.push({ engine, viewport, check, status });
+const note = (engine, viewport, check, status, error = null) => {
+  certification.record(engine, viewport, check, status, error, { external: engine === 'manual' });
+  results.push({ engine, viewport, check, status, error });
   console.log(`  ${status.padEnd(7)} [${engine}/${viewport}] ${check}`);
 };
 
@@ -1378,6 +1385,8 @@ async function coreSubset(page, E, V, uid, token) {
   await page.screenshot({ path: `${SHOTS}/core-${E}-${V}.png` });
 }
 
+const run = (label, fn) => certification.run(`${activeEngine}/${activeViewport}/${label}`, activeEngine, activeViewport, fn);
+
 /* ==================== MATRIX ==================== */
 const engines = { chromium, firefox, webkit };
 const DESKTOP = { width: 1440, height: 900 };
@@ -1389,48 +1398,53 @@ const runEngines = only ? only.split(',') : ['chromium', 'firefox', 'webkit'];
 
 for (const name of runEngines) {
   const engine = engines[name];
-  if (!engine) continue;
-  const browser = await engine.launch();
+  if (!engine) { note(name, 'none', 'mandatory browser selection', 'FAIL', new Error(`Unknown engine ${name}`)); continue; }
+  activeEngine = name;
+  let browser;
+  try { browser = await certification.trackBrowser(await engine.launch(), name); } catch (error) { note(name, 'none', 'mandatory browser launch', 'FAIL', error); continue; }
   console.log(`\n=== ${name} ===`);
 
+  activeViewport = 'desktop';
   // desktop: chromium gets the full suite; ff/webkit the tagged core subset
   {
     const ctx = await browser.newContext({ viewport: DESKTOP });
     const page = await loginPage(ctx, admin);
     if (name === 'chromium') {
-      await canvasSuite(page, name, 'desktop', admin.user.id);
-      await modeSuite(page, name, 'desktop', admin.user.id);
-      await offlineSuite(page, name, 'desktop', admin.user.id);
-      await multiUserSuite(browser, name, 'desktop', admin.user.id);
-      await undoSuite(browser, name, 'desktop');
-      await publicShareSuite(browser, name, 'desktop');
-      await viewsSuite(page, name, 'desktop', admin.user.id, false);
-      await perfSuite(page, name, 'desktop', admin.user.id);
+      await run('canvasSuite', () => canvasSuite(page, name, 'desktop', admin.user.id));
+      await run('modeSuite', () => modeSuite(page, name, 'desktop', admin.user.id));
+      await run('offlineSuite', () => offlineSuite(page, name, 'desktop', admin.user.id));
+      await run('multiUserSuite', () => multiUserSuite(browser, name, 'desktop', admin.user.id));
+      await run('undoSuite', () => undoSuite(browser, name, 'desktop'));
+      await run('publicShareSuite', () => publicShareSuite(browser, name, 'desktop'));
+      await run('viewsSuite', () => viewsSuite(page, name, 'desktop', admin.user.id, false));
+      await run('perfSuite', () => perfSuite(page, name, 'desktop', admin.user.id));
     } else {
-      await coreSubset(page, name, 'desktop', admin.user.id, admin.token);
-      await publicShareSuite(browser, name, 'desktop');
+      await run('coreSubset', () => coreSubset(page, name, 'desktop', admin.user.id, admin.token));
+      await run('publicShareSuite', () => publicShareSuite(browser, name, 'desktop'));
     }
     await ctx.close();
   }
 
+  activeViewport = 'compact';
   // compact touch
   {
-    const ctx = await browser.newContext({ viewport: COMPACT, hasTouch: true, isMobile: true });
+    const ctx = await browser.newContext({ viewport: COMPACT, hasTouch: true, isMobile: name !== 'firefox' });
     const page = await loginPage(ctx, admin);
     if (name === 'chromium') {
-      await compactSuite(page, name, 'compact', admin.user.id);
-      await viewsSuite(page, name, 'compact', admin.user.id, true);
+      await run('compactSuite', () => compactSuite(page, name, 'compact', admin.user.id));
+      await run('viewsSuite', () => viewsSuite(page, name, 'compact', admin.user.id, true));
     } else {
-      await compactSuite(page, name, 'compact', admin.user.id);
+      await run('compactSuite', () => compactSuite(page, name, 'compact', admin.user.id));
     }
     await ctx.close();
   }
 
   // tablet (chromium only — layout spot-check)
   if (name === 'chromium') {
+    activeViewport = 'tablet';
     const ctx = await browser.newContext({ viewport: TABLET });
     const page = await loginPage(ctx, admin);
-    await viewsSuite(page, name, 'tablet', admin.user.id, false);
+    await run('viewsSuite', () => viewsSuite(page, name, 'tablet', admin.user.id, false));
     await ctx.close();
   }
 
@@ -1449,4 +1463,5 @@ for (const r of results) {
   console.log(`${r.status.padEnd(8)} [${r.engine}/${r.viewport}] ${r.check}`);
 }
 console.log(`\nTOTAL: ${byStatus.PASS} PASS / ${byStatus.FAIL} FAIL / ${byStatus['NOT RUN']} NOT RUN`);
-process.exit(byStatus.FAIL ? 1 : 0);
+certification.finish();
+process.exit(byStatus.FAIL || process.exitCode ? 1 : 0);

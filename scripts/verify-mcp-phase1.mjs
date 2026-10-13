@@ -2,15 +2,19 @@
 // Phase 1 verification: custom databases, views, links, record helpers.
 // Requires `wrangler dev --local --port 8788` + smoke.sh users seeded.
 // Usage: node scripts/verify-mcp-phase1.mjs [base]   default http://localhost:8788
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+import { assertionManifests } from './certification-manifests.mjs';
+const certification = createCertificationReporter('verify-mcp-phase1', assertionManifests['verify-mcp-phase1']);
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import crypto from 'node:crypto';
 
-const BASE = process.argv[2] ?? 'http://localhost:8788';
+const BASE = localOrigin(process.argv[2] ?? process.env.CERT_BASE ?? 'http://localhost:8788');
 const PASS = process.env.MCP_PASS ?? 'password123';
 const USER = process.env.MCP_USER ?? 'admin';
 let PASS_COUNT = 0, FAIL_COUNT = 0;
 const check = (name, cond, extra = '') => {
+  certification.record('none', 'none', name, cond ? 'PASS' : 'FAIL', cond ? null : (extra || 'Assertion evaluated false'));
   if (cond) { PASS_COUNT++; console.log(`  ✅ ${name}`); }
   else { FAIL_COUNT++; console.log(`  ❌ ${name} ${extra}`); }
 };
@@ -189,8 +193,9 @@ check('unlink_items by tuple', rl.removed === true, JSON.stringify(rl).slice(0, 
 const emb = j(await call('edit_page', { pageId: pg.id, appendMarkdown: '', appendBlocks: [{ type: 'embed', url: 'https://drive.google.com/file/d/abc123/preview' }] }));
 if (emb.error) {
   const emb2 = j(await call('edit_page', { pageId: pg.id, appendMarkdown: '![embed](https://drive.google.com/file/d/abc123/preview)' }));
-  check('embed block accepted (markdown embed)', !emb2.error, JSON.stringify(emb2).slice(0, 200));
+  check('embed block accepted', !emb2.error, JSON.stringify(emb2).slice(0, 200));
 } else check('embed block accepted', true);
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed ==`);
-process.exit(FAIL_COUNT ? 1 : 0);
+certification.finish();
+process.exit(FAIL_COUNT || process.exitCode ? 1 : 0);

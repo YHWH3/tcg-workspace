@@ -10,6 +10,9 @@
 //
 // Usage: node scripts/verify-mcp-phase4.mjs [http://localhost:8788]
 
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+import { assertionManifests } from './certification-manifests.mjs';
+const certification = createCertificationReporter('verify-mcp-phase4', assertionManifests['verify-mcp-phase4']);
 import crypto from 'node:crypto';
 
 const requestedBase = process.argv.slice(2).find((arg) => /^https?:\/\//i.test(arg)) ?? process.env.PHASE4_BASE ?? 'http://localhost:8788';
@@ -27,7 +30,7 @@ if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (
   process.exit(2);
 }
 
-const BASE = parsedBase.origin;
+const BASE = localOrigin(parsedBase.href);
 const PASS = process.env.MCP_PASS ?? 'password123';
 const RUN = `p4-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -35,6 +38,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let passCount = 0;
 let failCount = 0;
 const check = (name, condition, detail = '') => {
+  certification.record('none', 'none', name, condition ? 'PASS' : 'FAIL', condition ? null : (detail || 'Assertion evaluated false'));
   if (condition) {
     passCount += 1;
     console.log(`  ✅ ${name}`);
@@ -439,8 +443,9 @@ async function main() {
 }
 
 main()
-  .then((code) => process.exit(code ?? 0))
+  .then((code) => { certification.finish(); process.exit(code || process.exitCode || 0); })
   .catch((error) => {
+    certification.record('system', 'none', 'runner exception', 'FAIL', error);
     console.error(`FATAL: ${error?.stack ?? error}`);
     process.exit(2);
   });

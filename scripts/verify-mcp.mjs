@@ -3,6 +3,9 @@
 // field/template UI + screenshots. Run against `wrangler dev --port 8788`
 // (fresh D1 + smoke.sh first) or staging.
 // Usage: node scripts/verify-mcp.mjs [base]   default http://localhost:8788
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+import { assertionManifests } from './certification-manifests.mjs';
+const certification = createCertificationReporter('verify-mcp', assertionManifests['verify-mcp']);
 import { chromium } from 'playwright';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -22,7 +25,7 @@ try {
   console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
   process.exit(2);
 }
-const SHOTS = '/tmp/notion-shots/v5';
+const SHOTS = process.env.CERT_ARTIFACT_DIR ?? '/tmp/notion-shots/v5';
 mkdirSync(SHOTS, { recursive: true });
 const USER = process.env.MCP_USER ?? 'admin';
 const PASS = process.env.MCP_PASS ?? 'password123';
@@ -51,6 +54,7 @@ try {
 let PASS_COUNT = 0,
   FAIL_COUNT = 0;
 const check = (name, cond, extra = '') => {
+  certification.record('none', 'none', name, cond ? 'PASS' : 'FAIL', cond ? null : (extra || 'Assertion evaluated false'));
   if (cond) {
     PASS_COUNT++;
     console.log(`  ✅ ${name}`);
@@ -293,7 +297,7 @@ const adminLogin = await api('/api/auth/login', { method: 'POST', body: { userna
 const adminToken = adminLogin.data.token;
 check('app login for UI', !!adminToken);
 
-const browser = await chromium.launch();
+const browser = await certification.trackBrowser(await chromium.launch(), 'chromium');
 const mkPage = async ({ viewport = { width: 1280, height: 800 }, mobile = false } = {}) => {
   const ctx2 = await browser.newContext({ viewport, colorScheme: 'light', ...(mobile ? { isMobile: true, hasTouch: true } : {}) });
   const pg = await ctx2.newPage();
@@ -432,4 +436,5 @@ if (row) {
 void secondToken;
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed ==`);
-process.exit(FAIL_COUNT ? 1 : 0);
+certification.finish();
+process.exit(FAIL_COUNT || process.exitCode ? 1 : 0);
