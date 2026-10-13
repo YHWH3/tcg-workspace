@@ -152,8 +152,13 @@ it('delivers an earlier row behind five unsent reminders within two runs while l
 },60_000);
 
 it('reaches one urgent row among 1000 indexed dates without a second send',async()=>{
-  await db.batch(Array.from({length:1000},(_,i)=>db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES(?,'dueDate','2020-01-01')").bind(`old_${String(i).padStart(4,'0')}`)));
-  await db.batch(Array.from({length:1000},(_,i)=>db.prepare("INSERT INTO reminder_sent(record_id,field_key,date,kind,created_at) VALUES(?,'dueDate','2020-01-01','overdue',?)").bind(`old_${String(i).padStart(4,'0')}`,Date.now())));
+  // Fixture construction does not need a 1,000-statement atomic RPC. Bound
+  // each payload so parallel disposable workerd instances do not lose their
+  // transport under the complete unit/D1 matrix. Keep all 1,000 input rows.
+  for(let offset=0;offset<1000;offset+=100) {
+    await db.batch(Array.from({length:100},(_,i)=>db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES(?,'dueDate','2020-01-01')").bind(`old_${String(offset+i).padStart(4,'0')}`)));
+    await db.batch(Array.from({length:100},(_,i)=>db.prepare("INSERT INTO reminder_sent(record_id,field_key,date,kind,created_at) VALUES(?,'dueDate','2020-01-01','overdue',?)").bind(`old_${String(offset+i).padStart(4,'0')}`,Date.now())));
+  }
   await db.prepare("INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES('reminders','2024-01-01','z','dueDate')").run();
   await task('fresh',addDays(today,-1));
   await db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES('ahead','dueDate',?)").bind(addDays(today,1)).run();

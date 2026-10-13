@@ -349,6 +349,7 @@ async function persistDateOffsetPage(
 async function loadDateOffsetScan(env: Env, auto: AutomationRow, today: string): Promise<DateOffsetScan | null> {
   const trigger = auto.data.trigger;
   if (trigger?.kind !== 'date_offset') return null;
+  if (trigger.dateKey !== undefined && typeof trigger.dateKey !== 'string') return null;
   const days = Number(trigger.days ?? 0);
   if (!Number.isFinite(days)) return null;
   const rawKey = trigger.dateKey ?? 'dueDate';
@@ -412,7 +413,9 @@ async function loadValidationCtx(env: Env, config: AutomationConfig, extraBoardI
   const source = automationDbId(config);
   if (source) ids.add(source);
   for (const id of extraBoardIds) if (id) ids.add(id);
-  for (const action of config.actions ?? []) if (action.type === 'create_record' && action.databaseId) ids.add(action.databaseId);
+  for (const action of Array.isArray(config.actions) ? config.actions : []) {
+    if (action?.type === 'create_record' && typeof action.databaseId === 'string' && action.databaseId) ids.add(action.databaseId);
+  }
   const boardsById = new Map<string, Record<string, unknown>>();
   const found = await getRecs(env, [...ids]);
   for (const [id, row] of found) {

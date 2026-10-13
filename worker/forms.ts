@@ -357,7 +357,7 @@ interface TokenRow {
   revoked_at: number | null;
 }
 
-async function formByToken(env: Bindings, token: string): Promise<{ form: FormConfig; formId: string; board: RecRowLite } | null> {
+async function formByToken(env: Bindings, token: string): Promise<{ form: FormConfig; formId: string; formRev: number; board: RecRowLite } | null> {
   const t = await env.DB.prepare('SELECT token, form_id, created_at, revoked_at FROM form_tokens WHERE token = ?').bind(token).first<TokenRow>();
   if (!t || t.revoked_at !== null) return null;
   const rec = await getRec(env, t.form_id);
@@ -366,15 +366,16 @@ async function formByToken(env: Bindings, token: string): Promise<{ form: FormCo
   if (!form) return null;
   const board = await getRec(env, form.databaseId);
   if (!board || board.collection !== 'boards' || board.data.deleted) return null;
-  return { form, formId: rec.id, board: recLite(board) };
+  return { form, formId: rec.id, formRev: rec.rev, board: recLite(board) };
 }
 
 interface RecRowLite {
   id: string;
   data: Record<string, unknown>;
+  rev?: number;
 }
-function recLite(r: { id: string; data: Record<string, unknown> }): RecRowLite {
-  return { id: r.id, data: r.data };
+function recLite(r: { id: string; data: Record<string, unknown>; rev: number }): RecRowLite {
+  return { id: r.id, data: r.data, rev: r.rev };
 }
 
 /** Sliding-window counter, atomic against concurrent submits. Returns the
@@ -827,18 +828,39 @@ export async function resumeSubmission(env:Bindings,submissionId:string,ctx:{wai
     // A reservation captures member-authorized configuration, not perpetual
     // authority to write into an old database after the form is remapped.
     if(JSON.stringify(live.form)!==JSON.stringify(p.form)) return await reject({error:'form_configuration_changed',retryable:false},422);
+    // The form row can stay unchanged while its database fields/columns or
+    // gate change. A durable plan captured the former schema and cannot turn
+    // that snapshot into authority after a member changes the configuration.
+    const schema = (data: Record<string, unknown>) => JSON.stringify({
+      fields: data.fields ?? [], columns: data.columns ?? [], approvalGate: data.approvalGate ?? null,
+    });
+    if (schema(live.board.data) !== schema(p.board.data)) return await reject({ error: 'form_configuration_changed', retryable: false }, 422);
+    const configErrors = validateFormConfig(live.form, live.board.data);
+    if (configErrors.length) return await reject({ error: 'form_configuration', retryable: false });
+    const authority = new Map<string, number>([[live.formId, live.formRev], [live.board.id, live.board.rev!]]);
+    // Recheck fixed destinations even when a plan already exists: the
+    // destination itself may have moved or been deleted during interruption.
+    for (const rel of live.form.createRelations ?? []) {
+      const def = fieldsOf(live.board.data).find(f => f.id === rel.fieldId);
+      const target = await getRec(env, rel.toId);
+      const valid = target && !target.data.deleted && !target.data.archived &&
+        (def?.relation?.target === 'pages' ? target.collection === 'pages' : target.collection === 'tasks' && target.data.boardId === def?.relation?.target);
+      if (!valid) return await reject({ error: 'form_configuration', retryable: false });
+      authority.set(target.id, target.rev);
+    }
+    // The validated authority must still exist when writes/receipt commit.
+    // One JSON binding also avoids a parameter-count explosion for relations.
+    const authorityFence = () => env.DB.prepare(`SELECT CASE WHEN
+      EXISTS(SELECT 1 FROM form_submissions WHERE submission_id=? AND lease_id=? AND lease_until>?)
+      AND EXISTS(SELECT 1 FROM form_tokens WHERE token=? AND form_id=? AND revoked_at IS NULL)
+      AND NOT EXISTS(SELECT 1 FROM json_each(?) e LEFT JOIN records r ON r.id=e.key WHERE r.seq IS NOT e.value)
+      THEN 1 ELSE json_extract('{','$') END`)
+      .bind(submissionId, lease, Date.now(), p.token, live.formId, JSON.stringify(Object.fromEntries(authority)));
     let plan:SubmissionPlan;
     if(row.plan) plan=JSON.parse(row.plan);
     else {
-      const {form,formId,board,body}=p;
-      const configErrors=validateFormConfig(form,board.data);
-      if(configErrors.length) return await reject({error:'form_configuration',retryable:false});
-      for(const rel of form.createRelations??[]) {
-        const def=fieldsOf(board.data).find(f=>f.id===rel.fieldId);
-        const target=await getRec(env,rel.toId);
-        const valid=target&&!target.data.deleted && (def?.relation?.target==='pages'?target.collection==='pages':target.collection==='tasks'&&target.data.boardId===def?.relation?.target);
-        if(!valid) return await reject({error:'form_configuration',retryable:false});
-      }
+      const {form,formId,body}=p;
+      const board = live.board;
       const res=validateSubmissionValues(form,board.data,body.values);
       if(!res.ok) return await reject({error:'validation',fieldErrors:res.errors});
       const pendingFileIds:string[]=[];
@@ -889,6 +911,7 @@ export async function resumeSubmission(env:Bindings,submissionId:string,ctx:{wai
     if(plan.recordId.startsWith('person_') && await getRec(env,plan.recordId)) ops=ops.filter(o=>!(o.collection==='tasks'&&o.id===plan.recordId));
     if(ops.length) {
       const execution=executionOptions(env,'form_submissions',submissionId,lease);
+      execution.guard = authorityFence;
       execution.checkpoint=id=>env.DB.prepare('INSERT OR IGNORE INTO execution_steps(operation_id,step_id,done_at) VALUES(?,?,?)').bind(operationId,'record:'+id,Date.now());
       const result=await applyChanges(env,'form',ops.map(o=>({...o,ts:now})),{serverTs:true,atomic:true,createOnly:plan.recordId.startsWith('person_')?new Set([plan.recordId]):undefined,journal:plan.cs,execution,event:{source:'form',ctx,changesetId:plan.cs.id}});
       if(result.rejected) return await reject({error:'submission_rejected',retryable:false});
@@ -898,7 +921,7 @@ export async function resumeSubmission(env:Bindings,submissionId:string,ctx:{wai
     // The receipt and synthetic form event share their acknowledgement
     // transaction. Per-record writes/audit/events already share theirs.
     await env.DB.batch([
-      executionOptions(env,'form_submissions',submissionId,lease).guard(),
+      authorityFence(),
       env.DB.prepare('INSERT OR IGNORE INTO event_outbox(id,payload,created_at) VALUES(?,?,?)').bind(outboxId,JSON.stringify({source:'form',userId:'form',changesetId:plan.cs.id,applied:[],extra:[plan.event]}),now),
       env.DB.prepare("UPDATE form_submissions SET state='accepted',receipt=?,record_id=?,error=NULL,lease_id=NULL,lease_until=NULL,updated_at=? WHERE submission_id=? AND lease_id=?").bind(JSON.stringify(plan.receipt),plan.recordId,Date.now(),submissionId,lease),
     ]);

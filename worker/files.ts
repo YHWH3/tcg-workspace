@@ -98,9 +98,17 @@ files.put('/:id/chunks/:idx', async (c) => {
   if (!existing) {
     // Tentative quota check when a new upload starts (final check at complete).
     if ((await usageBytes(db)) >= QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
-    await db.prepare('INSERT INTO files (id, uploaded_by, created_at, complete) VALUES (?, ?, ?, 0)').bind(id, c.get('user').id, Date.now()).run();
+    await db.prepare('INSERT OR IGNORE INTO files (id, uploaded_by, created_at, complete) VALUES (?, ?, ?, 0)').bind(id, c.get('user').id, Date.now()).run();
   }
-  await db.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, ?, ?) ON CONFLICT(file_id, idx) DO UPDATE SET data = excluded.data').bind(id, idx, body).run();
+  // The completion check belongs to the same statement as the write: a PUT
+  // that read pending state before another request completed must not alter
+  // the acknowledged file afterwards.
+  const written = await db.prepare(`INSERT INTO file_chunks (file_id, idx, data)
+    SELECT ?, ?, ? WHERE EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0)
+    ON CONFLICT(file_id, idx) DO UPDATE SET data = excluded.data
+      WHERE EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0)`)
+    .bind(id, idx, body, id, id).run();
+  if (!(written.meta.changes ?? 0)) return c.json({ error: 'file already complete' }, 409);
   return c.json({ ok: true, idx, size: body.byteLength });
 });
 
@@ -108,7 +116,7 @@ files.post('/:id/complete', async (c) => {
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
   const body = await c.req.json<{ mime?: string; size?: number; chunks?: number }>().catch(() => null);
-  if (!body || typeof body.chunks !== 'number' || body.chunks < 1 || typeof body.size !== 'number' || body.size < 1) {
+  if (!body || typeof body.chunks !== 'number' || !Number.isInteger(body.chunks) || body.chunks < 1 || typeof body.size !== 'number' || !Number.isInteger(body.size) || body.size < 1) {
     return c.json({ error: 'invalid body' }, 400);
   }
   if (body.size > MAX_FILE_SIZE) return c.json({ error: 'file too large (max 20 MB)' }, 413);
@@ -138,27 +146,56 @@ files.post('/:id/complete', async (c) => {
   if ((await usageBytes(db)) + body.size > QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
 
   const mime = typeof body.mime === 'string' && body.mime.length <= 100 ? body.mime : 'application/octet-stream';
+  // Recheck integrity and quota in the final write transaction. Preliminary
+  // reads improve errors but cannot authorize a later concurrent completion.
+  const readySql = `complete=0
+    AND (SELECT COUNT(*) FROM file_chunks WHERE file_id=files.id)=?
+    AND (SELECT COALESCE(SUM(LENGTH(data)),0) FROM file_chunks WHERE file_id=files.id)=?
+    AND (SELECT MIN(idx) FROM file_chunks WHERE file_id=files.id)=0
+    AND (SELECT MAX(idx) FROM file_chunks WHERE file_id=files.id)=?-1
+    AND NOT EXISTS(SELECT 1 FROM file_chunks WHERE file_id=files.id AND LENGTH(data)>=?)
+    AND (SELECT COALESCE(SUM(size),0) FROM files WHERE complete=1)+?<=?`;
+  const interrupted = async () => {
+    const current = await db.prepare('SELECT complete FROM files WHERE id=?').bind(id).first<{ complete: number }>();
+    if (current?.complete) return c.json({ ok: true });
+    if ((await usageBytes(db)) + body.size! > QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
+    return c.json({ error: 'file changed during completion; retry upload' }, 409);
+  };
 
   // SVG is active markup: sanitize on write and store the canonical output.
   if (mime === 'image/svg+xml') {
     const { results } = await db.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ data: unknown }>();
     const svg = sanitizeSvg(new TextDecoder().decode(concatRows(results)));
     if (!svg.ok) {
-      await db.batch([db.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id), db.prepare('DELETE FROM files WHERE id = ?').bind(id)]);
+      await db.batch([
+        db.prepare('DELETE FROM file_chunks WHERE file_id=? AND EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0)').bind(id, id),
+        db.prepare('DELETE FROM files WHERE id=? AND complete=0').bind(id),
+      ]);
       return c.json({ error: 'svg failed sanitization', reasons: svg.reasons }, 400);
     }
     const bytes = new TextEncoder().encode(svg.svg);
-    await db.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id).run();
-    const chunks: D1PreparedStatement[] = [];
-    for (const [idx, part] of fileChunkSlices(bytes).entries()) {
+    const parts = fileChunkSlices(bytes);
+    const chunks: D1PreparedStatement[] = [
+      db.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM files WHERE id=? AND ${readySql}) THEN 1 ELSE json_extract('{','$') END`)
+        .bind(id, body.chunks, body.size, body.chunks, D1_MAX_ROW_BYTES, bytes.length, QUOTA_BYTES),
+      db.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id),
+    ];
+    for (const [idx, part] of parts.entries()) {
       chunks.push(db.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, ?, ?)').bind(id, idx, part));
     }
-    await db.batch(chunks);
-    await db.prepare('UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ?').bind(mime, bytes.length, chunks.length, id).run();
+    chunks.push(db.prepare('UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ?')
+      .bind(mime, bytes.length, parts.length, id));
+    try { await db.batch(chunks); }
+    catch (error) {
+      if (error instanceof Error && /malformed JSON/i.test(error.message)) return interrupted();
+      return c.json({ error: 'file completion interrupted; retry' }, 503);
+    }
     return c.json({ ok: true });
   }
 
-  await db.prepare('UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ?').bind(mime, body.size, body.chunks, id).run();
+  const completed = await db.prepare(`UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ? AND ${readySql}`)
+    .bind(mime, body.size, body.chunks, id, body.chunks, body.size, body.chunks, D1_MAX_ROW_BYTES, body.size, QUOTA_BYTES).run();
+  if (!(completed.meta.changes ?? 0)) return interrupted();
   return c.json({ ok: true });
 });
 

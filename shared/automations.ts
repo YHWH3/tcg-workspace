@@ -222,7 +222,7 @@ const FILTER_OPS: ReadonlySet<FilterOp> = new Set([
 ]);
 
 function fieldDefByKey(board: Record<string, unknown> | undefined, key: string): FieldDef | undefined {
-  if (!key.startsWith('p_')) return undefined;
+  if (typeof key !== 'string' || !key.startsWith('p_')) return undefined;
   return fieldsOf(board).find((f) => f.id === key.slice(2));
 }
 
@@ -261,13 +261,14 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
     }
     case 'field_changed': {
       if (t.fieldId !== undefined && ctx.boardsById && board) {
-        const ok = BUILTIN_FIELD_KEYS.has(t.fieldId) || t.fieldId.startsWith('rel_') || !!fieldDefByKey(board, t.fieldId);
+        const ok = typeof t.fieldId === 'string' && (BUILTIN_FIELD_KEYS.has(t.fieldId) || t.fieldId.startsWith('rel_') || !!fieldDefByKey(board, t.fieldId));
         if (!ok) errors.push(`field ${t.fieldId} not found on ${String(board?.name ?? dbId)}`);
       }
       break;
     }
     case 'date_offset': {
-      const key = normalizeDateKey(t.dateKey);
+      if (t.dateKey !== undefined && typeof t.dateKey !== 'string') errors.push('dateKey must be a string');
+      const key = normalizeDateKey(typeof t.dateKey === 'string' ? t.dateKey : undefined);
       if (key !== 'dueDate' && ctx.boardsById && board) {
         const def = fieldDefByKey(board, key);
         if (!def) errors.push(`date field ${key} not found on ${String(board?.name ?? dbId)}`);
@@ -284,7 +285,12 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
       errors.push(`unknown trigger kind ${String(t.kind)}`);
   }
 
-  for (const [i, c] of (auto.conditions ?? []).entries()) {
+  // These rows are member-editable through generic sync. Runtime validation
+  // must return errors for malformed JSON instead of aborting the Cron sweep
+  // before independent rules can run.
+  const conditions = auto.conditions ?? [];
+  if (!Array.isArray(conditions)) errors.push('conditions must be an array');
+  for (const [i, c] of (Array.isArray(conditions) ? conditions : []).entries()) {
     if (!c || typeof c.key !== 'string' || !FILTER_OPS.has(c.op)) errors.push(`condition ${i + 1} is invalid`);
   }
 
@@ -304,6 +310,7 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
         else if (ctx.boardsById && !boardOf(ctx, a.databaseId)) errors.push(`${at}: database ${a.databaseId} not found`);
         if (!a.title || !String(a.title).trim()) errors.push(`${at}: title is required`);
         const target=boardOf(ctx,a.databaseId);
+        if (a.fields !== undefined && (a.fields === null || typeof a.fields !== 'object' || Array.isArray(a.fields))) errors.push(`${at}: fields must be an object`);
         for(const key of Object.keys(a.fields??{})) if(!ACTION_FIELD_KEYS.has(key)&&(!fieldDefByKey(target,key)||fieldDefByKey(target,key)?.type==='relation')) errors.push(`${at}: field ${key} is not writable on target database`);
         if(a.link?.fieldId) {
           const relation=fieldsOf(target).find(f=>f.id===a.link!.fieldId);
@@ -323,7 +330,11 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
       }
       case 'notify': {
         if (!a.userField && !(a.userIds && a.userIds.length)) errors.push(`${at}: a recipient is required`);
-        for (const uid of a.userIds ?? []) if (!inSet(ctx.memberIds, uid)) errors.push(`${at}: user ${uid} is not a member`);
+        if (a.userIds !== undefined && !Array.isArray(a.userIds)) errors.push(`${at}: userIds must be an array`);
+        for (const uid of Array.isArray(a.userIds) ? a.userIds : []) {
+          if (typeof uid !== 'string' || !uid) errors.push(`${at}: recipient must be a user id`);
+          else if (!inSet(ctx.memberIds, uid)) errors.push(`${at}: user ${uid} is not a member`);
+        }
         if (!a.message || !String(a.message).trim()) errors.push(`${at}: message is required`);
         if(a.userField&&ctx.boardsById&&a.userField!=='assigneeId'&&fieldsOf(board).find(f=>f.id===a.userField)?.type!=='person') errors.push(`${at}: userField must be a person field`);
         break;
