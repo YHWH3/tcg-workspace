@@ -8,44 +8,205 @@
 //
 // Usage: node scripts/verify-v6.mjs            — full run (servers managed)
 //        node scripts/verify-v6.mjs --no-spawn — reuse servers already up
+import { captureBrowserArtifacts, localOrigin } from './certification-report.mjs';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { chromium, firefox, webkit } from 'playwright';
 
 const requestedBase = process.env.V6_BASE ?? 'http://localhost:8788';
 const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 let BASE;
+let baseValidationError = null;
 try {
   const parsedBase = new URL(requestedBase);
   if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (parsedBase.pathname !== '/' && parsedBase.pathname !== '')) throw new Error('not loopback HTTP');
-  BASE = parsedBase.origin;
-} catch {
-  console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
-  process.exit(2);
+  BASE = localOrigin(parsedBase.href);
+} catch (error) {
+  baseValidationError = `refusing non-local base URL: ${requestedBase} (${error?.message ?? error})`;
 }
 const DEV = 'http://localhost:5173';
 const PASS = process.env.MCP_PASS ?? 'password123';
 const NO_SPAWN = process.argv.includes('--no-spawn');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const results = []; // {engine, viewport, check, status}
-const note = (engine, viewport, check, status) => {
-  results.push({ engine, viewport, check, status });
-  console.log(`  ${status.padEnd(7)} [${engine}/${viewport}] ${check}`);
+// The v6 matrix is intentionally explicit. A missing engine/viewport pair is a
+// certification failure, not an implicit success caused by an empty report.
+const PLANNED_ENGINES = ['chromium', 'firefox', 'webkit'];
+const PLANNED_VIEWPORTS = ['desktop', 'compact'];
+const PLANNED_SUITES = PLANNED_ENGINES.flatMap((engine) => PLANNED_VIEWPORTS.map((viewport) => `${engine}/${viewport}`));
+const MANDATORY_CHECKS = ["list view renders rows", "gallery view renders card grid", "board view groups by field", "record create navigates to detail", "record row in Dexie", "title edit persists (Dexie)", "custom property p_f_role persists", "relation link row written", "relation chip renders", "sub-record created with parentId", "dependency link written (blocks)", "body block written to Dexie", "@[rec:] token renders record title", "kind:'link' file row written", "link card renders (Open in Drive)", "embed block renders sandboxed iframe (desktop) / card (compact)", "offline edit survives reload (Dexie)", "offline record synced to server", "sidebar navigates to database", "\u2318K record hit navigates to record", "Escape dismisses topmost overlay only", "outside dismiss loses no edits (autosaved)"];
+const checksFor = viewport => [...MANDATORY_CHECKS, ...(viewport === 'compact' ? ['table view: compact list renders rows'] : ['table view renders grid + rows', 'table sticky title column', 'table resize handles']), `record detail renders ${viewport === 'compact' ? 'as adaptive sheet' : 'as dialog/side panel'}`];
+const PLANNED_TESTS = PLANNED_ENGINES.flatMap(engine => PLANNED_VIEWPORTS.flatMap(viewport => checksFor(viewport).map(test => `${engine}/${viewport}/${test}`)));
+const browserVersions = {}, artifacts = [];
+let coverageAdded = false;
+const CERT_RESULT_PATH = process.env.CERT_RESULT_PATH || '';
+const CERT_RUNNER_INJECT = process.env.CERT_RUNNER_INJECT || '';
+const VALID_INJECTIONS = new Set(['', 'throw', 'launch', 'timeout', 'fixture', 'startup', 'child', 'empty', 'partial']);
+const CERT_SOURCE_SHA = process.env.CERT_SOURCE_SHA || process.env.CERT_FINAL_SHA || null;
+const startedAt = new Date().toISOString();
+const results = []; // {suiteId, engine, viewport, test, status, error, blocking}
+const suiteStates = new Map();
+const childFailures = [];
+let reportWritten = false;
+let stoppingOwned = false;
+
+const errorDetails = (error) => {
+  if (!error) return null;
+  if (typeof error === 'string') return { message: error };
+  return {
+    message: String(error?.message ?? error),
+    ...(error?.stack ? { stack: String(error.stack) } : {}),
+    ...(error?.code ? { code: String(error.code) } : {}),
+  };
 };
+
+/**
+ * Record one assertion or runner event. Keep `check` as a compatibility alias
+ * for older console adapters, while `test` is the canonical structured name.
+ */
+const note = (engine, viewport, test, status, error = null, options = {}) => {
+  const suiteId = `${engine}/${viewport}`;
+  const row = {
+    suiteId,
+    engine,
+    viewport,
+    test,
+    check: test,
+    status,
+    error: errorDetails(error ?? (status === 'FAIL' ? 'Assertion evaluated false' : status === 'NOT RUN' ? 'Mandatory assertion did not execute' : null)),
+    blocking: options.blocking ?? status !== 'PASS',
+  };
+  results.push(row);
+  console.log(`  ${status.padEnd(7)} [${engine}/${viewport}] ${test}${row.error ? ` — ${row.error.message}` : ''}`);
+  return row;
+};
+
+const summaryFor = () => {
+  const pass = results.filter((r) => r.status === 'PASS').length;
+  const fail = results.filter((r) => r.status === 'FAIL').length;
+  const notRun = results.filter((r) => r.status === 'NOT RUN').length;
+  const blocking = results.filter((r) => r.blocking === true || (r.status === 'FAIL' && r.blocking !== false)).length;
+  return { pass, fail, notRun, blocking, total: results.length };
+};
+
+const addCoverageFindings = () => {
+  if (coverageAdded) return;
+  coverageAdded = true;
+  if (suiteStates.size === 0 && results.length === 0) {
+    note('system', 'none', 'mandatory v6 report contains test results', 'FAIL', 'runner produced an empty result set', { blocking: true });
+  }
+  for (const suiteId of PLANNED_SUITES) {
+    const [engine, viewport] = suiteId.split('/');
+    const state = suiteStates.get(suiteId);
+    if (!state?.started) {
+      note(engine, viewport, 'mandatory suite execution', 'FAIL', 'mandatory suite was not started', { blocking: true });
+    } else if (!state.completed) {
+      note(engine, viewport, 'mandatory suite completion', 'FAIL', state.error ?? 'suite did not complete all mandatory assertions', { blocking: true });
+    }
+  }
+  for (const suiteId of PLANNED_SUITES) {
+    const [engine, viewport] = suiteId.split('/');
+    for (const test of checksFor(viewport)) {
+      if (!results.some(r => r.engine === engine && r.viewport === viewport && r.test === test)) note(engine, viewport, test, 'FAIL', 'Mandatory assertion did not execute');
+    }
+  }
+  if (childFailures.length) {
+    for (const failure of childFailures) {
+      note('system', 'none', `child process ${failure.label}`, 'FAIL', failure.error, { blocking: true });
+    }
+  }
+};
+
+const writeStructuredReport = () => {
+  if (!CERT_RESULT_PATH || reportWritten) return;
+  reportWritten = true;
+  // Finalization is synchronous so reports survive explicit process.exit(),
+  // uncaught exceptions and interrupted child-process runs.
+  addCoverageFindings();
+  const summary = summaryFor();
+  const report = {
+    schemaVersion: 1,
+    runner: 'verify-v6',
+    startedAt,
+    endedAt: new Date().toISOString(),
+    sourceSha: CERT_SOURCE_SHA,
+    injectedFailure: CERT_RUNNER_INJECT || null,
+    plannedSuites: PLANNED_SUITES,
+    plannedTests: PLANNED_TESTS,
+    completedTests: results.filter(r => r.status !== 'NOT RUN').map(r => `${r.engine}/${r.viewport}/${r.test}`),
+    allMandatoryAssertionsExecuted: PLANNED_SUITES.every(key => suiteStates.get(key)?.completed) && PLANNED_TESTS.every(key => results.some(r => `${r.engine}/${r.viewport}/${r.test}` === key && r.status !== 'NOT RUN')),
+    fixtureId: process.env.CERT_FIXTURE_ID ?? null,
+    browserVersions, artifacts,
+    summary,
+    status: summary.blocking > 0 ? 'FAIL' : 'PASS',
+    results,
+  };
+  try {
+    mkdirSync(dirname(CERT_RESULT_PATH), { recursive: true });
+    writeFileSync(CERT_RESULT_PATH, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  } catch (error) {
+    // A requested structured report that cannot be written must never turn a
+    // failing/incomplete certification into a false pass. There is no useful
+    // place to append to a missing file, so surface the error on stderr.
+    console.error(`FATAL: unable to write CERT_RESULT_PATH ${CERT_RESULT_PATH}: ${error?.message ?? error}`);
+    process.exitCode = 2;
+  }
+};
+
+const fatal = (message, { code = 2, engine = 'system', viewport = 'none', test = 'runner startup' } = {}) => {
+  note(engine, viewport, test, 'FAIL', message, { blocking: true });
+  writeStructuredReport();
+  process.exit(code);
+};
+
+if (!VALID_INJECTIONS.has(CERT_RUNNER_INJECT)) {
+  fatal(`unsupported CERT_RUNNER_INJECT=${CERT_RUNNER_INJECT}; expected throw, launch or timeout`, { test: 'runner injection configuration' });
+}
+
+process.on('uncaughtException', (error) => {
+  note('system', 'none', 'uncaught runner exception', 'FAIL', error, { blocking: true });
+  writeStructuredReport();
+  process.exit(2);
+});
+process.on('unhandledRejection', (error) => {
+  note('system', 'none', 'unhandled runner rejection', 'FAIL', error, { blocking: true });
+  writeStructuredReport();
+  process.exit(2);
+});
+process.on('exit', () => writeStructuredReport());
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { note('system', 'none', 'runner interrupted', 'FAIL', signal); cleanupOwned(); writeStructuredReport(); process.exit(signal === 'SIGINT' ? 130 : 143); });
+
+if (baseValidationError) fatal(baseValidationError, { test: 'loopback base URL validation' });
 
 /* ---------------- servers ---------------- */
 const procs = [];
 const cleanupOwned = () => {
   if (NO_SPAWN) return;
+  stoppingOwned = true;
   for (const p of procs) {
     if (!p?.pid || p.exitCode !== null || p.signalCode) continue;
     try { process.kill(-p.pid, 'SIGTERM'); } catch { try { p.kill('SIGTERM'); } catch {} }
   }
 };
 if (!NO_SPAWN) process.on('exit', cleanupOwned);
+
+const trackProcess = (child, label, { expectedExit = false } = {}) => {
+  const record = { child, label, expectedExit };
+  procs.push(child);
+  child.once('error', (error) => {
+    if (!stoppingOwned && !record.expectedExit) childFailures.push({ label, error });
+  });
+  child.once('exit', (code, signal) => {
+    record.exitCode = code;
+    record.signalCode = signal;
+    if (!stoppingOwned && !record.expectedExit) {
+      childFailures.push({ label, error: `child exited unexpectedly (code=${code ?? 'null'}, signal=${signal ?? 'none'})` });
+    }
+  });
+  return record;
+};
 async function waitHttp(url, timeoutMs = 90000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
@@ -55,21 +216,29 @@ async function waitHttp(url, timeoutMs = 90000) {
   return false;
 }
 
-if (!NO_SPAWN) {
+if (!NO_SPAWN && !CERT_RUNNER_INJECT) {
   if (!existsSync('dist/client/index.html')) {
     console.log('dist missing — building…');
     await new Promise((res, rej) => {
       const p = spawn('npm', ['run', 'build'], { stdio: 'inherit' });
-      p.on('exit', (c) => (c === 0 ? res() : rej(new Error('build failed'))));
+      p.once('error', rej);
+      p.on('exit', (c, signal) => (c === 0 ? res() : rej(new Error(`build failed (code=${c ?? 'null'}, signal=${signal ?? 'none'})`))));
     });
   }
   const persistDir = mkdtempSync(join(tmpdir(), 'ws-v6-d1-'));
   console.log('wrangler persist dir:', persistDir);
   // apply migrations into the disposable persist dir BEFORE wrangler dev binds it
-  procs.push(spawn('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', persistDir], { stdio: 'inherit', detached: true }));
-  await new Promise((res) => procs.pop().on('exit', res));
-  procs.push(spawn('npx', ['wrangler', 'dev', '--local', '--port', '8788', '--persist-to', persistDir], { stdio: ['ignore', 'pipe', 'pipe'], detached: true }));
-  procs.push(spawn('npx', ['vite', 'dev', '--port', '5173', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true }));
+  const migration = trackProcess(spawn('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', persistDir], { stdio: 'inherit', detached: true }), 'd1 migrations', { expectedExit: true });
+  await new Promise((res, rej) => {
+    migration.child.once('error', rej);
+    migration.child.once('exit', (code, signal) => {
+      migration.expectedExit = true;
+      if (code === 0) res();
+      else rej(new Error(`D1 migration process failed (code=${code ?? 'null'}, signal=${signal ?? 'none'})`));
+    });
+  });
+  trackProcess(spawn('npx', ['wrangler', 'dev', '--local', '--port', '8788', '--persist-to', persistDir], { stdio: ['ignore', 'pipe', 'pipe'], detached: true }), 'wrangler dev');
+  trackProcess(spawn('npx', ['vite', 'dev', '--port', '5173', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true }), 'vite dev');
   // status endpoint 500s until schema exists; poll until non-error
   const t0 = Date.now();
   let ok = false;
@@ -77,7 +246,7 @@ if (!NO_SPAWN) {
     try { const j = await (await fetch(`${BASE}/api/auth/status`)).json(); if (!j.error) { ok = true; break; } } catch {}
     await sleep(1000);
   }
-  if (!ok) { console.log('FATAL: wrangler dev never came up / schema missing'); process.exit(2); }
+  if (!ok) fatal('wrangler dev never came up / schema missing', { test: 'server startup readiness' });
   await waitHttp(DEV); // vite dev is best-effort
 }
 
@@ -106,8 +275,17 @@ async function bootstrap(base) {
   return { admin, bob };
 }
 
-const { admin, bob } = await bootstrap(BASE);
-if (!admin?.token) { console.log('FATAL: no admin token'); process.exit(1); }
+let admin;
+let bob;
+if (CERT_RUNNER_INJECT) {
+  // Injection modes exercise the fail-closed runner contract without starting
+  // Wrangler, Vite, a database, or a real browser.
+  admin = { token: 'injected-runner-token', user: { id: 'injected-admin', name: 'Injected Admin' } };
+  bob = { token: 'injected-bob-token', user: { id: 'injected-bob', name: 'Injected Bob' } };
+} else {
+  ({ admin, bob } = await bootstrap(BASE));
+}
+if (!admin?.token) fatal('no admin token', { test: 'fixture authentication bootstrap' , code: 1 });
 const T = admin.token;
 const NOW = Date.now();
 const DB_A = 'v6_db_people', DB_B = 'v6_db_orgs', V_TABLE = 'v6_vt', V_LIST = 'v6_vl', V_GAL = 'v6_vg', V_BOARD = 'v6_vb';
@@ -131,8 +309,10 @@ const changes = [
   { id: V_BOARD, collection: 'views', patch: { databaseId: DB_A, name: 'By tag', type: 'board', order: 'a4', config: { groupBy: 'p_f_tags' }, createdAt: NOW } },
   { id: PG, collection: 'pages', patch: { title: 'Directory', icon: '📇', order: 'b1', createdAt: NOW } },
 ];
-const pr = await push(T, changes);
-if (pr.status !== 200) { console.log('FATAL: seed push failed', pr.status, JSON.stringify(pr.data).slice(0, 300)); process.exit(1); }
+if (!CERT_RUNNER_INJECT) {
+  const pr = await push(T, changes);
+  if (pr.status !== 200) fatal(`seed push failed (${pr.status}): ${JSON.stringify(pr.data).slice(0, 300)}`, { test: 'fixture seed push', code: 1 });
+}
 
 /* ---------------- browser matrix ---------------- */
 const engines = [['chromium', chromium], ['firefox', firefox], ['webkit', webkit]];
@@ -164,8 +344,17 @@ async function loginPage(context, user) {
 }
 
 async function runSuite(engineName, engine, viewportName, vp) {
+  if (CERT_RUNNER_INJECT === 'throw') throw new Error('Injected suite exception before assertions');
+  if (CERT_RUNNER_INJECT === 'launch') throw new Error(`Mandatory browser launch failed: ${engineName} (injected)`);
+  if (CERT_RUNNER_INJECT === 'timeout') throw new Error('Injected suite timeout: no assertion completed before deadline');
+  if (CERT_RUNNER_INJECT === 'fixture') throw new Error('Missing required fixture (injected)');
+  if (CERT_RUNNER_INJECT === 'startup') throw new Error('Server startup readiness failed (injected)');
+  if (CERT_RUNNER_INJECT === 'child') throw new Error('Child process terminated unexpectedly (injected)');
+  if (CERT_RUNNER_INJECT === 'empty') return;
+  if (CERT_RUNNER_INJECT === 'partial') { note(engineName, viewportName, checksFor(viewportName)[0], 'PASS'); return; }
   let browser;
-  try { browser = await engine.launch(); } catch { console.log(`  NOT RUN [${engineName}] — browser not installable here`); return; }
+  try { browser = await engine.launch(); } catch (error) { throw new Error(`Mandatory browser launch failed: ${engineName}: ${error.message}`, { cause: error }); }
+  await captureBrowserArtifacts(browser, engineName, { results, browserVersions, artifacts });
   const ctx = await browser.newContext({ viewport: vp, hasTouch: !!vp.hasTouch });
   const page = await loginPage(ctx, admin);
   const C = (n, cond) => note(engineName, viewportName, n, cond === true ? 'PASS' : cond === 'SKIP' ? 'NOT RUN' : 'FAIL');
@@ -419,6 +608,9 @@ async function runSuite(engineName, engine, viewportName, vp) {
       const rowAfter = await dexieGet(page, 'tasks', recId);
       C('outside dismiss loses no edits (autosaved)', String(rowAfter?.title ?? '') === 'OutsideClick Test');
     } else C('Escape dismisses topmost overlay only', 'SKIP');
+  } catch (error) {
+    note(engineName, viewportName, 'suite exception', 'FAIL', error);
+    throw error;
   } finally {
     await ctx.close();
     await browser.close();
@@ -428,11 +620,17 @@ async function runSuite(engineName, engine, viewportName, vp) {
 for (const [name, eng] of engines) {
   for (const [vn, vp] of viewports) {
     console.log(`== ${name} / ${vn}`);
-    try { await runSuite(name, eng, vn, vp); } catch (e) { console.log(`  suite error: ${e.message}`); }
+    const state = { started: true, completed: false };
+    suiteStates.set(`${name}/${vn}`, state);
+    try {
+      await runSuite(name, eng, vn, vp);
+      state.completed = checksFor(vn).every(test => results.some(r => r.engine === name && r.viewport === vn && r.test === test));
+    } catch (e) { state.error = errorDetails(e); if (!results.some(r => r.engine === name && r.viewport === vn && r.test === 'suite exception')) note(name, vn, 'suite exception', 'FAIL', e); }
   }
 }
 
 /* ---------------- report ---------------- */
+addCoverageFindings();
 console.log('\n===== RESULTS =====');
 const pad = (s, n) => String(s).padEnd(n);
 console.log(`${pad('engine', 9)} ${pad('viewport', 8)} ${pad('check', 52)} status`);
@@ -440,4 +638,5 @@ for (const r of results) console.log(`${pad(r.engine, 9)} ${pad(r.viewport, 8)} 
 const fails = results.filter((r) => r.status === 'FAIL');
 const skips = results.filter((r) => r.status === 'NOT RUN');
 console.log(`\n${results.length - fails.length - skips.length} PASS / ${fails.length} FAIL / ${skips.length} NOT RUN`);
-process.exit(fails.length ? 1 : 0);
+writeStructuredReport();
+process.exit(fails.length || skips.length || process.exitCode ? 1 : 0);
