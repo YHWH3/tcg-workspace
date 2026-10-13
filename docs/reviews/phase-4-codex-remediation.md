@@ -164,3 +164,18 @@ Fresh disposable local D1, migrations `0001`–`0010` applied, `npx wrangler dev
 - P4-C06 again, Playwright against `http://localhost:5173`: PASS. In-page navigation from `/f/token-a` to `/f/token-b` left the answer empty. Form B submitted a different submission id and did not send Form A's upload claim. The public form API was still fulfilled in the browser.
 
 Still not run: v6, v7, v8, v9, Phase 1 MCP, Phase 3 MCP, physical iPhone/Android, and assistive technology.
+
+## Evidence recaptured on the current HEAD
+
+The scratch logs from the earlier pass were not kept. These commands were run again on `grok/phase-4-continuation` at `8844b13` in `/Users/trinity/Desktop/notion mock`. Counts below replace the earlier `8/8` date-offset figure and the `107` regression figure for this HEAD.
+
+- `tests/phase4-file-chunks-d1.test.ts`: PASS **7/7**. Each accepted image (100 KB, 1.9 MB, 2.1 MB, 4.9 MB) is stored in chunks whose bound length is `<= 1048576` and `< 2000000`, and the download matches the original bytes.
+- `tests/phase4-date-offset-d1.test.ts` together with `tests/phase4-budget-d1.test.ts`: PASS **18/18**. That is 11 date-offset tests, including status, text, date, and person conditions, a later match in the same day, deleted, archived, disabled, and invalid rules, and 7 budget tests, including the 600-row completed prefix.
+- Phase 4 disposable-D1 regression (budget, migrations `0001`–`0010`, events, forms, security, date-offset, file chunks, reminders, residual, performance): PASS **10 files / 118 tests**.
+- P4-C02, P4-C07, and P4-C09 are the three tests in `tests/phase4-residual-d1.test.ts`, included in that regression and passing.
+- P4-C06, Playwright against `http://localhost:5173`: PASS. An in-page move from `/f/token-a` to `/f/token-b` left the answer empty. Form B used a different submission id and did not submit Form A's upload claim. The public form API was fulfilled in the browser.
+- `npx tsc --noEmit`: PASS.
+- `npm test`: PASS **53 files / 592 tests**.
+- `npm run build`: PASS.
+
+No production deploy was run. Draft PR #4 stays unmerged.
