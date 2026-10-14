@@ -74,7 +74,10 @@ try {
     console.log(`${engine} version ${browser.version()}`);
     const prefix=`v9_${engine}`,board=prefix+'_work',task=prefix+'_task';
     const main=await authenticatedPage(browser,bob),second=await authenticatedPage(browser,bob),owner=await authenticatedPage(browser,admin);
-    const publicContext=await browser.newContext({viewport:{width:390,height:844}}),publicPage=await publicContext.newPage();
+    // Playwright page routing cannot observe WebKit requests under a controlling
+    // service worker, including API pass-through. This context injects faults;
+    // platform public-form acceptance uses a separate default SW-enabled context.
+    const publicContext=await browser.newContext({viewport:{width:390,height:844},serviceWorkers:'block'}),publicPage=await publicContext.newPage();
     const form=await formFixture(prefix),peopleForm=await formFixture(prefix+'_people',{people:true});
     await update([{id:board,collection:'boards',patch:{name:prefix+' Work',columns:[{id:'open',name:'Open'},{id:'done',name:'Done'}],fields:[]}},
       {id:task,collection:'tasks',patch:{boardId:board,title:prefix+' Assignment',status:'open',assigneeId:bob.user.id}}]);
@@ -215,6 +218,7 @@ try {
       },{timeout:30_000});
       await fixture.sql('DROP TRIGGER IF EXISTS v9_run_fault');
       await fixture.sql(`UPDATE automation_runs SET retry_at=0,lease_until=0,status='retryable_failure' WHERE id=${sqlString(failed.id)}`);
+      await Promise.all([cron(),cron()]);
       await eventually(async()=>{await cron();return (await request(`/api/automations/${autoId}/runs`,{token:admin.token})).data.runs?.find(r=>r.id===failed.id&&r.status==='completed');},{timeout:40_000});
       const recovered=await request(`/api/automations/${autoId}/runs`,{token:admin.token}).then(r=>r.data.runs?.find(run=>run.id===failed.id&&run.status==='completed'));
       assert.ok(recovered, 'recovered automation run did not complete');
@@ -280,6 +284,7 @@ try {
   console.log(`Evidence: ${output}; PASS ${results.filter(r=>r.status==='PASS').length}; FAIL ${results.filter(r=>r.status==='FAIL').length}`);
 }
 certification.setMetadata('performance', performanceResults);
+certification.setMetadata('faultInjection', {publicContextServiceWorkers:'block',reason:'Deterministic Playwright POST interception in WebKit',normalServiceWorkerCoverage:'Authenticated offline/reconnect and independent platform public form context'});
 certification.setMetadata('fixture', fixture.directory);
 certification.finish();
 process.exitCode=results.some(r=>r.status==='FAIL') || process.exitCode ? 1 : 0;

@@ -538,9 +538,16 @@ async function convertSuite(page, E, V) {
     N('J6: converted destination title renders in the browser', landed ? 'PASS' : 'FAIL');
     const bodyVisible = await poll(() => page.getByText(bodyText, { exact: false }).count().then(count => count > 0), 15000);
     N('J6: conversion template body renders in the browser', bodyVisible ? 'PASS' : 'FAIL');
-    // The see-also panel may be lower in the record scroll container.
-    const linkVisible = await poll(async () => (await page.locator('body').innerText()).includes(title), 20000);
-    N('J6: related source record is rendered as a navigable browser link', linkVisible ? 'PASS' : 'FAIL');
+    // Related groups start collapsed if data arrives after the panel mounts.
+    // Open the actual group and follow its control to verify the backlink.
+    const relatedGroup = page.getByRole('button', { name: /^Related\s+1$/ });
+    await relatedGroup.waitFor({ state: 'visible', timeout: 20000 });
+    if (await relatedGroup.getAttribute('aria-expanded') === 'false') await relatedGroup.click();
+    const sourceLink = page.getByRole('button', { name: title, exact: true });
+    await sourceLink.waitFor({ state: 'visible', timeout: 15000 });
+    await sourceLink.click();
+    await page.waitForURL(`${BASE}/boards/${DB_OBS}/tasks/${sourceId}`);
+    N('J6: related source record is rendered as a navigable browser link', (await page.locator('[aria-label$=" title"]').first().inputValue()) === title ? 'PASS' : 'FAIL');
     await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' });
     const history = await api('/api/changes?mine=1', { token: T });
     const changeIndex = history.data?.changesets?.findIndex(change => change.id === converted.changesetId);
