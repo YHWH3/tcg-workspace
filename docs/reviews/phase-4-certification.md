@@ -86,3 +86,15 @@ assistive technology remain separate production release gates. Chromium,
 Firefox, WebKit and 320px reflow evidence does not imply physical-device or
 screen-reader acceptance. No manual browser coordination is required for the
 automated journeys.
+
+The integrity remediation adds migration 0011, three actual-D1 integrity/undo
+families, IndexedDB archive tests and the shared block mapper regression. They
+are automatically discovered by the existing unit/D1 gates. The MCP Phase 4
+manifest now includes generic database archive/restore, 101-item undo, guarded
+501-block edit/replay, record mentions and embed persistence. v9 adds offline
+attachment deletion with persistent-profile browser restart, offline database
+archive/restore and rendered embed links in each engine. No additional command
+or server is required. Large guarded MCP edits require a stable `requestId`;
+a retry resumes the frozen operation and its original changeset. Conflicted
+large undo reports a partial state and inverse journal rather than implying all
+records were restored. The remediation ledger records each P4-INT reproduction.

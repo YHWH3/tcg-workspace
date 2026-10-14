@@ -5,6 +5,8 @@ import {fileURLToPath} from 'node:url';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 import {it,expect,vi} from 'vitest';
 import {applyChanges} from '../worker/sync';
+import {beginChangeset,undoChangeset} from '../worker/changesets';
+import type {AuthUser} from '../worker/auth';
 import {processOutbox,maintainDateIndex} from '../worker/events';
 import {notify} from '../worker/notifications';
 import {runScheduled,runDueReminders} from '../worker/reminders';
@@ -103,9 +105,22 @@ it('measures Phase 4 actual D1 operations on a fixed 1000-record fixture and pro
       if(await db.prepare("SELECT 1 FROM records WHERE collection='tasks' AND json_extract(data,'$.title')='C15 measured output'").first())break;
     }
     expect((await db.prepare("SELECT COUNT(*) n FROM records WHERE collection='tasks' AND json_extract(data,'$.title')='C15 measured output'").first<{n:number}>())!.n).toBe(1);
+    const inverseFixture=beginChangeset({userId:'alice',tool:'integrity-performance'});
+    await applyChanges(env,'alice',Array.from({length:500},(_,i)=>({id:`undo_perf_${i}`,collection:'blocks',patch:{pageId:'undo_perf',type:'p',text:`Original ${i}`},ts:1})),{serverTs:true,journal:inverseFixture});
+    await measure('INT-03 durable undo 500 records',async()=>{
+      const result=await undoChangeset(env,{id:'alice',role:'admin'} as AuthUser,inverseFixture.id);
+      expect(result.ok,JSON.stringify(result)).toBe(true);expect(result.restored).toBe(500);
+    },'100-record CAS batches; inverse journal and checkpoints included');
+    await applyChanges(env,'alice',[{id:'cleanup_perf',collection:'files',patch:{parentType:'task',parentId:'perf_0999'},ts:1}]);
+    await db.batch([db.prepare("INSERT INTO files(id,uploaded_by,size,chunks,complete) VALUES('cleanup_perf','alice',3,1,1)"),db.prepare("INSERT INTO file_chunks(file_id,idx,data) VALUES('cleanup_perf',0,?)").bind(new Uint8Array([1,2,3]))]);
+    await measure('INT-01 tombstone and quota reclamation',async()=>{
+      const result=await applyChanges(env,'alice',[{id:'cleanup_perf',collection:'files',patch:{deleted:true},ts:2}],{event:{source:'client'}});expect(result.changed).toBe(1);
+      expect(await env.DB.prepare("SELECT id FROM files WHERE id='cleanup_perf'").first()).toBeNull();
+    },'Atomic SQLite trigger cleanup on the 1000-record workspace, including reference checks');
     const plans={inbox:(await db.prepare("EXPLAIN QUERY PLAN SELECT * FROM notifications WHERE user_id='bob' ORDER BY created_at DESC LIMIT 60").all()).results,
       dateSweep:(await db.prepare("EXPLAIN QUERY PLAN SELECT * FROM date_index WHERE (date,record_id,field_key)>('2020-01-01','','') AND date<='2026-11-11' ORDER BY date,record_id,field_key LIMIT 250").all()).results,
       outbox:(await db.prepare("EXPLAIN QUERY PLAN SELECT id FROM event_outbox WHERE processed_at IS NULL AND terminal_at IS NULL AND lease_until<1 ORDER BY created_at LIMIT 20").all()).results};
+    Object.assign(plans,{fileCleanup:(await db.prepare("EXPLAIN QUERY PLAN SELECT id FROM reclaimable_files WHERE id='cleanup_perf'").all()).results});
     console.log('PHASE4_PERFORMANCE_EVIDENCE',JSON.stringify({directory,records:1000,metrics,plans}));
     writeFileSync(join(directory,'d1-performance.json'),JSON.stringify({records:1000,runtime:process.version,cpu:cpus()[0]?.model,metrics,plans,limitations:['Local Miniflare latency, not Cloudflare deployed region latency','first() observation executes the same SQL via all() and returns the first value to expose D1 metadata; no SQL rewrite','Subrequests count binding RPCs; SQL statements also shown separately','No production resources or billing changed']},null,2));
     expect(plans.inbox.some(row=>String(row.detail).includes('INDEX'))).toBe(true);

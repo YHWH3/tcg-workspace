@@ -391,6 +391,11 @@ export const assertionManifests = {
     "prompt field_notes_to_log forbids inventing metrics"
   ],
   "verify-mcp-phase4": [
+    "INT-02 real MCP generic database archives and restores without moving records",
+    "INT-03 real MCP undo restores 101 journalled blocks",
+    "INT-04 real MCP guarded 501-block edit and replay keep one journal",
+    "INT-05 real MCP record mention stores token and renders current title",
+    "INT-06 real MCP embeds survive create append replace and record body",
     "admin session available",
     "approver (bob) session available",
     "OAuth DCR client registered",

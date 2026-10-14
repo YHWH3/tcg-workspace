@@ -4,6 +4,7 @@
 // node scripts/verify-v9.mjs [--only=chromium|firefox|webkit] [--skip-build]
 import { createCertificationReporter } from './certification-report.mjs';
 const mandatoryChecks = ["J1 notifications: assignment/comment/mention, grouping, prefs, read-state and second device", "J2 Cron twice: due indexing and reminder dedupe", "J3 completing recurrence creates exactly one next record", "J4 unauthenticated form browser receives only server-confirmed receipt", "J5 lost accepted HTTP response \u2192 same submission ID/receipt/one record", "J6 offline draft/invalid field/expired challenge/disabled form/stale processing recovery", "J7 equivalent normalized emails reuse one Person without private match data", "J8 UI/direct-sync gate denial; authorized request/decision unlocks stage", "J9 When/If/Then automation: records/subrecords/relations/notices/audit/logs/replay", "J10 actual SQLite failure before automation completion; concurrent recovery/undo", "J11 TCG pack install/reinstall preserves edited records/templates/views and five rules", "J12 shared browser logout/account switch clears private Inbox and account data", "platform keyboard/errors/dialog/reduced-motion/200% text/400% reflow/offline Inbox/slow form", "platform desktop approval dialog keyboard semantics", "platform touch approval request tap and close", "platform touch Inbox notification preferences", "platform public form touch submit accepted without auth"];
+mandatoryChecks.push('INT-01 offline attachment deletion survives browser restart and reclaims D1 quota','INT-02 offline generic database archive and restore preserve records','INT-06 stored embed renders usable Drive link after reload');
 for (const width of [320,390,768,1024,1440]) mandatoryChecks.push(`platform ${width}px form/inbox/automation reflow`);
 const selectedEngine = process.argv.find(a => a.startsWith('--only='))?.slice(7);
 const plannedTests = (selectedEngine ? [selectedEngine] : ['chromium','firefox','webkit']).flatMap(engine => mandatoryChecks.map(name => `${engine}/${name}`));
@@ -14,6 +15,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {chromium,firefox,webkit} from 'playwright';
 import {startFixture,managedFixtureFromEnvironment,bootstrap,api,push,pull,eventually} from './phase4-fixture.mjs';
+import {verifyIntegrityBrowser} from './phase4-integrity-browser.mjs';
 import {verifyPlatformInteractions} from './phase4-platform-checks.mjs';
 
 const output=process.env.CERT_ARTIFACT_DIR ?? mkdtempSync(join(tmpdir(),'tcg-phase4-v9-'));
@@ -281,6 +283,7 @@ try {
       await publicPage.route('**/api/public/forms/'+form.token,async route=>{await new Promise(resolve=>setTimeout(resolve,250));await route.continue();});const started=performance.now();await publicPage.goto(form.url);await publicPage.getByLabel('Your name').waitFor();performanceResults.push({engine,metric:'slow form schema paint',ms:Math.round(performance.now()-started),delayMs:250});await publicPage.unroute('**/api/public/forms/'+form.token);
     });
     await verifyPlatformInteractions({browser,engine,base,form,board,task,admin,output,check});
+    await verifyIntegrityBrowser({browserType,engine,base,admin,fixture,output,check,update,rows,eventually});
     for(const context of [main.context,second.context,owner.context,publicContext])await context.close();await browser.close();
   }
 } finally {

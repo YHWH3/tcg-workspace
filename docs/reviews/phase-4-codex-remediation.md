@@ -393,3 +393,96 @@ defines `scheduledTime` as the intended execution time; the
 [Cron testing guide](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
 supports passing `time` to local scheduled-event testing. The pinned Miniflare
 entry worker accepts that parameter at the established handler endpoint.
+
+## Outstanding Integrity Remediation — P4-INT-01 through P4-INT-06
+
+This ledger supersedes any inference that the historical `75aa48f` certification
+covered these findings. That run certified its existing assertions only.
+C21–C25 retain their earlier meanings. This round starts at
+`75aa48fc643f92cd685286c172803af2edc27355`, with a clean original Desktop checkout.
+PR #4 was returned to draft during remediation. No merge or deployment occurs.
+
+### Executed red-to-green evidence
+
+The ignored `.artifacts/integrity-red-green/` directory retains the original
+failing transcripts and targeted reruns. The deterministic regression files are
+committed; the complete certification discovers every top-level test file and
+separately discovers every `phase4-*-d1.test.ts` file. Thus the new D1 families
+run both in the unit gate and the independent D1 gate. No new certification
+framework was introduced.
+
+| Finding | Starting implementation and observed failure | Root cause and correction | Regression and integration evidence | Correction commits | Status |
+| --- | --- | --- | --- | --- | --- |
+| **P4-INT-01 — Offline binary deletion** | `deleteFile()` queued metadata but swallowed failure of a one-shot binary DELETE. The new actual-D1 tombstone test expected zero files and observed **2** retained binary rows. | Migration 0011 records durable deletion intent and reclaims unreferenced file/chunk rows in the same transaction as the synced tombstone. Client queues parent and thumbnail tombstones and discards local bytes. Persistent markers and upload guards prevent resurrection. Legacy tombstones are reconciled during migration; unknown incomplete uploads are not indiscriminately purged. Explicit live block/cover/thumbnail references retain shared bytes until their own reference is removed. The legacy DELETE route now follows the same intent/ownership rules. | `phase4-integrity-d1.test.ts`: cleanup failure rolls back tombstone, duplicate replay, parent+thumbnail batch, quota, auth, shared references, legacy DELETE, upload rejection. `phase4-migrations-d1.test.ts`: upgrade existing tombstones/shared thumbnail. v9 now closes and relaunches a persistent browser profile after an offline UI delete, verifies synced tombstone, actual files/chunks and rejected resurrection. The three-engine targeted run passed all 9 new browser assertions. | `39f6e74`, `07d5fe2` (regressions) | **FIXED AND VERIFIED** by targeted execution; complete-source certification is identified by the generated final report. |
+| **P4-INT-02 — Generic database deletion** | `deleteBoard()` moved People records into `board-default`; the executed IndexedDB regression observed that exact value. The additional MCP reproduction observed `boardId:null` after `delete_item`. | Client deletion of `kind:records` now archives the database without changing any descendant or association. The generic database UI offers Archive/Unarchive instead of an unsafe Delete action. Task boards retain their move-to-default disposition. MCP generic board deletion follows archive semantics; `restore_item` restores it in place with CAS. | `integrity-client.test.ts`: People, Organizations, properties, relations, views, files, subrecords, body, new concurrent records, reopen and outbox persistence; task-board compatibility. `phase4-integrity-mcp-d1.test.ts`: executed MCP red/green and restore. v9 archives offline, reconnects, restores and checks original record/database identity in all engines. Real OAuth/MCP gate also asserts archive/restore. | `39f6e74`, `bc3076a` | **FIXED AND VERIFIED** by targeted execution. |
+| **P4-INT-03 — Large changeset undo** | 101, 150 and 500-item undo each threw **at most 100 expected ids per call**; 1/99/100 passed. | Stable `undo_jobs` and frozen `undo_items` plans retain the inverse identity, original revisions, lease and per-record progress. Inverse writes use batches of at most 100 expectations; record, audit item, outbox event and checkpoint commit together. Lost responses resume from durable checkpoints. Conflicts retain human edits and produce an explicit partial state/409, with an inspectable inverse journal. `undone_by` is finalized only after pending items are settled. Undo fences pending automation/form/MCP recovery; duplicate replay cannot recreate cancelled work. Undo-of-undo remains valid. | Actual-D1 tests execute 1/99/100/101/150/500, crashes before first inverse/after committed batch/lost acknowledgement, conflicts at positions 1/120, duplicate retry, concurrent mutation, automation fencing, unauthorized calls, redo and journal counts. The old SQL-emulating C1 undo fixture was replaced by actual-D1 coverage retaining its four scenarios; partial conflict is now explicitly 409. Real built-Worker MCP performs a 101-block undo. | `07d5fe2`, `bc3076a` (MCP reporting/preview) | **FIXED AND VERIFIED** by targeted execution, including the mandatory 101-item regression. |
+| **P4-INT-04 — MCP expectation chunking** | Reachable: one `edit_page.replaceBlocks` entry can parse into 501 blocks. The executed old helper applied the first chunk, then reported the guarded original block missing when checking the same full expectation map in the next chunk. This does **not** mean all bulk AI writes failed. | Expectations are scoped to relevant chunk IDs, with all guarded revisions preflighted before a large operation starts. Large guarded edits require `requestId`; frozen plans retain generated IDs, the shared changeset, lease and transactional completion checkpoints. Retry skips committed records and cannot duplicate generated blocks. New conflicts remain visible with the partial changeset. Existing unguarded deterministic pack installation retains its established reconciliation path. | Actual-D1 production helper/handler tests cover 499/500/501/1000 with first-only/second-only/mixed expectations, stale second-chunk guard before any writes, interruption after the first 500-block chunk, retry, request replay, one journal and undo cancellation of partial work. Real OAuth/MCP gate executes guarded 501-block split/replay/audit. | `bc3076a` | **FIXED AND VERIFIED** by targeted execution. |
+| **P4-INT-05 — Record mention resolution** | MCP wrote literal `[[Funding Opportunity]]`; the executed regression found no `@[rec:funding]` token. Shared Markdown already supported records but MCP supplied only page/user resolvers. | Per-request live record title/ID caches now supply parse and render resolvers to page creation/edit/read and record-body edit/read. Unqualified page names win; ambiguity remains literal with a warning rather than guessing, including across databases. `[[rec:ID]]` selects an explicit visible record. Live renames render current titles; archived records remain readable; deleted records/databases do not disclose titles. Unknown/deleted record tokens remain opaque stored tokens on read, so a read/edit cannot erase the reference. | Actual-D1 handler tests cover unique title, duplicates, page-first, explicit ID, rename/archive/delete and mixed mentions. Shared tests assert unresolved-token preservation. Real OAuth/MCP writes the title, inspects the stored token and reads its title. Phase 0–4 has one shared authenticated workspace; this does not invent Phase 5 per-record ACLs. Unauthenticated/deleted-account rejection remains in the complete MCP/security matrix. | `bc3076a` | **FIXED AND VERIFIED** by targeted execution. |
+| **P4-INT-06 — Embedded URL preservation** | All three executed Docs/Drive file/folder tests found saved embeds containing only owner/order/type/text, with **no URL/provider**. | A single allowlisted `markdownBlockPatch()` persists parsed block properties, including validated HTTP(S) embed URL/provider, caption, file/media metadata and todo state. Structural identity/owner/order come from the caller. Page append/create/replacement/split and record-body edits use it. Record-body reads retain the complete block fields instead of projecting away URLs. Existing `file:` references round-trip without network import. | Actual-D1 handlers test Docs/file/folder create/append/replacement/body, unrelated title edits, read/write, undo/redo and invalid URL handling. Shared mapper tests reject active URLs and arbitrary identity/owner attributes. OAuth/MCP gate asserts the complete persistence path; v9 checks a usable rendered Drive link after reload in Chromium, Firefox and WebKit. | `bc3076a` | **FIXED AND VERIFIED** by targeted execution. |
+
+The exact initial red commands were:
+
+```sh
+npx vitest run tests/phase4-integrity-d1.test.ts tests/integrity-client.test.ts --maxWorkers=1
+npx vitest run tests/phase4-integrity-mcp-d1.test.ts --maxWorkers=1
+npx vitest run tests/phase4-integrity-mcp-d1.test.ts -t 'MCP database deletion'
+```
+
+The first client attempt failed before the assertion because the Node fixture
+lacked localStorage. After correcting that fixture, the unchanged old
+`deleteBoard()` was rerun and failed on `board-default`; that genuine reproduction
+is retained as `INT-02-red.log`. Initial actual-D1 evidence was **5 failed /
+3 passed** (file deletion, large undo and the fixture failure); initial MCP
+integrity evidence was **5 failed / 0 passed**. Passing tests never substitute
+for those source-specific reproductions.
+
+### Integration corrections and independent diff audit
+
+A parent+thumbnail tombstone arriving in one sync batch exposed SQLite's outer
+UPSERT conflict policy overriding an inner trigger's `INSERT OR IGNORE`.
+A new deterministic failing test captured `UNIQUE constraint failed:
+file_deletions.id`; trigger inserts now use an explicit absence predicate. The
+same test and browser close/reconnect pass afterward. Reference cleanup uses
+indexed lookups and only IDs touched by the current mutation, avoiding a full
+orphan pass on every record write. The migration performs the one-time legacy
+reconciliation; unknown legacy uploads without deletion intent remain protected.
+
+The durable execution CAS path also revealed a form integration ordering issue:
+a concurrent normalized-email reservation could be rejected when its CAS conflict
+was classified before retry. The existing concurrent-equivalent-email test failed
+repeatedly with only one accepted receipt. Conflict outcomes now follow the
+existing retry path; both receipts are accepted with one Person and no disclosed
+match details. Functional assertions were retained.
+
+The final source audit checks durable leases, permission checks before creating
+undo jobs, atomic checkpoints/journals, cancelled bulk-write recovery, unchanged
+1 MiB chunking and shared reference ownership. The required regression families
+are part of the existing unit/D1 manifests, and the real MCP/v9 assertion
+manifests explicitly include their integration checks. Browser failure profiles,
+screenshots and traces stay ignored. No personal D1 state is used.
+
+### Local resource measurements and final acceptance evidence
+
+An executed disposable 1,000-record performance run measured a 500-record undo at
+**42 binding calls / 2,563 SQL statements / 16,545 rows read / 11,521 rows written**,
+about **4,440 ms** locally. File tombstone plus quota reclamation took **3 binding
+calls / 4 statements / 3,056 rows read / 19 rows written**, about **12 ms**.
+These include the existing revision/index/trigger costs and are local Miniflare
+measurements, not deployed latency or production billing. The permanent
+performance gate now records both workloads and the cleanup query plan; the
+final run's machine output replaces these intermediate timings.
+
+Repeat the complete matrix with **`npm run certify:phase4`**. The generated
+`.artifacts/certification/<tested-SHA>-<timestamp>-complete/report.md`,
+`summary.json`, `test-results.json`, command logs and source fingerprint identify
+the committed source actually certified. They are authoritative for final
+counts/exit status; an earlier green run cannot certify these changes. The PR
+certification comment links that exact final artifact and reports the gate
+matrix. The permanent command still executes all 26 mandatory local gates.
+
+The documented three high npm findings and issue #5 are unchanged. The narrow
+inbound-server exception remains subject to independent security review; it is
+not a dependency removal or production security approval. Physical iPhone/iPad
+Safari, Android, human assistive-technology and native 400% zoom remain external
+**NOT RUN** production gates. Full local certification permits independent PR
+review only after every mandatory applicable gate passes on the final commit.

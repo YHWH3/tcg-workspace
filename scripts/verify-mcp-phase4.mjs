@@ -434,6 +434,43 @@ async function main() {
       check('automation undo removes its created child', false, 'run has no changeset_id');
     }
 
+    const peopleDb=asData(await adminCall('create_database',{name:RUN+' People',kind:'records',fields:[]}));
+    const personId=asData(await adminCall('create_records',{databaseId:peopleDb.id,records:[{title:RUN+' Person'}],dedupe:'none'})).created?.[0]?.id;
+    const peopleRead=asData(await adminCall('get_board',{boardId:peopleDb.id}));
+    const peopleRev=(await pullAll(admin.token)).find(r=>r.id===peopleDb.id)?.seq;
+    const archivedDb=asData(await adminCall('delete_item',{type:'board',id:peopleDb.id,expectedRev:peopleRev}));
+    const archivedRow=(await pullAll(admin.token)).find(r=>r.id===peopleDb.id);
+    const restoredDb=asData(await adminCall('restore_item',{type:'board',id:peopleDb.id,expectedRev:archivedRow?.seq}));
+    const preservedPerson=asData(await adminCall('get_record',{recordId:personId}));
+    check('INT-02 real MCP generic database archives and restores without moving records',!peopleRead.error&&!archivedDb.error&&archivedDb.archived===true&&!restoredDb.error&&preservedPerson.record?.databaseId===peopleDb.id,JSON.stringify(archivedDb));
+
+    // Integrity regressions use the real built Worker, OAuth and MCP transport.
+    const integrityPage=asData(await adminCall('create_page',{title:RUN+' integrity undo'}));
+    const appended=asData(await adminCall('edit_page',{pageId:integrityPage.id,appendMarkdown:Array.from({length:101},(_,i)=>`Undo ${i}`).join('\n\n'),requestId:RUN+'-undo101'}));
+    const largeUndo=asData(await adminCall('undo_change',{changesetId:appended.changesetId}));
+    const emptyAfter=asData(await adminCall('get_page',{pageId:integrityPage.id}));
+    check('INT-03 real MCP undo restores 101 journalled blocks',!largeUndo.error&&largeUndo.restored===101&&emptyAfter.markdown==='');
+    const splitPage=asData(await adminCall('create_page',{title:RUN+' split',markdown:'Original'}));
+    const splitRead=asData(await adminCall('get_page',{pageId:splitPage.id}));
+    const splitArgs={pageId:splitPage.id,replaceBlocks:[{blockId:splitRead.blocks[0].id,expectedRev:splitRead.blocks[0].rev,markdown:Array.from({length:501},(_,i)=>`Split ${i}`).join('\n\n')}],requestId:RUN+'-split501'};
+    const split=asData(await adminCall('edit_page',splitArgs)),splitReplay=asData(await adminCall('edit_page',splitArgs));
+    const splitJournal=asData(await adminCall('get_change',{changesetId:split.changesetId}));
+    check('INT-04 real MCP guarded 501-block edit and replay keep one journal',!split.error&&split.updated===501&&splitReplay.replayed===true&&splitJournal.changeset?.item_count===501,JSON.stringify(split));
+    const mentionTitle=RUN+' Funding Opportunity';
+    const mentionRec=asData(await adminCall('create_records',{databaseId:gateDbId,records:[{title:mentionTitle,stage:'Open'}],dedupe:'none'})).created?.[0]?.id;
+    const mentionPage=asData(await adminCall('create_page',{title:RUN+' mentions',markdown:`[[${mentionTitle}]]`}));
+    const mentionBlocks=(await pullAll(admin.token)).filter(r=>r.collection==='blocks'&&r.data.pageId===mentionPage.id);
+    const mentioned=asData(await adminCall('get_page',{pageId:mentionPage.id}));
+    check('INT-05 real MCP record mention stores token and renders current title',!!mentionRec&&mentionBlocks.some(b=>b.data.text===`@[rec:${mentionRec}]`)&&mentioned.markdown===`[[${mentionTitle}]]`);
+    const docs='https://docs.google.com/document/d/integrity/edit',folder='https://drive.google.com/drive/folders/integrity',drive='https://drive.google.com/file/d/integrity/view';
+    const embedPage=asData(await adminCall('create_page',{title:RUN+' embeds',markdown:docs}));
+    await adminCall('edit_page',{pageId:embedPage.id,appendMarkdown:folder});
+    const embedRead=asData(await adminCall('get_page',{pageId:embedPage.id}));
+    await adminCall('edit_page',{pageId:embedPage.id,replaceBlocks:[{blockId:embedRead.blocks[0].id,expectedRev:embedRead.blocks[0].rev,markdown:drive}]});
+    await adminCall('edit_record_body',{recordId:mentionRec,appendMarkdown:docs});
+    const embedAfter=asData(await adminCall('get_page',{pageId:embedPage.id})),bodyAfter=asData(await adminCall('get_record',{recordId:mentionRec}));
+    check('INT-06 real MCP embeds survive create append replace and record body',embedAfter.markdown===drive+'\n\n'+folder&&bodyAfter.record?.body===docs,JSON.stringify(embedAfter));
+
     console.log(`\n== ${passCount} passed, ${failCount} failed ==`);
     return failCount ? 1 : 0;
   } finally {
