@@ -6,6 +6,7 @@ import type { Env } from './auth';
 import { randomToken } from './password';
 import { applyChanges, pokeLive, MAX_EXPECTED, type ConflictInfo } from './sync';
 import { getRec, getRecs, listBy, listCollection, listDefaultBoardTasks, casUpdate, type RecRow } from './records';
+import { argsHash } from '../shared/stablejson';
 import { withIdempotency } from './idempotency';
 import { beginChangeset, commitChangeset, undoChangeset, type ChangesetCtx } from './changesets';
 import { planDeleteImpact, type ImpactRow } from '../shared/impact';
@@ -95,7 +96,7 @@ export async function write(c: Ctx, ops: WriteOp[], opts: { expect?: Map<string,
       const current=await getRecs(c.env,[...(opts.expect?.keys()??[])]);
       const conflicts=[...(opts.expect??[])].filter(([id,rev])=>current.get(id)?.rev!==rev).map(([id,rev])=>({id,collection:current.get(id)?.collection??'blocks',expectedRev:rev,currentRev:current.get(id)?.rev??null,current:current.get(id)?.data??null,updatedBy:current.get(id)?.updatedBy??null,updatedAt:current.get(id)?.updatedAt??null}));
       if(conflicts.length) throw new WriteConflict(conflicts);
-      await c.env.DB.prepare('INSERT OR IGNORE INTO mcp_write_jobs(id,user_id,request_id,tool,plan,expectations) VALUES(?,?,?,?,?,?)').bind(c.cs.id,c.userId,c.cs.requestId,c.cs.tool,JSON.stringify(ops),JSON.stringify([...(opts.expect??[])])).run();
+      await c.env.DB.prepare('INSERT OR IGNORE INTO mcp_write_jobs(id,user_id,request_id,tool,plan,expectations,args_hash) VALUES(?,?,?,?,?,?,(SELECT args_hash FROM mcp_requests WHERE user_id=? AND request_id=?))').bind(c.cs.id,c.userId,c.cs.requestId,c.cs.tool,JSON.stringify(ops),JSON.stringify([...(opts.expect??[])]),c.userId,c.cs.requestId).run();
       job=await c.env.DB.prepare('SELECT id,plan,expectations FROM mcp_write_jobs WHERE user_id=? AND request_id=? AND tool=?').bind(c.userId,c.cs.requestId,c.cs.tool).first();
     }
     if(!job) throw new Error('missing durable write plan');
@@ -449,11 +450,37 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   function reg<S extends z.ZodRawShape>(name: string, meta: { description: string; inputSchema: z.ZodObject<S>; annotations?: Record<string, unknown> }, handler: (args: z.infer<z.ZodObject<S>>) => Promise<ToolResult>): void {
     server.registerTool(name, { ...meta, inputSchema: meta.inputSchema.extend({ requestId: requestIdInput }) } as never, async (rawArgs: unknown) => {
       const args = rawArgs as z.infer<z.ZodObject<S>> & { requestId?: string };
+      const saved = args.requestId ? await ctx.env.DB.prepare('SELECT plan,expectations,args_hash FROM mcp_write_jobs WHERE user_id=? AND request_id=? AND tool=?')
+        .bind(ctx.userId,args.requestId,name).first<{plan:string;expectations:string;args_hash:string|null}>() : null;
+      // Validate retained operation identity before creating a fresh short-lived
+      // idempotency row; a rejected reuse must not lock out the original retry.
+      if(saved?.args_hash && saved.args_hash!==await argsHash(args)) return err('requestId was already used with different arguments in a durable operation');
       const run = async (): Promise<{ text: string; isError: boolean }> => {
         ctx.cs = beginChangeset({ userId: ctx.userId, clientName: ctx.clientName, tool: name, requestId: args.requestId ?? null });
         ctx.toolName = name;
         try {
-          const res = await handler(args);
+          // Resume before running handler validation: the original chunk may
+          // itself have deleted a guarded block/target. Rebuilding from that
+          // changed state can neither recover the original generated IDs nor
+          // safely decide whether the saved operation completed.
+          let res:ToolResult;
+          if(saved) {
+            const input=args as Record<string,unknown>;
+            const pageId=typeof input.pageId==='string'?input.pageId:null;
+            const recordId=typeof input.recordId==='string'?input.recordId:null;
+            if(pageId||recordId) {
+              const parent=await rec(ctx.env,pageId?'pages':'tasks',(pageId??recordId)!);
+              if(!parent||parent.data.deleted) throw new Error('bulk edit parent is unavailable; restore it or undo the partial changeset');
+            }
+            const ops=JSON.parse(saved.plan) as WriteOp[];
+            await write(ctx,ops,{expect:new Map(JSON.parse(saved.expectations))});
+            res=txt({resumed:true,operation:name,updated:ops.length,
+              ...(pageId?{id:pageId,url:pageUrl(ctx,pageId)}:{}),
+              ...(recordId?{recordId}:{}),
+              ...(typeof input.moodboardId==='string'?{moodboardId:input.moodboardId}:{}),
+              ...(typeof input.id==='string'?{id:input.id,type:input.type,...(name==='delete_item'?{deleted:true}:{}),...(name==='restore_item'?{restored:true}:{})}:{}),
+            });
+          } else res=await handler(args);
           // Commit even on error results: any write that already landed must
           // stay undoable — no successful write without a change set (§4.2).
           const csId = await commitChangeset(ctx.env, ctx.cs);

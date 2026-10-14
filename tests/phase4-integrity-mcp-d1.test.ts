@@ -113,3 +113,21 @@ it('INT-02 MCP database deletion archives generic records and restores in place'
  expect(result.isError,JSON.stringify(result)).not.toBe(true);expect((await getRec(env,'funding'))!.data.boardId).toBe('people');expect((await getRec(env,'people'))!.data).toMatchObject({archived:true});
  const archived=(await getRec(env,'people'))!;const restored=await call('restore_item',{type:'board',id:'people',expectedRev:archived.rev});expect(restored.isError,JSON.stringify(restored)).not.toBe(true);expect((await getRec(env,'people'))!.data).toMatchObject({archived:false});expect((await getRec(env,'funding'))!.data.p_email).toBe('keep@example.invalid');
 });
+it('INT-04 retry resumes even when its first committed chunk deleted a guarded block',async()=>{
+ let n=0;const original=env;
+ const fault=new Proxy(db,{get(target,key){if(key==='batch')return async(statements:D1PreparedStatement[])=>{
+  if(statements.some(st=>String((st as unknown as {statement:string}).statement).includes('INSERT OR IGNORE INTO mcp_write_done'))&&++n===7)throw new Error('interrupted after delete and first chunk');return target.batch(statements);
+ };const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});
+ const args={pageId:'page',deleteBlocks:[{blockId:'old',expectedRev:(await getRec(env,'old'))!.rev}],appendMarkdown:Array.from({length:500},(_,i)=>`Append ${i}`).join('\n\n'),requestId:'retry-deleted-guard'};
+ env={...env,DB:fault};const first=await call('edit_page',args);expect(first.isError).toBe(true);expect((await getRec(original,'old'))!.data.deleted).toBe(true);
+ env=original;const next=await call('edit_page',args);expect(next.isError,JSON.stringify(next)).not.toBe(true);expect(next.changesetId).toBe(first.changesetId);
+ expect((await db.prepare("SELECT COUNT(*) n FROM records WHERE collection='blocks' AND COALESCE(json_extract(data,'$.deleted'),0)=0").first<{n:number}>())!.n).toBe(500);
+},60000);
+it('INT-04 durable request argument identity survives normal idempotency retention',async()=>{
+ const args={pageId:'page',appendMarkdown:Array.from({length:501},(_,i)=>`Persist ${i}`).join('\n\n'),requestId:'persistent-identity'};
+ const first=await call('edit_page',args);expect(first.isError,JSON.stringify(first)).not.toBe(true);
+ await db.prepare("DELETE FROM mcp_requests WHERE user_id='alice' AND request_id='persistent-identity'").run();
+ const changed=await call('edit_page',{...args,appendMarkdown:'Different intent'});expect(changed.isError).toBe(true);expect(changed.error).toContain('different arguments');
+ const rows=(await db.prepare("SELECT COUNT(*) n FROM records WHERE collection='blocks'").first<{n:number}>())!.n;expect(rows).toBe(502);
+ const replay=await call('edit_page',args);expect(replay.isError,JSON.stringify(replay)).not.toBe(true);expect(replay.changesetId).toBe(first.changesetId);
+},60000);

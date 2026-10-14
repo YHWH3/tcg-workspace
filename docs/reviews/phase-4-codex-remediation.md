@@ -486,3 +486,23 @@ not a dependency removal or production security approval. Physical iPhone/iPad
 Safari, Android, human assistive-technology and native 400% zoom remain external
 **NOT RUN** production gates. Full local certification permits independent PR
 review only after every mandatory applicable gate passes on the final commit.
+
+### P4-INT-04 final audit boundary
+
+The source audit added another deterministic retry regression: delete a guarded
+block and append 500 new blocks, interrupt after the first 500-write chunk, then
+retry the original request. The intermediate implementation returned **block old
+not found**, because the handler revalidated its own committed deletion before
+loading the saved operation. `INT-04-deleted-guard-red.log` records that failure.
+The wrapper now resumes the durable plan before reconstructing handler state;
+parent availability is still checked and the original journal/IDs are retained.
+The same regression passes afterward. A durable argument hash also prevents a
+request ID from adopting different arguments after the short-lived request
+cache is cleaned; rejected reuse cannot lock out the original retry.
+
+The initial comprehensive run on `a1a7dbd` was deliberately interrupted for this
+source correction. Its retained report is **FAIL**, with dependent gates
+explicitly NOT RUN, under
+`.artifacts/certification/a1a7dbd454646dfc814d033bca00f984bb485036-2026-10-14T11-28-18-621Z-complete/`.
+It is not acceptance evidence. The complete command is rerun from the corrected
+committed source; the final generated report and PR comment identify that SHA.

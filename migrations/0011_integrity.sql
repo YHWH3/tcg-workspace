@@ -58,6 +58,6 @@ CREATE TABLE undo_items (
 CREATE INDEX idx_undo_pending ON undo_items(changeset_id,state);
 CREATE TABLE mcp_write_jobs (
  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, request_id TEXT NOT NULL, tool TEXT NOT NULL,
- plan TEXT NOT NULL, expectations TEXT NOT NULL, lease_id TEXT, lease_until INTEGER, cancelled INTEGER NOT NULL DEFAULT 0, UNIQUE(user_id,request_id,tool)
+ plan TEXT NOT NULL, expectations TEXT NOT NULL, args_hash TEXT, lease_id TEXT, lease_until INTEGER, cancelled INTEGER NOT NULL DEFAULT 0, UNIQUE(user_id,request_id,tool)
 );
 CREATE TABLE mcp_write_done (job_id TEXT NOT NULL,record_id TEXT NOT NULL,PRIMARY KEY(job_id,record_id));
