@@ -7,9 +7,10 @@ import {it,expect,vi} from 'vitest';
 import {applyChanges} from '../worker/sync';
 import {processOutbox,maintainDateIndex} from '../worker/events';
 import {notify} from '../worker/notifications';
-import {runScheduled} from '../worker/reminders';
+import {runScheduled,runDueReminders} from '../worker/reminders';
 import {publicFormsApi} from '../worker/forms';
-import {runOneAutomation} from '../worker/automations';
+import {runOneAutomation,runDateOffsetAutomations} from '../worker/automations';
+import {withD1Budget,D1BudgetExhausted} from '../worker/d1budget';
 import {todayUtc} from '../shared/recurrence';
 import type {Env} from '../worker/auth';
 
@@ -18,30 +19,32 @@ vi.mock('../worker/events',async original=>({...await original<typeof import('..
 it('measures Phase 4 actual D1 operations on a fixed 1000-record fixture and proves bounded reminder sweep progress',async()=>{
   const mf=new Miniflare(convertV4MiniflareOptions({workers:[{name:'phase4-performance',modules:true,script:'export default {fetch(){return new Response("local")}}',compatibilityDate:'2026-09-25',d1Databases:{DB:'phase4-performance-disposable'}}]}));
   const db=await mf.getD1Database('DB') as D1Database;
-  const metrics:{name:string;ms:number;subrequests:number;statements:number;rowsRead:number;rowsWritten:number;note?:string}[]=[];
+  const metrics:{name:string;ms:number;subrequests:number;statements:number;rowsRead:number;rowsWritten:number;sqlKinds:Record<string,number>;note?:string}[]=[];
   const directory=process.env.CERT_ARTIFACT_DIR?join(process.env.CERT_ARTIFACT_DIR,'performance'):mkdtempSync(join(tmpdir(),'tcg-phase4-performance-'));
   mkdirSync(directory,{recursive:true});
-  let subrequests=0,statements=0,rowsRead=0,rowsWritten=0;
+  let subrequests=0,statements=0,rowsRead=0,rowsWritten=0,sqlKinds:Record<string,number>={};
+  const sqlByStatement=new WeakMap<object,string>();
+  function countSql(sql:string){const kind=/rhythm_sweep_cursors/i.test(sql)?(/^\s*(INSERT|UPDATE|DELETE)/i.test(sql)?'cursorWrites':'cursorReads'):/FROM date_index/i.test(sql)?'dateCandidateScans':/FROM records/i.test(sql)?'recordLookups':/FROM users/i.test(sql)?'memberLookups':'other';sqlKinds[kind]=(sqlKinds[kind]??0)+1;}
   const unwrap=new WeakMap<object,D1PreparedStatement>();
   function metadata(result:D1Result) {rowsRead+=result.meta.rows_read??0;rowsWritten+=result.meta.rows_written??0;}
-  function wrap(statement:D1PreparedStatement):D1PreparedStatement {
+  function wrap(statement:D1PreparedStatement,sql:string):D1PreparedStatement {
     const proxy=new Proxy(statement,{get(target,key){
-      if(key==='bind')return (...values:(string|number|null|ArrayBuffer|number[])[])=>wrap(target.bind(...values));
+      if(key==='bind')return (...values:(string|number|null|ArrayBuffer|number[])[])=>wrap(target.bind(...values),sql);
       // D1 first() does not expose metadata; all() executes the same SQL and
       // exposes rows read/written before returning the requested first value.
-      if(key==='first')return async (column?:string)=>{subrequests++;statements++;const result=await target.all();metadata(result);const row=result.results[0];if(!row)return null;if(column===undefined)return row;if(!Object.hasOwn(row,column))throw new Error(`D1_COLUMN_NOTFOUND: ${column}`);return row[column];};
-      if(key==='all'||key==='run')return async()=>{subrequests++;statements++;const result=await target[key]();metadata(result);return result;};
+      if(key==='first')return async (column?:string)=>{subrequests++;statements++;countSql(sql);const result=await target.all();metadata(result);const row=result.results[0];if(!row)return null;if(column===undefined)return row;if(!Object.hasOwn(row,column))throw new Error(`D1_COLUMN_NOTFOUND: ${column}`);return row[column];};
+      if(key==='all'||key==='run')return async()=>{subrequests++;statements++;countSql(sql);const result=await target[key]();metadata(result);return result;};
       const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
-    }});unwrap.set(proxy,statement);return proxy;
+    }});unwrap.set(proxy,statement);sqlByStatement.set(proxy,sql);return proxy;
   }
   const observed=new Proxy(db,{get(target,key){
-    if(key==='prepare')return (sql:string)=>wrap(target.prepare(sql));
-    if(key==='batch')return async(input:D1PreparedStatement[])=>{subrequests++;statements+=input.length;const output=await target.batch(input.map(s=>unwrap.get(s)??s));for(const r of output)metadata(r);return output;};
+    if(key==='prepare')return (sql:string)=>wrap(target.prepare(sql),sql);
+    if(key==='batch')return async(input:D1PreparedStatement[])=>{subrequests++;statements+=input.length;for(const statement of input)countSql(sqlByStatement.get(statement)??'');const output=await target.batch(input.map(s=>unwrap.get(s)??s));for(const r of output)metadata(r);return output;};
     const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
   }});
   const env={DB:observed,WORKSPACE_ENV:'local-test',TURNSTILE_LOCAL_TEST:'1'} as Env;
   const ctx={waitUntil:(_p:Promise<unknown>)=>{},passThroughOnException:()=>{}} as ExecutionContext;
-  async function measure(name:string,operation:()=>Promise<unknown>,note?:string){subrequests=statements=rowsRead=rowsWritten=0;const start=performance.now();await operation();metrics.push({name,ms:Number((performance.now()-start).toFixed(2)),subrequests,statements,rowsRead,rowsWritten,note});}
+  async function measure(name:string,operation:()=>Promise<unknown>,note?:string){subrequests=statements=rowsRead=rowsWritten=0;sqlKinds={};const start=performance.now();await operation();metrics.push({name,ms:Number((performance.now()-start).toFixed(2)),subrequests,statements,rowsRead,rowsWritten,sqlKinds:{...sqlKinds},note});}
   try {
     const folder=fileURLToPath(new URL('../migrations/',import.meta.url));
     for(const file of readdirSync(folder).filter(f=>f.endsWith('.sql')).sort()){
@@ -77,6 +80,29 @@ it('measures Phase 4 actual D1 operations on a fixed 1000-record fixture and pro
     for(let index=0;index<5;index++)await measure('form accepted acknowledgement',async()=>{const response=await publicFormsApi.request('http://localhost/perf-token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({submissionId:`perf-sub-${index}`,values:{title:`Perf visitor ${index}`},turnstileToken:'pass'})},env,ctx);expect(response.status).toBe(200);expect(await response.json()).toMatchObject({state:'accepted'});});
     const auto={id:'perf-auto',data:{name:'Perf review',databaseId:'perf',enabled:true,trigger:{kind:'stage_changed' as const,to:'done'},actions:[{type:'create_record' as const,databaseId:'perf',title:'Review {{record.title}}'}]}};
     for(let index=0;index<5;index++)await measure('automation one record and journal',()=>runOneAutomation(env,auto,{kind:'record.stage_changed',recordId:'perf_0999',collection:'tasks',boardId:'perf',to:'done'},{userId:'alice',source:'client',outboxId:`perf-auto-${index}`},{title:'Fixed row 999',boardId:'perf',status:'done'},todayUtc()));
+    // Measure C14 on the same thousand-row database with a full undeliverable
+    // prefix and an empty forward range. Every call has the production budget.
+    await db.prepare("INSERT OR REPLACE INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES('reminders','2099-01-01','z','dueDate')").run();
+    await applyChanges(env,'alice',[{id:'perf_c14_tail',collection:'tasks',patch:{boardId:'perf',title:'C14 tail',status:'open',assigneeId:'bob',dueDate:todayUtc()},ts:1}]);
+    await db.prepare("INSERT OR REPLACE INTO date_index(record_id,field_key,date) VALUES('perf_c14_tail','dueDate',?)").bind(todayUtc()).run();
+    for(let tick=0;tick<20;tick++) {
+      await measure('C14 budgeted reminder lookbehind',async()=>{try{await runDueReminders(withD1Budget(env,45),todayUtc());}catch(error){if(!(error instanceof D1BudgetExhausted))throw error;}},'600 unassigned earlier dates; 45 binding-call ceiling including cleanup reserve');
+      expect(subrequests).toBeLessThanOrEqual(45);
+      if(await db.prepare("SELECT 1 FROM reminder_sent WHERE record_id='perf_c14_tail'").first())break;
+    }
+    expect((await db.prepare("SELECT COUNT(*) n FROM reminder_sent WHERE record_id='perf_c14_tail'").first<{n:number}>())!.n).toBe(1);
+    // Source and destination differ; scoped context loading is included in
+    // the binding/statement/read/write totals for each resumable invocation.
+    await applyChanges(env,'alice',[
+      {id:'perf_dest',collection:'boards',patch:{name:'Cross-database destination',columns:[{id:'open'}],fields:[]},ts:1},
+      {id:'perf_date_auto',collection:'automations',patch:{name:'Cross-db date rule',databaseId:'perf',enabled:true,trigger:{kind:'date_offset',dateKey:'dueDate',days:0},conditions:[{key:'title',op:'is',value:'C14 tail'}],actions:[{type:'create_record',databaseId:'perf_dest',title:'C15 measured output'}]},ts:1},
+    ]);
+    for(let tick=0;tick<12;tick++){
+      await measure('C15 budgeted cross-database date-offset',async()=>{try{await runDateOffsetAutomations(withD1Budget(env,45),todayUtc());}catch(error){if(!(error instanceof D1BudgetExhausted))throw error;}},'Shared validation context, candidate scan, journal, cursor checkpoint and retry included');
+      expect(subrequests).toBeLessThanOrEqual(45);
+      if(await db.prepare("SELECT 1 FROM records WHERE collection='tasks' AND json_extract(data,'$.title')='C15 measured output'").first())break;
+    }
+    expect((await db.prepare("SELECT COUNT(*) n FROM records WHERE collection='tasks' AND json_extract(data,'$.title')='C15 measured output'").first<{n:number}>())!.n).toBe(1);
     const plans={inbox:(await db.prepare("EXPLAIN QUERY PLAN SELECT * FROM notifications WHERE user_id='bob' ORDER BY created_at DESC LIMIT 60").all()).results,
       dateSweep:(await db.prepare("EXPLAIN QUERY PLAN SELECT * FROM date_index WHERE (date,record_id,field_key)>('2020-01-01','','') AND date<='2026-11-11' ORDER BY date,record_id,field_key LIMIT 250").all()).results,
       outbox:(await db.prepare("EXPLAIN QUERY PLAN SELECT id FROM event_outbox WHERE processed_at IS NULL AND terminal_at IS NULL AND lease_until<1 ORDER BY created_at LIMIT 20").all()).results};

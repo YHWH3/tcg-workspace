@@ -45,3 +45,21 @@ test('immediate successful parent exit cannot orphan a detached Node child',asyn
   const r=await child(`const {spawn}=require('node:child_process');const {writeFileSync}=require('node:fs');const c=spawn(process.execPath,['-e','setInterval(()=>{},100)'],{stdio:'ignore',detached:true});writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref();process.exit(0)`);
   assert.equal(r.exitCode,0);assert.equal(r.error,null);const pid=Number(readFileSync(pidFile));assert.throws(()=>process.kill(pid,0),/ESRCH/);
 });
+
+test('performance evidence rejects missing, empty and invalid measurements',async()=>{
+  const {validatePerformanceEvidence}=await import('./core.mjs');
+  for(const report of [null,{records:1000,metrics:[]},{records:1000,metrics:[{name:'seed 1000 records'}],plans:{}}])assert.throws(()=>validatePerformanceEvidence(report));
+});
+
+test('performance evidence requires every resource metric and the binding budget',async()=>{
+  const {validatePerformanceEvidence}=await import('./core.mjs');
+  const names=['seed 1000 records','record/event commit 100 rows','Inbox indexed query','bounded reminder Cron tick','C14 budgeted reminder lookbehind','C15 budgeted cross-database date-offset','form accepted acknowledgement','automation one record and journal'];
+  const complete={records:1000,plans:{inbox:[{}],dateSweep:[{}],outbox:[{}]},metrics:names.map(name=>({name,ms:1,subrequests:1,statements:1,rowsRead:1,rowsWritten:1,sqlKinds:{other:1}}))};
+  assert.equal(validatePerformanceEvidence(complete),complete);
+  assert.throws(()=>validatePerformanceEvidence({...complete,records:undefined}));
+  const truncated=structuredClone(complete);truncated.metrics.pop();assert.throws(()=>validatePerformanceEvidence(truncated),/Missing performance/);
+  const over=structuredClone(complete);over.metrics[4].subrequests=46;assert.throws(()=>validatePerformanceEvidence(over),/budget exceeded/);
+  const invalid=structuredClone(complete);invalid.metrics[0].rowsRead=NaN;assert.throws(()=>validatePerformanceEvidence(invalid),/Malformed/);
+  const unclassified=structuredClone(complete);unclassified.metrics[0].sqlKinds={};assert.throws(()=>validatePerformanceEvidence(unclassified),/classification/);
+  const noPlan=structuredClone(complete);noPlan.plans.inbox=[];assert.throws(()=>validatePerformanceEvidence(noPlan),/query plan/);
+});

@@ -133,3 +133,17 @@ export function migrationsManifest(cwd) {
   for(const row of lock){const path=`${cwd}/migrations/${row.name}`;if(!existsSync(path))throw new Error(`Missing D1 migration ${row.name}`);const hash=createHash('sha256').update(readFileSync(path)).digest('hex');if(hash!==row.sha256)throw new Error(`Migration changed ${row.name}; existing migrations must not be rewritten`);}
   return lock;
 }
+
+/** Gate G requires durable resource evidence, not only a passing test name. */
+export function validatePerformanceEvidence(report) {
+  if(!Number.isInteger(report?.records)||report.records<1000||!Array.isArray(report.metrics)||!report.metrics.length||!report.plans)throw new Error('Missing 1,000-record D1 performance evidence');
+  for(const name of ['inbox','dateSweep','outbox'])if(!Array.isArray(report.plans[name])||!report.plans[name].length)throw new Error(`Missing D1 query plan: ${name}`);
+  const required=['seed 1000 records','record/event commit 100 rows','Inbox indexed query','bounded reminder Cron tick','C14 budgeted reminder lookbehind','C15 budgeted cross-database date-offset','form accepted acknowledgement','automation one record and journal'];
+  for(const name of required)if(!report.metrics.some(m=>m.name===name))throw new Error(`Missing performance metric: ${name}`);
+  for(const metric of report.metrics){
+    if(!metric.name||['ms','subrequests','statements','rowsRead','rowsWritten'].some(k=>!Number.isFinite(metric[k])||metric[k]<0))throw new Error('Malformed D1 resource metric');
+    if(!metric.sqlKinds||Object.values(metric.sqlKinds).some(n=>!Number.isInteger(n)||n<0)||Object.values(metric.sqlKinds).reduce((a,b)=>a+b,0)!==metric.statements)throw new Error('Missing or incomplete D1 statement classification');
+    if(metric.name.startsWith('C14 ')||metric.name.startsWith('C15 '))if(metric.subrequests>45)throw new Error(`D1 invocation binding budget exceeded: ${metric.name}`);
+  }
+  return report;
+}

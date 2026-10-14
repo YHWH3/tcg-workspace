@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 let chromium, firefox, webkit;
 import { startFixture, bootstrap } from './phase4-fixture.mjs';
 import { assessSecurityAudit } from './certification/security.mjs';
-import { json, fingerprint, localOrigin, freePort, runCommand, validateReport, validateVitest, validateSmoke, migrationsManifest, decision } from './certification/core.mjs';
+import { json, fingerprint, localOrigin, freePort, runCommand, validateReport, validateVitest, validateSmoke, migrationsManifest, decision, validatePerformanceEvidence } from './certification/core.mjs';
 
 const cwd=fileURLToPath(new URL('../',import.meta.url));
 const mode=process.argv.includes('--quick')?'quick':process.argv.includes('--extended')?'extended':'complete';
@@ -19,7 +19,7 @@ const directory=resolve(cwd,'.artifacts/certification',`${startingSha}-${started
 mkdirSync(directory,{recursive:true});
 const results=[],controller=new AbortController();let interrupted=false;
 for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{interrupted=true;controller.abort();});
-const expectedIds=['prerequisites','dependencies','lockfile','whitespace','migrations','harness','typecheck','unit','build','d1','security'];
+const expectedIds=['prerequisites','dependencies','lockfile','whitespace','migrations','harness','typecheck','unit','build','d1','security','performance-evidence','source-integrity'];
 if(mode!=='quick')expectedIds.push('browsers','smoke','mcp-base','mcp-multiuser','mcp-phase1','mcp-phase2','mcp-phase3','mcp-phase4','v4','v6','v7','v8','v9');
 if(mode==='extended')expectedIds.push('d1-stress-1','d1-stress-2');
 const environment={os:platform(),osRelease:release(),node:process.version,cpu:cpus()[0]?.model,memoryBytes:totalmem(),startingSha,branch:execFileSync('git',['branch','--show-current'],{cwd,encoding:'utf8'}).trim(),mode,startedAt,playwright:null};
@@ -119,9 +119,26 @@ try {
     for(const [id,script]of [['mcp-base','verify-mcp'],['mcp-multiuser','verify-mcp-multiuser'],...['1','2','3','4'].map(n=>['mcp-phase'+n,'verify-mcp-phase'+n]),...['4','6','7','8','9'].map(n=>['v'+n,'verify-v'+n])])await integration(id,'scripts/'+script+'.mjs',{});
   }
   if(mode==='extended')for(let i=1;i<=2;i++){const path=join(directory,`d1-stress-${i}.json`);await stage(`d1-stress-${i}`,['npm','test','--',...d1Files,'--reporter=default','--reporter=json',`--outputFile=${path}`],{adapter:()=>validateVitest(readJson(path),d1Files)});}
-  const perf=[];for(const id of ['unit','d1','d1-stress-1','d1-stress-2']){const path=join(directory,id+'.log');if(existsSync(path))for(const m of readFileSync(path,'utf8').matchAll(/PHASE4_PERFORMANCE_EVIDENCE (\{[^\n]+\})/g))try{const item=JSON.parse(m[1]);perf.push({suite:id,...item});if(existsSync(join(item.directory,'d1-performance.json')))cpSync(join(item.directory,'d1-performance.json'),join(directory,id+'-performance.json'));}catch{}}
-  json(join(directory,'performance.json'),{measurements:perf,limitations:['Local Miniflare only; no Cloudflare regional latency or billing measured','D1 first() measurement uses the same SQL through an all() first-value adapter to retain row metadata'],browserMeasurements:existsSync(join(directory,'v9/results.json'))?readJson(join(directory,'v9/results.json')).performance??[]:[]});
-  if(sha()!==startingSha||fingerprint(cwd)!==sourceFingerprint)record('source-integrity',{command:['internal','source-integrity'],startedAt,endedAt:new Date().toISOString(),durationMs:0,exitCode:1,error:'Source changed during certification; rerun complete matrix on final source'},{pass:0,fail:1,notRun:0,allMandatoryAssertionsExecuted:false});
+  await internal('performance-evidence',()=>{
+    const measurements=[];
+    for(const id of ['unit','d1',...(mode==='extended'?['d1-stress-1','d1-stress-2']:[])]){
+      const metricPath=join(directory,id+'-artifacts/performance/d1-performance.json');
+      const report=validatePerformanceEvidence(readJson(metricPath));
+      cpSync(metricPath,join(directory,id+'-performance.json'));
+      measurements.push({suite:id,...report});
+    }
+    const browserMeasurements=mode==='quick'?[]:['v8','v9'].flatMap(id=>{
+      const report=readJson(join(directory,id,'results.json'));
+      if(!Array.isArray(report.performance)||!report.performance.length)throw new Error(`Missing browser performance evidence: ${id}`);
+      return report.performance.map(metric=>({suite:id,...metric}));
+    });
+    json(join(directory,'performance.json'),{measurements,browserMeasurements,limitations:['Local Miniflare and Playwright measurements only; no Cloudflare regional latency or billing measured','Binding calls and SQL statements are separate counts; all() retains row metadata for first() observation']});
+    return {pass:measurements.reduce((count,r)=>count+r.metrics.length,0)+browserMeasurements.length,fail:0,notRun:0,allMandatoryAssertionsExecuted:true};
+  });
+  await internal('source-integrity',()=>{
+    if(sha()!==startingSha||fingerprint(cwd)!==sourceFingerprint)throw new Error('Source changed during certification; rerun the complete matrix on final source');
+    return {pass:1,fail:0,notRun:0,allMandatoryAssertionsExecuted:true};
+  });
 }catch(e){record('orchestrator',{command:['node','scripts/certify-phase4.mjs'],startedAt,endedAt:new Date().toISOString(),durationMs:0,exitCode:1,error:String(e.stack??e)},{pass:0,fail:1,notRun:0,allMandatoryAssertionsExecuted:false});}
 finally {
   for(const id of expectedIds)if(!results.some(r=>r.suiteId===id))record(id,{command:[],startedAt,endedAt:new Date().toISOString(),durationMs:0,exitCode:null,error:interrupted?'Run interrupted':'Mandatory suite did not execute'},{pass:0,fail:0,notRun:1,allMandatoryAssertionsExecuted:false},{status:'NOT RUN'});
