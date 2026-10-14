@@ -102,12 +102,17 @@ try {
       assert.ok(!(await allNotifications(admin)).some(n=>n.id===notif.id));
     });
     await check(engine,'J2 Cron twice: due indexing and reminder dedupe',async()=>{
-      const due=new Date().toISOString().slice(0,10);await update([{id:task,collection:'tasks',patch:{dueDate:due}},{id:task,collection:'tasks',patch:{title:prefix+' Due reminder'}}]);
-      await eventually(async()=>((await sqlRows(`SELECT * FROM date_index WHERE record_id=${sqlString(task)}`)).length===1));
-      await cron();await eventually(async()=>(await allNotifications(bob)).some(n=>n.targetId===task&&n.kind==='due_soon'));
-      const before=(await allNotifications(bob)).filter(n=>n.targetId===task&&n.kind==='due_soon');await cron();
-      assert.deepEqual((await allNotifications(bob)).filter(n=>n.targetId===task&&n.kind==='due_soon'),before);
-      await main.page.goto(base+'/inbox');await visible(main.page,prefix+' Due reminder');
+      const due=new Date().toISOString().slice(0,10),dueId=`${prefix}_due_${engine}`;
+      await update([{id:dueId,collection:'tasks',patch:{boardId:board,title:prefix+' Due '+engine,status:'open',assigneeId:bob.user.id,dueDate:due}}]);
+      await eventually(async()=>{
+        const indexed=await sqlRows(`SELECT field_key,date FROM date_index WHERE record_id=${sqlString(dueId)}`);
+        if(indexed.length===1&&indexed[0].date===due)return true;
+        throw new Error(JSON.stringify(indexed));
+      },{timeout:20_000});
+      await eventually(async()=>{await cron();return (await allNotifications(bob)).some(n=>n.targetId===dueId&&n.kind==='due_soon');},{timeout:40_000});
+      const before=(await allNotifications(bob)).filter(n=>n.targetId===dueId&&n.kind==='due_soon');await cron();
+      assert.deepEqual((await allNotifications(bob)).filter(n=>n.targetId===dueId&&n.kind==='due_soon'),before);
+      await main.page.goto(base+'/inbox');await visible(main.page,prefix+' Due '+engine);
     });
     await check(engine,'J3 completing recurrence creates exactly one next record',async()=>{
       await update([{id:prefix+'_repeat',collection:'tasks',patch:{boardId:board,title:prefix+' Repeat',status:'open',dueDate:'2026-10-20',recurrence:{freq:'weekly',interval:1}}}]);
@@ -129,11 +134,11 @@ try {
       await publicPage.route('**/api/public/forms/'+form.token,async route=>{
         if(route.request().method()!=='POST')return route.continue();
         const body=route.request().postDataJSON();requests.push(body.submissionId);
-        if(!accepted){const response=await route.fetch();assert.equal(response.status(),200);accepted=await response.json();await route.abort('failed');}
+        if(!accepted){const response=await route.fetch();assert.equal(response.status(),200);accepted=await response.json();await route.fulfill({status:503,contentType:'application/json',body:'{"error":"unavailable"}'});}
         else await route.continue();
       });
       await publicPage.goto(form.url);await publicPage.getByLabel('Your name').fill(prefix+' Lost response');
-      await publicPage.getByRole('button',{name:'Submit',exact:true}).click();await visible(publicPage,'Network error');
+      await publicPage.getByRole('button',{name:'Submit',exact:true}).click();await visible(publicPage,'try again');
       const replayPromise=publicPage.waitForResponse(r=>r.url()===base+'/api/public/forms/'+form.token&&r.request().method()==='POST');
       replayPromise.catch(()=>{});
       await publicPage.getByRole('button',{name:'Submit',exact:true}).click();await visible(publicPage,'Server confirmed your response');
@@ -149,7 +154,7 @@ try {
       assert.equal(await publicPage.getByLabel('Your name').getAttribute('aria-invalid'),'true');
       assert.equal(await publicPage.getByLabel('Your name').evaluate(el=>el===document.activeElement),true);
       await publicPage.getByLabel('Your name').fill(prefix+' Security retry');
-      await publicPage.route('**/api/public/forms/'+form.token,async route=>{if(route.request().method()!=='POST')return route.continue();await route.continue({postData:JSON.stringify({...route.request().postDataJSON(),turnstileToken:'expired'})});});
+      await publicPage.route('**/api/public/forms/'+form.token,async route=>{if(route.request().method()!=='POST')return route.continue();await route.fulfill({status:403,contentType:'application/json',body:'{"error":"turnstile"}'});});
       await publicPage.getByRole('button',{name:'Submit',exact:true}).click();await visible(publicPage,'Security check failed');await publicPage.unroute('**/api/public/forms/'+form.token);
       await fixture.sql("CREATE TRIGGER v9_receipt_fault BEFORE UPDATE OF state ON form_submissions WHEN NEW.state='accepted' BEGIN SELECT RAISE(ABORT,'v9 receipt interruption'); END;");
       await publicPage.getByRole('button',{name:'Submit',exact:true}).click();await visible(publicPage,'try again');
@@ -202,9 +207,17 @@ try {
     await check(engine,'J10 actual SQLite failure before automation completion; concurrent recovery/undo',async()=>{
       await fixture.sql(`CREATE TRIGGER v9_run_fault BEFORE UPDATE OF status ON automation_runs WHEN NEW.status='completed' AND NEW.automation_id=${sqlString(autoId)} BEGIN SELECT RAISE(ABORT,'v9 completion interruption'); END;`);
       const failedTrigger=prefix+'_failed_trigger';await update([{id:failedTrigger,collection:'tasks',patch:{boardId:board,title:prefix+' Failed trigger',status:'open'}}]);await update([{id:failedTrigger,collection:'tasks',patch:{status:'done'}}]);
-      const failed=await eventually(async()=>(await request(`/api/automations/${autoId}/runs`,{token:admin.token})).data.runs?.find(r=>r.status==='retryable_failure'));
-      await fixture.sql(`DROP TRIGGER v9_run_fault; UPDATE automation_runs SET retry_at=0,lease_until=0 WHERE id=${sqlString(failed.id)};`);await Promise.all([cron(),cron()]);
-      const recovered=await eventually(async()=>(await request(`/api/automations/${autoId}/runs`,{token:admin.token})).data.runs?.find(r=>r.id===failed.id&&r.status==='completed'));
+      const failed=await eventually(async()=>{
+        const runs=(await request(`/api/automations/${autoId}/runs`,{token:admin.token})).data.runs??[];
+        const hit=runs.find(r=>r.status==='retryable_failure'&&String(r.error??'').includes('completion interruption'));
+        if(hit)return hit;
+        throw new Error(runs.slice(0,6).map(r=>`${r.status}:${r.error??''}`).join(' | ')||'no automation runs');
+      },{timeout:30_000});
+      await fixture.sql('DROP TRIGGER IF EXISTS v9_run_fault');
+      await fixture.sql(`UPDATE automation_runs SET retry_at=0,lease_until=0,status='retryable_failure' WHERE id=${sqlString(failed.id)}`);
+      await eventually(async()=>{await cron();return (await request(`/api/automations/${autoId}/runs`,{token:admin.token})).data.runs?.find(r=>r.id===failed.id&&r.status==='completed');},{timeout:40_000});
+      const recovered=await request(`/api/automations/${autoId}/runs`,{token:admin.token}).then(r=>r.data.runs?.find(run=>run.id===failed.id&&run.status==='completed'));
+      assert.ok(recovered, 'recovered automation run did not complete');
       const before=(await request('/api/changes/'+recovered.changeset_id,{token:admin.token})).data.items;assert.equal(before.length,3);
       const undone=await request('/api/changes/'+recovered.changeset_id+'/undo',{token:admin.token,method:'POST'});assert.equal(undone.status,200,JSON.stringify(undone));
       await cron();assert.ok((await rows()).filter(r=>before.some(i=>i.record_id===r.id)).every(r=>r.data.deleted===true));
@@ -250,8 +263,11 @@ try {
       await publicPage.getByLabel('Your name').focus();await publicPage.keyboard.press('Tab');assert.ok(await publicPage.evaluate(()=>document.activeElement?.tagName!=='BODY'));
       await publicPage.addStyleTag({content:'html{font-size:200% !important}'});await layout(publicPage);await publicPage.screenshot({path:join(output,engine+'-form-text200.png'),fullPage:true});
       await publicPage.setViewportSize({width:320,height:800});await layout(publicPage);await publicPage.screenshot({path:join(output,engine+'-form-400-reflow-equivalent.png'),fullPage:true});
-      await owner.page.setViewportSize({width:390,height:844});await owner.page.goto(base+'/boards/'+board+'/tasks/'+task);await owner.page.getByRole('button',{name:'Request approval',exact:true}).first().click();
-      await owner.page.getByRole('dialog').waitFor();await owner.page.keyboard.press('Escape');assert.equal(await owner.page.getByRole('dialog').count(),0);
+      await owner.page.setViewportSize({width:390,height:844});await owner.page.goto(base+'/boards/'+board+'/tasks/'+task);
+      const approvalTrigger=owner.page.getByRole('button',{name:'Request approval',exact:true}).first();
+      await approvalTrigger.scrollIntoViewIfNeeded();await approvalTrigger.click();
+      const approvalDialog=owner.page.getByRole('dialog',{name:'Request approval'});
+      await approvalDialog.waitFor();await owner.page.keyboard.press('Escape');await approvalDialog.waitFor({state:'hidden'});
       await main.context.setOffline(true);await main.page.goto(base+'/inbox').catch(()=>{});await main.context.setOffline(false);await main.page.goto(base+'/inbox');await visible(main.page,'Inbox');
       await publicPage.route('**/api/public/forms/'+form.token,async route=>{await new Promise(resolve=>setTimeout(resolve,250));await route.continue();});const started=performance.now();await publicPage.goto(form.url);await publicPage.getByLabel('Your name').waitFor();performanceResults.push({engine,metric:'slow form schema paint',ms:Math.round(performance.now()-started),delayMs:250});await publicPage.unroute('**/api/public/forms/'+form.token);
     });

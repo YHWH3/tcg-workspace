@@ -89,7 +89,9 @@ export async function verifyPlatformInteractions({ browser, engine, base, form, 
     const desktopPage = await desktopContext.newPage();
     await check(engine, 'platform desktop approval dialog keyboard semantics', async () => {
       await desktopPage.goto(taskUrl, { waitUntil: 'domcontentloaded' });
+      await desktopPage.getByText('Approvals', { exact: true }).first().waitFor({ timeout: 20_000 });
       const trigger = desktopPage.getByRole('button', { name: 'Request approval', exact: true }).first();
+      await trigger.scrollIntoViewIfNeeded().catch(() => {});
       await trigger.waitFor({ state: 'visible', timeout: 20_000 });
 
       // A task detail may already own a sheet/dialog. The new request dialog
@@ -151,6 +153,7 @@ export async function verifyPlatformInteractions({ browser, engine, base, form, 
     await check(engine, 'platform touch approval request tap and close', async () => {
       await touchPage.goto(taskUrl, { waitUntil: 'domcontentloaded' });
       const trigger = touchPage.getByRole('button', { name: 'Request approval', exact: true }).first();
+      await trigger.scrollIntoViewIfNeeded();
       await trigger.waitFor({ state: 'visible', timeout: 20_000 });
       const dialogs = touchPage.getByRole('dialog');
       const baselineDialogCount = await dialogs.count();

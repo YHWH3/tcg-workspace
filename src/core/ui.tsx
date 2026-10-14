@@ -345,19 +345,15 @@ function Overlay({
       }
       if (e.key === 'Tab' && surface && isTopLayer(layer.id)) {
         const f = focusables();
+        e.preventDefault();
         if (!f.length) {
-          e.preventDefault();
           surface.focus();
           return;
         }
-        const first = f[0];
-        const last = f[f.length - 1];
         const active = document.activeElement as HTMLElement | null;
-        const wrap = e.shiftKey ? active === first || !surface.contains(active) : active === last || !surface.contains(active);
-        if (wrap) {
-          e.preventDefault();
-          (e.shiftKey ? last : first).focus();
-        }
+        const index = active ? f.indexOf(active) : -1;
+        const next = f[(index + (e.shiftKey ? -1 : 1) + f.length) % f.length];
+        next.focus();
       }
     };
     document.addEventListener('keydown', onKey, true);

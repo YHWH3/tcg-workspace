@@ -43,6 +43,8 @@ an existing server. Local URLs reject remote hosts and embedded credentials.
 No deployment, merge, cloud resource creation or Git operation is part of the
 certification command.
 
+The acceptance run on `4611193` exited FAIL. v6 and v7 passed. v8 still fails the conversion related-record control. v9 still fails J10 recovery after a live SQLite trigger, plus WebKit form-error text and some desktop approval focus waits. Later edits are not part of that artifact. Do not treat that run, or an interrupted earlier run, as certification of a newer SHA.
+
 A successful exit requires every applicable mandatory stage and assertion.
 Suite throws, failed launch, timeout, signals, nonzero exit, empty JSON,
 malformed/truncated reports, missing assertions and mandatory NOT RUN prevent a

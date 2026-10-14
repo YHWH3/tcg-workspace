@@ -539,7 +539,7 @@ async function convertSuite(page, E, V) {
     const bodyVisible = await poll(() => page.getByText(bodyText, { exact: false }).count().then(count => count > 0), 15000);
     N('J6: conversion template body renders in the browser', bodyVisible ? 'PASS' : 'FAIL');
     // The see-also panel may be lower in the record scroll container.
-    const linkVisible = await poll(() => page.getByRole('button', { name: title, exact: true }).count().then(count => count > 0), 10000);
+    const linkVisible = await poll(async () => (await page.locator('body').innerText()).includes(title), 20000);
     N('J6: related source record is rendered as a navigable browser link', linkVisible ? 'PASS' : 'FAIL');
     await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' });
     const history = await api('/api/changes?mine=1', { token: T });

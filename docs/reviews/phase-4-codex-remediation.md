@@ -179,3 +179,24 @@ The scratch logs from the earlier pass were not kept. These commands were run ag
 - `npm run build`: PASS.
 
 No production deploy was run. Draft PR #4 stays unmerged.
+
+## Certification run on `4611193` — FAIL
+
+Command: `npm run certify:phase4` from `/Users/trinity/Desktop/notion mock`. The orchestrator owned a fresh disposable local D1 and Worker. Artifact:
+
+`.artifacts/certification/4611193ccdb58386b4d479726aa409f9144162c9-2026-10-14T08-09-12-634Z-complete/`
+
+Decision: **FAIL**. Starting and tested SHA: `4611193ccdb58386b4d479726aa409f9144162c9`. Source fingerprint: `18612985b25be37f819444fef801ac38754fae0fddf91446ef09517443f2e75e`. 2026-10-14T08:09:12Z to 2026-10-14T08:24:19Z. This does not certify later uncommitted runner edits.
+
+Passed: prerequisites, dependencies, lockfile, whitespace, migrations (10), harness (53), typecheck, unit (617), build, actual D1 (136), security (reviewed MCP OAuth-client exception, production release still blocked), browsers (Chromium, Firefox, and WebKit), smoke (44), MCP base (71), multiuser (59), phase 1 (37), phase 2 (113), phase 3 (64), phase 4 (41), v4 (33), v6 (150), v7 (114).
+
+Failed:
+
+- v8: 139 PASS / 1 FAIL / 3 external NOT RUN. The failure is `J6: related source record is rendered as a navigable browser link` on Chromium desktop. The conversion backlink is stored; the destination page did not show the source title within the wait.
+- v9: 54 PASS / 12 FAIL on that commit. J10 did not observe the interrupted automation run return to `completed` after the SQLite trigger was dropped. WebKit missed the lost-response and security-check form messages. Firefox and WebKit desktop did not focus `Request approval` within 30s. A later standalone Chromium rerun passed that desktop dialog check.
+
+External gates remain NOT RUN: physical iPhone/iPad Safari, physical Android, manual assistive technology, and native 400% zoom. Automated 320px reflow is not native zoom.
+
+The three remaining high npm audit entries are the reviewed `@modelcontextprotocol/client` OAuth advisory propagated through Agents/SDK packages. Raw audit output is in the artifact. No `npm audit fix` and no peer override was applied. The exception does not certify production release.
+
+C14–C15 are in the passing unit and D1 suites. C16 is the fail-closed runner, covered by the 53 harness selftests in this run. C17–C19 are the automation, upload, and form-recovery fixes in `5357960`. C20 is the 100-row reminder fixture batch, covered by the passing D1 suite.
