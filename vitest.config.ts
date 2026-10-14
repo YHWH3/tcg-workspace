@@ -7,5 +7,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // Several files start a real Workerd/D1 runtime. Bound local concurrency
+    // so fixture RPCs do not compete with one runtime per available CPU.
+    maxWorkers: 2,
   },
 });

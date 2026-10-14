@@ -26,6 +26,8 @@ changes or an unattended extended run. No hook or launchd schedule is enabled.
 Startup/SQL have separate bounded limits in the disposable fixture utility.
 Independent later suites continue after an assertion failure. A failed build
 marks dependent integrations NOT RUN; they never silently reuse old output.
+Vitest uses at most two workers because the actual-D1 files each start Workerd;
+this limits competing fixture RPCs while preserving the complete test matrix.
 
 Each invocation creates `.artifacts/certification/<starting-SHA>-<UTC-time>-<mode>/`.
 The ignored folder holds JSON and Markdown summaries, exact commands and exit
