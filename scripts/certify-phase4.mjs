@@ -42,6 +42,7 @@ function record(id,commandResult,evidence={},extra={}) {
   const failed=command.error||evidence.validationError||evidence.fail||evidence.notRun||evidence.allMandatoryAssertionsExecuted===false;
   const row={suiteId:id,...command,warnings,startingCommitSha:startingSha,finalTestedSourceSha:startingSha,sourceFingerprint,os:environment.os,node:environment.node,browserVersions:evidence.browserVersions??{},pass:evidence.pass??(failed?0:1),fail:evidence.fail??(failed?1:0),notRun:evidence.notRun??0,allMandatoryAssertionsExecuted:evidence.allMandatoryAssertionsExecuted??!failed,assertions:evidence.results??[],securityAssessment:evidence.securityAssessment??null,status:failed?'FAIL':'PASS',errorSummary:command.error??evidence.validationError??(failed?'Required assertion failed or did not execute':null),...extra};
   row.fixtureId ??= /^(unit|d1(?:-stress-\d+)?)$/.test(id)?`isolated-miniflare:${startingSha}:${id}`:'not-applicable';
+  row.artifactPath = directory;
   results.push(row);console.log(`[${row.status}] ${id}: ${row.pass} PASS / ${row.fail} FAIL / ${row.notRun} NOT RUN (${(row.durationMs/1000).toFixed(1)}s)`);persist();return row;
 }
 async function stage(id,command,{adapter,env={},fixtureId,timeoutMs=timeout}={}) {
