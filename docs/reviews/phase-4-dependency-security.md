@@ -1,5 +1,13 @@
 # Phase 4 dependency security review
 
+**2026-10-15 security branch update:** the coordinated Agents 0.28.1 / SDK
+1.32.1 / client-server-core 2.3.1 upgrade eliminates the advisory (raw audit
+0 vulnerabilities). The former classifier exception is removed on that branch.
+See [security clearance](phase-4-security-clearance.md) for the call graph,
+synthetic issuer reproduction, compatibility and final-run evidence contract.
+The sections below preserve the historical `f176247` baseline assessment; they
+do not describe the security branch as still requiring the exception.
+
 Reviewed on 2026-10-14 against the installed lockfile. Certification captures the
 current `npm audit --json` output rather than treating this document as a live
 vulnerability count. No `npm audit fix`, forced peer override, or production

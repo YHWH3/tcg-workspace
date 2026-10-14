@@ -240,6 +240,7 @@ function Attachments({ task, files, images, audios, videos, others, coverId, onL
   return (
     <div className="mt-5">
       <span className="mb-2 block text-xs font-semibold text-neutral-500 dark:text-neutral-400">Attachments · {files.length}</span>
+      <p className="mb-2 text-xs text-neutral-500">Deleted attachments cannot be restored. Keep another copy before deleting.</p>
       {images.length > 0 && (
         <div className="grid grid-cols-3 gap-1.5">
           {images.map((f) => (

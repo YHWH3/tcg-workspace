@@ -33,6 +33,7 @@ export async function verifyIntegrityBrowser({browserType,engine,base,admin,fixt
  try {
   await run('INT-01 offline attachment deletion survives browser restart and reclaims D1 quota',async()=>{
    let page=await start();await page.goto(`${base}/boards/${work}/tasks/${task}`);await page.getByRole('button',{name:'Delete image',exact:true}).waitFor();
+   assert.equal(await page.getByText('Deleted attachments cannot be restored. Keep another copy before deleting.',{exact:true}).isVisible(),true);
    await context.setOffline(true);await page.getByRole('button',{name:'Delete image',exact:true}).click();
    await page.getByRole('button',{name:'Delete image',exact:true}).waitFor({state:'hidden'});
    await context.close();context=null;
@@ -50,7 +51,12 @@ export async function verifyIntegrityBrowser({browserType,engine,base,admin,fixt
    await page.getByLabel('Database menu',{exact:true}).click();await context.setOffline(true);
    await page.getByRole('button',{name:'Archive database',exact:true}).click();
    await page.getByRole('button',{name:'Unarchive',exact:true}).waitFor();
-   await context.setOffline(false);await page.getByRole('button',{name:'Unarchive',exact:true}).click();
+   await context.setOffline(false);
+   // Discover and reopen via the normal Archived sidebar section, rather than a saved route.
+   await page.setViewportSize({width:1440,height:1000});await page.goto(`${base}/boards`);
+   await page.getByText('Archived',{exact:true}).first().waitFor();
+   await page.getByRole('button',{name:prefix+' People',exact:false}).first().click();
+   await page.getByRole('button',{name:'Unarchive',exact:true}).click();
    await eventually(async()=>{const r=await rows();return r.find(r=>r.id===board)?.data.archived===false;},{timeout:30000});
    const person=(await rows()).find(r=>r.id===personId);assert.equal(person.data.boardId,board);assert.equal(person.data.p_email,'fixture@example.invalid');
    await page.screenshot({path:join(output,engine+'-INT-02.png')});await page.close();
