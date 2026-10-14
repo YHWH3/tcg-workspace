@@ -8,6 +8,7 @@
 //
 // Usage: node scripts/verify-v7.mjs            — full run (servers managed)
 //        node scripts/verify-v7.mjs --no-spawn — reuse a wrangler dev already up
+import { readAccountStore } from './certification/browser-db.mjs';
 import { createCertificationReporter, localOrigin } from './certification-report.mjs';
 const suiteManifest = {"chromium": {"desktop": ["canvasSuite", "modeSuite", "offlineSuite", "multiUserSuite", "undoSuite", "publicShareSuite", "viewsSuite", "perfSuite"], "compact": ["compactSuite", "viewsSuite"], "tablet": ["viewsSuite"]}, "firefox": {"desktop": ["coreSubset", "publicShareSuite"], "compact": ["compactSuite"]}, "webkit": {"desktop": ["coreSubset", "publicShareSuite"], "compact": ["compactSuite"]}};
 const requestedEngines = process.argv.find(a => a.startsWith('--only='))?.slice(7).split(',') ?? ['chromium', 'firefox', 'webkit'];
@@ -221,33 +222,9 @@ if (sr.status !== 200) { console.log('FATAL: seed push failed', sr.status, JSON.
 console.log('seeded fixture pushed');
 
 /* ---------------- page helpers ---------------- */
-const dexieDb = (page, uid) =>
-  page.evaluate(async (u) => {
-    const db = await new Promise((res, rej) => { const r = indexedDB.open(`workspace-${u}`); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    return db;
-  }, uid);
-
-const dexieGet = (page, table, id, uid) =>
-  page.evaluate(async ([t, i, u]) => {
-    const db = await new Promise((res, rej) => { const r = indexedDB.open(`workspace-${u}`); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    if (!db.objectStoreNames.contains(t)) return null;
-    return await new Promise((res) => {
-      const tx = db.transaction(t, 'readonly').objectStore(t).get(i);
-      tx.onsuccess = () => res(tx.result ?? null);
-      tx.onerror = () => res(null);
-    });
-  }, [table, id, uid]).catch(() => null);
-
-const dexieAll = (page, table, uid, filter) =>
-  page.evaluate(async ([t, u, f]) => {
-    const db = await new Promise((res, rej) => { const r = indexedDB.open(`workspace-${u}`); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    if (!db.objectStoreNames.contains(t)) return [];
-    return await new Promise((res) => {
-      const tx = db.transaction(t, 'readonly').objectStore(t).getAll();
-      tx.onsuccess = () => res(tx.result.filter((r) => !f || eval(f)(r)));
-      tx.onerror = () => res([]);
-    });
-  }, [table, uid, filter ? `(${filter})` : null]).catch(() => []);
+// Never open an absent/legacy IndexedDB name: the application owns schema creation.
+const dexieGet = (page, table, id, uid) => readAccountStore(page, table, { id, userId: uid });
+const dexieAll = (page, table, uid, filter) => readAccountStore(page, table, { userId: uid, filter: filter ? Function(`return (${filter})`)() : undefined });
 
 const boardItems = (page, uid, boardId) => dexieAll(page, 'mooditems', uid, `i => i.boardId === '${boardId}' && !i.deleted`);
 

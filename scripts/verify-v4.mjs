@@ -108,7 +108,8 @@ for (let i = 0; i < 20; i++) {
     break;
   }
 }
-check(`B sees A's edit via instant sync (~${Date.now() - t1}ms)`, seen);
+check("B sees A's edit via instant sync", seen);
+console.log(`  instant sync latency ~${Date.now() - t1}ms`);
 check("the 'changed' poke reached B's client", sawChanged && changedBefore !== undefined);
 
 // ---------- 2. moodboard ----------

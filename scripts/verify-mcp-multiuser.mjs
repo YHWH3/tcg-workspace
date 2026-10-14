@@ -109,9 +109,9 @@ const clientId = dcr.data.client_id;
 check('DCR client registered', !!clientId, dcr.text.slice(0, 160));
 
 const tokenA = await grantFor(clientId, USER_A);
-check(`OAuth grant for ${USER_A}`, !!tokenA);
+check('OAuth grant for user A', !!tokenA);
 const tokenB = await grantFor(clientId, USER_B);
-check(`OAuth grant for ${USER_B}`, !!tokenB);
+check('OAuth grant for user B', !!tokenB);
 
 const A = await mcpClient(tokenA, 'verify-A');
 const B = await mcpClient(tokenB, 'verify-B');

@@ -246,7 +246,7 @@ const pagesAfter = allAfterPack.filter((r) => r.collection === 'pages' && r.data
 // oracle = the pack's own dryRun preview (authored views may be fewer than the
 // brief's 50 when views sit on reused dbs and are intentionally not re-written)
 const dryViews = typeof dry?.views === 'number' ? dry.views : 50;
-check(`pack pages (≥30 incl. dashboards) + views (≥${dryViews} per preview) landed`, pagesAfter.length - rowsBefore.filter((r) => r.collection === 'pages').length >= 30 && viewsAfter.length >= dryViews, `pages+${pagesAfter.length - rowsBefore.filter((r) => r.collection === 'pages').length} views=${viewsAfter.length}`);
+check('pack pages (≥30 incl. dashboards) + preview-required views landed', pagesAfter.length - rowsBefore.filter((r) => r.collection === 'pages').length >= 30 && viewsAfter.length >= dryViews, `pages+${pagesAfter.length - rowsBefore.filter((r) => r.collection === 'pages').length} views=${viewsAfter.length}`);
 check('pack install staged >400 writes in one call (chunking respected)', allAfterPack.length - rowsBefore.length >= 400, `newRows=${allAfterPack.length - rowsBefore.length}`);
 
 const pk2 = j(await call('install_template', { bundled: 'tcg-pack' }));

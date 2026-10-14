@@ -8,6 +8,7 @@
 // Usage: node scripts/verify-v8.mjs              — full run (servers managed)
 //        node scripts/verify-v8.mjs --no-spawn   — reuse a wrangler dev on :8788
 //        node scripts/verify-v8.mjs --only=chromium
+import { readAccountStore } from './certification/browser-db.mjs';
 import { createCertificationReporter, localOrigin } from './certification-report.mjs';
 const suiteManifest = {"chromium": {"desktop": ["installSuite", "dashboardSuite", "reviewSuite", "convertSuite", "archiveSuite", "fieldOpsSuite", "failureSuite", "perfSuite"], "compact": ["archiveSuite-compact", "reviewSuite-compact", "fieldOpsSuite-compact"], "tablet": ["archiveSuite-tablet"], "320px": ["archiveSuite-320"]}, "firefox": {"desktop": ["fieldOpsSuite", "archiveSuite", "reviewSuite", "perfSuite"], "compact": ["fieldOpsSuite-compact", "archiveSuite-compact"]}, "webkit": {"desktop": ["fieldOpsSuite", "archiveSuite", "reviewSuite", "perfSuite"], "compact": ["fieldOpsSuite-compact", "archiveSuite-compact"]}};
 const requestedEngines = process.argv.find(a => a.startsWith('--only='))?.slice(7).split(',') ?? ['chromium', 'firefox', 'webkit'];
@@ -214,38 +215,9 @@ for (let i = 0; i < seed.length; i += 400) {
 console.log(`seeded fixture pushed (${seed.length} rows incl. ${PERF_N} perf)`);
 
 /* ---------------- page helpers ---------------- */
-// NOTE: open() without a version creates an EMPTY v1 db in fresh contexts and an
-// unclosed connection would block the app's own Dexie schema upgrade (deadlock).
-// So: check existence via indexedDB.databases(), and always close().
-const dexieGet = (page, table, id, uid) =>
-  page.evaluate(async ([t, i, u]) => {
-    const meta = (await indexedDB.databases?.()) ?? [];
-    if (!meta.some((d) => d.name === `workspace-${u}`)) return null;
-    const db = await new Promise((res, rej) => { const r = indexedDB.open(`workspace-${u}`); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    try {
-      if (!db.objectStoreNames.contains(t)) return null;
-      return await new Promise((res) => {
-        const tx = db.transaction(t, 'readonly').objectStore(t).get(i);
-        tx.onsuccess = () => res(tx.result ?? null);
-        tx.onerror = () => res(null);
-      });
-    } finally { db.close(); }
-  }, [table, id, uid]).catch(() => null);
-
-const dexieAll = (page, table, uid, filter) =>
-  page.evaluate(async ([t, u, f]) => {
-    const meta = (await indexedDB.databases?.()) ?? [];
-    if (!meta.some((d) => d.name === `workspace-${u}`)) return [];
-    const db = await new Promise((res, rej) => { const r = indexedDB.open(`workspace-${u}`); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    try {
-      if (!db.objectStoreNames.contains(t)) return [];
-      return await new Promise((res) => {
-        const tx = db.transaction(t, 'readonly').objectStore(t).getAll();
-        tx.onsuccess = () => res(tx.result.filter((r) => !f || eval(f)(r)));
-        tx.onerror = () => res([]);
-      });
-    } finally { db.close(); }
-  }, [table, uid, filter ? `(${filter})` : null]).catch(() => []);
+// Never open an absent/legacy IndexedDB name: the application owns schema creation.
+const dexieGet = (page, table, id, uid) => readAccountStore(page, table, { id, userId: uid });
+const dexieAll = (page, table, uid, filter) => readAccountStore(page, table, { userId: uid, filter: filter ? Function(`return (${filter})`)() : undefined });
 
 const poll = async (fn, timeoutMs = 10000, step = 400) => {
   const t0 = Date.now();
@@ -548,7 +520,7 @@ async function convertSuite(page, E, V) {
   const seeded = await push(T, [
     { id: sourceId, collection: 'tasks', patch: { boardId: DB_OBS, title, status: 'logged', description: 'Conversion description checkpoint' } },
     { id: templateId, collection: 'pages', patch: { title: 'Conversion fixture template', isTemplate: true, order: 'c0' } },
-    { id: templateId + '_block', collection: 'blocks', patch: { pageId: templateId, type: 'paragraph', text: bodyText, order: 'a0' } },
+    { id: templateId + '_block', collection: 'blocks', patch: { pageId: templateId, type: 'p', text: bodyText, order: 'a0' } },
   ]);
   assert.equal(seeded.status, 200, 'conversion fixture must persist');
   const mcp = await connectFixtureMcp(BASE, { password: PASS, name: 'V8 conversion certification' });
@@ -570,7 +542,10 @@ async function convertSuite(page, E, V) {
     const linkVisible = await poll(() => page.getByRole('button', { name: title, exact: true }).count().then(count => count > 0), 10000);
     N('J6: related source record is rendered as a navigable browser link', linkVisible ? 'PASS' : 'FAIL');
     await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' });
-    const changeRow = page.locator('section').filter({ hasText: 'Recent AI changes' }).locator('li').filter({ hasText: 'convert_record' }).first();
+    const history = await api('/api/changes?mine=1', { token: T });
+    const changeIndex = history.data?.changesets?.findIndex(change => change.id === converted.changesetId);
+    assert.ok(changeIndex >= 0, 'original conversion change set missing from current history');
+    const changeRow = page.locator('section').filter({ hasText: 'Recent AI changes' }).locator('li').nth(changeIndex);
     await changeRow.getByRole('button', { name: 'Undo', exact: true }).waitFor({ timeout: 15000 });
     await changeRow.getByRole('button', { name: 'Undo', exact: true }).click();
     const confirmation = page.locator('div').filter({ has: page.getByText('Undo this change set?', { exact: true }) }).last();
@@ -742,31 +717,45 @@ async function failureSuite(browser, page, E, V) {
 
 /* ==================== perf ==================== */
 async function perfSuite(page, E, V) {
-  // table render over the 1100-row db (row titles are input values, not text)
+  const N = (check, ok, detail) => note(E, V, check, ok ? 'PASS' : 'FAIL', ok ? null : detail);
   let t0 = Date.now();
   await page.goto(`${BASE}/boards/${DB_PERF}`, { waitUntil: 'domcontentloaded' });
-  await poll(async () => page.evaluate(() =>
+  const firstVisible = await poll(async () => page.evaluate(() =>
     [...document.querySelectorAll('input')].some((i) => (i.value ?? '').includes('Perf row 0')) ||
     document.body.innerText.includes('Perf row 0'),
   ), 30000, 500);
-  markPerf('records db open→first row (1100 rows)', E, V, Date.now() - t0);
-  // sync timings via REST (server-side truth)
+  const openMs = Date.now() - t0;
+  markPerf('records db open→first row (1100 rows)', E, V, openMs, firstVisible ? 'visible' : 'missing');
+  N('J-perf: 1100-row database paints its first row', firstVisible, `first row was not visible after ${openMs}ms`);
+
   t0 = Date.now();
-  const chunk = Array.from({ length: 400 }, (_, i) => ({ id: `v8_perfpush_${i}`, collection: 'tasks', patch: { boardId: DB_PERF, title: `push ${i}`, status: 'open', order: `zz${i}`, createdAt: Date.now() } }));
+  const chunk = Array.from({ length: 400 }, (_, i) => ({ id: `v8_perfpush_${E}_${i}`, collection: 'tasks', patch: { boardId: DB_PERF, title: `push ${E} ${i}`, status: 'open', order: `zz${i}`, createdAt: Date.now() } }));
   const pr = await push(T, chunk);
-  markPerf('sync push 400 records', E, V, Date.now() - t0, `status=${pr.status}`);
+  const pushMs = Date.now() - t0;
+  markPerf('sync push 400 records', E, V, pushMs, `status=${pr.status}`);
+  N('J-perf: 400-record sync push is accepted', pr.status === 200, `push status ${pr.status} after ${pushMs}ms`);
+
   t0 = Date.now();
   const all = await pullAll(T);
-  markPerf(`sync pull since=0 (${all.length} rows)`, E, V, Date.now() - t0);
-  const maxSeq = Math.max(...all.map((r) => r.seq ?? 0));
+  const pullMs = Date.now() - t0;
+  const perfRows = all.filter(row => row.collection === 'tasks' && row.data?.boardId === DB_PERF && row.data?.deleted !== true);
+  markPerf(`sync pull since=0 (${all.length} rows)`, E, V, pullMs, `perfRows=${perfRows.length}`);
+  N('J-perf: full pull contains the 1100 seeded rows and the 400-row push', perfRows.length >= PERF_N + 400, `pulled ${perfRows.length} performance rows in ${pullMs}ms`);
+
+  const maxSeq = all.reduce((max, row) => Math.max(max, row.seq ?? 0), 0);
   t0 = Date.now();
-  await api(`/api/sync/pull?since=${maxSeq}`, { token: T });
-  markPerf('sync pull incremental (no-op)', E, V, Date.now() - t0);
-  // navigation between dashboard page and the big db
+  const incremental = await api(`/api/sync/pull?since=${maxSeq}`, { token: T });
+  const idleMs = Date.now() - t0;
+  const idleRows = incremental.data?.records?.length ?? -1;
+  markPerf('sync pull incremental (no-op)', E, V, idleMs, `status=${incremental.status} rows=${idleRows}`);
+  N('J-perf: incremental pull after the cursor returns no new rows', incremental.status === 200 && idleRows === 0, `status ${incremental.status}, rows ${idleRows}, ${idleMs}ms`);
+
   t0 = Date.now();
   await page.goto(`${BASE}/boards`, { waitUntil: 'domcontentloaded' });
-  await poll(() => page.locator('text=Perf Records').count().then((c) => c > 0), 15000);
-  markPerf('boards index navigation', E, V, Date.now() - t0);
+  const listed = await poll(() => page.locator('text=Perf Records').count().then((c) => c > 0), 15000);
+  const navMs = Date.now() - t0;
+  markPerf('boards index navigation', E, V, navMs, listed ? 'listed' : 'missing');
+  N('J-perf: boards index lists the 1100-row database', listed, `Perf Records was not listed after ${navMs}ms`);
 }
 
 /* ==================== MATRIX ==================== */

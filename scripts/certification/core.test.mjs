@@ -33,3 +33,15 @@ for(const injection of ['throw','launch','timeout','fixture','startup','child','
   const resultPath=join(dir,`v6-${injection}.json`);const r=await runCommand([process.execPath,'scripts/verify-v6.mjs','--no-spawn'],{timeoutMs:30000,env:{CERT_RUNNER_INJECT:injection,CERT_RESULT_PATH:resultPath,CERT_SOURCE_SHA:'test-sha'}});
   assert.notEqual(r.exitCode,0);const evidence=JSON.parse(readFileSync(resultPath));assert.ok(evidence.results.some(x=>x.status==='FAIL'&&(x.engine==='chromium'&&x.viewport==='desktop'||['fixture','startup','child','empty'].includes(injection)&&x.engine==='system')&&x.error));assert.equal(evidence.status,'FAIL');
 });
+
+test('detached descendant is supervised and removed after parent crash',async()=>{
+  const pidFile=join(dir,'detached.pid');
+  const r=await child(`const {spawn}=require('node:child_process');const {writeFileSync}=require('node:fs');const c=spawn(process.execPath,['-e','setInterval(()=>{},100)'],{stdio:'ignore',detached:true});writeFileSync(${JSON.stringify(pidFile)},String(c.pid));setTimeout(()=>process.kill(process.pid,'SIGKILL'),350)`);
+  assert.equal(r.signal,'SIGKILL');assert.ok(r.error);const pid=Number(readFileSync(pidFile));assert.throws(()=>process.kill(pid,0),/ESRCH/);
+});
+
+test('immediate successful parent exit cannot orphan a detached Node child',async()=>{
+  const pidFile=join(dir,'immediate-detached.pid');
+  const r=await child(`const {spawn}=require('node:child_process');const {writeFileSync}=require('node:fs');const c=spawn(process.execPath,['-e','setInterval(()=>{},100)'],{stdio:'ignore',detached:true});writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref();process.exit(0)`);
+  assert.equal(r.exitCode,0);assert.equal(r.error,null);const pid=Number(readFileSync(pidFile));assert.throws(()=>process.kill(pid,0),/ESRCH/);
+});

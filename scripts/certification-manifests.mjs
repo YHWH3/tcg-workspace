@@ -1,7 +1,9 @@
-// Mandatory assertion names from the established legacy suites. Update when adding assertions.
+// Mandatory assertion names from established legacy suites, including loop-expanded checks.
+// Update this explicit manifest when intentionally adding or removing assertions.
 export const assertionManifests = {
   "verify-v4": [
     "B's presence avatar on A's page <8s",
+    "B sees A's edit via instant sync",
     "the 'changed' poke reached B's client",
     "note item added",
     "color item added",
@@ -76,6 +78,7 @@ export const assertionManifests = {
     "create_page",
     "app login for UI",
     "authorize page screenshots",
+    "live poke: new task visible without reload",
     "field chips render on cards",
     "task detail shows property rows",
     "Fields editor opens",
@@ -85,10 +88,31 @@ export const assertionManifests = {
     "\"From template\" lists the template",
     "instantiated page opens",
     "token with deleted user → 401",
-    "restored user can log in again"
+    "restored user can log in again",
+    "tool search registered",
+    "tool fetch registered",
+    "tool workspace_overview registered",
+    "tool get_page registered",
+    "tool create_page registered",
+    "tool edit_page registered",
+    "tool get_board registered",
+    "tool create_board registered",
+    "tool update_board registered",
+    "tool create_tasks registered",
+    "tool update_tasks registered",
+    "tool get_task registered",
+    "tool create_moodboard registered",
+    "tool add_mood_items registered",
+    "tool add_comment registered",
+    "tool publish_page registered",
+    "tool create_from_template registered",
+    "tool delete_item registered",
+    "tool restore_item registered"
   ],
   "verify-mcp-multiuser": [
     "DCR client registered",
+    "OAuth grant for user A",
+    "OAuth grant for user B",
     "both MCP clients connected",
     "resolved user ids",
     "all 20 interleaved create_page calls succeed",
@@ -318,6 +342,7 @@ export const assertionManifests = {
     "people+organizations NOT duplicated by pack install (reuse)",
     "People/Orgs boards resolve to single live ids",
     "Projects relation targets remapped to live ids (no db_* leak)",
+    "pack pages (≥30 incl. dashboards) + preview-required views landed",
     "pack install staged >400 writes in one call (chunking respected)",
     "second tcg-pack install → alreadyInstalled:true",
     "reinstall did not duplicate any database",
@@ -354,7 +379,16 @@ export const assertionManifests = {
     "bob pre-existing page unaffected by admin install/archive",
     "bob MCP write works on shared workspace",
     "bob write attributed to bob (createdBy), not admin",
-    "bob archive_item on own page scoped correctly"
+    "bob archive_item on own page scoped correctly",
+    "prompt registered: weekly_operating_review",
+    "prompt weekly_operating_review instructs pulling real data (query_records/list tools)",
+    "prompt weekly_operating_review forbids inventing metrics",
+    "prompt registered: project_review",
+    "prompt project_review instructs pulling real data (query_records/list tools)",
+    "prompt project_review forbids inventing metrics",
+    "prompt registered: field_notes_to_log",
+    "prompt field_notes_to_log instructs pulling real data (query_records/list tools)",
+    "prompt field_notes_to_log forbids inventing metrics"
   ],
   "verify-mcp-phase4": [
     "admin session available",
@@ -394,6 +428,9 @@ export const assertionManifests = {
     "automation create_record action lands a unique child",
     "automation run exposes an auditable automation change set",
     "automation change set can be undone through MCP",
-    "automation undo removes its created child"
+    "automation undo removes its created child",
+    "approval tool discovered: request_approval",
+    "approval tool discovered: list_approvals",
+    "approval tool discovered: decide_approval"
   ]
 };

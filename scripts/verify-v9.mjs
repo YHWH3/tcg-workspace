@@ -13,7 +13,7 @@ import {mkdtempSync,writeFileSync,mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {chromium,firefox,webkit} from 'playwright';
-import {startFixture,bootstrap,api,push,pull,eventually} from './phase4-fixture.mjs';
+import {startFixture,managedFixtureFromEnvironment,bootstrap,api,push,pull,eventually} from './phase4-fixture.mjs';
 import {verifyPlatformInteractions} from './phase4-platform-checks.mjs';
 
 const output=process.env.CERT_ARTIFACT_DIR ?? mkdtempSync(join(tmpdir(),'tcg-phase4-v9-'));
@@ -21,7 +21,7 @@ mkdirSync(output,{recursive:true});
 const results=[],performanceResults=[],browsers={chromium,firefox,webkit};
 const selected=process.argv.find(a=>a.startsWith('--only='))?.split('=')[1];
 if(selected&&!browsers[selected]) throw new Error('Unknown browser engine');
-const fixture=await startFixture({port:Number(process.env.CERT_FIXTURE_PORT ?? 8799),build:!process.argv.includes('--skip-build'),artifactDirectory:process.env.CERT_ARTIFACT_DIR});
+const fixture=process.env.CERT_MANAGED_FIXTURE === '1' && process.env.PHASE4_FIXTURE_CONFIG ? managedFixtureFromEnvironment() : await startFixture({port:Number(process.env.CERT_FIXTURE_PORT ?? 8799),build:!process.argv.includes('--skip-build'),artifactDirectory:process.env.CERT_ARTIFACT_DIR});
 const {base}=fixture,{admin,bob}=await bootstrap(base);
 const request=(path,opts={})=>api(base,path,opts);
 const update=changes=>push(base,admin.token,changes);

@@ -333,7 +333,7 @@ const appeared = await ui
   .waitForSelector('text=LIVE-POKE TASK', { timeout: 6000 })
   .then(() => true)
   .catch(() => false);
-check(`live poke: new task visible in ~${Date.now() - t0}ms without reload`, appeared);
+check('live poke: new task visible without reload', appeared, `latency=${Date.now() - t0}ms`);
 
 // field chips render on a card
 await ui.locator('[data-task-card]').first().waitFor({ timeout: 8000 });

@@ -6,7 +6,8 @@ export const localOrigin = (value) => {
   if (url.protocol !== 'http:' || !['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname) || !['', '/'].includes(url.pathname) || url.username || url.password || url.search || url.hash) throw new Error('Certification requires a loopback HTTP origin');
   return url.origin;
 };
-const details = error => error == null ? null : { message: String(error?.message ?? error), ...(error?.stack ? { stack: String(error.stack) } : {}) };
+export const redactCertification = text => String(text).replace(/(\"(?:access_token|refresh_token|token|password|client_secret|inviteCode|handle)\"\s*:\s*\")[^\"]*/gi, '$1[REDACTED]').replace(/Bearer\s+[A-Za-z0-9_.-]+/gi, 'Bearer [REDACTED]').replace(/([?&](?:code|token|access_token|refresh_token|client_secret)=)[^&\s\"']+/gi, '$1[REDACTED]');
+const details = error => error == null ? null : { message: redactCertification(error?.message ?? error), ...(error?.stack ? { stack: redactCertification(error.stack) } : {}) };
 const safe = value => String(value).replace(/[^a-zA-Z0-9_.-]+/g, '-').slice(0, 120);
 
 /** Explicit suite completion markers prevent a partial console transcript from certifying a run. */

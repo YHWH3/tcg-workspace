@@ -8,7 +8,8 @@
 //
 // Usage: node scripts/verify-v6.mjs            — full run (servers managed)
 //        node scripts/verify-v6.mjs --no-spawn — reuse servers already up
-import { captureBrowserArtifacts, localOrigin } from './certification-report.mjs';
+import { readAccountStore } from './certification/browser-db.mjs';
+import { captureBrowserArtifacts, localOrigin, redactCertification } from './certification-report.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -54,10 +55,10 @@ let stoppingOwned = false;
 
 const errorDetails = (error) => {
   if (!error) return null;
-  if (typeof error === 'string') return { message: error };
+  if (typeof error === 'string') return { message: redactCertification(error) };
   return {
-    message: String(error?.message ?? error),
-    ...(error?.stack ? { stack: String(error.stack) } : {}),
+    message: redactCertification(error?.message ?? error),
+    ...(error?.stack ? { stack: redactCertification(error.stack) } : {}),
     ...(error?.code ? { code: String(error.code) } : {}),
   };
 };
@@ -321,16 +322,8 @@ const viewports = [
   ['compact', { width: 390, height: 844, hasTouch: true }],
 ];
 
-/** Read a Dexie row inside the page. */
-const dexieGet = (page, table, id) =>
-  page.evaluate(async ([t, i]) => {
-    const db = await new Promise((res, rej) => { const r = indexedDB.open('workspace'); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    return await new Promise((res) => {
-      const tx = db.transaction(t, 'readonly').objectStore(t).get(i);
-      tx.onsuccess = () => res(tx.result ?? null);
-      tx.onerror = () => res(null);
-    });
-  }, [table, id]);
+/** Reads are scoped to the authenticated fixture's database. */
+const dexieGet = (page, table, id) => readAccountStore(page, table, { id, userId: admin.user.id });
 
 async function loginPage(context, user) {
   const page = await context.newPage();
@@ -418,13 +411,7 @@ async function runSuite(engineName, engine, viewportName, vp) {
       });
       await sleep(600);
     }
-    const links = await page.evaluate(async (fid) => {
-      const db = await new Promise((res, rej) => { const r = indexedDB.open('workspace'); r.onsuccess = () => res(r.result); r.onerror = rej; });
-      return await new Promise((res) => {
-        const cur = db.transaction('links', 'readonly').objectStore('links').getAll();
-        cur.onsuccess = () => res(cur.result.filter((l) => l.kind === 'relation' && l.fieldId === fid));
-      });
-    }, 'f_rel');
+    const links = await readAccountStore(page, 'links', { userId: admin.user.id, filter: l => l.kind === 'relation' && l.fieldId === 'f_rel' });
     C('relation link row written', links.length >= 1);
     C('relation chip renders', (await page.locator('text=Acme Corp').count()) >= 1);
 
@@ -433,10 +420,7 @@ async function runSuite(engineName, engine, viewportName, vp) {
     if (await subSection.count()) {
       await subSection.getByRole('button', { name: /add/i }).first().click().catch(() => {});
       await sleep(800);
-      const kids = await page.evaluate(async (pid) => {
-        const db = await new Promise((res, rej) => { const r = indexedDB.open('workspace'); r.onsuccess = () => res(r.result); r.onerror = rej; });
-        return await new Promise((res) => { const c = db.transaction('tasks', 'readonly').objectStore('tasks').getAll(); c.onsuccess = () => res(c.result.filter((t) => t.parentId === pid)); });
-      }, recId);
+      const kids = await readAccountStore(page, 'tasks', { userId: admin.user.id, filter: t => t.parentId === recId });
       C('sub-record created with parentId', kids.length >= 1);
       await page.goto(recUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
       await sleep(800);
@@ -449,10 +433,7 @@ async function runSuite(engineName, engine, viewportName, vp) {
       await page.waitForSelector('[role="option"]', { timeout: 6000 }).catch(() => {});
       await page.locator('[role="option"]').first().click().catch(() => {});
       await sleep(600);
-      const dep = await page.evaluate(async (id) => {
-        const db = await new Promise((res, rej) => { const r = indexedDB.open('workspace'); r.onsuccess = () => res(r.result); r.onerror = rej; });
-        return await new Promise((res) => { const c = db.transaction('links', 'readonly').objectStore('links').getAll(); c.onsuccess = () => res(c.result.filter((l) => l.kind === 'blocks' && l.toId === id)); });
-      }, recId);
+      const dep = await readAccountStore(page, 'links', { userId: admin.user.id, filter: l => l.kind === 'blocks' && l.toId === recId });
       C('dependency link written (blocks)', dep.length >= 1);
     } else C('dependency link written (blocks)', 'SKIP');
 
@@ -469,17 +450,10 @@ async function runSuite(engineName, engine, viewportName, vp) {
       await editor.click();
       await page.keyboard.type('E2E body line');
       await sleep(800);
-      const blocks = await page.evaluate(async (pid) => {
-        const db = await new Promise((res, rej) => { const r = indexedDB.open('workspace'); r.onsuccess = () => res(r.result); r.onerror = rej; });
-        return await new Promise((res) => { const c = db.transaction('blocks', 'readonly').objectStore('blocks').getAll(); c.onsuccess = () => res(c.result.filter((b) => b.pageId === pid)); });
-      }, PG);
+      const blocks = await readAccountStore(page, 'blocks', { userId: admin.user.id, filter: b => b.pageId === PG });
       C('body block written to Dexie', blocks.some((b) => String(b.text ?? '').includes('E2E body line')));
       // inject a @[rec:] token + verify rendered title
-      await page.evaluate(async ([pid, rid]) => {
-        const db = await new Promise((res, rej) => { const r = indexedDB.open('workspace'); r.onsuccess = () => res(r.result); r.onerror = rej; });
-        const tx = db.transaction('blocks', 'readwrite').objectStore('blocks');
-        tx.put({ id: 'v6_tokblk', pageId: pid, type: 'p', text: `See @[rec:${rid}]`, order: 'zz', _ts: {}, _local: true });
-      }, [PG, R1]);
+      await push(T, [{ id: 'v6_tokblk', collection: 'blocks', patch: { pageId: PG, type: 'p', text: `See @[rec:${R1}]`, order: 'zz' } }]);
       await page.reload({ waitUntil: 'networkidle' });
       await sleep(1200);
       const chip = await page.locator('.mention[data-mk="rec"][data-mid="v6_r_ada"]').textContent().catch(() => '');
@@ -494,10 +468,7 @@ async function runSuite(engineName, engine, viewportName, vp) {
       await page.locator('input[placeholder*="http" i], input[type="url"], input[aria-label*="URL" i]').first().fill('https://drive.google.com/file/d/1AbCdEf/view');
       await page.getByRole('button', { name: /add|save/i }).last().click();
       await sleep(700);
-      const frow = await page.evaluate(async () => {
-        const db = await new Promise((res, rej) => { const r = indexedDB.open('workspace'); r.onsuccess = () => res(r.result); r.onerror = rej; });
-        return await new Promise((res) => { const c = db.transaction('files', 'readonly').objectStore('files').getAll(); c.onsuccess = () => res(c.result.filter((f) => f.kind === 'link')); });
-      });
+      const frow = await readAccountStore(page, 'files', { userId: admin.user.id, filter: f => f.kind === 'link' });
       C("kind:'link' file row written", frow.length >= 1);
       C('link card renders (Open in Drive)', (await page.locator('text=Open in Drive').count()) >= 1 || viewportName === 'compact' || (await page.locator('text=/drive|Drive/').count()) >= 1);
     } else C("kind:'link' file row written", 'SKIP');
@@ -546,10 +517,7 @@ async function runSuite(engineName, engine, viewportName, vp) {
     }
     if (!appUp) await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' }).catch(() => {});
     await sleep(1500);
-    const offRow = await page.evaluate(async (t) => {
-      const db = await new Promise((res, rej) => { const r = indexedDB.open('workspace'); r.onsuccess = () => res(r.result); r.onerror = rej; });
-      return await new Promise((res) => { const c = db.transaction('tasks', 'readonly').objectStore('tasks').getAll(); c.onsuccess = () => res(c.result.find((x) => x.title === t)); });
-    }, offTitle);
+    const offRow = (await readAccountStore(page, 'tasks', { userId: admin.user.id, filter: t => t.title === offTitle }))[0];
     C('offline edit survives reload (Dexie)', !!offRow);
     await ctx.setOffline(false);
     // reload boots the engine online → outbox push is deterministic
@@ -571,9 +539,13 @@ async function runSuite(engineName, engine, viewportName, vp) {
     /* --- navigation --- */
     await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
     await sleep(1200);
-    const sbLink = page.locator('nav a, aside a').filter({ hasText: 'People' }).first();
+    if (viewportName === 'compact') {
+      await page.getByRole('button', { name: 'Menu', exact: true }).click();
+      await page.getByRole('dialog').waitFor({ timeout: 8000 });
+    }
+    const sbLink = page.locator('nav a, aside a, [role=dialog] a').filter({ hasText: 'People' }).first();
     if (await sbLink.count()) { await sbLink.click(); C('sidebar navigates to database', page.url().includes(`/boards/${DB_A}`)); }
-    else { await page.goto(`${BASE}/boards/${DB_A}`); C('sidebar navigates to database', 'SKIP'); }
+    else C('sidebar navigates to database', false);
     // ⌘K record hit
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K').catch(() => {});
     const pal = page.locator('input[placeholder*="Search" i]');

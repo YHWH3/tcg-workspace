@@ -1,11 +1,11 @@
 // Disposable built-Worker fixture. No remote AI/service bindings, no personal
 // Wrangler state, and cleanup only targets processes created by this fixture.
 import {spawn,spawnSync} from 'node:child_process';
-import {mkdtempSync,writeFileSync,existsSync,cpSync,mkdirSync,readdirSync,readFileSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,existsSync,cpSync,mkdirSync,readdirSync,readFileSync,realpathSync,lstatSync} from 'node:fs';
 import {createServer} from 'node:net';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {join,resolve,dirname,basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 export const PROJECT=fileURLToPath(new URL('../',import.meta.url));
@@ -49,20 +49,30 @@ function signalOwned(child,signal) {
   try {process.kill(-child.pid,signal);}catch {try{child.kill(signal);}catch{}}
 }
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-export async function command(args,{cwd=PROJECT,log,timeout=180_000}={}) {
+export async function command(args,{cwd=PROJECT,log,timeout=180_000,detached=true}={}) {
   const started=Date.now();let output='',timedOut=false;
-  const child=spawn(args[0],args.slice(1),{cwd,env:fixtureEnvironment(),stdio:['ignore','pipe','pipe'],detached:true});
+  const child=spawn(args[0],args.slice(1),{cwd,env:fixtureEnvironment(),stdio:['ignore','pipe','pipe'],detached});
+  const terminate=signal=>detached?signalOwned(child,signal):child.kill(signal);
   const onData=chunk=>{const clean=redactFixtureLog(chunk);output+=clean;if(log)typeof log==='number'?writeFileSync(log,clean):log.write(clean);else process.stdout.write(clean);};
   child.stdout.on('data',onData);child.stderr.on('data',onData);
-  const timer=setTimeout(()=>{timedOut=true;signalOwned(child,'SIGTERM');},timeout);
-  const killer=setTimeout(()=>signalOwned(child,'SIGKILL'),timeout+2000);
-  const onExit=()=>signalOwned(child,'SIGTERM');process.once('exit',onExit);
+  const timer=setTimeout(()=>{timedOut=true;terminate('SIGTERM');},timeout);
+  const killer=setTimeout(()=>terminate('SIGKILL'),timeout+2000);
+  const onExit=()=>terminate('SIGTERM');process.once('exit',onExit);
   let code,signal;
   try {[code,signal]=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',(c,s)=>resolve([c,s]));});}
-  finally {clearTimeout(timer);clearTimeout(killer);process.removeListener('exit',onExit);signalOwned(child,'SIGTERM');}
+  finally {clearTimeout(timer);clearTimeout(killer);process.removeListener('exit',onExit);terminate('SIGTERM');}
   if(timedOut)throw new Error(`${args[0]} timed out after ${timeout}ms; owned process group terminated`);
   if(code!==0)throw new Error(`${args[0]} exited ${code}, signal ${signal??'none'}; ${output.slice(-1500)}`);
   return {code,signal,output,durationMs:Date.now()-started};
+}
+function fixtureSettings(directory) {
+  return {name:'tcg-phase4-local',main:join(directory,'workspace/index.js'),no_bundle:true,
+    compatibility_date:'2026-09-25',compatibility_flags:['nodejs_compat'],rules:[{type:'ESModule',globs:['**/*.js','**/*.mjs']}],
+    assets:{directory:join(directory,'client'),not_found_handling:'single-page-application',run_worker_first:['/api/*','/mcp','/mcp/*','/oauth/*','/token','/register','/.well-known/*']},
+    d1_databases:[{binding:'DB',database_name:'workspace-db',database_id:'00000000-0000-0000-0000-000000000004',migrations_dir:resolve(PROJECT,'migrations')}],
+    kv_namespaces:[{binding:'OAUTH_KV',id:'00000000000000000000000000000004'}],
+    durable_objects:{bindings:[{name:'LIVE',class_name:'LiveRoom'}]},migrations:[{tag:'v1',new_sqlite_classes:['LiveRoom']}],
+    vars:{WORKSPACE_ENV:'local-test',TURNSTILE_LOCAL_TEST:'1'},triggers:{crons:['*/15 * * * *']}};
 }
 export async function startFixture({port=8799,build=true,artifactDirectory,startupTimeout=60_000,commandTimeout=180_000}={}) {
   await assertPortAvailable(port);
@@ -77,13 +87,7 @@ export async function startFixture({port=8799,build=true,artifactDirectory,start
   cpSync(join(PROJECT,'dist/client'),join(directory,'client'),{recursive:true});
   cpSync(join(PROJECT,'dist/workspace/assets'),join(directory,'assets'),{recursive:true});
   const config=join(directory,'wrangler.json');
-  const settings={name:'tcg-phase4-local',main:join(directory,'workspace/index.js'),no_bundle:true,
-    compatibility_date:'2026-09-25',compatibility_flags:['nodejs_compat'],rules:[{type:'ESModule',globs:['**/*.js','**/*.mjs']}],
-    assets:{directory:join(directory,'client'),not_found_handling:'single-page-application',run_worker_first:['/api/*','/mcp','/mcp/*','/oauth/*','/token','/register','/.well-known/*']},
-    d1_databases:[{binding:'DB',database_name:'workspace-db',database_id:'00000000-0000-0000-0000-000000000004',migrations_dir:resolve(PROJECT,'migrations')}],
-    kv_namespaces:[{binding:'OAUTH_KV',id:'00000000000000000000000000000004'}],
-    durable_objects:{bindings:[{name:'LIVE',class_name:'LiveRoom'}]},migrations:[{tag:'v1',new_sqlite_classes:['LiveRoom']}],
-    vars:{WORKSPACE_ENV:'local-test',TURNSTILE_LOCAL_TEST:'1'},triggers:{crons:['*/15 * * * *']}};
+  const settings=fixtureSettings(directory);
   writeFileSync(config,JSON.stringify(settings));
   const state=join(directory,'state');
   const migrationFiles=readdirSync(join(PROJECT,'migrations')).filter(file=>file.endsWith('.sql')).sort();
@@ -113,10 +117,46 @@ export async function startFixture({port=8799,build=true,artifactDirectory,start
     await pause(200);
   }
   if(!ready){await stop();throw new Error(`Fixture ${fixtureId} startup ${launchError?'launch error: '+launchError.message:closed?'process terminated unexpectedly':`timeout after ${startupTimeout}ms`}; ${readinessError?.message??''}; see ${join(evidence,'worker.log')}: ${logs.slice(-1500)}`);}
+  writeFileSync(join(directory,'fixture-provenance.json'),JSON.stringify({schemaVersion:1,fixtureId,base,directory,state,config,configSha256:createHash('sha256').update(readFileSync(config)).digest('hex'),local:true,disposable:true},null,2));
   return {base,directory,state,config,fixtureId,evidence,stop,async sql(sql){
     if(closed||stopping)throw new Error('Disposable fixture Worker is no longer running');
     const result=await command([wrangler,'d1','execute','DB','--local','--config',config,'--persist-to',state,'--command',sql,'--json'],{timeout:commandTimeout,log:{write:()=>{}}});
     try{return JSON.parse(result.output);}catch{throw new Error('Wrangler D1 returned malformed JSON');}
+  }};
+}
+
+function canonical(value) {
+  if(Array.isArray(value))return value.map(canonical);
+  if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])]));
+  return value;
+}
+function rejectSymlinks(directory) {
+  if(lstatSync(directory).isSymbolicLink())throw new Error('Managed fixture paths must not be symlinks');
+  if(lstatSync(directory).isDirectory())for(const entry of readdirSync(directory))rejectSymlinks(join(directory,entry));
+}
+// This adapter never starts or adopts a server. The certification parent owns
+// and cleans the Worker even if this browser runner is forcibly terminated.
+export function managedFixtureFromEnvironment(env=process.env) {
+  if(env.CERT_MANAGED_FIXTURE!=='1')throw new Error('Managed fixture requires explicit CERT_MANAGED_FIXTURE=1');
+  if(!env.PHASE4_FIXTURE_CONFIG||!env.PHASE4_FIXTURE_STATE||!env.PHASE4_BASE||!env.CERT_FIXTURE_ID)throw new Error('Managed fixture environment is incomplete');
+  const config=resolve(env.PHASE4_FIXTURE_CONFIG),directory=dirname(config),state=resolve(env.PHASE4_FIXTURE_STATE),fixtureId=basename(directory);
+  if(!/^tcg-phase4-disposable-[A-Za-z0-9]{6}$/.test(fixtureId)||realpathSync(dirname(directory))!==realpathSync(tmpdir())||config!==join(directory,'wrangler.json')||state!==join(directory,'state'))throw new Error('Managed fixture must use the exact disposable temp config/state layout');
+  if(env.CERT_FIXTURE_ID!==fixtureId&&env.CERT_FIXTURE_ID!==directory)throw new Error('Managed fixture identifier does not match its disposable directory');
+  rejectSymlinks(directory);
+  const url=new URL(env.PHASE4_BASE),base=assertLocal(env.PHASE4_BASE);
+  if(url.pathname!=='/'||url.search||url.hash||!url.port||Number(url.port)<1024||Number(url.port)>65535)throw new Error('Managed fixture base must be a loopback HTTP origin with an unprivileged port');
+  const settings=JSON.parse(readFileSync(config,'utf8'));
+  if(JSON.stringify(canonical(settings))!==JSON.stringify(canonical(fixtureSettings(directory))))throw new Error('Managed fixture config must match generated local-only all-zero D1/KV bindings; remote or custom bindings are forbidden');
+  const manifest=JSON.parse(readFileSync(join(directory,'fixture-provenance.json'),'utf8'));
+  const configSha256=createHash('sha256').update(readFileSync(config)).digest('hex');
+  if(manifest.schemaVersion!==1||manifest.fixtureId!==fixtureId||manifest.base!==base||manifest.config!==config||manifest.state!==state||manifest.configSha256!==configSha256||manifest.local!==true||manifest.disposable!==true)throw new Error('Managed fixture provenance does not match config, state, identifier and loopback origin');
+  const wrangler=join(PROJECT,'node_modules/.bin/wrangler');
+  if(!existsSync(wrangler))throw new Error('Pinned Wrangler executable missing');
+  return {base,directory,state,config,fixtureId,stop:async()=>{},async sql(sql){
+    // Remain inside the runner's process group, so its parent can kill every
+    // descendant on timeout/SIGKILL. No extra detached Worker group is created.
+    const result=await command([wrangler,'d1','execute','DB','--local','--config',config,'--persist-to',state,'--command',sql,'--json'],{timeout:180_000,detached:false,log:{write:()=>{}}});
+    try{return JSON.parse(result.output);}catch{throw new Error('Managed fixture SQL returned malformed JSON');}
   }};
 }
 

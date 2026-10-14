@@ -1,8 +1,11 @@
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFile, execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { promisify } from 'node:util';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 export const json = (path, value) => { mkdirSync(dirname(path), {recursive:true}); writeFileSync(path, JSON.stringify(value,null,2)+'\n'); };
 export function localOrigin(base) {
@@ -30,11 +33,50 @@ export function terminateGroup(child,signal='SIGTERM') {
   if(!child?.pid)return;
   try {process.kill(-child.pid,signal);}catch(e){if(e.code!=='ESRCH')try{child.kill(signal);}catch{}}
 }
+
+const execAsync=promisify(execFile);
+async function processSnapshot() {
+  const {stdout}=await execAsync('ps',['-axo','pid=,ppid=,pgid=,lstart=']);
+  return stdout.trim().split('\n').map(line=>{const fields=line.trim().split(/\s+/);return {pid:Number(fields[0]),ppid:Number(fields[1]),pgid:Number(fields[2]),birth:fields.slice(3).join(' ')};});
+}
+export async function trackDescendants(child,registry) {
+  const owned=new Map();let running=false,stopped=false;
+  const sample=async()=>{if(running||stopped)return;running=true;try{
+    const snapshot=await processSnapshot();let added=true;const ancestry=new Set([child.pid,...owned.keys()]);
+    if(registry&&existsSync(registry)) {
+      const registered=readFileSync(registry,'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
+      let changed=true;while(changed){changed=false;for(const row of registered)if(ancestry.has(row.ppid)&&!ancestry.has(row.pid)){ancestry.add(row.pid);owned.set(row.pid,row);changed=true;}}
+    }
+    while(added){added=false;for(const row of snapshot)if(ancestry.has(row.ppid)&&!ancestry.has(row.pid)){ancestry.add(row.pid);owned.set(row.pid,row);added=true;}}
+  }finally{running=false;}};
+  await sample();const interval=setInterval(()=>void sample().catch(()=>{}),100);interval.unref();
+  return async()=>{
+    while(running)await new Promise(r=>setTimeout(r,10));await sample();stopped=true;clearInterval(interval);
+    const current=await processSnapshot();
+    const matching=current.filter(row=>owned.get(row.pid)?.birth===row.birth);
+    // Only signal a detached group when every member in this snapshot belongs
+    // to the recorded descendant tree. Exact PID + birth time resists PID reuse.
+    for(const group of new Set(matching.map(row=>row.pgid))) {
+      const members=current.filter(row=>row.pgid===group);
+      if(group!==process.pid&&members.length&&members.every(row=>matching.some(owned=>owned.pid===row.pid)))try{process.kill(-group,'SIGTERM');}catch{}
+    }
+    for(const row of matching)try{process.kill(row.pid,'SIGTERM');}catch{}
+    await new Promise(r=>setTimeout(r,100));
+    const after=await processSnapshot();for(const row of after)if(owned.get(row.pid)?.birth===row.birth)try{process.kill(row.pid,'SIGKILL');}catch{}
+  };
+}
+
 export async function runCommand(command,{cwd=process.cwd(),env={},logPath,timeoutMs=600000,signal}={}) {
   const startedAt=new Date().toISOString(),start=performance.now();
   let output='',pendingLog='',spawnError=null,timedOut=false,interrupted=false;
   if(logPath){mkdirSync(dirname(logPath),{recursive:true});writeFileSync(logPath,'');}
-  const child=spawn(command[0],command.slice(1),{cwd,env:{...process.env,...env},stdio:['ignore','pipe','pipe'],detached:true});
+  const registry=logPath?logPath+'.processes.jsonl':join(tmpdir(),`tcg-cert-processes-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+  writeFileSync(registry,'');
+  const hook=fileURLToPath(new URL('./ownership-hook.mjs',import.meta.url));
+  const childEnv={...process.env,...env,CERT_OWNERSHIP_REGISTRY:registry};
+  childEnv.NODE_OPTIONS=`${childEnv.NODE_OPTIONS??''} --import ${JSON.stringify(hook)}`.trim();
+  const child=spawn(command[0],command.slice(1),{cwd,env:childEnv,stdio:['ignore','pipe','pipe'],detached:true});
+  let stopDescendants;const tracked=trackDescendants(child,registry).then(stop=>{stopDescendants=stop;}).catch(e=>{spawnError=`Unable to supervise child processes: ${e.message}`;});
   let escalation;
   const stop=()=>{terminateGroup(child);escalation??=setTimeout(()=>terminateGroup(child,'SIGKILL'),500);};
   const abort=()=>{interrupted=true;stop();};
@@ -49,6 +91,7 @@ export async function runCommand(command,{cwd=process.cwd(),env={},logPath,timeo
   // Even a successful parent can leave descendants alive. They belong to this
   // dedicated process group, never the caller's shell or another desktop app.
   terminateGroup(child);await new Promise(r=>setTimeout(r,100));terminateGroup(child,'SIGKILL');
+  await tracked;if(stopDescendants)await stopDescendants();
   output=redact(output);if(logPath){mkdirSync(dirname(logPath),{recursive:true});writeFileSync(logPath,output);}
   const error=spawnError??(timedOut?`Timeout after ${timeoutMs}ms; inspect ${logPath??'captured log'}`:interrupted?'Interrupted run':result.signal?`Unexpected termination: ${result.signal}`:result.exitCode!==0?`Command exited ${result.exitCode}`:null);
   return {command,startedAt,endedAt:new Date().toISOString(),durationMs:Math.round(performance.now()-start),...result,timedOut,interrupted,error,output,logPath};
