@@ -29,7 +29,12 @@ const rows=()=>pull(base,admin.token);
 const allNotifications=async user=>(await request('/api/notifications?limit=100',{token:user.token})).data.notifications??[];
 const sqlString=v=>"'"+String(v).replaceAll("'","''")+"'";
 const sqlRows=async sql=>(await fixture.sql(sql)).flatMap(r=>r.results??[]);
-const cron=async()=>{const response=await fetch(base+'/cdn-cgi/handler/scheduled?cron=*/15%20*%20*%20*%20*',{method:'POST'});assert.equal(response.status,200);const text=await response.text();assert.ok(!text.includes('<html'), 'Cron must execute the supported scheduled handler, not the SPA fallback');};
+let scheduledTime=Math.floor(Date.now()/900_000)*900_000;
+const scheduledInvocations=[];
+const nextCronTime=()=>{const time=scheduledTime;scheduledTime+=900_000;return time;};
+// Exercise successive production Cron slots without advancing lease/backoff
+// clocks or waiting 15 minutes. Wrangler dispatches this as scheduledTime.
+const cron=async(time=nextCronTime())=>{scheduledInvocations.push(time);const query=new URLSearchParams({cron:'*/15 * * * *',time:String(time)});const response=await fetch(base+'/cdn-cgi/handler/scheduled?'+query,{method:'POST'});assert.equal(response.status,200);const text=await response.text();assert.ok(!text.includes('<html'), 'Cron must execute the supported scheduled handler, not the SPA fallback');};
 const viewportFor = name => { const width = /platform (\d+)px/.exec(name)?.[1]; return width ? `${width}px` : name.includes('desktop') ? '1440x1000' : '390x844'; };
 async function check(engine,name,fn) {
   const start=performance.now();
@@ -218,8 +223,8 @@ try {
       },{timeout:30_000});
       await fixture.sql('DROP TRIGGER IF EXISTS v9_run_fault');
       await fixture.sql(`UPDATE automation_runs SET retry_at=0,lease_until=0,status='retryable_failure' WHERE id=${sqlString(failed.id)}`);
-      await Promise.all([cron(),cron()]);
-      await eventually(async()=>{await cron();return (await request(`/api/automations/${autoId}/runs`,{token:admin.token})).data.runs?.find(r=>r.id===failed.id&&r.status==='completed');},{timeout:40_000});
+      const concurrentTime=nextCronTime();await Promise.all([cron(concurrentTime),cron(concurrentTime)]);
+      await eventually(async()=>{await cron();const runs=(await request(`/api/automations/${autoId}/runs`,{token:admin.token})).data.runs??[];const run=runs.find(r=>r.id===failed.id);if(run?.status==='completed')return run;throw new Error(`Recovery ${run?.status??'missing'}: ${run?.error??''}; attempts=${run?.attempts??'unknown'}`);},{timeout:40_000});
       const recovered=await request(`/api/automations/${autoId}/runs`,{token:admin.token}).then(r=>r.data.runs?.find(run=>run.id===failed.id&&run.status==='completed'));
       assert.ok(recovered, 'recovered automation run did not complete');
       const before=(await request('/api/changes/'+recovered.changeset_id,{token:admin.token})).data.items;assert.equal(before.length,3);
@@ -284,6 +289,7 @@ try {
   console.log(`Evidence: ${output}; PASS ${results.filter(r=>r.status==='PASS').length}; FAIL ${results.filter(r=>r.status==='FAIL').length}`);
 }
 certification.setMetadata('performance', performanceResults);
+certification.setMetadata('scheduledInvocations', {times:scheduledInvocations,intervalMs:900_000,scope:'Phase selection only; actual lease/retry clocks are not advanced'});
 certification.setMetadata('faultInjection', {publicContextServiceWorkers:'block',reason:'Deterministic Playwright POST interception in WebKit',normalServiceWorkerCoverage:'Authenticated offline/reconnect and independent platform public form context'});
 certification.setMetadata('fixture', fixture.directory);
 certification.finish();

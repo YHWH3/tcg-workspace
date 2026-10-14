@@ -104,10 +104,12 @@ it('rotating budgeted Cron phases advance past 600 ignored dates despite 500 pen
   await db.batch(Array.from({length:600},(_,i)=>db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES(?,'dueDate','2020-01-01')").bind(`ignored_${String(i).padStart(4,'0')}`)));
   await db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES('relevant','dueDate',?)").bind(today).run();
   await db.batch(Array.from({length:500},(_,i)=>db.prepare('INSERT INTO event_outbox(id,payload,created_at) VALUES(?,?,1)').bind(`pending_${i}`,JSON.stringify({source:'automation',userId:'alice',applied:[]}))));
-  const start=Math.floor(Date.now()/900_000)*900_000;
+  const start=(Math.floor(Date.now()/5_400_000)*6+4)*900_000;
+  // Delayed Cron deliveries can share a wall-clock slot. Fairness follows the
+  // supplied scheduled times while leases and retries keep using real time.
+  vi.spyOn(Date,'now').mockReturnValue(start);
   for(let tick=0;tick<24;tick++){
-    vi.spyOn(Date,'now').mockReturnValue(start+tick*900_000);
-    const scoped=withD1Budget(env,45);await runScheduled(scoped);expect(d1BudgetRemaining(scoped.DB)).toBeGreaterThanOrEqual(0);
+    const scoped=withD1Budget(env,45);await runScheduled(scoped,start+tick*900_000);expect(d1BudgetRemaining(scoped.DB)).toBeGreaterThanOrEqual(0);
   }
   expect((await rows('reminder_sent')).filter(r=>r.record_id==='relevant')).toHaveLength(1);
   expect((await rows('automation_runs')).filter(r=>r.status==='completed')).toHaveLength(1);

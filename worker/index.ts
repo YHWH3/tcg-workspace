@@ -105,8 +105,8 @@ export default {
    * and the durable event-outbox sweep. Local testing:
    * `wrangler dev --test-scheduled` then POST /cdn-cgi/handler/scheduled.
    */
-  scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): void {
-    ctx.waitUntil(runScheduled(withD1Budget(env)));
+  scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): void {
+    ctx.waitUntil(runScheduled(withD1Budget(env), event.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;
 

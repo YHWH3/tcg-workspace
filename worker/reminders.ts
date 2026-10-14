@@ -271,7 +271,7 @@ async function runRetention(env: { DB: D1Database }, now: number): Promise<void>
  * 2) due_soon + overdue reminders via date_index + reminder_sent dedupe,
  * 3) date_offset automation triggers,
  * 4) retention sweeps (rate_limits, stale submissions, old runs/notifs). */
-export async function runScheduled(env: { DB: D1Database }): Promise<void> {
+export async function runScheduled(env: { DB: D1Database }, scheduledTime = Date.now()): Promise<void> {
   const events=async()=>{
     const { results: pending } = await env.DB.prepare(
     'SELECT id FROM event_outbox INDEXED BY idx_outbox_pending WHERE processed_at IS NULL AND terminal_at IS NULL AND created_at < ? AND COALESCE(lease_until,0)<=? ORDER BY created_at LIMIT ?'
@@ -303,10 +303,13 @@ export async function runScheduled(env: { DB: D1Database }): Promise<void> {
     {minimum:10,run:()=>runRetention(env,Date.now())},
   ];
   // Each scheduled invocation has its own budget. Rotate the first phase
-  // every 15-minute slot so a sustained event backlog cannot starve receipts,
+  // every scheduled 15-minute slot so a sustained event backlog cannot starve receipts,
   // automation retries, reminders or retention indefinitely. Plain test
   // bindings retain the historical ordering unless explicitly budgeted.
-  const offset=d1BudgetRemaining(env.DB)===Infinity?0:Math.floor(Date.now()/900_000)%phases.length;
+  // Cloudflare can deliver different scheduled slots at the same wall time.
+  // Use the controller's scheduled time only for phase selection; deadlines,
+  // leases and retry backoff continue to use the real current time.
+  const offset=d1BudgetRemaining(env.DB)===Infinity?0:Math.floor(scheduledTime/900_000)%phases.length;
   for(const phase of [...phases.slice(offset),...phases.slice(0,offset)]) {
     if(!hasD1Budget(env.DB,phase.minimum))continue;
     try {await phase.run();}catch(error){if(error instanceof D1BudgetExhausted)return;throw error;}
