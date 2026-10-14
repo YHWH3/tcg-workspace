@@ -220,3 +220,138 @@ External gates remain NOT RUN: physical iPhone/iPad Safari, physical Android, ma
 The three remaining high npm audit entries are the reviewed `@modelcontextprotocol/client` OAuth advisory propagated through Agents/SDK packages. Raw audit output is in the artifact. No `npm audit fix` and no peer override was applied. The exception does not certify production release.
 
 C14–C15 are in the passing unit and D1 suites. C16 is the fail-closed runner, covered by the 53 harness selftests in this run. C17–C19 are the automation, upload, and form-recovery fixes in `5357960`. C20 is the 100-row reminder fixture batch, covered by the passing D1 suite.
+
+## Complete local acceptance on `df49d6b1e376cb8a01501fb4a410f1e52ff98c17` — PASS
+
+Executed `npm run certify:phase4`, exit **0**, from 2026-10-14T09:30:46.104Z to
+2026-10-14T09:44:19.222Z. All **26 mandatory local gates PASS**, zero FAIL and zero
+mandatory NOT RUN. This supersedes the failing `4611193` run without erasing it.
+Source fingerprint: `5b27f70b4904fa84768e5425b6405443193b10f52483e241fec874c3a0dc8413`.
+
+Artifact: `.artifacts/certification/df49d6b1e376cb8a01501fb4a410f1e52ff98c17-2026-10-14T09-30-46-104Z-complete/`. The generated `summary.json`, `commands.json`,
+`environment.json`, `test-results.json`, `report.md`, `security-audit.json`,
+`security-decisions.json`, `migrations.json`, `performance.json` and per-suite
+logs retain exact commands, exits, runtimes, fixture provenance and assertions.
+The documentation commit recording this result must itself receive a complete
+rerun before push; the final PR summary will name that exact tested SHA and artifact.
+
+| Suite | PASS | FAIL | Mandatory NOT RUN | Seconds |
+| --- | ---: | ---: | ---: | ---: |
+| prerequisites | 6 | 0 | 0 | 0.03 |
+| dependencies | 1 | 0 | 0 | 0.64 |
+| lockfile | 2 | 0 | 0 | 0.73 |
+| whitespace | 1 | 0 | 0 | 0.28 |
+| migrations | 10 | 0 | 0 | 0.00 |
+| harness | 55 | 0 | 0 | 8.71 |
+| typecheck | 1 | 0 | 0 | 1.34 |
+| unit | 617 | 0 | 0 | 61.05 |
+| build | 1 | 0 | 0 | 2.03 |
+| d1 | 136 | 0 | 0 | 53.63 |
+| security | 1 | 0 | 0 | 1.16 |
+| browsers | 3 | 0 | 0 | 1.46 |
+| smoke | 44 | 0 | 0 | 4.86 |
+| mcp-base | 71 | 0 | 0 | 11.21 |
+| mcp-multiuser | 59 | 0 | 0 | 1.69 |
+| mcp-phase1 | 37 | 0 | 0 | 1.22 |
+| mcp-phase2 | 113 | 0 | 0 | 2.13 |
+| mcp-phase3 | 64 | 0 | 0 | 1.62 |
+| mcp-phase4 | 41 | 0 | 0 | 1.07 |
+| v4 | 33 | 0 | 0 | 35.77 |
+| v6 | 150 | 0 | 0 | 210.96 |
+| v7 | 114 | 0 | 0 | 159.68 |
+| v8 | 140 | 0 | 0 | 130.70 |
+| v9 | 66 | 0 | 0 | 65.19 |
+| performance-evidence | 114 | 0 | 0 | 0.01 |
+| source-integrity | 1 | 0 | 0 | 0.07 |
+
+The complete Vitest suite has 55 files / 617 assertions. The separately rerun
+11-file actual-D1 subset has 136 assertions; these overlap the unit count and
+are not additional distinct tests. Migrations cover fresh 0001–0010 and Phase 3,
+0007 and 0009 upgrades. Build warnings remain the large client chunk and
+ineffective dynamic imports; the service worker stays IIFE.
+
+Browser binaries: Chromium 153.0.8010.12, Firefox 155.0 and WebKit 26.6,
+from pinned Playwright 1.63.0. The supported engine/viewport matrix is:
+
+| Suite | Chromium PASS by layout | Firefox PASS by layout | WebKit PASS by layout |
+| --- | --- | --- | --- |
+| v4 | desktop 33 | outside existing v4 scope | outside existing v4 scope |
+| v6 | desktop 26, compact 24 | desktop 26, compact 24 | desktop 26, compact 24 |
+| v7 | desktop 62, compact 13, tablet 9 | desktop 12, compact 3 | desktop 12, compact 3 |
+| v8 | desktop 46, compact 16, tablet 5, 320px 5 | desktop 21, compact 13 | desktop 21, compact 13 |
+| v9 | 22 | 22 | 22 |
+
+v9 runs every J1–J12 journey in each engine and the integrated
+`phase4-platform-checks.mjs` assertions. Widths are 320, 390, 768, 1024 and
+1440 pixels; checks include keyboard/focus restoration, touch, validation,
+reflow, reduced motion, offline/reconnect and delayed/lost public responses.
+Firefox uses `hasTouch` without unsupported Playwright `isMobile`. Public
+fault injection blocks service workers only in that context; authenticated
+offline and independent public touch acceptance retain default SW behavior.
+
+C14 and C15 are FIXED AND VERIFIED by the complete suite and separate actual-D1
+run. C16 is FIXED AND VERIFIED by the fail-closed complete-runner fault injections
+and 55 harness selftests. C17–C19 (malformed rule isolation, authenticated upload
+races and stale form authority) remain verified in the 18-test review D1 file.
+C20–C24 are documented with evidence in
+[the independent certification review](phase-4-independent-certification-review.md).
+C21's Escape fix passes approval focus restoration in all engines. C22 repairs
+fixture/selector behavior without removing functional assertions. C23 makes
+missing performance evidence blocking; C24 bounds competing local runtimes.
+
+### Security decision
+
+The current audit records **3 high / 0 critical** package entries, all from the
+single MCP OAuth-client advisory GHSA-6qxp-vccf-f47h. Raw npm exit **1** is retained.
+The local gate accepts only the reviewed server-only reachability exception;
+novel high/critical advisories or outbound OAuth-client use fail certification.
+Compatible toolchain/sharp/source-map fixes are in the lockfile. SDK 1.30.0 and
+client 2.0.0 match Agents 0.24.0's exact peers; a coordinated Agents/MCP migration
+is deferred for separate compatibility review. No forced peer downgrade or
+`npm audit fix` was used. See
+[dependency decisions](phase-4-dependency-security.md). The exception requires
+independent review and blocks production-release certification.
+
+### Local resource evidence
+
+The following is the separate D1 run on a disposable 1,000-record fixture.
+Binding RPCs and SQL statements differ; rows include index/trigger work.
+
+| Workload | Repetitions | Total ms | Binding calls (max/call) | SQL statements | Rows read | Rows written |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| seed 1000 records | 1 | 3821.97 | 40 (40) | 2030 | 5010 | 13000 |
+| record/event commit 100 rows | 1 | 480.65 | 2 (2) | 301 | 800 | 1500 |
+| bounded reminder Cron tick | 4 | 334.05 | 91 (26) | 105 | 2799 | 122 |
+| C14 budgeted reminder lookbehind | 11 | 481.85 | 114 (14) | 116 | 2628 | 31 |
+| C15 budgeted cross-database date-offset | 1 | 167.97 | 35 (35) | 45 | 61 | 47 |
+| form accepted acknowledgement | 5 | 558.08 | 110 (22) | 160 | 201 | 202 |
+| automation one record and journal | 5 | 497.31 | 75 (15) | 115 | 160 | 195 |
+
+C14 reached the actionable tail once in 11 measured invocations after the
+600-unassigned-row setup; C15 completed its cross-database output once. Each
+uses a 45-call scoped budget. Raw metrics classify cursor writes/reads, date
+candidate scans, record/member lookups and other statements; EXPLAIN retains
+Inbox/date sweep/outbox plans. Crash recovery, concurrent execution, undo, file
+reconstruction and lost acknowledgements are asserted in the same complete
+matrix. These measurements are local Miniflare/Playwright evidence, not deployed
+Cloudflare latency or production billing.
+
+Official [D1 limits](https://developers.cloudflare.com/d1/platform/limits/)
+confirm 50 Free-plan query subrequests, 100 bound parameters and the 2,000,000-byte
+row/BLOB ceiling; 45 calls preserve five calls of headroom.
+[D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) separately
+meters rows read/written (Free daily allowances: 5 million / 100,000).
+The [batch API](https://developers.cloudflare.com/d1/worker-api/d1-database/)
+executes statements transactionally. Batching reduces binding calls, not row
+charges. No production cost claim follows from these local timings.
+
+### Acceptance boundary
+
+**PASS — READY FOR INDEPENDENT REVIEW** for applicable local source integration.
+Physical iPhone/iPad Safari, physical Android, manual VoiceOver/TalkBack and
+native 400% browser zoom remain **NOT RUN** production gates. Automated 320px
+reflow and WebKit do not certify native zoom or real iOS Safari. The dependency
+exception also requires independent security review before release. No merge
+or deployment has occurred. No manual coordination is required for the automated
+matrix: future reruns use `npm run certify:phase4`. Quick and extended modes are
+documented in [the certification guide](phase-4-certification.md).
