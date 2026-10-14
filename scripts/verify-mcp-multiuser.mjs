@@ -121,6 +121,9 @@ const ov = await A.call('workspace_overview', {});
 const idA = ov.data.people.find((u) => u.username === USER_A)?.id;
 const idB = ov.data.people.find((u) => u.username === USER_B)?.id;
 check('resolved user ids', !!idA && !!idB && idA !== idB);
+const concurrent=await Promise.all(Array.from({length:6},async(_,i)=>({want:i%2?idB:idA,res:await (i%2?B:A).call('create_page',{title:`Security concurrent ${Date.now()} ${i}`,requestId:`security-concurrent-${i}`})})));
+check('security: concurrent MCP calls complete for both users',concurrent.every(w=>!w.res.isError&&w.res.data.id&&w.res.data.changesetId));
+
 
 // Alternate callers in one isolate: A,B,A,B ×10 = 20 create_page calls.
 const RUN = `MU-${Date.now()}`;
@@ -135,6 +138,8 @@ check('all 20 interleaved create_page calls succeed', writes.every((w) => !w.res
 // must match the caller — not the first request's identity.
 const adminLogin = await api('/api/auth/login', { method: 'POST', body: { username: USER_A, password: PASS } });
 const all = await pullAll(adminLogin.data.token);
+check('security: concurrent MCP writes retain user and changeset attribution',concurrent.every(w=>all.get(w.res.data.id)?.data.createdBy===w.want&&[...all.values()].some(r=>r.collection==='activity'&&r.data.targetId===w.res.data.id&&r.data.actorId===w.want&&r.data.meta?.changesetId===w.res.data.changesetId)));
+
 let attrOk = true,
   actOk = true,
   detail = '';

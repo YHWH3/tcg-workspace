@@ -1,3 +1,4 @@
+import {oauthSecurityAssertions} from './phase4-oauth-security.mjs';
 // Mandatory assertion names from established legacy suites, including loop-expanded checks.
 // Update this explicit manifest when intentionally adding or removing assertions.
 export const assertionManifests = {
@@ -37,6 +38,10 @@ export const assertionManifests = {
     "revoked link shows inactive message"
   ],
   "verify-mcp": [
+    ...oauthSecurityAssertions,
+    'security: MCP prompt invocation preserves supplied arguments',
+    'security: expired workspace session is rejected',
+    'security: expired workspace session recovers by login',
     "DCR registers client",
     "DCR returns client_id",
     "authorize without PKCE fails",
@@ -110,6 +115,8 @@ export const assertionManifests = {
     "tool restore_item registered"
   ],
   "verify-mcp-multiuser": [
+    "security: concurrent MCP calls complete for both users",
+    "security: concurrent MCP writes retain user and changeset attribution",
     "DCR client registered",
     "OAuth grant for user A",
     "OAuth grant for user B",

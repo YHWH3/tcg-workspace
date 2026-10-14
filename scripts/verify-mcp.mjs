@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {verifyOAuthSecurity} from './phase4-oauth-security.mjs';
 // Phase C verification: OAuth dance + MCP tools (official SDK) + UI live-poke +
 // field/template UI + screenshots. Run against `wrangler dev --port 8788`
 // (fresh D1 + smoke.sh first) or staging.
@@ -172,6 +173,8 @@ for (const n of ['search', 'fetch', 'workspace_overview', 'get_page', 'create_pa
 
 const { prompts } = await client.listPrompts();
 check('prompts registered', ['plan_project', 'make_sop', 'capture_notes'].every((p) => prompts.map((x) => x.name).includes(p)));
+const securityPrompt=await client.getPrompt({name:'capture_notes',arguments:{notes:'Non-secret security migration fixture'}});
+check('security: MCP prompt invocation preserves supplied arguments',securityPrompt.messages.some(m=>m.content.type==='text'&&m.content.text.includes('Non-secret security migration fixture')));
 
 const call = async (name, args) => {
   const r = await client.callTool({ name, arguments: args });
@@ -412,6 +415,8 @@ await mCtx.close();
 await uiCtx.close();
 await browser.close();
 
+await verifyOAuthSecurity({api,check,BASE,USER,PASS});
+
 /* ================= PART 4: token for deleted user → 401 ================= */
 console.log('\n== deleted user token ==');
 // Snapshot a spare user's row, delete it, expect 401, restore it.
@@ -433,6 +438,12 @@ if (row) {
   const back = await api('/api/auth/login', { method: 'POST', body: { username: USER, password: PASS } });
   check('restored user can log in again', !!back.data.token);
 }
+const sessionProbe=await api('/api/auth/login',{method:'POST',body:{username:USER,password:PASS}});
+const sessionHash=crypto.createHash('sha256').update(sessionProbe.data.token).digest('hex');
+d1(['--command',`UPDATE sessions SET expires_at=0 WHERE token_hash='${sessionHash}'`]);
+check('security: expired workspace session is rejected',(await api('/api/me',{token:sessionProbe.data.token})).status===401);
+const recoveredSession=await api('/api/auth/login',{method:'POST',body:{username:USER,password:PASS}});
+check('security: expired workspace session recovers by login',recoveredSession.status===200&&!!recoveredSession.data.token);
 void secondToken;
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed ==`);
