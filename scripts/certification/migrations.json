@@ -38,5 +38,9 @@
   {
     "name": "0010_phase4_sweep_cursor.sql",
     "sha256": "2b5948a03722d6b235f380aeecdac76635aff7366b73d8230c87c2b4d0e440b7"
+  },
+  {
+    "name": "0011_integrity.sql",
+    "sha256": "f78704c0ac1686c84be3babe89a4eb500ced5cabe76cae631107ee99c15ff57e"
   }
 ]

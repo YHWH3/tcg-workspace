@@ -227,7 +227,7 @@ function BoardMenu({ board, deletable }: { board: BoardRow; deletable: boolean }
                   ? ([
                       'divider',
                       {
-                        label: 'Delete board',
+                        label: board.kind === 'records' ? 'Archive database (restore with Unarchive)' : 'Delete board (move tasks to default)',
                         icon: Trash2,
                         danger: true,
                         onClick: async () => {

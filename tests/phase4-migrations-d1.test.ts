@@ -78,3 +78,18 @@ it('upgrades a 0009 database and preserves leases, receipts and cursor indexes',
   expect((await names(db,'table')).has('rhythm_sweep_cursors')).toBe(true);
   expect((await names(db,'index')).has('idx_date_sweep')).toBe(true);
 });
+
+it('INT-01 upgrades legacy offline tombstones and shared thumbnails without purging a live reference',async()=>{
+ const db=await database();await apply(db,files.filter(f=>f<'0011'));
+ await db.batch([
+  db.prepare("INSERT INTO records(id,collection,data,field_ts,seq,updated_at) VALUES('legacy','files',?, '{}',1,1)").bind(JSON.stringify({deleted:true,thumbId:'legacy-thumb'})),
+  db.prepare("INSERT INTO records(id,collection,data,field_ts,seq,updated_at) VALUES('shared','blocks',?, '{}',2,1)").bind(JSON.stringify({fileId:'legacy-thumb'})),
+  ...['legacy','legacy-thumb'].flatMap(id=>[db.prepare('INSERT INTO files(id,size,chunks,complete) VALUES(?,3,1,1)').bind(id),db.prepare('INSERT INTO file_chunks(file_id,idx,data) VALUES(?,0,?)').bind(id,new Uint8Array([1,2,3]))]),
+ ]);
+ await apply(db,['0011_integrity.sql']);
+ expect((await db.prepare('SELECT id FROM files ORDER BY id').all<{id:string}>()).results).toEqual([{id:'legacy-thumb'}]);
+ expect((await db.prepare('SELECT COUNT(*) n FROM file_deletions').first<{n:number}>())!.n).toBe(2);
+ await db.prepare("UPDATE records SET data=json_set(data,'$.deleted',1) WHERE id='shared'").run();
+ expect((await db.prepare('SELECT COUNT(*) n FROM files').first<{n:number}>())!.n).toBe(0);
+ expect((await db.prepare('SELECT COUNT(*) n FROM file_chunks').first<{n:number}>())!.n).toBe(0);
+});

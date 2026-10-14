@@ -93,6 +93,7 @@ files.put('/:id/chunks/:idx', async (c) => {
   if (body.byteLength > FILE_CHUNK_BYTES || body.byteLength >= D1_MAX_ROW_BYTES) return c.json({ error: 'chunk too large' }, 413);
 
   const db = c.env.DB;
+  if (await db.prepare('SELECT id FROM file_deletions WHERE id=?').bind(id).first()) return c.json({ error: 'file deleted' }, 410);
   const existing = await db.prepare('SELECT id, complete FROM files WHERE id = ?').bind(id).first<{ id: string; complete: number }>();
   if (existing?.complete) return c.json({ error: 'file already complete' }, 409);
   if (!existing) {
@@ -122,6 +123,7 @@ files.post('/:id/complete', async (c) => {
   if (body.size > MAX_FILE_SIZE) return c.json({ error: 'file too large (max 20 MB)' }, 413);
 
   const db = c.env.DB;
+  if (await db.prepare('SELECT id FROM file_deletions WHERE id=?').bind(id).first()) return c.json({ error: 'file deleted' }, 410);
   const meta = await db.prepare('SELECT * FROM files WHERE id = ?').bind(id).first<FileRow>();
   if (!meta) return c.json({ error: 'no chunks uploaded' }, 400);
   if (meta.complete) return c.json({ ok: true }); // idempotent
@@ -220,7 +222,26 @@ files.get('/:id', async (c) => {
 files.delete('/:id', async (c) => {
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
-  await c.env.DB.batch([c.env.DB.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id), c.env.DB.prepare('DELETE FROM files WHERE id = ?').bind(id)]);
+  const row=await c.env.DB.prepare('SELECT collection,data FROM records WHERE id=?').bind(id).first<{collection:string;data:string}>();
+  if(row) {
+    if(row.collection!=='files') return c.json({error:'not a file'},409);
+    const {applyChanges}=await import('./sync');
+    const data=JSON.parse(row.data) as {thumbId?:string};
+    const changes=[{id,collection:'files',patch:{deleted:true},ts:0}];
+    if(data.thumbId) changes.push({id:data.thumbId,collection:'files',patch:{deleted:true},ts:0});
+    const result=await applyChanges(c.env,c.get('user').id,changes,{serverTs:true,event:{source:'client',ctx:c.executionCtx}});
+    if(result.partialError||result.rejected) return c.json({error:'cleanup interrupted; retry'},503);
+  } else {
+    // Legacy/incomplete uploads have no synced metadata. Only their uploader
+    // or an administrator may retire them; record IDs cannot be repurposed.
+    const blob=await c.env.DB.prepare('SELECT uploaded_by FROM files WHERE id=?').bind(id).first<{uploaded_by:string|null}>();
+    if(blob&&blob.uploaded_by!==c.get('user').id&&c.get('user').role!=='admin') return c.json({error:'forbidden'},403);
+    await c.env.DB.batch([
+      c.env.DB.prepare('INSERT INTO file_deletions(id,created_at) VALUES(?,?) ON CONFLICT(id) DO NOTHING').bind(id,Date.now()),
+      c.env.DB.prepare('DELETE FROM file_chunks WHERE file_id IN (SELECT id FROM reclaimable_files WHERE id=?)').bind(id),
+      c.env.DB.prepare('DELETE FROM files WHERE id IN (SELECT id FROM reclaimable_files WHERE id=?)').bind(id),
+    ]);
+  }
   return c.json({ ok: true });
 });
 
