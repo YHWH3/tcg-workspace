@@ -28,6 +28,10 @@ Independent later suites continue after an assertion failure. A failed build
 marks dependent integrations NOT RUN; they never silently reuse old output.
 Vitest uses at most two workers because the actual-D1 files each start Workerd;
 this limits competing fixture RPCs while preserving the complete test matrix.
+v9 supplies explicit successive Cron event times to Wrangler's scheduled test
+endpoint. Phase rotation uses the event's scheduled time; lease, retry and
+deadline clocks remain current. The report records those simulated times and
+tests two concurrent invocations with the same scheduled timestamp.
 
 Each invocation creates `.artifacts/certification/<starting-SHA>-<UTC-time>-<mode>/`.
 The ignored folder holds JSON and Markdown summaries, exact commands and exit

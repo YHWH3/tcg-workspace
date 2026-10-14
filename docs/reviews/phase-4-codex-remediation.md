@@ -355,3 +355,41 @@ exception also requires independent security review before release. No merge
 or deployment has occurred. No manual coordination is required for the automated
 matrix: future reruns use `npm run certify:phase4`. Quick and extended modes are
 documented in [the certification guide](phase-4-certification.md).
+
+## P4-C25 — Scheduled-time fairness and final rerun
+
+The subsequent complete run on `f99c912c96eb3789be5868a5acaca972eb0bd1bd`
+failed v9 with **63 PASS / 3 FAIL**: J10 recovery timed out in all engines.
+All other 25 mandatory gates passed. Its artifact is
+`.artifacts/certification/f99c912c96eb3789be5868a5acaca972eb0bd1bd-2026-10-14T09-50-37-186Z-complete/`.
+That failure is retained and cannot certify newer source.
+
+The preserved disposable D1 showed all three interrupted runs remained
+`retryable_failure`, with `attempts=1`, `retry_at=0`, and `lease_until=0`.
+Recovery had not been attempted: the scheduler selected its initial phase from
+`Date.now()`'s 15-minute slot. Repeated calls within a slot, or multiple delayed
+scheduled deliveries at one wall time, could repeatedly exhaust the budget in
+other phases. The earlier passing run happened in a different phase slot.
+
+`worker/index.ts` now forwards `ScheduledController.scheduledTime` to
+`runScheduled()`. Only phase selection uses it; current deadlines, leases,
+retention and retry backoff retain real-time semantics. The default argument
+keeps direct callers compatible. v9 advances scheduled event times in 15-minute
+steps through Wrangler's local endpoint, records them in JSON and invokes two
+identical scheduled timestamps concurrently. Completion, dedupe and undo
+assertions remain mandatory.
+
+The actual-D1 fairness regression now holds wall time fixed while 24 scheduled
+slots advance. Before the source correction it failed with zero reminders;
+afterward the complete budget suite passed **7/7** in 12.12 seconds. The built
+Worker v9 rerun passed **66/66**, including J10 and integrated platform checks
+in Chromium, Firefox and WebKit. Typecheck and build passed. These are targeted
+results; final acceptance requires a new full `npm run certify:phase4` on the
+committed correction. The generated SHA-scoped report and PR summary identify
+that final run, rather than reusing either `df49d6b` or `f99c912`.
+
+API evidence: [Cloudflare scheduled handler](https://developers.cloudflare.com/workers/runtime-apis/handlers/scheduled/)
+defines `scheduledTime` as the intended execution time; the
+[Cron testing guide](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+supports passing `time` to local scheduled-event testing. The pinned Miniflare
+entry worker accepts that parameter at the established handler endpoint.
