@@ -914,7 +914,7 @@ export async function resumeSubmission(env:Bindings,submissionId:string,ctx:{wai
       execution.guard = authorityFence;
       execution.checkpoint=id=>env.DB.prepare('INSERT OR IGNORE INTO execution_steps(operation_id,step_id,done_at) VALUES(?,?,?)').bind(operationId,'record:'+id,Date.now());
       const result=await applyChanges(env,'form',ops.map(o=>({...o,ts:now})),{serverTs:true,atomic:true,createOnly:plan.recordId.startsWith('person_')?new Set([plan.recordId]):undefined,journal:plan.cs,execution,event:{source:'form',ctx,changesetId:plan.cs.id}});
-      if(result.rejected) return await reject({error:'submission_rejected',retryable:false});
+      if(result.rejected && !result.conflicts?.length) return await reject({error:'submission_rejected',retryable:false});
       if(result.partialError||result.conflict||result.conflicts?.length) throw new Error(result.partialError??'write conflict');
     }
     const outboxId='ev_form_'+fnv1a64hex(row.form_id+'|'+submissionId);

@@ -454,6 +454,15 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
           hydrateConflicts(conflicts, fresh);
           return {rejected:chunk.length,changed:applied.length,applied,conflicts};
         }
+        if(chunkAtomic && opts.execution && err instanceof Error && /malformed JSON/i.test(err.message)) {
+          const fresh=await readRows(db,chunk.map(p=>p.id));
+          const raced=chunk.filter(p=>(fresh.get(p.id)?.seq??-1)!==p.baseSeq);
+          if(raced.length) {
+            for(const p of raced) conflicts.push({id:p.id,collection:p.collection,expectedRev:opts.expect?.get(p.id)??p.baseSeq,currentRev:null,current:null,updatedBy:null,updatedAt:null});
+            hydrateConflicts(conflicts,fresh);
+            return {rejected:conflicts.length,changed:applied.length,applied,conflicts};
+          }
+        }
         // A lost commit acknowledgement is ambiguous. Recover the exact
         // committed deltas from durable events before reporting failure.
         for (const s of err instanceof D1BudgetExhausted?[]:staged) {
