@@ -38,6 +38,9 @@ folders with generated all-zero local binding IDs. No personal `.wrangler/state`
 is used. `fixture.json` records provenance for each database; incompatible
 suites always receive fresh state. The base MCP deleted-user check receives only
 that fixture's exact config/state paths.
+Every stage has an explicit `fixtureId`: generated Worker provenance, a
+SHA/stage-scoped identifier for isolated in-process Miniflare suites, or
+`not-applicable` for stages that use no application database.
 
 Processes get dedicated groups. Cleanup sends signals only to groups created
 by this invocation. Port probes reject collisions without adopting or stopping
