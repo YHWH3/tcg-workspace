@@ -38,7 +38,7 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !lightbox) onClose();
+      if (e.key === 'Escape' && !e.defaultPrevented && !lightbox) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

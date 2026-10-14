@@ -174,7 +174,10 @@ export function Popover({
       setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isTopLayer(layerId.current)) setOpen(false);
+      if (e.key === 'Escape' && isTopLayer(layerId.current)) {
+        e.preventDefault();
+        setOpen(false);
+      }
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey, true);
