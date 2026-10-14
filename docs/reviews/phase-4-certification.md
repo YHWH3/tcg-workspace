@@ -43,7 +43,12 @@ an existing server. Local URLs reject remote hosts and embedded credentials.
 No deployment, merge, cloud resource creation or Git operation is part of the
 certification command.
 
-The acceptance run on `4611193` exited FAIL. v6 and v7 passed. v8 still fails the conversion related-record control. v9 still fails J10 recovery after a live SQLite trigger, plus WebKit form-error text and some desktop approval focus waits. Later edits are not part of that artifact. Do not treat that run, or an interrupted earlier run, as certification of a newer SHA.
+The historical run on `4611193` exited FAIL; it is retained in the remediation
+ledger. Subsequent corrections address dialog Escape/focus restoration, the
+collapsed Related group and deterministic WebKit public-form fault injection.
+The authoritative result for any run is its generated `summary.json` and
+`report.md`, with the exact tested SHA and source fingerprint. Do not reuse an
+earlier result to certify a newer SHA.
 
 A successful exit requires every applicable mandatory stage and assertion.
 Suite throws, failed launch, timeout, signals, nonzero exit, empty JSON,
@@ -53,6 +58,14 @@ counts, not the text `ALL PASS`. Vitest JSON must contain all expected test
 files and test counts. Browser/MCP JSON must complete explicit manifests.
 The harness selftests deliberately exercise these failures, including the C16
 complete-runner crash regression.
+
+The mandatory `performance-evidence` gate checks both complete unit and targeted
+D1 metric artifacts. It requires the 1,000-record fixture, query plans and every
+named workload; missing files fail certification. Measurements include binding
+calls, SQL statements, rows read/written, cursor reads/writes and candidate scans.
+C14/C15 calls are exercised with the production 45-call budget. Browser timing
+records are also required in complete mode. These are local measurements, not
+Cloudflare billing or deployed latency evidence.
 
 The report records both the commit and a SHA-256 source fingerprint. Changes
 during a run invalidate certification. Checkpoints preserve evidence, but are

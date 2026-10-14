@@ -33,6 +33,26 @@ Production data and services are outside this verification scope.
 | P4-C11 | Public form upload wrote an image of up to 5 MB into one `file_chunks` row. Authenticated uploads allowed a 2 MiB chunk. D1's documented per-row maximum is 2,000,000 bytes. | Shared 1 MiB (`1,048,576` byte) chunks, each strictly under 2,000,000 bytes. Download concatenates consecutive indexes. A failed or interrupted write deletes the file, its chunks, and its record. Success is returned only after the chunk count and byte length match. | FIXED AND VERIFIED |
 | P4-C12 | Date-offset Cron checked the date, scope, and prior run, then called `runOneAutomation()` without `conditionsMatch()`. | The same AND condition engine as event automations, using the source board's fields and the live record. The rule stays eligible for that whole indexed day. A non-match moves the cursor and is not marked, so a later match in the same window still runs once. | FIXED AND VERIFIED |
 | P4-C13 | The reminder keyset cursor skipped a newly earlier date until the forward scan emptied. A sustained backlog could delay that reminder without a bound. | Forward cursor `reminders` plus one lookbehind page, `reminders-behind`. The forward cursor is not reset while later rows remain. A new earlier row is sent on the next run when fewer than 4 unsent rows sort before it, otherwise within `ceil((unsent before it + 1) / 4)` runs. An empty forward page clears both cursors. `reminder_sent` still prevents a second delivery. | FIXED AND VERIFIED |
+| P4-C14 | C13's empty-forward cleanup discarded an unfinished 40-row backward page, repeatedly scanning the same undeliverable prefix. | Preserve a full or interrupted backward page; wrap only after a short page is completely examined. Keep skipped rows unmarked so recipient/preference changes and earlier inserts are reconsidered on later passes. Atomic notification/dedupe and the separate overdue cursor remain in force. | FIXED AND VERIFIED |
+| P4-C15 | Date-offset validation supplied only candidate source boards, so a valid `create_record` destination could appear absent. | Share `loadValidationCtx()` with ordinary execution: source/candidate/action boards, live fields, templates and members. Load once per page with bounded board batches; reject deleted destinations before writes. | FIXED AND VERIFIED |
+| P4-C16 | v6 caught suite exceptions without recording FAIL; final exit depended only on assertion failures. | Structured explicit manifests, recorded suite/launch/setup failures and mandatory completeness; supervise child exit, signals and timeout. The orchestrator rejects malformed, empty and partial evidence. | FIXED AND VERIFIED |
+
+C13's cleanup description above is the historical implementation; C14 supersedes
+the sentence about clearing both cursors on an empty forward page. Current
+reminder progress is bounded by 40 examined undeliverable rows per backward page
+and at most four deliveries per invocation, subject to the D1 invocation budget.
+The 60-row undeliverable-prefix regression reaches the valid task within two
+executions. Changed eligibility and inserts behind the active cursor are reached
+after the current pass wraps; under continuing mutation this is eventual scan
+progress, not an absolute wall-clock delivery guarantee.
+
+C14-T01–T08 are covered in `tests/phase4-reminders-d1.test.ts`: empty forward
+range, added assignee, preferences re-enabled, earlier insertion, date moves,
+concurrency, notification/cursor/budget failure injection and 1,000-row progress.
+C15-T01–T08 are covered in `tests/phase4-date-offset-d1.test.ts` and the budget
+suite: cross-database creation/templates, missing/deleted destinations, custom
+AND conditions, member/approver references, replay, constrained budgets and
+1,000 mixed index entries. C11 retains `FILE_CHUNK_BYTES = 1_048_576`.
 
 ## Continuation evidence (2026-10-11, commits `396144f` and `8a50be1`)
 
