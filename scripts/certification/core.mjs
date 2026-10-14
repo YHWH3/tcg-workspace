@@ -4,8 +4,23 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, platform } from 'node:os';
 import { fileURLToPath } from 'node:url';
+
+/** A temporary assertion, tied to this process; never changes power settings.
+ * macOS may still suspend on explicit lid closure. Such interrupted runs fail. */
+export function preventIdleSleep({os=platform(),available=existsSync('/usr/bin/caffeinate'),spawnProcess=spawn,ownerPid=process.pid}={}) {
+  const evidence={applicable:os==='darwin',active:false,mechanism:'none',ownerPid};
+  if(os!=='darwin'||!available) return {evidence,stop:()=>{}};
+  let child;
+  try {
+    child=spawnProcess('/usr/bin/caffeinate',['-i','-w',String(ownerPid)],{stdio:'ignore'});
+    evidence.active=true;evidence.mechanism='macOS caffeinate -i';evidence.pid=child.pid;
+    child.on('error',error=>{evidence.active=false;evidence.error=error.message;});
+    child.unref();
+  } catch(error){evidence.error=error.message;}
+  return {evidence,stop:()=>{if(child&&!child.killed)child.kill('SIGTERM');}};
+}
 
 export const json = (path, value) => { mkdirSync(dirname(path), {recursive:true}); writeFileSync(path, JSON.stringify(value,null,2)+'\n'); };
 export function localOrigin(base) {

@@ -99,3 +99,7 @@ it('INT-01 legacy DELETE preserves shared references and retires an incomplete o
  await binary('incomplete');expect((await files.request('http://localhost/incomplete',{method:'DELETE',headers:{authorization:'Bearer integrity-session'}},env,ctx)).status).toBe(200);expect(await count('files')).toBe(0);
  expect((await files.request('http://localhost/incomplete/chunks/0',{method:'PUT',headers:{authorization:'Bearer integrity-session'},body:new Uint8Array([1])},env,ctx)).status).toBe(410);
 });
+it('INT-01 cleanup uses indexed file references instead of scanning record collections',async()=>{
+ const plan=(await db.prepare("EXPLAIN QUERY PLAN SELECT id FROM reclaimable_files WHERE id='photo'").all<{detail:string}>()).results.map(r=>r.detail).join('\n');
+ for(const index of ['idx_block_file_ref','idx_task_cover_ref','idx_file_thumb_ref'])expect(plan.split('\n').some(line=>line.includes('SEARCH r USING INDEX '+index)&&line.includes('<expr>=?')),plan).toBe(true);
+});

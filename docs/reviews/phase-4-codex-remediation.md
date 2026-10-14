@@ -506,3 +506,41 @@ explicitly NOT RUN, under
 `.artifacts/certification/a1a7dbd454646dfc814d033bca00f984bb485036-2026-10-14T11-28-18-621Z-complete/`.
 It is not acceptance evidence. The complete command is rerun from the corrected
 committed source; the final generated report and PR comment identify that SHA.
+
+### Final resource and local-runner correction
+
+The comprehensive `c4c384a` run's unit gate recorded **662 PASS / 2 FAIL**:
+two established actual-D1 tests received local Miniflare RPC `ECONNRESET`
+errors. The independent D1 gate on that same run passed **183/183**. Those
+unit failures remain failures; no retry adapter converts them to PASS. The
+larger integrity workloads now run with one Vitest worker. Real runtime and
+migration setup has a bounded 30-second default correctness timeout, replacing
+the unsuitable five-second default; workload timings remain separately measured.
+Independent later integration stages continue and their logs are retained.
+
+The cleanup EXPLAIN regression initially showed collection scans, then full
+reference-index scans. The corrected indexed expressions explicitly use TEXT
+identity affinity and the view selects those indexes. The same test now requires
+**SEARCH** with an expression-key equality for each block/cover/thumbnail lookup,
+rather than accepting an index name alone. On the 1,000-record fixture this
+reduced the measured cleanup operation from **3,056 to 22 rows read**, retaining
+**3 binding calls / 4 SQL statements / 19 rows written** (about 10 ms locally).
+`INT-01-index-red.log`, `INT-01-index-search-red.log` and the green query-plan
+regression preserve the progression. The earlier resource figures above are
+intermediate measurements; the final artifact contains the corrected metrics.
+Migration 0011 has not been deployed; its final registered hash and upgrade
+regressions are certified with the final source. No published older migration
+was changed.
+
+System power logs confirmed repeated clamshell/maintenance sleeps during the
+`c4c384a` run (including 17:34–17:44, 17:45–17:56 and 17:57–18:22 local time).
+The run finished **20 gates PASS / 6 FAIL**, with timeout cascades in browser
+suites and source-integrity failure because the index/runner corrections were
+being prepared. A serial unit attempt during suspension likewise failed with
+hook/test timeouts; it is retained as a failure. These runs cannot certify the
+new source. The certification process now owns a temporary macOS idle-sleep
+assertion, with three self-tests for scoped cleanup, unsupported platforms and
+launch failure. It does not override explicit lid closure or alter power
+settings. After wake, the actual-D1 cleanup/migration/resource target passed
+**24/24** in 35.99 seconds. Full acceptance still requires a new uninterrupted
+complete run against the committed correction.

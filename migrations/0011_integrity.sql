@@ -13,13 +13,13 @@ END;
 -- A view keeps the ownership rule identical for immediate and legacy cleanup.
 -- Attachments have one parent; explicit block/cover/thumbnail references can
 -- share bytes (e.g. template instantiation), so retain those until released.
-CREATE INDEX idx_block_file_ref ON records(json_extract(data,'$.fileId')) WHERE collection IN ('blocks','mooditems') AND COALESCE(json_extract(data,'$.deleted'),0)=0;
-CREATE INDEX idx_task_cover_ref ON records(json_extract(data,'$.coverFileId')) WHERE collection='tasks' AND COALESCE(json_extract(data,'$.deleted'),0)=0;
-CREATE INDEX idx_file_thumb_ref ON records(json_extract(data,'$.thumbId')) WHERE collection='files' AND COALESCE(json_extract(data,'$.deleted'),0)=0;
+CREATE INDEX idx_block_file_ref ON records(CAST(json_extract(data,'$.fileId') AS TEXT)) WHERE collection IN ('blocks','mooditems') AND COALESCE(json_extract(data,'$.deleted'),0)=0;
+CREATE INDEX idx_task_cover_ref ON records(CAST(json_extract(data,'$.coverFileId') AS TEXT)) WHERE collection='tasks' AND COALESCE(json_extract(data,'$.deleted'),0)=0;
+CREATE INDEX idx_file_thumb_ref ON records(CAST(json_extract(data,'$.thumbId') AS TEXT)) WHERE collection='files' AND COALESCE(json_extract(data,'$.deleted'),0)=0;
 CREATE VIEW reclaimable_files AS SELECT d.id FROM file_deletions d
- WHERE NOT EXISTS(SELECT 1 FROM records r WHERE r.collection IN ('blocks','mooditems') AND COALESCE(json_extract(r.data,'$.deleted'),0)=0 AND json_extract(r.data,'$.fileId')=d.id)
- AND NOT EXISTS(SELECT 1 FROM records r WHERE r.collection='tasks' AND COALESCE(json_extract(r.data,'$.deleted'),0)=0 AND json_extract(r.data,'$.coverFileId')=d.id)
- AND NOT EXISTS(SELECT 1 FROM records r WHERE r.collection='files' AND COALESCE(json_extract(r.data,'$.deleted'),0)=0 AND json_extract(r.data,'$.thumbId')=d.id);
+ WHERE NOT EXISTS(SELECT 1 FROM records r INDEXED BY idx_block_file_ref WHERE r.collection IN ('blocks','mooditems') AND COALESCE(json_extract(r.data,'$.deleted'),0)=0 AND CAST(json_extract(r.data,'$.fileId') AS TEXT)=d.id)
+ AND NOT EXISTS(SELECT 1 FROM records r INDEXED BY idx_task_cover_ref WHERE r.collection='tasks' AND COALESCE(json_extract(r.data,'$.deleted'),0)=0 AND CAST(json_extract(r.data,'$.coverFileId') AS TEXT)=d.id)
+ AND NOT EXISTS(SELECT 1 FROM records r INDEXED BY idx_file_thumb_ref WHERE r.collection='files' AND COALESCE(json_extract(r.data,'$.deleted'),0)=0 AND CAST(json_extract(r.data,'$.thumbId') AS TEXT)=d.id);
 CREATE TRIGGER file_reclaim_insert AFTER INSERT ON records WHEN NEW.collection IN ('files','blocks','tasks','mooditems') BEGIN
  DELETE FROM file_chunks WHERE file_id IN (SELECT id FROM reclaimable_files WHERE id IN (NEW.id,json_extract(NEW.data,'$.fileId'),json_extract(NEW.data,'$.coverFileId'),json_extract(NEW.data,'$.thumbId')));
  DELETE FROM files WHERE id IN (SELECT id FROM reclaimable_files WHERE id IN (NEW.id,json_extract(NEW.data,'$.fileId'),json_extract(NEW.data,'$.coverFileId'),json_extract(NEW.data,'$.thumbId')));

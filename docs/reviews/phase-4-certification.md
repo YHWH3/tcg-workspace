@@ -26,7 +26,7 @@ changes or an unattended extended run. No hook or launchd schedule is enabled.
 Startup/SQL have separate bounded limits in the disposable fixture utility.
 Independent later suites continue after an assertion failure. A failed build
 marks dependent integrations NOT RUN; they never silently reuse old output.
-Vitest uses at most two workers because the actual-D1 files each start Workerd;
+Vitest uses one worker because the actual-D1 files each start Workerd;
 this limits competing fixture RPCs while preserving the complete test matrix.
 v9 supplies explicit successive Cron event times to Wrangler's scheduled test
 endpoint. Phase rotation uses the event's scheduled time; lease, retry and
@@ -98,3 +98,9 @@ or server is required. Large guarded MCP edits require a stable `requestId`;
 a retry resumes the frozen operation and its original changeset. Conflicted
 large undo reports a partial state and inverse journal rather than implying all
 records were restored. The remediation ledger records each P4-INT reproduction.
+
+On macOS the orchestrator holds a temporary `caffeinate -i` idle-sleep assertion
+for its own lifetime and records it in `environment.json`. It stops only the
+assertion it created; it never changes system power settings. Explicit lid
+closure can still suspend the Mac and invalidate a run. Such timeouts/RPC
+failures remain FAIL and require a new complete invocation after wake.
