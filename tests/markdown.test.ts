@@ -63,7 +63,10 @@ describe('record mentions', () => {
   it('renderMentionText renders @[rec:] as [[title]] via recordTitle', () => {
     const r = { recordTitle: (id: string) => (id === 'r-9' ? 'Maya Person' : undefined) };
     expect(renderMentionText('ask @[rec:r-9]', r)).toBe('ask [[Maya Person]]');
-    expect(renderMentionText('ask @[rec:r-x]', r)).toBe('ask [[record]]');
+    // Missing/deleted record titles stay opaque tokens so read/edit cannot
+    // erase the reference or disclose a deleted title.
+    expect(renderMentionText('ask @[rec:r-x]', r)).toBe('ask @[rec:r-x]');
+    expect(resolveMentionText(renderMentionText('ask @[rec:r-x]', r), r)).toBe('ask @[rec:r-x]');
   });
 });
 
