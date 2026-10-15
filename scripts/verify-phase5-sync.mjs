@@ -38,18 +38,26 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
       reporter.record(engine, '390x844', name, 'FAIL', error); console.error(`FAIL [${engine}] ${name}: ${error.message}`);
       for (const [i, page] of (context?.pages() ?? []).entries()) await page.screenshot({ path: join(directory, `failure-${names.indexOf(name)}-${i}.png`), fullPage: true, timeout: 5000 }).catch(() => {});
       await context?.tracing.stop({ path: join(directory, `failure-${names.indexOf(name)}.zip`) }).catch(() => {});
-      await context?.tracing.start({ screenshots: true, snapshots: true }).catch(() => {});
+      // The journeys share one account/profile. In particular a timed-out
+      // promise is still alive until its browser and Worker are closed. Abort
+      // this engine and leave later checkpoints missing (blocking) rather than
+      // running them beside an unfinished mutation. Other engines still run.
+      throw error;
     } finally { clearTimeout(timer); reporter.complete(`${engine}/${name}`); }
   };
   try {
     fixture = await startFixture({ port: await freePort(), build: !built, artifactDirectory: directory }); built = true;
     const { admin, bob } = await bootstrap(fixture.base), prefix = `p5_${engine}`, pageId = `${prefix}_page`, coreId = `${prefix}_core`, space = `${prefix}_private`, originalTitle = `${engine} Private reference`, offlineTitle = `${engine} Offline confidential edit`;
-    await push(fixture.base, admin.token, [{ id: coreId, collection: 'pages', patch: { title: `${engine} Core reference` } }, { id: pageId, collection: 'pages', patch: { title: originalTitle } }]);
+    const imageId = `${prefix}_image`, thumbId = imageId + 't', blockId = `${prefix}_image_block`, caption = `${engine} Private image`;
+    const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII=', 'base64');
+    await push(fixture.base, admin.token, [{ id: coreId, collection: 'pages', patch: { title: `${engine} Core reference` } }, { id: pageId, collection: 'pages', patch: { title: originalTitle } },
+      { id: blockId, collection: 'blocks', patch: { pageId, type: 'image', fileId: imageId, caption, order: 'a0' } },
+      { id: imageId, collection: 'files', patch: { parentType: 'block', parentId: blockId, kind: 'image', name: 'Private fixture.png', mime: 'image/png', size: imageBytes.length, thumbId } }]);
     const sql = async query => (await fixture.sql(query)).flatMap(r => r.results ?? []);
     await sql(`INSERT INTO spaces(id,name,default_access,created_at) VALUES(${quote(space)},'Disposable private','private',1);
       INSERT INTO space_members(space_id,user_id,role) VALUES(${quote(space)},${quote(bob.user.id)},'editor');
       UPDATE users SET workspace_role='guest' WHERE id=${quote(bob.user.id)};
-      UPDATE records SET space_id=${quote(space)} WHERE id=${quote(pageId)};`);
+      UPDATE records SET space_id=${quote(space)} WHERE id IN (${[pageId, blockId, imageId].map(quote).join(',')});`);
     const start = async user => {
       context = await browserType.launchPersistentContext(profile, { headless: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
       await reporter.trackBrowser(context.browser(), engine);
@@ -73,6 +81,11 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
       } finally { await legacy.close(); }
     });
     await sql('UPDATE access_state SET enabled=1 WHERE id=1');
+    for (const id of [imageId, thumbId]) {
+      assert.equal((await fetch(`${fixture.base}/api/files/${id}/chunks/0`, { method: 'PUT', headers: { Authorization: `Bearer ${bob.token}` }, body: imageBytes })).status, 200);
+      assert.equal((await fetch(`${fixture.base}/api/files/${id}/complete`, { method: 'POST', headers: { Authorization: `Bearer ${bob.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ chunks: 1, size: imageBytes.length, mime: 'image/png' }) })).status, 200);
+      assert.equal((await fetch(`${fixture.base}/api/files/${id}`, { headers: { Authorization: `Bearer ${admin.token}` } })).status, 404);
+    }
     await check(names[1], async () => {
       page = await start(bob);
       let release; const gate = new Promise(resolve => { release = resolve; });
@@ -81,6 +94,8 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
       await page.getByRole('heading', { name: 'Checking access' }).waitFor(); assert.ok(!(await page.locator('body').innerText()).includes(originalTitle));
       release(); await context.unroute('**/api/access');
       await page.getByPlaceholder('Untitled', { exact: true }).waitFor(); assert.equal(await page.getByPlaceholder('Untitled', { exact: true }).inputValue(), originalTitle);
+      await page.getByRole('img', { name: caption, exact: true }).waitFor();
+      await eventually(async () => (await readAccountStore(page, 'blobs')).some(row => row.id === thumbId));
       const rows = await readAccountStore(page, 'pages'); assert.equal(rows.some(r => r.id === coreId), false); assert.equal(rows.some(r => r.id === pageId), true);
     });
     await check(names[2], async () => {
@@ -92,6 +107,8 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
       await page.getByText('Page not found', { exact: true }).waitFor();
       assert.equal((await readAccountStore(page, 'pages')).some(r => r.id === pageId), false);
       assert.equal((await readAccountStore(page, 'outbox')).length, 0);
+      assert.equal((await readAccountStore(page, 'blobs')).some(row => [imageId, thumbId].includes(row.id)), false);
+      assert.equal((await readAccountStore(page, 'files')).some(row => row.id === imageId), false);
       const held = await readAccountStore(page, 'accessQuarantine'); assert.ok(held.some(r => r.kind === 'outbox' && r.id === pageId));
       assert.equal((await sql(`SELECT json_extract(data,'$.title') title FROM records WHERE id=${quote(pageId)}`))[0].title, originalTitle);
       assert.ok(!(await page.locator('body').innerText()).includes(offlineTitle));
@@ -100,6 +117,7 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
       await sql(`UPDATE space_members SET access='allow' WHERE space_id=${quote(space)} AND user_id=${quote(bob.user.id)}`);
       await page.reload(); await page.getByPlaceholder('Untitled', { exact: true }).waitFor();
       assert.equal(await page.getByPlaceholder('Untitled', { exact: true }).inputValue(), originalTitle);
+      await page.getByRole('img', { name: caption, exact: true }).waitFor();
       assert.ok((await readAccountStore(page, 'accessQuarantine')).length > 0);
       for (const width of [320, 390, 768, 1024, 1440]) { await page.setViewportSize({ width, height: 1000 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2)); }
       await page.setViewportSize({ width: 390, height: 844 });
@@ -138,11 +156,13 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
     });
     await check(names[8], async () => {
       const browser = await browserType.launch({ headless: true }); await reporter.trackBrowser(browser, engine);
+      const sessionContexts = [];
       try {
         const response = await fetch(`${fixture.base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'password123' }) });
         assert.equal(response.status, 200); const secondUser = await response.json();
         const open = async user => {
           const c = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+          sessionContexts.push(c); await c.tracing.start({ screenshots: true, snapshots: true });
           await c.addInitScript(user => { localStorage.setItem('ws_token', user.token); localStorage.setItem('ws_uid', user.user.id); localStorage.setItem('ws_user', JSON.stringify(user.user)); }, user);
           const p = await c.newPage(); p.setDefaultTimeout(20_000); return p;
         };
@@ -163,10 +183,16 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
         await section.getByRole('button', { name: 'Sign out this device', exact: true }).click();
         await dialog.getByRole('button', { name: 'Confirm sign out', exact: true }).click();
         await primary.locator('form').getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+      } catch (error) {
+        for (const [i, c] of sessionContexts.entries()) {
+          for (const [j, p] of c.pages().entries()) await p.screenshot({ path: join(directory, `failure-session-${i}-${j}.png`), fullPage: true, timeout: 5000 }).catch(() => {});
+          await c.tracing.stop({ path: join(directory, `failure-session-${i}.zip`) }).catch(() => {});
+        }
+        throw error;
       } finally { await browser.close(); }
     });
     writeFileSync(join(directory, 'source-state.json'), JSON.stringify({ sourceSha, sourceFingerprint, fixture: fixture.fixtureId, local: true, permissionActivation: 'disposable fixture only' }, null, 2));
-  } catch (error) { reporter.record(engine, 'none', 'fixture or engine initialization', 'FAIL', error); }
+  } catch (error) { reporter.record(engine, 'none', 'engine execution', 'FAIL', error); }
   finally { await context?.close().catch(() => {}); await fixture?.stop(); }
 }
 if (fingerprint(process.cwd()) !== sourceFingerprint) reporter.record('system', 'none', 'source stability', 'FAIL', 'Source changed during browser verification; rebuild and rerun');

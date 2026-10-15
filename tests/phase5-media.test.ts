@@ -14,6 +14,11 @@ beforeEach(async () => {
 afterEach(async () => { await db.delete(); vi.unstubAllGlobals(); });
 
 describe('Phase 5 interrupted media and late response guards', () => {
+  it('caches an existing deterministic thumbnail through its main attachment metadata', async () => {
+    await db.files.update('file', { thumbId: 'filet' });
+    expect(await media.cacheDownloadedFile('filet', new Blob(['thumbnail']), media.captureMediaAccess(), () => true)).toBe(true);
+    expect(await db.blobs.get('filet')).toBeDefined();
+  });
   it('does not complete an upload using replacement credentials after its last chunk progress write', async () => {
     await db.blobs.put({ id: 'file', blob: new Blob(['upload']), state: 'pending', uploadedChunks: 0 });
     const calls: string[] = [];

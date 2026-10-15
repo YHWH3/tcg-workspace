@@ -10,6 +10,7 @@ import { uuid } from './utils';
 import { accessClientStore } from './accessClient';
 
 import { kindOf } from '../../shared/filekinds';
+import { thumbnailParentId } from '../../shared/fileOwnership';
 import { driveEmbed } from './drive';
 export type { FileKind, ParentType } from '../../shared/filekinds';
 import type { FileKind, ParentType } from '../../shared/filekinds';
@@ -367,7 +368,12 @@ export async function cacheDownloadedFile(fileId: string, blob: Blob, access: Me
   if (!current()) return false;
   try {
     return await db.transaction('rw', db.files, db.blobs, async () => {
-      const file = await db.files.get(fileId);
+      let file = await db.files.get(fileId);
+      const parentId = thumbnailParentId(fileId);
+      if (!file && parentId) {
+        const parent = await db.files.get(parentId);
+        if (parent?.thumbId === fileId) file = parent;
+      }
       if (!file || file.deleted || !current()) return false;
       await db.blobs.put({ id: fileId, blob, state: 'cached', uploadedChunks: 0, mime: blob.type });
       if (!current()) throw new MediaAccessChanged();

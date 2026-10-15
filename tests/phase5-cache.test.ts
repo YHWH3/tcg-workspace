@@ -15,6 +15,20 @@ beforeEach(async () => {
 afterEach(async () => { await store.delete(); });
 
 describe('Phase 5 durable account snapshot cache on Dexie/fake IndexedDB', () => {
+  it('refetches cached auxiliary bytes after a snapshot rather than trusting a thumbnail pointer as a read grant', async () => {
+    await store.blobs.put({ id: 'filet', blob: new Blob(['previously private bytes']), state: 'cached', uploadedChunks: 0 });
+    await beginCacheSnapshot(store, userId, descriptor);
+    await stageCachePage(store, userId, descriptor, 'first', page([record('a'), record('body', 'blocks', { pageId: 'a', type: 'image', fileId: 'file' }), record('file', 'files', { parentType: 'block', parentId: 'body', thumbId: 'filet' })]));
+    await activateCacheSnapshot(store, manifest, descriptor);
+    expect(await store.blobs.get('filet')).toBeUndefined(); expect(await store.accessQuarantine.count()).toBe(0);
+  });
+  it('retains authorized pending thumbnails that share their main file metadata', async () => {
+    await store.blobs.put({ id: 'filet', blob: new Blob(['thumb']), state: 'pending', uploadedChunks: 0 });
+    await beginCacheSnapshot(store, userId, descriptor);
+    await stageCachePage(store, userId, descriptor, 'first', page([record('a'), record('body', 'blocks', { pageId: 'a', type: 'image', fileId: 'file' }), record('file', 'files', { parentType: 'block', parentId: 'body', thumbId: 'filet' })]));
+    await activateCacheSnapshot(store, manifest, descriptor);
+    expect(await store.blobs.get('filet')).toBeDefined(); expect(await store.accessQuarantine.count()).toBe(0);
+  });
   it('refuses a delayed older snapshot after another tab has installed newer access', async () => {
     await store.meta.put({ key: ACCESS_MANIFEST_KEY, value: { ...manifest, generation: 21 } });
     await store.pages.put({ id: 'newer', title: 'New generation only', _ts: {} });

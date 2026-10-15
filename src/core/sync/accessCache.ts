@@ -4,6 +4,7 @@ import { COLLECTIONS, isCollection } from '../../../shared/collections';
 import { canComment, canEdit, canEditComment, canRead, isSpaceRole, isWorkspaceRole, type SpaceAccess, type SpaceRole, type WorkspaceRole } from '../../../shared/access';
 import { scopeParentIds, scopeResolver, ScopeError, type ScopeRecord } from '../../../shared/recordScope';
 import { stableJson } from '../../../shared/stablejson';
+import { thumbnailParentId } from '../../../shared/fileOwnership';
 import type { PulledRecord } from '../../../shared/types';
 import type { AccessQuarantineRow, LocalDB, LocalRow, OutboxEntry, SyncStageRow } from '../db';
 import { rebaseRecord } from './rebase';
@@ -204,8 +205,13 @@ export async function activateCacheSnapshot(store: LocalDB, manifest: ClientAcce
     }
     const files = new Map((await store.files.toArray()).filter(f => !f.deleted).map(f => [f.id, f])), removedBlobs: string[] = [];
     for (const blob of await store.blobs.toArray()) {
-      const file = files.get(blob.id), pendingBytes = blob.state === 'pending' || blob.state === 'failed';
-      if (file && (!pendingBytes || canEdit(clientAccess(manifest, String(file._spaceId ?? ''))))) continue;
+      const parentId = thumbnailParentId(blob.id), parent = parentId ? files.get(parentId) : undefined;
+      const file = files.get(blob.id) ?? (parent?.thumbId === blob.id ? parent : undefined), pendingBytes = blob.state === 'pending' || blob.state === 'failed';
+      // The snapshot contains canonical file rows, not an assertion that an
+      // auxiliary ID is still unclaimed. Discard downloaded/uploaded thumbnail
+      // cache and obtain fresh server authorization before displaying it. Keep
+      // local pending camera bytes attached to an editable canonical parent.
+      if (file && (files.has(blob.id) || pendingBytes) && (!pendingBytes || canEdit(clientAccess(manifest, String(file._spaceId ?? ''))))) continue;
       if (blob.state === 'pending' || blob.state === 'failed') retain('blob', blob.id, blob, 'file_access_revoked');
       await store.blobs.delete(blob.id); removedBlobs.push(blob.id);
     }

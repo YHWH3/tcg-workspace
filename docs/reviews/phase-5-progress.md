@@ -453,6 +453,72 @@ complete Phase 5 certification. Server scoped live/session revalidation, guest
 invitations, full role/admin protections and all remaining read surfaces are
 still required before activation. Physical devices/manual AT remain NOT RUN.
 
+## File capabilities and thumbnail reconciliation — implementation checkpoint
+
+**P5-SEC-07:** the authenticated file routes had only workspace login checks.
+Six actual-D1 regressions failed before the correction: guessed/hidden reads,
+viewer upload/complete/delete/transcribe, stale denormalized scope, private usage
+totals, and revocation before chunk persistence. `worker/fileAccess.ts` now uses
+canonical ancestry and current space capabilities. Byte reads/writes include
+epoch, principal, canonical revision and session guards in the same D1 batch.
+Viewers may read authorized bytes; editable ownership is required for mutations
+and transcription. Unauthorized IDs return 404. Responses use `private,no-store`.
+The legacy Core-only contract remains available while activation is off.
+
+**P5-REL-07:** thumbnails have a pending blob named `<file-id>t` and a `thumbId`
+on the canonical attachment, without a separate synced file row. Three tests
+failed when the new gate/cache treated that legitimate thumbnail as missing.
+`shared/fileOwnership.ts` identifies this existing contract. The server requires
+the canonical main attachment and exact deterministic reference; client download
+caching and pending-byte reconciliation preserve that relationship. This is not
+an arbitrary-reference read grant.
+
+**P5-SEC-08:** additional fault injection reproduced two races: creating a real
+record at the thumbnail ID after authorization could disclose its bytes, and
+revoking the uploader before auxiliary cleanup could still commit deletion
+intent. Both tests initially returned 200 instead of 409. The transactional
+fence now checks auxiliary-ID absence and protects cleanup as well. A real
+record retains its own authority. A forged visible reference cannot grant
+access. A third red test showed cached auxiliary bytes surviving snapshot
+reconciliation on pointer alone; downloaded/uploaded auxiliary cache is now
+discarded on snapshot activation and fetched through fresh server authority.
+Pending locally created thumbnail bytes remain with their editable main file.
+
+Executed before this logical commit:
+
+- Initial route red evidence: `files-red.json`, six FAIL. Thumbnail integration
+  red: `thumbnail-red.json`, three FAIL. Boundary red: `files-boundary-red.json`,
+  two FAIL. Cache red: `thumb-cache-red.json`, one FAIL. These files are retained
+  under `.artifacts/phase5-cache-checkpoint/`.
+- Actual-D1 file/Phase 4 security/chunks plus client media/cache: **66/66 PASS**,
+  exit 0, `.artifacts/phase5-files-targeted/results.json`. Covers successful
+  canonical deletion, preserved existing session-revocation write fence,
+  concurrent role changes, revocation during AI, lost-response chunk replay,
+  session expiry, hidden IDs, thumbnails, atomic cache reconciliation and
+  binary integrity. The main deletion revocation test already passed and is
+  preservation evidence, not a new defect claim.
+- 1,000-file local workload: **16 bindings, 27 statements in batches, 15,088
+  batch rows read, 0 batch rows written, 144.17 ms**. Metrics artifact:
+  `.artifacts/phase5-files-targeted/performance/phase5-files.json`. Direct auth,
+  state and space-discovery row totals are excluded; their calls are included.
+  This is local Miniflare evidence, not production billing or latency.
+- Built Worker browser before final boundary/cache changes: **27/27 PASS**,
+  `.artifacts/phase5-file-browser1/results.json`, with private main/thumbnail
+  uploads, guessed-ID rejection, actual IndexedDB caching and revocation
+  eviction across Chromium/Firefox/WebKit. Final committed-source rerun remains
+  necessary and will be recorded separately.
+- TypeScript, runner syntax and whitespace checks PASS. Browser failure paths
+  now abort dependent journeys for that engine and preserve session screenshots
+  and traces before browser closure. Independent engines still execute.
+
+Settings usage counts only readable canonical files and their owned thumbnails;
+global upload enforcement still uses the workspace quota. A bounded scan that
+exceeds its supported size returns an explicit failure rather than a partial
+total. Shared-reference/template capability handling, public links/forms,
+remote import, other server read surfaces and scoped live remain unfinished.
+Activation stays off outside disposable fixtures. This is not full Phase 5
+certification.
+
 ## Required work still outstanding
 
 | Workstream | Remaining implementation and acceptance |

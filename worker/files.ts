@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { requireAuth } from './auth';
 import type { Env, AuthUser } from './auth';
 import { sanitizeSvg } from '../shared/svgSanitize';
+import { authorizeFile, fileBatch, FileAccessError, readableFileUsage } from './fileAccess';
+import { syncFailure } from './syncAccess';
 
 /** SVG must be served inert: sandboxed, scripts/styles locked down. */
 export const SVG_HEADERS: Record<string, string> = {
@@ -71,6 +73,12 @@ export function concatRows(results: { data: unknown }[]): Uint8Array<ArrayBuffer
 
 export const files = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 files.use('*', requireAuth);
+files.onError((error, c) => {
+  if (error instanceof FileAccessError) return c.json({ error: error.message }, error.status);
+  const failure = syncFailure(error);
+  if (failure) return c.json({ error: failure.error }, failure.status);
+  throw error;
+});
 
 async function usageBytes(db: D1Database): Promise<number> {
   const row = await db.prepare('SELECT COALESCE(SUM(size), 0) AS used FROM files WHERE complete = 1').first<{ used: number }>();
@@ -78,7 +86,8 @@ async function usageBytes(db: D1Database): Promise<number> {
 }
 
 files.get('/usage', async (c) => {
-  return c.json({ used: await usageBytes(c.env.DB), limit: QUOTA_BYTES });
+  const scoped = await readableFileUsage(c.env.DB, c.get('user'));
+  return c.json({ used: scoped ?? await usageBytes(c.env.DB), limit: QUOTA_BYTES, ...(scoped !== null ? { scope: 'readable', quotaShared: true } : {}) });
 });
 
 /** Idempotent chunk upsert. Body is the raw chunk bytes. */
@@ -87,6 +96,7 @@ files.put('/:id/chunks/:idx', async (c) => {
   const idx = Number(c.req.param('idx'));
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
   if (!Number.isInteger(idx) || idx < 0 || idx > 4096) return c.json({ error: 'invalid chunk index' }, 400);
+  const authority = await authorizeFile(c.env.DB, c.get('user'), id, true);
 
   const body = await c.req.arrayBuffer();
   if (body.byteLength === 0) return c.json({ error: 'empty chunk' }, 400);
@@ -99,16 +109,19 @@ files.put('/:id/chunks/:idx', async (c) => {
   if (!existing) {
     // Tentative quota check when a new upload starts (final check at complete).
     if ((await usageBytes(db)) >= QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
-    await db.prepare('INSERT OR IGNORE INTO files (id, uploaded_by, created_at, complete) VALUES (?, ?, ?, 0)').bind(id, c.get('user').id, Date.now()).run();
   }
   // The completion check belongs to the same statement as the write: a PUT
   // that read pending state before another request completed must not alter
   // the acknowledged file afterwards.
-  const written = await db.prepare(`INSERT INTO file_chunks (file_id, idx, data)
-    SELECT ?, ?, ? WHERE EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0)
+  const [, written] = await fileBatch(db, authority, [
+    db.prepare(`INSERT OR IGNORE INTO files (id,uploaded_by,created_at,complete)
+      SELECT ?,?,?,0 WHERE NOT EXISTS(SELECT 1 FROM file_deletions WHERE id=?)`).bind(id, c.get('user').id, Date.now(), id),
+    db.prepare(`INSERT INTO file_chunks (file_id, idx, data)
+    SELECT ?, ?, ? WHERE EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0) AND NOT EXISTS(SELECT 1 FROM file_deletions WHERE id=?)
     ON CONFLICT(file_id, idx) DO UPDATE SET data = excluded.data
-      WHERE EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0)`)
-    .bind(id, idx, body, id, id).run();
+      WHERE EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0) AND NOT EXISTS(SELECT 1 FROM file_deletions WHERE id=?)`)
+    .bind(id, idx, body, id, id, id, id),
+  ]);
   if (!(written.meta.changes ?? 0)) return c.json({ error: 'file already complete' }, 409);
   return c.json({ ok: true, idx, size: body.byteLength });
 });
@@ -116,6 +129,7 @@ files.put('/:id/chunks/:idx', async (c) => {
 files.post('/:id/complete', async (c) => {
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
+  const authority = await authorizeFile(c.env.DB, c.get('user'), id, true);
   const body = await c.req.json<{ mime?: string; size?: number; chunks?: number }>().catch(() => null);
   if (!body || typeof body.chunks !== 'number' || !Number.isInteger(body.chunks) || body.chunks < 1 || typeof body.size !== 'number' || !Number.isInteger(body.size) || body.size < 1) {
     return c.json({ error: 'invalid body' }, 400);
@@ -126,7 +140,7 @@ files.post('/:id/complete', async (c) => {
   if (await db.prepare('SELECT id FROM file_deletions WHERE id=?').bind(id).first()) return c.json({ error: 'file deleted' }, 410);
   const meta = await db.prepare('SELECT * FROM files WHERE id = ?').bind(id).first<FileRow>();
   if (!meta) return c.json({ error: 'no chunks uploaded' }, 400);
-  if (meta.complete) return c.json({ ok: true }); // idempotent
+  if (meta.complete) { if (authority) await fileBatch(db, authority, []); return c.json({ ok: true }); } // idempotent
 
   const agg = await db
     .prepare('SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(data)), 0) AS bytes, MIN(idx) AS lo, MAX(idx) AS hi FROM file_chunks WHERE file_id = ?')
@@ -158,6 +172,7 @@ files.post('/:id/complete', async (c) => {
     AND NOT EXISTS(SELECT 1 FROM file_chunks WHERE file_id=files.id AND LENGTH(data)>=?)
     AND (SELECT COALESCE(SUM(size),0) FROM files WHERE complete=1)+?<=?`;
   const interrupted = async () => {
+    if (authority) await fileBatch(db, authority, []);
     const current = await db.prepare('SELECT complete FROM files WHERE id=?').bind(id).first<{ complete: number }>();
     if (current?.complete) return c.json({ ok: true });
     if ((await usageBytes(db)) + body.size! > QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
@@ -169,7 +184,7 @@ files.post('/:id/complete', async (c) => {
     const { results } = await db.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ data: unknown }>();
     const svg = sanitizeSvg(new TextDecoder().decode(concatRows(results)));
     if (!svg.ok) {
-      await db.batch([
+      await fileBatch(db, authority, [
         db.prepare('DELETE FROM file_chunks WHERE file_id=? AND EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0)').bind(id, id),
         db.prepare('DELETE FROM files WHERE id=? AND complete=0').bind(id),
       ]);
@@ -187,16 +202,17 @@ files.post('/:id/complete', async (c) => {
     }
     chunks.push(db.prepare('UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ?')
       .bind(mime, bytes.length, parts.length, id));
-    try { await db.batch(chunks); }
+    try { await fileBatch(db, authority, chunks); }
     catch (error) {
+      if (error instanceof FileAccessError) throw error;
       if (error instanceof Error && /malformed JSON/i.test(error.message)) return interrupted();
       return c.json({ error: 'file completion interrupted; retry' }, 503);
     }
     return c.json({ ok: true });
   }
 
-  const completed = await db.prepare(`UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ? AND ${readySql}`)
-    .bind(mime, body.size, body.chunks, id, body.chunks, body.size, body.chunks, D1_MAX_ROW_BYTES, body.size, QUOTA_BYTES).run();
+  const [completed] = await fileBatch(db, authority, [db.prepare(`UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ? AND ${readySql}`)
+    .bind(mime, body.size, body.chunks, id, body.chunks, body.size, body.chunks, D1_MAX_ROW_BYTES, body.size, QUOTA_BYTES)]);
   if (!(completed.meta.changes ?? 0)) return interrupted();
   return c.json({ ok: true });
 });
@@ -204,16 +220,18 @@ files.post('/:id/complete', async (c) => {
 files.get('/:id', async (c) => {
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
+  const authority = await authorizeFile(c.env.DB, c.get('user'), id, false);
   const meta = await c.env.DB.prepare('SELECT mime, size, chunks, complete FROM files WHERE id = ?').bind(id).first<FileRow>();
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
-  const { results } = await c.env.DB.prepare('SELECT idx, data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ idx: number; data: unknown }>();
+  const [bytes] = await fileBatch(c.env.DB, authority, [c.env.DB.prepare('SELECT idx, data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id)]);
+  const results = bytes.results as unknown as { idx: number; data: unknown }[];
   if (results.length !== (meta.chunks ?? results.length) || results.some((row, index) => row.idx !== index)) return c.json({ error: 'not found' }, 404);
   const out = concatRows(results);
   return new Response(out, {
     headers: {
       'Content-Type': meta.mime ?? 'application/octet-stream',
       'Content-Length': String(out.byteLength),
-      'Cache-Control': 'private, max-age=31536000, immutable',
+      'Cache-Control': 'private, no-store',
       ...svgHeaders(meta.mime),
     },
   });
@@ -222,6 +240,7 @@ files.get('/:id', async (c) => {
 files.delete('/:id', async (c) => {
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
+  const authority = await authorizeFile(c.env.DB, c.get('user'), id, true);
   const row=await c.env.DB.prepare('SELECT collection,data FROM records WHERE id=?').bind(id).first<{collection:string;data:string}>();
   if(row) {
     if(row.collection!=='files') return c.json({error:'not a file'},409);
@@ -236,7 +255,7 @@ files.delete('/:id', async (c) => {
     // or an administrator may retire them; record IDs cannot be repurposed.
     const blob=await c.env.DB.prepare('SELECT uploaded_by FROM files WHERE id=?').bind(id).first<{uploaded_by:string|null}>();
     if(blob&&blob.uploaded_by!==c.get('user').id&&c.get('user').role!=='admin') return c.json({error:'forbidden'},403);
-    await c.env.DB.batch([
+    await fileBatch(c.env.DB, authority, [
       c.env.DB.prepare('INSERT INTO file_deletions(id,created_at) VALUES(?,?) ON CONFLICT(id) DO NOTHING').bind(id,Date.now()),
       c.env.DB.prepare('DELETE FROM file_chunks WHERE file_id IN (SELECT id FROM reclaimable_files WHERE id=?)').bind(id),
       c.env.DB.prepare('DELETE FROM files WHERE id IN (SELECT id FROM reclaimable_files WHERE id=?)').bind(id),
@@ -249,10 +268,12 @@ files.delete('/:id', async (c) => {
 files.post('/:id/transcribe', async (c) => {
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
+  const authority = await authorizeFile(c.env.DB, c.get('user'), id, true);
   const meta = await c.env.DB.prepare('SELECT mime, size, complete FROM files WHERE id = ?').bind(id).first<FileRow>();
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
   if ((meta.size ?? 0) > MAX_TRANSCRIBE_BYTES) return c.json({ error: 'audio too large to transcribe' }, 413);
-  const { results } = await c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ data: unknown }>();
+  const [chunkRows] = await fileBatch(c.env.DB, authority, [c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id)]);
+  const results = chunkRows.results as unknown as { data: unknown }[];
   const bytes = concatRows(results);
   // base64 in slices that are multiples of 3 so partials concatenate safely.
   let audio = '';
@@ -265,8 +286,10 @@ files.post('/:id/transcribe', async (c) => {
   }
   try {
     const res = (await c.env.AI.run(WHISPER_MODEL, { audio })) as { text?: string };
+    if (authority) await fileBatch(c.env.DB, authority, []);
     return c.json({ text: res.text ?? '' });
   } catch (e) {
+    if (e instanceof FileAccessError) throw e;
     return c.json({ error: `transcription failed: ${e instanceof Error ? e.message : String(e)}` }, 502);
   }
 });

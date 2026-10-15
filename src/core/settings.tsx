@@ -121,9 +121,9 @@ function fmtMB(bytes: number): string {
 }
 
 function StorageSection() {
-  const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null);
+  const [usage, setUsage] = useState<{ used: number; limit: number; scope?: 'readable' } | null>(null);
   useEffect(() => {
-    api<{ used: number; limit: number }>('/api/files/usage')
+    api<{ used: number; limit: number; scope?: 'readable' }>('/api/files/usage')
       .then(setUsage)
       .catch(() => setUsage(null));
   }, []);
@@ -144,7 +144,7 @@ function StorageSection() {
               style={{ width: `${Math.max(pct, 1)}%` }}
             />
           </div>
-          <p className="mt-2 text-xs text-neutral-400">Files are stored in D1 and capped at 20 MB each. The workspace quota is shared by all members.</p>
+          <p className="mt-2 text-xs text-neutral-400">Files can be up to 20 MB each. The storage quota is shared by the workspace.{usage.scope === 'readable' && ' This total shows only files you can open.'}</p>
         </div>
       ) : (
         <p className="text-xs text-neutral-400">Storage usage is unavailable while offline.</p>
