@@ -59,5 +59,5 @@ export async function verifyOAuthSecurity({api,check,BASE,USER,PASS}) {
  await revoke(tokens.access_token,'access_token');check(oauthSecurityAssertions[13],(await call(tokens.access_token)).status===401);
  r=await refresh(tokens.refresh_token);check(oauthSecurityAssertions[14],r.status===200&&!!r.data.access_token&&(await call(r.data.access_token)).status===200);tokens=r.data;
  await revoke(tokens.refresh_token,'refresh_token');check(oauthSecurityAssertions[15],(await call(tokens.access_token)).status===401);
- r=await refresh(tokens.refresh_token);check(oauthSecurityAssertions[16],r.status===400||r.status===401);
+ r=await refresh(tokens.refresh_token);check(oauthSecurityAssertions[16],r.status===400||r.status===401,`status=${r.status} ${String(r.text??'').slice(0,160)}`);
 }

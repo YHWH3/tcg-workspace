@@ -30,7 +30,8 @@ import type { ViewCtx } from '../shared/views';
 import { coerceFieldValue, fieldsOf, type FieldDef } from '../shared/fields';
 import { addDays, todayUtc } from '../shared/recurrence';
 import { linkId } from '../shared/linkid';
-import { planTemplateInstantiation, type RecSnapshot } from '../shared/templates';
+import { planTemplateInstantiation } from '../shared/templates';
+import { loadTemplateSnapshot } from './templateSnapshot';
 import { fnv1a64hex } from '../shared/linkid';
 import type { Mutation } from '../shared/types';
 import { completedRecords, executionOptions, executionFence, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
@@ -174,7 +175,7 @@ async function planActions(
       case 'create_from_template': {
         if (!a.templateId) throw new Error(`action ${i}: templateId required`);
         let templateIndex=0;
-        const plan = planTemplateInstantiation(await loadSnapshot(env), {
+        const plan = planTemplateInstantiation(await loadTemplateSnapshot(env, a.templateId), {
           templateId: a.templateId,
           variables: Object.fromEntries(Object.entries(a.vars ?? {}).map(([k, v]) => [k, String(render(v) ?? '')])),
           actorId: ctx.userId,
@@ -258,15 +259,6 @@ async function planActions(
   }
   if (ops.length > MAX_ACTION_RECORDS) throw new Error(`too many writes (${ops.length} > ${MAX_ACTION_RECORDS})`);
   return { ops, side, memberIds };
-}
-
-async function loadSnapshot(env: Env): Promise<RecSnapshot> {
-  const [pages, blocks, boards, tasks, views, links] = await Promise.all([
-    listCollection(env, 'pages'), listCollection(env, 'blocks'), listCollection(env, 'boards'),
-    listCollection(env, 'tasks'), listCollection(env, 'views'), listCollection(env, 'links'),
-  ]);
-  const map = (rs: { id: string; data: Record<string, unknown> }[]) => Object.fromEntries(rs.map((r) => [r.id, r.data]));
-  return { pages: map(pages), blocks: map(blocks), boards: map(boards), tasks: map(tasks), views: map(views), links: map(links) };
 }
 
 /** Synthetic `record.field_changed` event for a date_offset hit (cron §5.4 contract). */

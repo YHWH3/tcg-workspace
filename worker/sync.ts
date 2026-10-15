@@ -14,10 +14,21 @@ import { authorizeMutations, writeAuthorityFences, type WriteAuthority } from '.
 import { readAuthorizedRecords, RecordAccessError } from './recordAccess';
 import { loadAccessState, pullAuthorized, syncFailure, validateSyncProtocol } from './syncAccess';
 import { snapshotsApi } from './syncSnapshot';
+import { MAX_FUTURE_SKEW_MS, healTimestamps } from '../shared/clock';
 
 const MAX_CHANGES = 500;
 const MAX_ID_LEN = 64;
 const MAX_ATTEMPTS = 3;
+// Drift bound for client timestamps lives in shared/clock.ts (also enforced
+// client-side in hlc.observe); re-exported for callers and tests.
+export { MAX_FUTURE_SKEW_MS };
+
+/**
+ * Largest serialized `data` a write may produce. D1 rejects any string/row of
+ * 2,000,000 bytes or more; a write that large aborts its whole batch, so the
+ * limit is enforced per item with headroom for `field_ts` and row metadata.
+ */
+export const MAX_RECORD_BYTES = 1_000_000;
 /** expectedRev ids must fit in ONE atomic batch. */
 export const MAX_EXPECTED = 100;
 
@@ -92,8 +103,13 @@ async function readWriteSnapshot(db: D1Database, ids: string[]) {
   return { existing: new Map((records.results as unknown as RecordRow[]).map(row => [row.id, row])), ...state };
 }
 
-function applyPatches(plan: Plan, existing: RecordRow | null): void {
-  const prev = existing ? { data: JSON.parse(existing.data) as Record<string, unknown>, field_ts: JSON.parse(existing.field_ts) as Record<string, number> } : null;
+function applyPatches(plan: Plan, existing: RecordRow | null, now = Date.now()): void {
+  const prev = existing
+    ? {
+        data: JSON.parse(existing.data) as Record<string, unknown>,
+        field_ts: healTimestamps(JSON.parse(existing.field_ts) as Record<string, number>, now, existing.updated_at),
+      }
+    : null;
   let merged = prev ?? { data: {}, field_ts: {} };
   let changed = false;
   for (const p of plan.patches) {
@@ -107,6 +123,26 @@ function applyPatches(plan: Plan, existing: RecordRow | null): void {
   plan.changed = changed;
   plan.beforeData = prev?.data ?? {};
   plan.beforeTs = prev?.field_ts ?? {};
+}
+
+/**
+ * A write that would leave a record over MAX_RECORD_BYTES is refused per item
+ * (`record_too_large`) instead of aborting the D1 batch that carries it —
+ * which, for a client push, would jam the whole offline outbox behind it. The
+ * limit never traps existing data: small patches (flags, order, status) and
+ * writes that do not grow the record always pass, so an oversized legacy row
+ * can still be shrunk, archived or soft-deleted.
+ */
+const SMALL_PATCH_BYTES = 1024;
+function exceedsRecordBudget(plan: Plan, existing: RecordRow | null): boolean {
+  const json = JSON.stringify(plan.data);
+  if (json.length * 3 <= MAX_RECORD_BYTES) return false;
+  const encoder = new TextEncoder();
+  const size = json.length > MAX_RECORD_BYTES ? json.length : encoder.encode(json).length;
+  if (size <= MAX_RECORD_BYTES) return false;
+  const patchBytes = plan.patches.reduce((n, p) => n + JSON.stringify(p.patch).length, 0);
+  if (patchBytes <= SMALL_PATCH_BYTES) return false;
+  return size > (existing ? encoder.encode(existing.data).length : 0);
 }
 
 export interface ApplyOptions {
@@ -258,21 +294,43 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   if (!incoming.length && !opts.expect?.size) return { rejected, rejectedItems, changed: 0, applied: [] };
   // One binding request still loads rows. The authority state is in the same
   // read transaction, not a cached flag or an optional caller-provided grant.
+  // The same read serves restamping, authorization, the gate pre-check and the
+  // merge plans.
   const snapshot = await readWriteSnapshot(db, [...new Set([...incoming.map(ch => ch.id), ...(opts.expect?.keys() ?? [])])]);
   if (opts.syncProtocol) validateSyncProtocol(snapshot, opts.syncProtocol.protocol, opts.syncProtocol.generation);
   const existing = snapshot.existing;
+  // Timestamp discipline (audit XP-03). Stored timestamps beyond the drift
+  // ceiling were written before it existed; they are healed to the row's last
+  // server write time BEFORE anything reasons about them, so the authorizer, the
+  // gate pre-check and the merge all see one ordering (a poisoned protected
+  // field must not be "untouched" to the authorizer yet applied by the merge).
+  const ceiling = now + MAX_FUTURE_SKEW_MS;
+  for (const row of existing.values()) {
+    try {
+      const ts = JSON.parse(row.field_ts) as Record<string, number>;
+      const healed = healTimestamps(ts, now, row.updated_at);
+      if (healed !== ts) row.field_ts = JSON.stringify(healed);
+    } catch {
+      /* unparseable timestamps: the merge reports it the way it always did */
+    }
+  }
   if (opts.serverTs && incoming.length) {
-    // Read field_ts floors for stamping before planning.
+    // Server-side writes win: stamp every field above the freshest stored
+    // timestamp (healed above).
     const floors = new Map<string, number>();
     for (const [id, row] of existing) {
       try {
-        const ts = JSON.parse(row.field_ts) as Record<string, number>;
+        const ts = healTimestamps(JSON.parse(row.field_ts) as Record<string, number>, now, row.updated_at);
         floors.set(id, Math.max(0, ...Object.values(ts)));
       } catch {
         floors.set(id, 0);
       }
     }
     incoming = restampForServer(incoming, floors, now);
+  } else {
+    // Client timestamps are untrusted: bound them so a wrong clock cannot win
+    // every later merge on a field or advance every peer's HLC without limit.
+    incoming = incoming.map((ch) => (ch.ts > ceiling ? { ...ch, ts: ceiling } : ch));
   }
   incoming=incoming.map(ch=>({...ch,patch:{...ch.patch}}));
 
@@ -291,16 +349,22 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     }
   }
 
-  // Phase 4 approval gates: a status write into a gated stage without a
-  // matching approved decision is refused here — on EVERY pathway (client
-  // push, MCP, automation, undo) — so generic sync can never bypass it.
+  // Phase 4 approval gates: entering a gated stage (by status or board) or
+  // re-pinning its approver without a matching approved decision is refused
+  // item-wise here — on EVERY pathway (client push, MCP, automation, undo).
+  // The transactional guard in flushPlans is only the race backstop; this
+  // pre-check mirrors its predicate so a policy refusal never aborts a batch.
+  // `proposedBoards` carries board configuration introduced by this same write.
   const proposedBoards = new Map<string, { data: Record<string, unknown>; field_ts: Record<string, number> }>();
   for (const ch of incoming) if (ch.collection === 'boards') {
     const row = existing.get(ch.id);
     const initial = proposedBoards.get(ch.id) ?? (row?.collection === 'boards' ? { data: JSON.parse(row.data), field_ts: JSON.parse(row.field_ts) } : null);
     proposedBoards.set(ch.id, mergeRecord(initial, ch));
   }
-  await guardStageWrites(env, incoming, reject, new Map([...proposedBoards].map(([id, r]) => [id, r.data])));
+  await guardStageWrites(env, incoming, reject, {
+    existing, now,
+    proposedBoards: new Map([...proposedBoards].map(([id, r]) => [id, r.data])),
+  });
 
   const plans = new Map<string, Plan>();
   for (const ch of incoming) {
@@ -327,7 +391,12 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
       plans.delete(plan.id);
       continue;
     }
-    applyPatches(plan, row ?? null);
+    applyPatches(plan, row ?? null, now);
+    if (plan.changed && exceedsRecordBudget(plan, row ?? null)) {
+      reject(plan.id, plan.collection, 'record_too_large');
+      plans.delete(plan.id);
+      continue;
+    }
     if(row&&opts.createOnly?.has(plan.id)) plan.changed=false;
   }
   // Atomic server operations must not create half a logical operation after
@@ -425,6 +494,7 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
   const applied: AppliedChange[] = [];
   const isAtomic = opts.atomic === true || (opts.atomic !== false && expected.size > 0);
   const eventIds: string[] = [];
+  const refusedOnRetry: RejectedItem[] = [];
   const stmtFor = (p: Plan) => authority ? db.prepare(`INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at,space_id)
       VALUES(?,?,?,?,(SELECT COALESCE(MAX(seq),0)+1 FROM records),?,?,?)
       ON CONFLICT(id) DO UPDATE SET data=excluded.data,field_ts=excluded.field_ts,
@@ -472,11 +542,12 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
           SELECT 1 FROM records b WHERE b.id=COALESCE(json_extract(?,'$.boardId'),'board-default') AND b.collection='boards'
           AND json_extract(b.data,'$.approvalGate.stageId')=json_extract(?,'$.status')
           AND (json_extract(?,'$.status') IS NOT json_extract(?,'$.status') OR json_extract(?,'$.boardId') IS NOT json_extract(?,'$.boardId')
-            OR json_extract(b.data,'$.approvalGate.approverField') IS NOT NULL)
+            OR (json_extract(b.data,'$.approvalGate.approverField') IS NOT NULL
+              AND json_extract(?,'$.p_'||json_extract(b.data,'$.approvalGate.approverField')) IS NOT json_extract(?,'$.p_'||json_extract(b.data,'$.approvalGate.approverField'))))
           AND NOT EXISTS(SELECT 1 FROM approvals a WHERE a.target_type='record' AND a.target_id=? AND a.status='approved'
             AND (a.stage_id=json_extract(b.data,'$.approvalGate.stageId') OR a.stage_id IS NULL)
             AND (json_extract(b.data,'$.approvalGate.approverField') IS NULL OR a.approver_id=json_extract(?,'$.p_'||json_extract(b.data,'$.approvalGate.approverField'))))
-        ) THEN 1 ELSE json_extract('{','$') END`).bind(JSON.stringify(p.data),JSON.stringify(p.data),JSON.stringify(p.data),JSON.stringify(p.beforeData),JSON.stringify(p.data),JSON.stringify(p.beforeData),p.id,JSON.stringify(p.data)));
+        ) THEN 1 ELSE json_extract('{','$') END`).bind(JSON.stringify(p.data),JSON.stringify(p.data),JSON.stringify(p.data),JSON.stringify(p.beforeData),JSON.stringify(p.data),JSON.stringify(p.beforeData),JSON.stringify(p.data),JSON.stringify(p.beforeData),p.id,JSON.stringify(p.data)));
         indices.push(statements.length);
         statements.push(stmtFor(p));
         const item = makeApplied(p, p.baseSeq);
@@ -568,6 +639,7 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
       const row = fresh.get(p.id);
       if (row && row.collection !== p.collection) { conflicts.push({id:p.id,collection:p.collection,expectedRev:p.baseSeq,currentRev:row.seq,current:null,updatedBy:row.updated_by,updatedAt:row.updated_at}); continue; }
       applyPatches(p, row ?? null);
+      if (p.changed && exceedsRecordBudget(p, row ?? null)) { refusedOnRetry.push({ id: p.id, collection: p.collection, reason: 'record_too_large' }); continue; }
       if(row&&opts.createOnly?.has(p.id)) p.changed=false;
       if (p.changed) todo.push(p);
     }
@@ -578,7 +650,7 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
     else hydrateConflicts(conflicts, await readRows(db, conflicts.map(c=>c.id)));
   }
   if (opts.event && eventIds.length) scheduleOutbox(env, opts.event.ctx, eventIds);
-  return { rejected: 0, changed: applied.length, conflict: todo.length > 0, conflicts: conflicts.length ? conflicts : undefined, applied };
+  return { rejected: refusedOnRetry.length, ...(refusedOnRetry.length ? { rejectedItems: refusedOnRetry } : {}), changed: applied.length, conflict: todo.length > 0, conflicts: conflicts.length ? conflicts : undefined, applied };
 }
 
 /** Wake live clients so they pull immediately (best-effort). */

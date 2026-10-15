@@ -1,0 +1,14 @@
+# Applied by Workers Static Assets to the SPA shell and its assets.
+# Worker-generated responses get the same set from worker/index.ts.
+# The app shell (and everything not listed below) is not frameable cross-site.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# Public forms and shared pages carry no session-bearing action and may be
+# embedded in an organisation's own website. Decision: docs/reviews/cross-phase-audit.md H-01.
+/f/*
+  ! X-Frame-Options
+/s/*
+  ! X-Frame-Options

@@ -73,7 +73,9 @@ it('budget-only interruptions never consume terminal failure attempts for a heal
   await event('large-board',{source:'client',userId:'alice',applied:[{id:'board',collection:'boards',created:false,fields:['fields'],before:{fields:[]},after:{fields:[]},fieldTs:{fields:2},rev:2}]});
   for(let retry=0;retry<9;retry++) {
     await db.prepare("UPDATE event_outbox SET lease_until=0 WHERE id='large-board'").run();
-    await expect(processOutbox(withD1Budget(env,18),'large-board')).rejects.toThrow(D1BudgetExhausted);
+    // Date-index rebuilds share a binding call (50 records each), so the budget
+    // is sized to run out inside the 100-task rebuild's second batch.
+    await expect(processOutbox(withD1Budget(env,4),'large-board')).rejects.toThrow(D1BudgetExhausted);
     const row=(await rows('event_outbox'))[0];
     expect(row.processed_at).toBeNull();expect(row.terminal_at).toBeNull();expect(Number(row.attempts)).toBeLessThan(8);
   }

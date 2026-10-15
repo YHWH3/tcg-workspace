@@ -33,5 +33,10 @@ describe('planDeleteImpact', () => {
     expect(i.counts.comments).toBe(1);
     expect(i.counts.files).toBe(1);
     expect(i.counts.mooditems).toBe(1);
+    // The preview must describe what execution does: attachments are kept,
+    // so they are reported as hidden and are not in the soft-delete id set.
+    expect(i.ids.files).toBeUndefined();
+    expect(i.warnings.join(' ')).toMatch(/attachment\(s\) are hidden .* kept/);
+    expect(i.summary).toContain('hidden and kept');
   });
 });

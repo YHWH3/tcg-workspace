@@ -3,6 +3,8 @@ import type { Env } from './auth';
 
 interface Attachment {
   userId: string;
+  /** sha256 of the session token that authorized this socket (sessions.token_hash). */
+  sid?: string;
   path: string;
   lastSeen: number;
 }
@@ -32,7 +34,7 @@ export class LiveRoom extends DurableObject<Env> {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
-      server.serializeAttachment({ userId, path: '/', lastSeen: Date.now() } satisfies Attachment);
+      server.serializeAttachment({ userId, sid: req.headers.get('x-session-hash') ?? undefined, path: '/', lastSeen: Date.now() } satisfies Attachment);
       return new Response(null, { status: 101, webSocket: client });
     }
     return new Response('not found', { status: 404 });
@@ -64,11 +66,13 @@ export class LiveRoom extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     const cutoff = Date.now() - IDLE_MS;
+    const ended = await this.endedSessions();
     for (const ws of this.ctx.getWebSockets()) {
       const att = ws.deserializeAttachment() as Attachment | null;
-      if (!att || att.lastSeen < cutoff) {
+      const revoked = !!att?.sid && ended.has(att.sid);
+      if (!att || att.lastSeen < cutoff || revoked) {
         try {
-          ws.close(1000, 'idle');
+          ws.close(revoked ? 4401 : 1000, revoked ? 'session ended' : 'idle');
         } catch {
           /* already gone */
         }
@@ -76,6 +80,38 @@ export class LiveRoom extends DurableObject<Env> {
     }
     this.broadcastPresence();
     void this.ctx.storage.setAlarm(Date.now() + SWEEP_MS);
+  }
+
+  /**
+   * A socket must not outlive the session that authorized it: logout, password
+   * change, admin removal and expiry all delete/expire the `sessions` row, and
+   * none of those paths holds a reference to the open socket. One indexed
+   * query per sweep finds every socket whose session is gone. "Live" is the
+   * same definition HTTP auth uses (`userByToken`): the session row is
+   * unexpired AND its user is not disabled, so disabling an account ends its
+   * sockets even though its session rows remain. A database failure keeps
+   * sockets open (fail-static): the next sweep retries.
+   */
+  private async endedSessions(): Promise<Set<string>> {
+    const sids = new Set<string>();
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = ws.deserializeAttachment() as Attachment | null;
+      if (att?.sid) sids.add(att.sid);
+    }
+    const ended = new Set<string>();
+    if (!sids.size) return ended;
+    try {
+      const { results } = await this.env.DB
+        .prepare(`SELECT s.token_hash FROM sessions s JOIN users u ON u.id = s.user_id
+          WHERE s.expires_at > ? AND u.disabled_at IS NULL AND s.token_hash IN (SELECT value FROM json_each(?))`)
+        .bind(Date.now(), JSON.stringify([...sids]))
+        .all<{ token_hash: string }>();
+      const live = new Set(results.map((r) => r.token_hash));
+      for (const sid of sids) if (!live.has(sid)) ended.add(sid);
+    } catch {
+      /* keep sockets; retry on the next sweep */
+    }
+    return ended;
   }
 
   /** RPC from the worker: a push wrote data — tell clients to pull now. */

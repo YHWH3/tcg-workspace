@@ -1,5 +1,7 @@
 # Workspace → TCG operating system: architecture
 
+> **Status 2026-10-15.** Phases 0–4 are merged on `main` and certified locally. Phase 5 is a draft foundation in PR #7 (not enabled); see [phase-5-design-review.md](phase-5-design-review.md). Phase 6 is a plan: [phase-6-implementation.md](phase-6-implementation.md). The cross-phase audit and its findings register are in [../reviews/cross-phase-audit.md](../reviews/cross-phase-audit.md).
+
 These documents are the build spec for evolving the existing Workspace app into the organisational operating layer for The Common Ground (TCG). They are written for an implementation model: follow them phase by phase, in order.
 
 **Permanent product requirement:** one fully responsive, browser-first HTTPS application on Windows, macOS, iPhone, iPad, Android phones/tablets and other capable browsers. Installation is optional. Mobile must support all operations delivered by a phase through appropriate touch/keyboard alternatives. Read [Cross-platform responsive web architecture](cross-platform-responsive-web.md) alongside every phase: it contains the source review, browser/capability contract, responsive interaction model, phase-impact matrix and reproducible verification strategy. It is a cross-cutting specification, not an eighth phase or evidence that compatibility has already been implemented.
@@ -70,10 +72,11 @@ Legend: **[G]** generic `records` collection (synced to clients), **[T]** dedica
 | Mood board / item | [G] `moodboards`, `mooditems` | item types extended [2] | existing → [2] |
 | Change set | [T] `changesets`, `changeset_items` | tool, client, before/after | [0] |
 | MCP request (idempotency) | [T] `mcp_requests` | user_id, request_id, result | [0] |
-| Notification | [G] `notifications` | userId, kind, target, readAt | [4] |
-| Form | [G] `forms` + [T] `form_tokens` | databaseId, field mapping | [4] |
-| Approval | [G] `approvals` | target, approverId, status | [4] |
-| Automation | [G] `automations` + [T] `automation_runs` | trigger, conditions, actions | [4] |
+| Notification | [T] `notifications` (server-only; recipient-scoped REST, never synced) | user_id, kind, target, title/body snapshot, read_at | [4] |
+| Form | [G] `forms` (config) + [T] `form_tokens`, `form_submissions`, `rate_limits` | databaseId, field mapping | [4] |
+| Approval | [T] `approvals` (server-only; decided by REST/MCP, gate enforced inside `applyChanges`) | target, approverId, status | [4] |
+| Automation | [G] `automations` (config) + [T] `automation_runs`, `date_offset_marks`, `rhythm_sweep_cursors` | trigger, conditions, actions | [4] |
+| Event outbox / date index / reminder dedupe | [T] `event_outbox`, `date_index`, `reminder_sent` | durable derived-work queue | [4] |
 | Search index | [T] FTS table | record text | [5] |
 | Space / membership | [T] `spaces`, `space_members` | role | [5] |
 

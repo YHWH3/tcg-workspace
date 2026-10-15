@@ -123,10 +123,12 @@ export async function maintainDateIndex(env: { DB: D1Database }, applied: Applie
   }
   // Read and rebuild inside the same transaction. No stale JS snapshot can
   // overwrite a concurrent deadline edit, and sparse events are harmless.
-  for (const id of ids) {
-    await env.DB.batch([
-      env.DB.prepare('DELETE FROM date_index WHERE record_id=?').bind(id),
-      env.DB.prepare(`INSERT OR IGNORE INTO date_index(record_id,field_key,date)
+  // Many records share one binding call: each call spends the invocation's
+  // D1 budget, so one batch per record could never finish a board with more
+  // than ~40 tasks (the event retried the same prefix forever).
+  const rebuild = (id: string): D1PreparedStatement[] => [
+    env.DB.prepare('DELETE FROM date_index WHERE record_id=?').bind(id),
+    env.DB.prepare(`INSERT OR IGNORE INTO date_index(record_id,field_key,date)
         SELECT id, field_key, value FROM (
           SELECT t.id, 'dueDate' AS field_key, json_extract(t.data,'$.dueDate') AS value
           FROM records t LEFT JOIN records b ON b.id=COALESCE(json_extract(t.data,'$.boardId'),'board-default') AND b.collection='boards'
@@ -139,10 +141,16 @@ export async function maintainDateIndex(env: { DB: D1Database }, applied: Applie
           WHERE t.id=? AND t.collection='tasks' AND json_extract(f.value,'$.type')='date'
             AND COALESCE(json_extract(t.data,'$.deleted'),0)!=1 AND COALESCE(json_extract(t.data,'$.archived'),0)!=1
             AND COALESCE(json_extract(b.data,'$.deleted'),0)!=1 AND COALESCE(json_extract(b.data,'$.archived'),0)!=1
-        ) WHERE typeof(value)='text' AND length(value)=10 AND value GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(value)=value`).bind(id,id),
-    ]);
+        ) WHERE typeof(value)='text' AND length(value)=10 AND value GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(value)=value`).bind(id, id),
+  ];
+  const all = [...ids];
+  for (let i = 0; i < all.length; i += REINDEX_IDS_PER_BATCH) {
+    await env.DB.batch(all.slice(i, i + REINDEX_IDS_PER_BATCH).flatMap(rebuild));
   }
 }
+
+/** Records rebuilt per D1 binding call (two statements each). */
+const REINDEX_IDS_PER_BATCH = 50;
 
 // Re-exported for fan-out implementers.
 export { notify };
