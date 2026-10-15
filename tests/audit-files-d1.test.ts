@@ -208,3 +208,21 @@ describe('stored SVG is re-sanitized at serve time', () => {
     expect(res.headers.get('content-disposition')).toMatch(/^attachment/);
   });
 });
+
+describe('unfinished uploads count toward quota only inside the sweep window', () => {
+  it('an old partial with a synced record stops holding quota; a fresh partial still does', async () => {
+    const { heldBytes, UNFINISHED_UPLOAD_WINDOW_MS } = await import('../worker/files');
+    const now = Date.now();
+    const rows: [string, number][] = [['old-partial', now - UNFINISHED_UPLOAD_WINDOW_MS - 3_600_000], ['fresh-partial', now - 60_000]];
+    for (const [id, created] of rows) {
+      await fx.db.prepare('INSERT INTO files(id,uploaded_by,created_at,complete) VALUES(?,?,?,0)').bind(id, 'bob', created).run();
+      await fx.db.prepare('INSERT INTO file_chunks(file_id,idx,data) VALUES(?,0,?)').bind(id, new Uint8Array(1000)).run();
+    }
+    // The old partial's synced record exists, so the sweep keeps it — but it must not pin quota.
+    await applyChanges(fx.env, 'bob', [{ id: 'old-partial', collection: 'files', patch: { name: 'x.bin', parentType: 'task', parentId: 't' }, ts: 1 }]);
+    const held = await heldBytes(fx.db, 'someone-else', 0, now);
+    expect(held.pending).toBe(1000);
+    // Own bytes are always counted for the per-file bound, regardless of age.
+    expect((await heldBytes(fx.db, 'old-partial', 5, now)).own).toBe(1000);
+  });
+});

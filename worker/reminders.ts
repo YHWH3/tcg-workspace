@@ -12,6 +12,7 @@ import { kindAllowed, loadPrefs, type Env, type UserPrefs } from './auth';
 import type { SemanticEvent } from '../shared/events';
 import type { Mutation } from '../shared/types';
 import { beginChangeset } from './changesets';
+import { UNFINISHED_UPLOAD_WINDOW_MS } from './files';
 import { fnv1a64hex } from '../shared/linkid';
 import {hasD1Budget,d1BudgetRemaining,D1BudgetExhausted} from './d1budget';
 
@@ -30,7 +31,7 @@ const RETENTION = {
   readNotificationMs: 180 * DAY,
   reminderSentMs: 400 * DAY,
   orphanFormFileMs: 24 * 3600_000,
-  incompleteUploadMs: 7 * DAY,
+  incompleteUploadMs: UNFINISHED_UPLOAD_WINDOW_MS,
   automationRunsPer: 200,
 };
 

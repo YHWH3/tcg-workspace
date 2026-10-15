@@ -167,8 +167,9 @@ content outside the access model.
   asked. No raw scores in responses (hidden-corpus side channel).
 - **Failure/privacy.** Provider errors degrade to FTS and set
   `semantic:'unavailable'` in the response. Text sent to a provider is the same
-  bounded text the FTS document holds; Workers AI does not train on it, but an
-  alternative provider must be an owner decision (document in Settings).
+  bounded text the FTS document holds; verify Cloudflare's current terms for Workers AI data handling before relying on any
+  statement about retention or training; an alternative provider must be an
+  owner decision (document in Settings).
 
 ## 8. Cost and quota management
 

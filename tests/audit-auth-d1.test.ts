@@ -137,4 +137,13 @@ describe('browser hardening headers', () => {
     // The route's own content type survives.
     expect((await app.request('/api/file')).headers.get('content-type')).toBe('application/pdf');
   });
+
+  it('a WebSocket upgrade response is passed through untouched (rebuilding it would drop the socket)', async () => {
+    const { browserHardening } = await import('../worker/headers');
+    const response = { status: 101, headers: new Headers(), webSocket: {} };
+    const calls: string[] = [];
+    const c = { res: response, header: (name: string) => { calls.push(name); } } as never;
+    await browserHardening(c, async () => {});
+    expect(calls).toEqual([]);
+  });
 });

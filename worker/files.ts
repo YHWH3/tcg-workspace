@@ -46,6 +46,22 @@ export function servedFile(mime: string | null | undefined, bytes: Uint8Array<Ar
   return { body: bytes, headers: servedFileHeaders(type) };
 }
 
+/** Unfinished uploads older than this are swept when no synced record claims
+ * them (worker/reminders.ts); the same window bounds what they cost in quota,
+ * so an abandoned upload whose record exists cannot hold quota forever. */
+export const UNFINISHED_UPLOAD_WINDOW_MS = 7 * 24 * 3600_000;
+
+/** Bytes held by a file's own other chunks and by everyone's recent unfinished
+ * chunks, plus completed bytes. Replacing chunk `idx` of `id` is not growth. */
+export async function heldBytes(db: D1Database, id: string, idx: number, now = Date.now()): Promise<{ done: number; own: number; pending: number }> {
+  const row = await db.prepare(`SELECT (SELECT COALESCE(SUM(size),0) FROM files WHERE complete=1) AS done,
+      COALESCE(SUM(CASE WHEN c.file_id=? THEN LENGTH(c.data) ELSE 0 END),0) AS own,
+      COALESCE(SUM(CASE WHEN f.created_at>=? THEN LENGTH(c.data) ELSE 0 END),0) AS pending
+    FROM file_chunks c JOIN files f ON f.id=c.file_id WHERE f.complete=0 AND NOT (c.file_id=? AND c.idx=?)`)
+    .bind(id, now - UNFINISHED_UPLOAD_WINDOW_MS, id, idx).first<{ done: number; own: number; pending: number }>();
+  return { done: row?.done ?? 0, own: row?.own ?? 0, pending: row?.pending ?? 0 };
+}
+
 export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB per file
 export const QUOTA_BYTES = 450 * 1024 * 1024; // 450 MB workspace quota
 /** Cloudflare D1 rejects a single string/BLOB/row at or above this size. */
@@ -141,13 +157,9 @@ files.put('/:id/chunks/:idx', async (c) => {
   // completed bytes PLUS everyone's unfinished chunks and answers 507 — both
   // are the statuses the client treats as a permanent, user-visible failure.
   // Replacing an existing chunk is not growth.
-  const held = await db.prepare(`SELECT (SELECT COALESCE(SUM(size),0) FROM files WHERE complete=1) AS done,
-      COALESCE(SUM(CASE WHEN c.file_id=? THEN LENGTH(c.data) ELSE 0 END),0) AS own,
-      COALESCE(SUM(LENGTH(c.data)),0) AS pending
-    FROM file_chunks c JOIN files f ON f.id=c.file_id WHERE f.complete=0 AND NOT (c.file_id=? AND c.idx=?)`)
-    .bind(id, id, idx).first<{ done: number; own: number; pending: number }>();
-  if ((held?.own ?? 0) + body.byteLength > MAX_FILE_SIZE) return c.json({ error: 'file too large (max 20 MB)' }, 413);
-  if ((held?.done ?? 0) + (held?.pending ?? 0) + body.byteLength > QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
+  const held = await heldBytes(db, id, idx);
+  if (held.own + body.byteLength > MAX_FILE_SIZE) return c.json({ error: 'file too large (max 20 MB)' }, 413);
+  if (held.done + held.pending + body.byteLength > QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
   // The completion check belongs to the same statement as the write: a PUT
   // that read pending state before another request completed must not alter
   // the acknowledged file afterwards.
