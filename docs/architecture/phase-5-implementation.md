@@ -295,6 +295,15 @@ draft loaders or existing backup/export tables. Client orchestration, UI states,
 multi-tab locking, blob URL invalidation and creation-intent capture still need
 integration before this cache layer can enforce the complete reconnect contract.
 
+The coordinator in `src/core/sync/reconcileAccess.ts` durably records the snapshot
+request identity before sending it, resumes staged continuations after reload,
+and fetches a fresh manifest before atomic activation. It refuses a protocol
+downgrade after permission activation. Every request is bracketed by account
+identity checks. A stale/expired staged copy is cancelled before replacement,
+preventing repeated epoch changes from exhausting the active-copy limit.
+Failed responses do not activate or empty the visible cache. Engine/UI wiring
+and real browser verification remain separate required integration steps.
+
 An online app starts `checking-access`, withholding private mounted views/search
 until reconciliation. Offline previously reconciled users may use the retained
 authorized snapshot with an explicit stale/offline status. Going online gates

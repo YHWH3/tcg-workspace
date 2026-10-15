@@ -218,8 +218,6 @@ The source was unchanged throughout the run. This quick checkpoint predates the
 snapshot changes and does not certify them, browser/MCP integration or completed
 Phase 5. PR #7 remains draft. No merge or deployment.
 
-## Required work still outstanding
-
 ## P5-2 atomic client cache layer (not yet wired into the engine)
 
 Dexie version 7 adds snapshot staging and an account-bound access quarantine.
@@ -256,6 +254,33 @@ TypeScript and whitespace pass. Evidence:
 runtime creation-intent capture, multi-tab locks, object URL/late download
 invalidation and quarantine status/discard UI. Permissions remain disabled; this
 module is not yet a delivered end-user revocation workflow.
+
+## P5-2 access-first coordinator (engine/UI wiring outstanding)
+
+`src/core/sync/reconcileAccess.ts` checks the access manifest before snapshot
+work, persists the start request identity before HTTP, resumes committed pages
+after reload, revalidates access after staging, and only then activates the cache.
+It checks the active account around every awaited request, rejects protocol
+downgrades, and cancels obsolete account-owned snapshots before replacement.
+Network/expiry/reset/malformed responses remain failures; none can become a
+successful empty cache. Failed startup/page requests retain either resumable
+staging or a clean retry intent without replacing live records.
+
+Seven coordinator tests and eight cache tests pass (**15/15**), including lost
+start response, second-page interruption/reopen, final-manifest race, account
+replacement, expired continuation and stale-copy cancellation. The request
+adapter is simulated in these tests; built-Worker and browser integration must
+still prove the engine invokes this coordinator in the required order.
+
+Complete unit check on committed `310a7fa`: **815/815 PASS**, 67 files, approximately
+258 seconds; production build also passes. Source remained unchanged throughout
+the run. Logs/results:
+`.artifacts/phase5-cache-checkpoint/unit-results.json`,
+`.artifacts/phase5-cache-checkpoint-unit.log`,
+`.artifacts/phase5-cache-checkpoint-build.log`.
+The coordinator was added afterward and has targeted evidence at
+`.artifacts/phase5-cache-checkpoint/coordinator-results.json`; the 815 count does
+not certify the later coordinator source. No full Phase 5 PASS is claimed.
 
 ## Required work still outstanding
 
