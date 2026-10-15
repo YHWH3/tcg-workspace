@@ -101,7 +101,11 @@ access_state(id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL,
 ```
 
 Add `records.space_id TEXT NOT NULL DEFAULT 'space-core'` and
-`INDEX records(space_id,seq)`. Backfill all existing records, including tombstones,
+`INDEX records(space_id,seq)`. Actual populated-D1 migration tests reject adding
+a REFERENCES column with a non-NULL default. Enforce the space reference with
+BEFORE INSERT/UPDATE triggers and reject deletion of a referenced space, avoiding
+a records-table rebuild that could disturb the existing integrity triggers.
+Backfill all existing records, including tombstones,
 into Core without changing JSON, field timestamps, seq, history, file references,
 event outbox, leases or receipts. Space membership/space access/user role/disabled
 changes increment a global access generation through D1 triggers. With seven
@@ -119,12 +123,15 @@ Further migrations add (with CHECKs, indexes and exact hashes in the certificati
 manifest): `space_invites`, `access_audit`, snapshot sessions/items, durable move
 jobs/items, session metadata, `record_history`, search document/dirty tables and
 FTS5. No secret invite/token value is inserted in generic records/history.
+Access audit rows also carry a bounded request_id and args_hash, unique per
+actor/request. Space creation and membership changes commit audit, epoch and
+state together, recover lost acknowledgements and reauthorize result replay.
 
 ## 5. Inheritance, movement and concurrent writes
 
 The authoritative graph is pages.parentId, blocks.pageId (page OR record body),
 tasks.boardId (missing -> default board), comments.targetType/targetId,
-files.parentType/parentId, views.databaseId, mooditems.moodboardId,
+files.parentType/parentId, views.databaseId, mooditems.boardId,
 automations.databaseId and forms.databaseId. Activity inherits its target;
 targetless legacy workspace activity is Core-only. Child spaceId from a request
 is ignored as authority. Parent type/collection is checked; missing parent,
@@ -158,6 +165,8 @@ do not run a workspace-wide subtree scan.
 | Surface | Required authorization |
 |---|---|
 | `worker/access.ts`, `shared/access.ts` | Current principal, effective role, pure capabilities, SQL predicates, generation fence |
+| `worker/recordAccess.ts`, `shared/recordScope.ts` | Bounded indexed ancestor loading, true inherited scope, cross-endpoint reads, graph/epoch race rejection |
+| `worker/spaces.ts` | Atomic audited membership/create services, grant ceilings, last-owner guard, idempotent replay |
 | `worker/sync.ts` applyChanges | Every actor/write including MCP/undo/jobs, parent and protected fields, old/new scopes, atomic fence |
 | `worker/records.ts` | Explicit request access context for reads; unrestricted helpers clearly named and confined to maintenance |
 | `worker/mcp.ts` | Fresh principal per request; rec/recs/caches AND raw search/backlink/mood/changeset/share SQL; dry-run, replay and errors |
@@ -384,6 +393,12 @@ Those capabilities remain restricted as described above. Revisit this review if
 implementation evidence requires a protocol/schema deviation.
 
 ## 15. File and test delivery manifest
+
+The pure inheritance planner in `shared/recordScope.ts` covers the actual Phase 4
+field names and does not consume data.spaceId as authority. Its input rootSpaceId
+must come from server storage or an independently authorized move. Dependencies
+must be loaded before use; its cycle/depth checks fail closed (64 traversal
+levels per resolution). This is not yet integrated route enforcement.
 
 P5-0: this document, runtime FTS probe, shared capability contract/tests.
 P5-1: migration 0012, manifest hash, worker/access.ts, migration+role+inheritance

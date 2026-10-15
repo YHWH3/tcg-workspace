@@ -42,5 +42,9 @@
   {
     "name": "0011_integrity.sql",
     "sha256": "bdfba4d33ea71b3559031f70d7619812585f23c43c0b3fba4c6987e0f68b611d"
+  },
+  {
+    "name": "0012_phase5_access_foundation.sql",
+    "sha256": "207f08fd76bead8b0505e8a42201abb50530e09c4d6a8382a7d36d90685b900d"
   }
 ]

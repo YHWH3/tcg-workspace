@@ -49,7 +49,7 @@ export function effectiveSpaceRole({ principal, space, membership }: SpaceAccess
   if (!isActivePrincipal(principal) || !space || !space.id || space.deletedAt !== null) return null;
   if (space.defaultAccess !== 'members' && space.defaultAccess !== 'private') return null;
   if (membership !== null) {
-    if (membership.access !== 'allow' || !isSpaceRole(membership.role)) return null;
+    if (!membership || membership.access !== 'allow' || !isSpaceRole(membership.role)) return null;
     if (principal.workspaceRole === 'guest' && (membership.role === 'owner' || membership.role === 'admin')) return null;
     return membership.role;
   }

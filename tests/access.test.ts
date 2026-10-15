@@ -62,6 +62,8 @@ describe('Phase 5 server capability matrix', () => {
     Object.assign(malformedRole.membership!, { role: 'superadmin' }); cases.push(malformedRole);
     const malformedDefault: SpaceAccess = JSON.parse(JSON.stringify(access()));
     Object.assign(malformedDefault.space!, { defaultAccess: 'everyone' }); cases.push(malformedDefault);
+    const missingMembership: SpaceAccess = JSON.parse(JSON.stringify(access()));
+    Object.assign(missingMembership, { membership: undefined }); cases.push(missingMembership);
     for (const a of cases) {
       for (const check of [canRead, canComment, canEdit, canManageMembers, canExport]) expect(check(a)).toBe(false);
     }
