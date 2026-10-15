@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LocalDB } from '../src/core/db';
 import { ApiError } from '../src/core/api';
-import { reconcileOnlineAccess, type AccessReconcileDeps } from '../src/core/sync/reconcileAccess';
+import { reconcileOnlineAccess, RECONCILE_REQUIRED_KEY, type AccessReconcileDeps } from '../src/core/sync/reconcileAccess';
 import { SNAPSHOT_KEY, ACCESS_MANIFEST_KEY, type ClientAccessManifest } from '../src/core/sync/accessCache';
 
 let store: LocalDB, userId: string, manifest: ClientAccessManifest, calls: string[], deps: AccessReconcileDeps;
@@ -24,6 +24,19 @@ beforeEach(async () => {
 afterEach(async () => { await store.delete(); });
 
 describe('access-first snapshot reconciliation coordinator', () => {
+  it('never overwrites a newer generation discovered by another tab with a delayed manifest', async () => {
+    await store.meta.put({ key: ACCESS_MANIFEST_KEY, value: manifest });
+    await store.meta.put({ key: RECONCILE_REQUIRED_KEY, value: { userId, generation: 21 } });
+    await expect(reconcileOnlineAccess(userId, deps)).rejects.toThrow('stale_cache_generation');
+    expect((await store.meta.get(RECONCILE_REQUIRED_KEY))!.value).toMatchObject({ generation: 21 });
+    expect(calls).not.toContain('POST /api/sync/snapshot');
+  });
+  it('cleans a crash marker after online confirmation of the atomically installed generation', async () => {
+    await store.meta.put({ key: ACCESS_MANIFEST_KEY, value: manifest });
+    await store.meta.put({ key: RECONCILE_REQUIRED_KEY, value: { userId, generation: manifest.generation } });
+    await reconcileOnlineAccess(userId, deps);
+    expect(calls).toEqual(['GET /api/access']); expect(await store.meta.get(RECONCILE_REQUIRED_KEY)).toBeUndefined();
+  });
   it('checks access, stages, revalidates, activates, then cancels only the temporary server snapshot', async () => {
     expect(await reconcileOnlineAccess(userId, deps)).toEqual(manifest);
     expect(calls).toEqual(['GET /api/access', 'lock', 'POST /api/sync/snapshot', 'GET /api/sync/snapshot/frozen?cursor=first', 'GET /api/access', 'activated', 'DELETE /api/sync/snapshot/frozen']);

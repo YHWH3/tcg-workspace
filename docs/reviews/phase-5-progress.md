@@ -282,12 +282,82 @@ The coordinator was added afterward and has targeted evidence at
 `.artifacts/phase5-cache-checkpoint/coordinator-results.json`; the 815 count does
 not certify the later coordinator source. No full Phase 5 PASS is claimed.
 
+## P5-2 engine, media and recovery UI integration
+
+The real sync engine now checks `/api/access` and reconciles snapshots before
+push, incremental pull, directory loading or pending uploads. Protocol-2 writes
+include the validated generation; pull validates every page, scope, cursor and
+completion marker and persists empty-page progress. Refused work remains held,
+not acknowledged or retried indefinitely. Private React routes, search and media
+unmount while startup/reconnect authorization is unresolved. Storage events
+lock stale tabs; account replacement never clears replacement credentials.
+Protocol-2 presence is temporarily stopped pending server-side scoped live
+integration; this is an outstanding requirement, not a finished live workflow.
+
+Dexie v8 adds metadata-only held-work review, bounded to ten operations per page.
+The upgrade preserves existing v7 payloads and binary bytes. Local discard has
+an explicit confirmation and account-bound atomic checks. Quarantine counts are
+included in sync and account-switch pending-work status. Mobile pages show the
+held-work warning directly. No revoked title, body or binary is rendered in the
+review; recovery/export remains disabled pending owner policy.
+
+Media uploads check account/session/access epoch around awaited operations,
+including immediately before completion. Late or cancelled downloads cannot
+repopulate evicted storage. These guards supplement, and do not replace, the
+still-required server file authorization.
+
+### Confirmed corrections in this integration
+
+- **P5-REL-03:** `PageView` treated a missing IndexedDB row as loading forever.
+  Revocation produced a blank route. Distinguishing initial `undefined` from a
+  resolved missing `null` restores the existing Page not found state. Chromium
+  first failed the restart/two-tab assertions; the same assertions then passed.
+- **P5-REL-04:** incomplete successful-HTTP push dispositions could acknowledge
+  pending work. Four malformed-response cases failed before correction. The
+  adapter now requires internally consistent counts and known submitted IDs,
+  and commits ACK/refusal disposition atomically. A null response already failed
+  safely and is retained as additional coverage.
+- **P5-SEC-03:** a delayed snapshot or manifest in one tab could replace or
+  activate an older generation after another tab discovered/installed a newer
+  generation. Three deterministic tests failed first. Metadata transaction
+  fences now reject the rollback, preserving the newer reconciliation marker.
+- **P5-SEC-04:** a late HTTP 401 from account A could invoke session logout after
+  account B replaced local credentials. The engine regression failed first;
+  it now locks the stale tab without logging out B.
+- **P5-REL-05:** the mobile held-work notice was confined to the closed sidebar.
+  Its focused browser review check failed. The notice is now reachable directly
+  from the mobile page; cancellation retains work and confirmed discard changes
+  only disposable local held payloads, with source D1 unchanged.
+
+Executed evidence (local, not completed Phase 5 certification):
+
+- Full unit run on the first integrated worktree: **841/841 PASS**, 70 files,
+  exit 0; `current-unit-results.json`. This predates the extra generation fences
+  and migration tests and must not certify the final integration commit.
+- Latest targeted cache/coordinator/engine/media/upgrade tests: **42/42 PASS**;
+  `cache-upgrade-green.json`. Red evidence: `push-session-red.json`,
+  `generation-red.json`, `generation-coordinator-red.json`.
+- Built-Worker browser journeys: **24/24 PASS**, eight per engine. Chromium
+  153.0.8010.12, Firefox 155.0, WebKit 26.6; exact source fingerprint
+  `eab2f7c822be7d05abc707a3e911b7f649a45b848503118a7c45e74ed7c430fb`.
+  `.artifacts/phase5-sync-browser-green2/results.json` includes engine versions,
+  complete mandatory markers, and the dirty source state at `820707d`.
+  These results predate the extra generation fences; a fresh committed rerun
+  remains necessary. Responsive widths: 320/390/768/1024/1440.
+- Raw npm audit: **0 vulnerabilities**, exit 0;
+  `.artifacts/phase5-cache-checkpoint/client-security-audit.json`.
+- TypeScript and whitespace pass. All fixtures were disposable/local; permission
+  activation occurred only in their D1 state. No deployment or production change.
+
+All other referenced JSON/log files above are under
+`.artifacts/phase5-cache-checkpoint/`. Artifacts remain ignored by Git.
+
 ## Required work still outstanding
 
 | Workstream | Remaining implementation and acceptance |
 |---|---|
 | P5-1 foundation | Fresh-signup ownership, remaining protected configuration references, ownership transfer, audited role/space updates, API integration |
-| P5-2 sync/access | Remaining REST/MCP/file/public/background/history enforcement; complete protected field validation; durable move jobs; snapshot maintenance; client staging/gating/eviction/quarantine/regrant; WS/session revocation |
+| P5-2 sync/access | Remaining REST/MCP/file/public/background/history enforcement; complete protected field validation; durable move jobs; snapshot maintenance; remaining client role states and wider adversarial/cache coverage; scoped WS/session revocation |
 | P5-3 search | Authoritative dirty/index pipeline, permission-safe ranking/pagination, APIs/MCP, local/online mobile palette, workload/security tests |
 | P5-4 guests/sessions | Bounded invites and seven-seat atomic acceptance; sessions and disabled accounts; space/member management UI; multi-tab/browser integration |
 | P5-5 history/scale | Atomic history, revision-safe restore/API/UI, usage monitoring, bounded safe caches, retention policy controls |

@@ -17,6 +17,7 @@ interface StagingSession extends SnapshotDescriptor { userId: string; nextCursor
 export interface SnapshotPage { snapshotId: string; generation: number; cutoff: number; records: PulledRecord[]; cursor: string | null; done: boolean }
 export const ACCESS_MANIFEST_KEY = 'access_manifest';
 export const SNAPSHOT_KEY = 'access_snapshot_staging';
+export const RECONCILE_REQUIRED_KEY = 'access_reconciliation_required';
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 64;
 function account(store: LocalDB, userId: string) {
@@ -37,13 +38,32 @@ function sessionValid(session: StagingSession, userId: string, descriptor: Snaps
   if (session.userId !== userId || session.snapshotId !== descriptor.snapshotId || session.generation !== descriptor.generation || session.cutoff !== descriptor.cutoff) throw new Error('snapshot_session_mismatch');
 }
 
+/** Must be called within the same metadata transaction as the following
+ * mutation. A delayed HTTP response in one tab cannot roll back a generation
+ * already installed OR discovered by another tab sharing this database. */
+export async function assertCacheGeneration(store: LocalDB, userId: string, generation: number): Promise<void> {
+  const [installed, required] = await store.meta.bulkGet([ACCESS_MANIFEST_KEY, RECONCILE_REQUIRED_KEY]);
+  if (installed?.value) {
+    const value = installed.value as { protocol?: number; userId?: string; generation?: number };
+    if (value.userId !== userId) throw new Error('account_cache_mismatch');
+    if (value.protocol === 2 && validateAccessManifest(value, userId).generation > generation) throw new Error('stale_cache_generation');
+  }
+  if (required) {
+    const value = required.value as { userId?: string; generation?: number } | null;
+    if (!value || value.userId !== userId || !Number.isSafeInteger(value.generation)) throw new Error('invalid_reconciliation_marker');
+    if (value.generation! > generation) throw new Error('stale_cache_generation');
+  }
+}
+
 export async function beginCacheSnapshot(store: LocalDB, userId: string, descriptor: SnapshotDescriptor): Promise<void> {
   account(store, userId);
   if (!id(descriptor.snapshotId) || !Number.isSafeInteger(descriptor.generation) || descriptor.generation < 1
       || !Number.isSafeInteger(descriptor.cutoff) || descriptor.cutoff < 0 || typeof descriptor.cursor !== 'string' || !descriptor.cursor
       || descriptor.expiresAt <= Date.now()) throw new Error('invalid_snapshot_descriptor');
   await store.transaction('rw', store.syncStage, store.meta, async () => {
+    await assertCacheGeneration(store, userId, descriptor.generation);
     const prior = (await store.meta.get(SNAPSHOT_KEY))?.value as StagingSession | undefined;
+    if (prior && prior.generation > descriptor.generation) throw new Error('stale_cache_generation');
     if (prior?.snapshotId === descriptor.snapshotId) { sessionValid(prior, userId, descriptor); return; }
     await store.syncStage.clear();
     const session: StagingSession = { ...descriptor, userId, nextCursor: descriptor.cursor, done: false, count: 0 };
@@ -65,6 +85,7 @@ export async function stageCachePage(store: LocalDB, userId: string, descriptor:
   }
   const lastPageDigest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(stableJson(page))))].map(b => b.toString(16).padStart(2, '0')).join('');
   await store.transaction('rw', store.syncStage, store.meta, async () => {
+    await assertCacheGeneration(store, userId, descriptor.generation);
     const session = (await store.meta.get(SNAPSHOT_KEY))?.value as StagingSession | undefined;
     if (!session) throw new Error('snapshot_session_missing');
     sessionValid(session, userId, descriptor);
@@ -95,6 +116,7 @@ export async function activateCacheSnapshot(store: LocalDB, manifest: ClientAcce
   validateAccessManifest(manifest, manifest.userId);
   if (manifest.protocol !== 2 || manifest.generation !== descriptor.generation) throw new Error('snapshot_manifest_mismatch');
   return store.transaction('rw', store.tables, async () => {
+    await assertCacheGeneration(store, manifest.userId, manifest.generation);
     const session = (await store.meta.get(SNAPSHOT_KEY))?.value as StagingSession | undefined;
     if (!session) throw new Error('snapshot_session_missing');
     sessionValid(session, manifest.userId, descriptor);
@@ -188,7 +210,12 @@ export async function activateCacheSnapshot(store: LocalDB, manifest: ClientAcce
       await store.blobs.delete(blob.id); removedBlobs.push(blob.id);
     }
     await store.users.clear(); // directory is reloaded with current authorization
-    if (quarantine.length) await store.accessQuarantine.bulkAdd(quarantine);
+    if (quarantine.length) {
+      const keys = await store.accessQuarantine.bulkAdd(quarantine, { allKeys: true });
+      await store.accessQuarantineInfo.bulkPut(quarantine.map(({ payload, ...info }, index) => ({ ...info, autoId: keys[index],
+        collection: info.kind === 'outbox' && object(payload) ? String(payload.collection ?? '') : undefined,
+      })));
+    }
     await store.meta.put({ key: ACCESS_MANIFEST_KEY, value: manifest });
     await store.meta.put({ key: 'sync_cursor', value: descriptor.cutoff });
     await store.meta.delete(SNAPSHOT_KEY); await store.syncStage.clear();

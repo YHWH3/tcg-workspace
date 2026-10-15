@@ -291,9 +291,13 @@ are removed; still-authorized unsynced creations require local `createIntent`
 evidence and a resolvable authorized parent graph. Old pending work without
 creation evidence is retained for review instead of guessed to be a new record.
 Quarantined payloads never enter normal record queries, the outbox uploader,
-draft loaders or existing backup/export tables. Client orchestration, UI states,
-multi-tab locking, blob URL invalidation and creation-intent capture still need
-integration before this cache layer can enforce the complete reconnect contract.
+draft loaders or existing backup/export tables. The engine now performs this
+reconciliation before pushing or uploading. The access barrier unmounts private
+routes/search/media during startup and reconnect checks; creation intent is
+captured by the real mutation path. Epoch guards prevent late downloads from
+repopulating an evicted cache or uploads from continuing under replacement
+credentials. Held-work review uses a separate metadata-only table (Dexie v8),
+with explicit account-checked local discard; recovery/export remains disabled.
 
 The coordinator in `src/core/sync/reconcileAccess.ts` durably records the snapshot
 request identity before sending it, resumes staged continuations after reload,
@@ -301,8 +305,16 @@ and fetches a fresh manifest before atomic activation. It refuses a protocol
 downgrade after permission activation. Every request is bracketed by account
 identity checks. A stale/expired staged copy is cancelled before replacement,
 preventing repeated epoch changes from exhausting the active-copy limit.
-Failed responses do not activate or empty the visible cache. Engine/UI wiring
-and real browser verification remain separate required integration steps.
+Failed responses do not activate or empty the visible cache. Each metadata
+transaction refuses an older generation than either the installed manifest or
+a durable reconciliation marker discovered by a sibling tab. Delayed responses
+cannot overwrite that marker, replace newer staging or activate older content.
+The marker survives restart and blocks known-stale offline reopening. An online
+confirmation clears a leftover marker after an already-committed activation.
+Real browser journeys cover restart, offline edits, eviction, regrant, two tabs,
+failed access checks, held-work confirmation and account replacement. Server
+read/MCP/file/job enforcement and scoped live/session integration remain
+required before permission activation outside disposable fixtures.
 
 An online app starts `checking-access`, withholding private mounted views/search
 until reconciliation. Offline previously reconciled users may use the retained

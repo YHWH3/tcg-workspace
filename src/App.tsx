@@ -12,6 +12,7 @@ import { modules } from './modules';
 import { PublicView } from './public/PublicView';
 import { PublicCanvas } from './public/PublicCanvas';
 import { FormView } from './public/FormView';
+import { AccessBarrier } from './core/AccessBarrier';
 
 function Loading() {
   return (
@@ -25,7 +26,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const { status } = useStore(authStore);
   if (status === 'loading') return <Loading />;
   if (status === 'unauthed') return <AuthScreen />;
-  return <>{children}</>;
+  return <AccessBarrier>{children}</AccessBarrier>;
 }
 
 const router = createBrowserRouter([

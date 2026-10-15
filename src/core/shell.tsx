@@ -21,14 +21,18 @@ import { cn } from './utils';
 
 export { useIsMobile } from './mobile';
 import { useIsMobile } from './mobile';
+import { QuarantineReview } from './QuarantineReview';
 
-function SyncIndicator() {
-  const { status, pending, pendingMedia, rejected } = useStore(syncStore);
+function SyncIndicator({ heldOnly = false }: { heldOnly?: boolean }) {
+  const { status, pending, pendingMedia, rejected, quarantined } = useStore(syncStore);
+  const [review, setReview] = useState(false);
   const online = useStore(onlineStore);
   const total = pending + pendingMedia;
 
   // Server-rejected writes are unsynced work — never show 'Synced' (S3).
-  if (status === 'rejected' || rejected > 0) {
+  if (quarantined > 0) return <><button className="flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-amber-700 dark:text-amber-300" onClick={() => setReview(true)}><AlertTriangle size={13} aria-hidden="true" /><span>{quarantined} held · review</span></button>{review && <QuarantineReview onClose={() => setReview(false)} />}</>;
+  if (heldOnly) return null;
+  if (rejected > 0) {
     return (
       <button
         onClick={() => void retryRejected()}
@@ -548,6 +552,7 @@ export function Shell() {
             </button>
           </header>
         )}
+        {mobile && <SyncIndicator heldOnly />}
 
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
           {matchPath('boards/:boardId/*', location.pathname) || matchPath('boards/:boardId', location.pathname) ? (

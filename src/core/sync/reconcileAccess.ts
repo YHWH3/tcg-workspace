@@ -3,10 +3,11 @@
  * permission or a successful empty snapshot. */
 import type { LocalDB } from '../db';
 import { ApiError } from '../api';
-import { ACCESS_MANIFEST_KEY, SNAPSHOT_KEY, activateCacheSnapshot, beginCacheSnapshot, stageCachePage, validateAccessManifest,
+import { ACCESS_MANIFEST_KEY, SNAPSHOT_KEY, RECONCILE_REQUIRED_KEY, assertCacheGeneration, activateCacheSnapshot, beginCacheSnapshot, stageCachePage, validateAccessManifest,
   type ClientAccessManifest, type SnapshotDescriptor, type SnapshotPage } from './accessCache';
 
 const REQUEST_KEY = 'access_snapshot_request';
+export { RECONCILE_REQUIRED_KEY } from './accessCache';
 interface RequestIntent { userId: string; generation: number; requestId: string }
 interface ResumableSnapshot extends SnapshotDescriptor { userId: string; nextCursor: string | null; done: boolean }
 export interface AccessReconcileDeps {
@@ -30,11 +31,30 @@ export async function reconcileOnlineAccess(userId: string, deps: AccessReconcil
   if (response && typeof response === 'object' && 'protocol' in response && response.protocol === 1) {
     if (!('userId' in response) || response.userId !== userId || prior?.protocol === 2) throw new Error('permission_protocol_downgrade');
     const legacy = { protocol: 1 as const, userId };
-    await store.meta.put({ key: ACCESS_MANIFEST_KEY, value: legacy }); deps.assertCurrent(); return legacy;
+    await store.transaction('rw', store.meta, async () => {
+      const current = (await store.meta.get(ACCESS_MANIFEST_KEY))?.value as ReconciledAccess | undefined;
+      if (current?.protocol === 2 || await store.meta.get(RECONCILE_REQUIRED_KEY)) throw new Error('permission_protocol_downgrade');
+      deps.assertCurrent(); await store.meta.put({ key: ACCESS_MANIFEST_KEY, value: legacy });
+    });
+    deps.assertCurrent(); return legacy;
   }
   const manifest = validateAccessManifest(response, userId);
-  if (prior?.protocol === 2 && prior.userId === userId && prior.generation === manifest.generation) return manifest;
+  const required = (await store.meta.get(RECONCILE_REQUIRED_KEY))?.value as { userId?: string; generation?: number } | undefined;
+  if (prior?.protocol === 2 && prior.userId === userId && prior.generation === manifest.generation
+      && (!required || (required.userId === userId && required.generation === manifest.generation))) {
+    // A crash after atomic activation but before coordinator cleanup must not
+    // leave a permanent offline lock after fresh online verification.
+    await store.transaction('rw', store.meta, async () => {
+      deps.assertCurrent(); await assertCacheGeneration(store, userId, manifest.generation);
+      await store.meta.bulkDelete([REQUEST_KEY, RECONCILE_REQUIRED_KEY]);
+    }); return manifest;
+  }
   deps.lock();
+  // A restart without network must not reopen a cache already known stale.
+  await store.transaction('rw', store.meta, async () => {
+    deps.assertCurrent(); await assertCacheGeneration(store, userId, manifest.generation);
+    await store.meta.put({ key: RECONCILE_REQUIRED_KEY, value: { userId, generation: manifest.generation } });
+  });
   let staged = (await store.meta.get(SNAPSHOT_KEY))?.value as ResumableSnapshot | undefined;
   if (staged && (staged.userId !== userId || staged.generation !== manifest.generation || staged.expiresAt <= Date.now())) {
     if (staged.userId !== userId) throw new Error('account_cache_mismatch');
@@ -89,7 +109,10 @@ export async function reconcileOnlineAccess(userId: string, deps: AccessReconcil
   deps.assertCurrent();
   const changed = await activateCacheSnapshot(store, current, descriptor);
   deps.assertCurrent(); deps.activated(changed);
-  await store.meta.delete(REQUEST_KEY);
+  await store.transaction('rw', store.meta, async () => {
+    deps.assertCurrent(); await assertCacheGeneration(store, userId, manifest.generation);
+    await store.meta.bulkDelete([REQUEST_KEY, RECONCILE_REQUIRED_KEY]);
+  });
   // Best-effort deletion is scoped to the ephemeral snapshot only. Failure does
   // not invalidate the already-complete local activation; server expiry/pruning
   // still applies. This never deletes source records or media.

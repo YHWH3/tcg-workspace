@@ -15,6 +15,21 @@ beforeEach(async () => {
 afterEach(async () => { await store.delete(); });
 
 describe('Phase 5 durable account snapshot cache on Dexie/fake IndexedDB', () => {
+  it('refuses a delayed older snapshot after another tab has installed newer access', async () => {
+    await store.meta.put({ key: ACCESS_MANIFEST_KEY, value: { ...manifest, generation: 21 } });
+    await store.pages.put({ id: 'newer', title: 'New generation only', _ts: {} });
+    await expect(beginCacheSnapshot(store, userId, descriptor)).rejects.toThrow('stale_cache_generation');
+    expect(await store.syncStage.count()).toBe(0); expect(await store.meta.get(SNAPSHOT_KEY)).toBeUndefined();
+    expect((await store.pages.get('newer'))!.title).toBe('New generation only');
+  });
+
+  it('cannot activate old staged content once a sibling tab has discovered newer access', async () => {
+    await beginCacheSnapshot(store, userId, descriptor); await stageCachePage(store, userId, descriptor, 'first', page([record('secret')]));
+    await store.meta.put({ key: 'access_reconciliation_required', value: { userId, generation: 21 } });
+    await expect(activateCacheSnapshot(store, manifest, descriptor)).rejects.toThrow('stale_cache_generation');
+    expect(await store.pages.get('secret')).toBeUndefined(); expect(await store.meta.get(ACCESS_MANIFEST_KEY)).toBeUndefined();
+  });
+
   it('stages without changing live records and resumes the page cursor after browser-store reopen', async () => {
     await store.pages.put({ id: 'private', title: 'Old private title', _ts: {} });
     await beginCacheSnapshot(store, userId, descriptor);
