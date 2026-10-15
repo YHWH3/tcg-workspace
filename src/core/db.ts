@@ -19,7 +19,12 @@ export interface OutboxEntry {
    * absent on older rows, treat as 'pending' (review B5). */
   state?: 'pending' | 'rejected';
   rejectReason?: string;
+  /** Local creation evidence for safe reconciliation; never a server grant. */
+  createIntent?: boolean;
 }
+
+export interface SyncStageRow { snapshotId: string; id: string; collection: Collection; data: Record<string, unknown>; field_ts: Record<string, number>; seq: number; spaceId: string }
+export interface AccessQuarantineRow { autoId?: number; id: string; kind: 'outbox' | 'draft' | 'blob'; reason: string; generation: number; payload: unknown; quarantinedAt: number }
 
 export type BlobState = 'pending' | 'uploaded' | 'cached' | 'failed';
 
@@ -57,6 +62,8 @@ export class LocalDB extends Dexie {
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<{ key: string; value: unknown }, string>;
   blobs!: Table<BlobRow, string>;
+  syncStage!: Table<SyncStageRow, [string, string]>;
+  accessQuarantine!: Table<AccessQuarantineRow, number>;
 
   constructor(name: string = databaseName()) {
     super(name);
@@ -93,6 +100,10 @@ export class LocalDB extends Dexie {
     this.version(6).stores({
       automations: 'id, databaseId, order',
       forms: 'id, databaseId, order',
+    });
+    this.version(7).stores({
+      syncStage: '[snapshotId+id], snapshotId, collection',
+      accessQuarantine: '++autoId, id, kind, generation',
     });
   }
 

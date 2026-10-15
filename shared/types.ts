@@ -14,6 +14,8 @@ export interface PulledRecord extends StoredRecord {
   id: string;
   collection: string;
   seq: number;
+  /** Protocol 2: server-resolved scope. Legacy responses omit this field. */
+  spaceId?: string;
 }
 
 export interface PublicUser {

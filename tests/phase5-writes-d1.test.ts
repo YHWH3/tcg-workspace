@@ -64,6 +64,12 @@ beforeEach(async () => {
 afterEach(async () => { await mf?.dispose(); });
 
 describe('Phase 5 actual applyChanges and sync write enforcement', () => {
+  it('does not reject an independent own-comment edit because its existing target had a denied title edit', async () => {
+    const result = await applyChanges(env, 'commenter', [change('record', 'tasks', { title: 'Denied title' }), change('own-comment', 'comments', { body: 'Allowed comment' })]);
+    expect(result.changed).toBe(1); expect(result.rejected).toBe(1);
+    expect((await data('record')).title).toBe('Restricted Secret'); expect((await data('own-comment')).body).toBe('Allowed comment');
+  });
+
   it('soft-deletes and restores a parent and its descendant without losing cascade state', async () => {
     await put('body', 'blocks', { pageId: 'page', text: 'Preserve body' });
     const removed = await applyChanges(env, 'editor', [change('page', 'pages', { deleted: true }), change('body', 'blocks', { deleted: true, deletedVia: 'page' })], { atomic: true });

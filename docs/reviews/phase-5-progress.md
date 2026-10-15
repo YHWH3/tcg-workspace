@@ -220,6 +220,45 @@ Phase 5. PR #7 remains draft. No merge or deployment.
 
 ## Required work still outstanding
 
+## P5-2 atomic client cache layer (not yet wired into the engine)
+
+Dexie version 7 adds snapshot staging and an account-bound access quarantine.
+`src/core/sync/accessCache.ts` validates exact page/session identity, durable
+continuations, manifest roles and the complete staged ownership graph before
+activation. One IndexedDB transaction replaces canonical rows, rebases authorized
+pending work and installs cursor/manifest. Refused outbox/drafts/pending bytes
+move to quarantine; revoked cached blobs/thumbnails and old directory rows leave
+normal stores. Quarantine is not part of record search, ordinary draft loaders,
+outbox uploading or the existing backup serializer. Export/recovery remains
+disabled pending owner policy. The old account's store is never written using
+another account identity.
+
+Eight Dexie/fake-IndexedDB tests pass: staging/reopen/cursor replay; atomic
+replacement; revoked records/drafts/media; viewer downgrade; authorized edits and
+new creations; account/generation/malformed page refusal; own-comment behavior;
+and rollback of all records/outbox/quarantine/metadata on an injected activation
+crash followed by reopening/retry. These are simulated storage tests, not real
+Chromium/Firefox/WebKit or physical-device evidence.
+
+The independent-comment test first failed in both cache and server planners:
+an unrelated denied title edit on an existing canonical parent blocked an
+otherwise authorized own-comment edit. Dependency rejection now propagates only
+when the child depends on a rejected new parent or changed ownership/deletion
+shape. Existing parent identity/scope still undergoes the normal revision fence.
+The same regression now passes on the real-D1 kernel and client storage.
+
+Latest targeted run: **67/67 PASS** (28 write, 31 sync/snapshot and 8 cache),
+TypeScript and whitespace pass. Evidence:
+`.artifacts/phase5-writes/cache-integration-green.json`, with red evidence in
+`independent-comment-red.json` and `cache-expanded.json`.
+
+**Not integrated yet:** engine access-first ordering, UI startup/reconnect gate,
+runtime creation-intent capture, multi-tab locks, object URL/late download
+invalidation and quarantine status/discard UI. Permissions remain disabled; this
+module is not yet a delivered end-user revocation workflow.
+
+## Required work still outstanding
+
 | Workstream | Remaining implementation and acceptance |
 |---|---|
 | P5-1 foundation | Fresh-signup ownership, remaining protected configuration references, ownership transfer, audited role/space updates, API integration |

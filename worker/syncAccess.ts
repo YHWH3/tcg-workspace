@@ -76,7 +76,7 @@ export async function pullAuthorized(db: D1Database, userId: string, state: Acce
     // Moving/updating a candidate after the cutoff must not skip a revision or
     // publish content from a different page. A clean retry recomputes the page.
     if (record.rev !== seed.seq) throw new SyncProtocolError('access_reset_required', 409);
-    records.push({ id: record.id, collection: record.collection, data: record.data, field_ts: record.fieldTs, seq: record.rev });
+    records.push({ id: record.id, collection: record.collection, data: record.data, field_ts: record.fieldTs, seq: record.rev, spaceId: record.scope.spaceId });
   }
   // Even an empty result must reject revocation that happened during graph
   // filtering. A read-only fence cannot mutate application data.
@@ -96,7 +96,7 @@ accessApi.get('/', async c => {
   const spaces = (rows.results as unknown as { id: string; name: string; export_policy: string }[]).map(s => ({
     id: s.id, name: s.name, role: effectiveSpaceRole(spaceAccess(context, s.id)), exportPolicy: s.export_policy,
   }));
-  return c.json({ protocol: state.enabled ? 2 : 1, userId: context.userId, generation: state.generation, spaces });
+  return c.json({ protocol: state.enabled ? 2 : 1, userId: context.userId, workspaceRole: context.principal!.workspaceRole, generation: state.generation, spaces });
 });
 
 /** Register at each router boundary; never turn permission failures into a

@@ -274,6 +274,27 @@ responses replay existing LWW/idempotency behavior, not duplicate mutations.
 Keep the existing `workspace-<uid>` Dexie database, same-account mutation guard,
 account-switch confirmation and close-before-credential-switch ordering. Add
 access manifest, snapshot staging and rejected-operation metadata to version 7.
+
+The version-7 cache layer (`src/core/sync/accessCache.ts`) stages pages in
+`syncStage`, separately from live collections. Each page validates descriptor,
+account, collection, cutoff, authoritative scope and exact replay identity.
+Activation verifies the complete canonical graph against the current manifest,
+then atomically replaces collections, replays still-authorized pending writes,
+installs cutoff/manifest and removes staging metadata. A crash rolls back all
+of these changes, including quarantine and blob removal. Protocol-2 records
+carry server-resolved `spaceId`; local `_spaceId` and `_serverRev` are cache
+metadata, never accepted server authorization input.
+
+Unconfirmed/revoked pending writes, inaccessible drafts and pending bytes move
+to the account's `accessQuarantine` table. Cached revoked media/thumbnail bytes
+are removed; still-authorized unsynced creations require local `createIntent`
+evidence and a resolvable authorized parent graph. Old pending work without
+creation evidence is retained for review instead of guessed to be a new record.
+Quarantined payloads never enter normal record queries, the outbox uploader,
+draft loaders or existing backup/export tables. Client orchestration, UI states,
+multi-tab locking, blob URL invalidation and creation-intent capture still need
+integration before this cache layer can enforce the complete reconnect contract.
+
 An online app starts `checking-access`, withholding private mounted views/search
 until reconciliation. Offline previously reconciled users may use the retained
 authorized snapshot with an explicit stale/offline status. Going online gates

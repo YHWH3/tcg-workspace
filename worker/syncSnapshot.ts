@@ -134,7 +134,7 @@ export async function readSyncSnapshot(db: D1Database, userId: string, snapshotI
   const authorized = await readAuthorizedRecords(db, userId, candidates.map(r => r.record_id), { includeDeleted: true });
   if (authorized.context.generation !== row.generation || !authorized.context.enabled) throw new SyncProtocolError('access_reset_required', 409);
   const records: PulledRecord[] = candidates.filter(r => authorized.records.has(r.record_id)).map(r => ({ id: r.record_id, collection: r.collection,
-    data: JSON.parse(r.data), field_ts: JSON.parse(r.field_ts), seq: r.seq }));
+    data: JSON.parse(r.data), field_ts: JSON.parse(r.field_ts), seq: r.seq, spaceId: authorized.records.get(r.record_id)!.scope.spaceId }));
   await snapshotRead(db, context, row, []);
   return { protocol: 2, snapshotId: row.id, generation: row.generation, cutoff: row.cutoff, records, done,
     cursor: done ? null : await continuation(row, candidates[candidates.length - 1].ordinal) };

@@ -146,10 +146,21 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
   }
   // A rejected proposed parent must not supply a pretend scope/identity to a
   // dependent write. Fail the dependent rather than publishing a half-plan.
+  // An existing parent with an unrelated denied title edit is still a valid
+  // canonical target (e.g. a commenter editing their own comment).
+  const parentPlanRequired = (parentId: string) => {
+    if (!denied.has(parentId)) return false;
+    const prior = graph.get(parentId), candidate = proposed.get(parentId);
+    if (!prior || !candidate) return true;
+    const fields = ['parentType', 'targetType', 'fromType', 'toType'];
+    return candidate.rootSpaceId !== prior.rootSpaceId || (candidate.data.deleted === true) !== (prior.data.deleted === true)
+      || fields.some(field => (candidate.data[field] ?? null) !== (prior.data[field] ?? null))
+      || JSON.stringify(scopeParentIds(candidate)) !== JSON.stringify(scopeParentIds(prior));
+  };
   let changed = true;
   while (changed) {
     changed = false;
-    for (const [id, record] of candidates) if (!denied.has(id) && scopeParentIds(record).some(parent => denied.has(parent))) {
+    for (const [id, record] of candidates) if (!denied.has(id) && scopeParentIds(record).some(parentPlanRequired)) {
       reject(id, record.collection, 'parent_unavailable'); changed = true;
     }
   }
