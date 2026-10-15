@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from './auth';
-import { ID_RE, concatRows, svgHeaders, type FileRow } from './files';
+import { ID_RE, concatRows, servedFile, type FileRow } from './files';
 import {
   allowedCanvasFiles,
   allowedFileIds,
@@ -220,14 +220,13 @@ publicApi.get('/:token/files/:fileId', async (c) => {
   const meta = await c.env.DB.prepare('SELECT mime, complete FROM files WHERE id = ?').bind(fileId).first<FileRow>();
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
   const { results } = await c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(fileId).all<{ data: unknown }>();
-  const out = concatRows(results);
-  return new Response(out, {
+  const served = servedFile(meta.mime, concatRows(results));
+  return new Response(served.body, {
     headers: {
-      'Content-Type': meta.mime ?? 'application/octet-stream',
-      'Content-Length': String(out.byteLength),
+      'Content-Length': String(served.body.byteLength),
       // Token-scoped media must respect revocation/deletion — never immutable.
       'Cache-Control': 'no-store',
-      ...svgHeaders(meta.mime),
+      ...served.headers,
     },
   });
 });
@@ -344,13 +343,12 @@ publicApi.get('/canvas/:token/files/:fileId', async (c) => {
   const meta = await c.env.DB.prepare('SELECT mime, complete FROM files WHERE id = ?').bind(fileId).first<FileRow>();
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
   const { results } = await c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(fileId).all<{ data: unknown }>();
-  const out = concatRows(results);
-  return new Response(out, {
+  const served = servedFile(meta.mime, concatRows(results));
+  return new Response(served.body, {
     headers: {
-      'Content-Type': meta.mime ?? 'application/octet-stream',
-      'Content-Length': String(out.byteLength),
+      'Content-Length': String(served.body.byteLength),
       'Cache-Control': 'no-store',
-      ...svgHeaders(meta.mime),
+      ...served.headers,
     },
   });
 });

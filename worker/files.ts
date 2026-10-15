@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { requireAuth } from './auth';
 import type { Env, AuthUser } from './auth';
 import { sanitizeSvg } from '../shared/svgSanitize';
+import { isInlineSafeMime } from '../shared/filekinds';
 
 /** SVG must be served inert: sandboxed, scripts/styles locked down. */
 export const SVG_HEADERS: Record<string, string> = {
@@ -11,6 +12,54 @@ export const SVG_HEADERS: Record<string, string> = {
 
 export function svgHeaders(mime: string | null | undefined): Record<string, string> {
   return mime === 'image/svg+xml' ? { 'Content-Type': 'image/svg+xml', ...SVG_HEADERS } : {};
+}
+
+/**
+ * The ONLY place a stored file's `Content-Type` is decided. The uploader
+ * supplies the MIME string at `complete`, so it is untrusted: serving
+ * `text/html` (or xhtml/xml/js) from the application origin would execute an
+ * attachment as a page — directly through the unauthenticated share routes, or
+ * through a `blob:` URL (which inherits this origin) in the in-app preview.
+ * Anything outside the inline-safe allowlist is served as an opaque download.
+ */
+export function servedFileHeaders(mime: string | null | undefined): Record<string, string> {
+  const type = String(mime ?? '').split(';')[0].trim().toLowerCase();
+  if (type === 'image/svg+xml') return svgHeaders(type);
+  if (isInlineSafeMime(type)) return { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff' };
+  return { 'Content-Type': 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'attachment' };
+}
+
+/**
+ * Body + headers for stored bytes. SVG is re-sanitized at serve time: bytes
+ * stored by a path that predates sanitization (public form upload, remote
+ * import) are never trusted. A document the sanitizer rejects is served as an
+ * opaque download. Everything else follows servedFileHeaders.
+ */
+export function servedFile(mime: string | null | undefined, bytes: Uint8Array<ArrayBuffer>): { body: Uint8Array<ArrayBuffer>; headers: Record<string, string> } {
+  const type = String(mime ?? '').split(';')[0].trim().toLowerCase();
+  if (type === 'image/svg+xml') {
+    const svg = sanitizeSvg(new TextDecoder().decode(bytes));
+    if (!svg.ok) return { body: bytes, headers: servedFileHeaders('application/octet-stream') };
+    const body = new TextEncoder().encode(svg.svg);
+    return { body, headers: servedFileHeaders(type) };
+  }
+  return { body: bytes, headers: servedFileHeaders(type) };
+}
+
+/** Unfinished uploads older than this are swept when no synced record claims
+ * them (worker/reminders.ts); the same window bounds what they cost in quota,
+ * so an abandoned upload whose record exists cannot hold quota forever. */
+export const UNFINISHED_UPLOAD_WINDOW_MS = 7 * 24 * 3600_000;
+
+/** Bytes held by a file's own other chunks and by everyone's recent unfinished
+ * chunks, plus completed bytes. Replacing chunk `idx` of `id` is not growth. */
+export async function heldBytes(db: D1Database, id: string, idx: number, now = Date.now()): Promise<{ done: number; own: number; pending: number }> {
+  const row = await db.prepare(`SELECT (SELECT COALESCE(SUM(size),0) FROM files WHERE complete=1) AS done,
+      COALESCE(SUM(CASE WHEN c.file_id=? THEN LENGTH(c.data) ELSE 0 END),0) AS own,
+      COALESCE(SUM(CASE WHEN f.created_at>=? THEN LENGTH(c.data) ELSE 0 END),0) AS pending
+    FROM file_chunks c JOIN files f ON f.id=c.file_id WHERE f.complete=0 AND NOT (c.file_id=? AND c.idx=?)`)
+    .bind(id, now - UNFINISHED_UPLOAD_WINDOW_MS, id, idx).first<{ done: number; own: number; pending: number }>();
+  return { done: row?.done ?? 0, own: row?.own ?? 0, pending: row?.pending ?? 0 };
 }
 
 export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB per file
@@ -101,6 +150,16 @@ files.put('/:id/chunks/:idx', async (c) => {
     if ((await usageBytes(db)) >= QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
     await db.prepare('INSERT OR IGNORE INTO files (id, uploaded_by, created_at, complete) VALUES (?, ?, ?, 0)').bind(id, c.get('user').id, Date.now()).run();
   }
+  // Bound what an unfinished upload may hold. Chunks of uploads that never
+  // complete were outside every limit (one id accepted 4096 chunks; unfinished
+  // bytes never counted toward the quota). A file that can never be completed
+  // (> MAX_FILE_SIZE) is refused with 413; the workspace quota counts
+  // completed bytes PLUS everyone's unfinished chunks and answers 507 — both
+  // are the statuses the client treats as a permanent, user-visible failure.
+  // Replacing an existing chunk is not growth.
+  const held = await heldBytes(db, id, idx);
+  if (held.own + body.byteLength > MAX_FILE_SIZE) return c.json({ error: 'file too large (max 20 MB)' }, 413);
+  if (held.done + held.pending + body.byteLength > QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
   // The completion check belongs to the same statement as the write: a PUT
   // that read pending state before another request completed must not alter
   // the acknowledged file afterwards.
@@ -208,13 +267,15 @@ files.get('/:id', async (c) => {
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
   const { results } = await c.env.DB.prepare('SELECT idx, data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ idx: number; data: unknown }>();
   if (results.length !== (meta.chunks ?? results.length) || results.some((row, index) => row.idx !== index)) return c.json({ error: 'not found' }, 404);
-  const out = concatRows(results);
-  return new Response(out, {
+  const served = servedFile(meta.mime, concatRows(results));
+  return new Response(served.body, {
     headers: {
-      'Content-Type': meta.mime ?? 'application/octet-stream',
-      'Content-Length': String(out.byteLength),
-      'Cache-Control': 'private, max-age=31536000, immutable',
-      ...svgHeaders(meta.mime),
+      'Content-Length': String(served.body.byteLength),
+      // Authorization is per request: never let an HTTP cache answer for the
+      // server (revocation, deletion, account switch). The client keeps its
+      // own blob cache in IndexedDB.
+      'Cache-Control': 'private, no-store',
+      ...served.headers,
     },
   });
 });

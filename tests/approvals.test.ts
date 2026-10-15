@@ -135,8 +135,9 @@ class FakeD1 {
       const previous = JSON.parse(String(binds[3]));
       const board = this.records.get(next.boardId ?? 'board-default');
       const gate = board?.collection === 'boards' ? parseGate(JSON.parse(board.data)) : null;
-      if (gate && next.status === gate.stageId && (next.status !== previous.status || next.boardId !== previous.boardId || gate.approverField)) {
-        const approved = [...this.approvals.values()].some(row => row.target_type === 'record' && row.target_id === binds[6]
+      const pinned = gate?.approverField ? `p_${gate.approverField}` : null;
+      if (gate && next.status === gate.stageId && (next.status !== previous.status || next.boardId !== previous.boardId || (pinned && next[pinned] !== previous[pinned]))) {
+        const approved = [...this.approvals.values()].some(row => row.target_type === 'record' && row.target_id === binds[8]
           && row.status === 'approved' && (row.stage_id === gate.stageId || row.stage_id === null)
           && (!gate.approverField || row.approver_id === next[`p_${gate.approverField}`]));
         if (!approved) throw new Error('malformed JSON');
@@ -494,5 +495,19 @@ describe('applyChanges approval gate (covers MCP update_records pathway)', () =>
     expect(res.rejected).toBe(0);
     expect(res.applied.map((a) => a.id)).toEqual(['t1']);
     expect((JSON.parse(db.records.get('t1')!.data) as Record<string, unknown>).status).toBe('done');
+  });
+});
+
+describe('guardStageWrites proposedBoards (gate introduced in the same write)', () => {
+  it('a gate that arrives with the status write is honoured, not only persisted board rows', async () => {
+    const db = new FakeD1();
+    seedBoardTask(db, {}); // the persisted board has NO gate
+    const rejected: { id: unknown; reason: string }[] = [];
+    const ch = stageChange('t1', 'done');
+    await guardStageWrites(env(db), [ch], (id, _collection, reason) => rejected.push({ id, reason }), {
+      proposedBoards: new Map([['b1', { name: 'Board', approvalGate: { stageId: 'done' } }]]),
+    });
+    expect(rejected).toEqual([{ id: 't1', reason: 'approval_required' }]);
+    expect(ch.patch.status).toBeUndefined();
   });
 });

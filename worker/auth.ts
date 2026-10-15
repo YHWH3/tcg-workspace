@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import type { PublicUser } from '../shared/types';
 import { hashPassword, inviteCode, newSalt, randomToken, sha256Hex, verifyPassword } from './password';
+import { clearLoginFailures, clientAddress, loginRetryAfter, recordLoginFailure, revokeAllGrants } from './ratelimit';
 
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 
@@ -11,6 +12,8 @@ export interface Env {
   TURNSTILE_HOSTNAMES?: string;
   /** Disposable loopback HTTP fixtures only; omitted in deployed config. */
   WORKSPACE_ENV?: string;
+  /** MCP write tool calls per user per 10 minutes (default 300; 0 disables). */
+  MCP_WRITE_LIMIT?: string;
   TURNSTILE_LOCAL_TEST?: string;
   DB: D1Database;
   AI: Ai;
@@ -253,16 +256,29 @@ auth.post('/signup', async (c) => {
   return c.json({ token, user: publicUser({ id, username, name, role, color }) });
 });
 
+/** Burned for unknown usernames so response time does not reveal which
+ * accounts exist (a real verification costs one PBKDF2 derivation). */
+const DUMMY_SALT = new Uint8Array(16);
+
 auth.post('/login', async (c) => {
   const body = await c.req.json<{ username?: string; password?: string }>().catch(() => null);
   if (!body?.username || !body.password) return c.json({ error: 'invalid body' }, 400);
+  const ip = clientAddress(c.req);
+  const wait = await loginRetryAfter(c.env, ip, body.username);
+  if (wait > 0) {
+    c.header('Retry-After', String(wait));
+    return c.json({ error: 'Too many failed attempts. Try again later.' }, 429);
+  }
   const row = await c.env.DB
     .prepare('SELECT id, username, name, role, color, password_hash, salt FROM users WHERE username = ?')
     .bind(body.username.trim().toLowerCase())
     .first<{ id: string; username: string; name: string; role: 'admin' | 'member'; color: string; password_hash: string; salt: string }>();
+  if (!row) await hashPassword(body.password, DUMMY_SALT);
   if (!row || !(await verifyPassword(body.password, row.salt, row.password_hash))) {
+    await recordLoginFailure(c.env, ip, body.username);
     return c.json({ error: 'Invalid username or password' }, 401);
   }
+  await clearLoginFailures(c.env, ip, body.username);
   const token = await createSession(c.env.DB, row.id);
   return c.json({ token, user: publicUser(row) });
 });
@@ -316,6 +332,9 @@ me.post('/password', async (c) => {
     c.env.DB.prepare('UPDATE users SET password_hash = ?, salt = ? WHERE id = ?').bind(hash, salt, user.id),
     c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').bind(user.id, user.tokenHash),
   ]);
+  // Sessions were already revoked; MCP/OAuth grants are credentials derived
+  // from the same password and must not survive its rotation.
+  await revokeAllGrants(c.env, user.id);
   return c.json({ ok: true });
 });
 

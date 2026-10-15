@@ -9,6 +9,7 @@ import { createStore, useStore } from './store';
 import { uuid } from './utils';
 
 import { kindOf } from '../../shared/filekinds';
+import { renderableBlob } from './renderable';
 import { driveEmbed } from './drive';
 export type { FileKind, ParentType } from '../../shared/filekinds';
 import type { FileKind, ParentType } from '../../shared/filekinds';
@@ -355,7 +356,9 @@ export function useFileUrl(fileId: string | undefined, preferId?: string | undef
       const row = await db.blobs.get(target);
       if (cancelled) return;
       if (row) {
-        revoke = URL.createObjectURL(row.blob);
+        const safe = await renderableBlob(row.blob);
+        if (cancelled) return;
+        revoke = URL.createObjectURL(safe);
         setUrl(revoke);
         return;
       }
@@ -372,7 +375,7 @@ export function useFileUrl(fileId: string | undefined, preferId?: string | undef
         const blob = await res.blob();
         await db.blobs.put({ id: target, blob, state: 'cached', uploadedChunks: 0, mime: blob.type });
         if (cancelled) return;
-        revoke = URL.createObjectURL(blob);
+        revoke = URL.createObjectURL(await renderableBlob(blob));
         setUrl(revoke);
       } catch {
         setMissing(true);

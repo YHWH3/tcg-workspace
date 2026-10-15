@@ -24,10 +24,12 @@ import { cmpOrder, orderBetween, uuid } from '../shared/order';
 import { fnv1a64hex, linkId } from '../shared/linkid';
 import type { SemanticEvent } from '../shared/events';
 import { sha256Hex, randomToken } from './password';
+import { clientAddress, rateLimitHit } from './ratelimit';
 import { completedRecords, executionOptions, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
 import type { ChangesetCtx } from './changesets';
 import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
 import { D1_MAX_ROW_BYTES, QUOTA_BYTES, fileChunkSlices } from './files';
+import { sanitizeSvg } from '../shared/svgSanitize';
 
 type Bindings = Env;
 
@@ -42,9 +44,14 @@ export type PublicBuiltin = (typeof PUBLIC_BUILTINS)[number];
 
 export const FORM_MAX_PAYLOAD = 256 * 1024;
 export const FORM_MAX_IMAGE = 5 * 1024 * 1024;
+const FORM_MAX_FILES_DEFAULT = 10;
+export const FORM_MAX_FILES = FORM_MAX_FILES_DEFAULT;
 export const FORM_RATE_LIMIT = 10;
+/** Image uploads are counted in their own bucket: a visitor attaching the
+ * documented maximum of FORM_MAX_FILES images must still be able to submit
+ * (uploads + the submission itself would otherwise exceed FORM_RATE_LIMIT). */
+export const FORM_UPLOAD_RATE_LIMIT = FORM_MAX_FILES_DEFAULT * 3;
 export const FORM_RATE_WINDOW_MS = 60 * 60 * 1000;
-export const FORM_MAX_FILES = 10;
 export const FORM_ORPHAN_AGE_MS = 24 * 60 * 60 * 1000;
 export const SUBMISSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 export const TEXT_CAP = 2000;
@@ -378,25 +385,6 @@ function recLite(r: { id: string; data: Record<string, unknown>; rev: number }):
   return { id: r.id, data: r.data, rev: r.rev };
 }
 
-/** Sliding-window counter, atomic against concurrent submits. Returns the
- *  count this request consumed (caller compares to the limit). */
-async function rateLimitHit(env: Bindings, bucket: string, key: string, windowMs: number): Promise<number> {
-  const now = Date.now();
-  const resetAt = now + windowMs;
-  await env.DB.prepare('INSERT INTO rate_limits (bucket, key, count, reset_at) VALUES (?, ?, 0, 0) ON CONFLICT(bucket, key) DO NOTHING').bind(bucket, key).run();
-  const row = await env.DB
-    .prepare(
-      `UPDATE rate_limits
-         SET count = CASE WHEN reset_at <= ? THEN 1 ELSE count + 1 END,
-             reset_at = CASE WHEN reset_at <= ? THEN ? ELSE reset_at END
-       WHERE bucket = ? AND key = ?
-       RETURNING count`,
-    )
-    .bind(now, now, resetAt, bucket, key)
-    .first<{ count: number }>();
-  return row?.count ?? 1;
-}
-
 export const TURNSTILE_TEST_SITEKEY = 'test';
 
 export async function boundedRequestBody(request:Request,limit:number):Promise<Uint8Array|null> {
@@ -435,9 +423,7 @@ export async function verifyFormChallenge(env: Bindings, token: unknown, ip: str
   }
 }
 
-function clientIp(c: { req: { header(name: string): string | undefined } }): string {
-  return c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local';
-}
+const clientIp = (c: { req: { header(name: string): string | undefined } }): string => clientAddress(c.req);
 
 /* ------------------------------------------------------------------ */
 /* Submission planning (pure-ish — assembled here, applied in the route)  */
@@ -715,8 +701,8 @@ publicFormsApi.post('/:token/files', async (c) => {
   const hit = await formByToken(c.env, c.req.param('token'));
   if (!hit || !hit.form.enabled) return UNAVAILABLE(c);
   const ip = clientIp(c);
-  const used = await rateLimitHit(c.env, 'form', `${ip}:${c.req.param('token')}`, FORM_RATE_WINDOW_MS);
-  if (used > FORM_RATE_LIMIT) return c.json({ error: 'rate_limited' }, 429);
+  const used = await rateLimitHit(c.env, 'form_upload', `${ip}:${c.req.param('token')}`, FORM_RATE_WINDOW_MS);
+  if (used > FORM_UPLOAD_RATE_LIMIT) return c.json({ error: 'rate_limited' }, 429);
 
   const raw=await boundedRequestBody(c.req.raw,FORM_MAX_IMAGE+64*1024);
   if(!raw) return c.json({error:'too_large'},413);
@@ -730,8 +716,15 @@ publicFormsApi.post('/:token/files', async (c) => {
 
   const id = `f_${uuid()}`;
   const claim=randomToken();
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bytes = new Uint8Array(await file.arrayBuffer());
   if (bytes.byteLength !== file.size) return c.json({ error: 'too_large' }, 413);
+  // SVG is active markup. Store only the sanitizer's canonical output (the
+  // authenticated upload route already does); anything it rejects is refused.
+  if (file.type === 'image/svg+xml') {
+    const svg = sanitizeSvg(new TextDecoder().decode(bytes));
+    if (!svg.ok) return c.json({ error: 'unsupported_image' }, 415);
+    bytes = new TextEncoder().encode(svg.svg);
+  }
   const parts = fileChunkSlices(bytes);
   if (parts.some((part) => part.byteLength >= D1_MAX_ROW_BYTES)) return c.json({ error: 'too_large' }, 413);
   const now = Date.now();
@@ -768,7 +761,7 @@ publicFormsApi.post('/:token/files', async (c) => {
   const uploaded=await applyChanges(c.env, 'form', [{ id, collection: 'files', patch: {
     name: file.name || 'upload',
     mime: file.type,
-    size: file.size,
+    size: bytes.byteLength,
     kind: 'image',
     parentType: 'form-pending',
     parentId: hit.formId,
