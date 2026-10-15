@@ -79,9 +79,16 @@ export async function guardStageWrites(
   env: { DB: D1Database },
   incoming: Mutation[],
   reject: (id: unknown, collection: unknown, reason: string) => void,
-  existing?: Map<string, { data: string; field_ts?: string; updated_at?: number | null }>,
-  now = Date.now(),
+  opts: {
+    /** Stored rows the caller already read (applyChanges shares its one read). */
+    existing?: Map<string, { data: string; field_ts?: string; updated_at?: number | null }>;
+    /** Merged board configurations from this same write, including boards created
+     * in it — persisted rows alone miss a gate introduced later in an atomic batch. */
+    proposedBoards?: ReadonlyMap<string, Record<string, unknown>>;
+    now?: number;
+  } = {},
 ): Promise<void> {
+  const { existing, proposedBoards, now = Date.now() } = opts;
   const touchesGate = (ch: Mutation) =>
     ch.collection === 'tasks' && !!ch.patch &&
     ('status' in ch.patch || 'boardId' in ch.patch || Object.keys(ch.patch).some((k) => k.startsWith('p_')));
@@ -117,6 +124,7 @@ export async function guardStageWrites(
     if (typeof sb === 'string' && sb) boardIds.add(sb);
   }
   const boards = await fetchRecordData(env.DB, [...boardIds]);
+  for (const [id, data] of proposedBoards ?? []) if (boardIds.has(id)) boards.set(id, data);
 
   const state = new Map<string, { data: Record<string, unknown>; field_ts: Record<string, number> }>();
   for (const ch of incoming) {

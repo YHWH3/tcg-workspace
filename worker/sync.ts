@@ -306,7 +306,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   // item-wise here — on EVERY pathway (client push, MCP, automation, undo).
   // The transactional guard in flushPlans is only the race backstop; this
   // pre-check mirrors its predicate so a policy refusal never aborts a batch.
-  await guardStageWrites(env, incoming, reject, existing);
+  await guardStageWrites(env, incoming, reject, { existing, now });
 
   const plans = new Map<string, Plan>();
   for (const ch of incoming) {

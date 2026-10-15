@@ -497,3 +497,17 @@ describe('applyChanges approval gate (covers MCP update_records pathway)', () =>
     expect((JSON.parse(db.records.get('t1')!.data) as Record<string, unknown>).status).toBe('done');
   });
 });
+
+describe('guardStageWrites proposedBoards (gate introduced in the same write)', () => {
+  it('a gate that arrives with the status write is honoured, not only persisted board rows', async () => {
+    const db = new FakeD1();
+    seedBoardTask(db, {}); // the persisted board has NO gate
+    const rejected: { id: unknown; reason: string }[] = [];
+    const ch = stageChange('t1', 'done');
+    await guardStageWrites(env(db), [ch], (id, _collection, reason) => rejected.push({ id, reason }), {
+      proposedBoards: new Map([['b1', { name: 'Board', approvalGate: { stageId: 'done' } }]]),
+    });
+    expect(rejected).toEqual([{ id: 't1', reason: 'approval_required' }]);
+    expect(ch.patch.status).toBeUndefined();
+  });
+});

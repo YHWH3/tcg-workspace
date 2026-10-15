@@ -136,7 +136,7 @@ check "complete idempotent" "$(echo "$R" | python3 -c 'import json,sys; print(js
 curl --connect-timeout 5 --max-time 30 -s -H "Authorization: Bearer $TA" -o ${SMOKE_TMP}/smoke_file.out "$BASE/api/files/$FID"
 SHA_OUT=$(shasum -a 256 ${SMOKE_TMP}/smoke_file.out | awk '{print $1}')
 check "GET byte-identical (sha256)" "$SHA_OUT" "$SHA_IN"
-check "GET cache header" "$(curl --connect-timeout 5 --max-time 30 -s -D - -o /dev/null -H "Authorization: Bearer $TA" "$BASE/api/files/$FID" | grep -i 'cache-control' | tr -d '\r' | tr '[:upper:]' '[:lower:]')" "cache-control: private, max-age=31536000, immutable"
+check "GET cache header" "$(curl --connect-timeout 5 --max-time 30 -s -D - -o /dev/null -H "Authorization: Bearer $TA" "$BASE/api/files/$FID" | grep -i 'cache-control' | tr -d '\r' | tr '[:upper:]' '[:lower:]')" "cache-control: private, no-store"
 
 # usage endpoint reflects the upload
 USED=$(req GET /api/files/usage "$TA" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["used"] >= 2621440, d["limit"])')

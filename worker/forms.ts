@@ -24,7 +24,7 @@ import { cmpOrder, orderBetween, uuid } from '../shared/order';
 import { fnv1a64hex, linkId } from '../shared/linkid';
 import type { SemanticEvent } from '../shared/events';
 import { sha256Hex, randomToken } from './password';
-import { rateLimitHit } from './ratelimit';
+import { clientAddress, rateLimitHit } from './ratelimit';
 import { completedRecords, executionOptions, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
 import type { ChangesetCtx } from './changesets';
 import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
@@ -423,9 +423,7 @@ export async function verifyFormChallenge(env: Bindings, token: unknown, ip: str
   }
 }
 
-function clientIp(c: { req: { header(name: string): string | undefined } }): string {
-  return c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local';
-}
+const clientIp = (c: { req: { header(name: string): string | undefined } }): string => clientAddress(c.req);
 
 /* ------------------------------------------------------------------ */
 /* Submission planning (pure-ish — assembled here, applied in the route)  */

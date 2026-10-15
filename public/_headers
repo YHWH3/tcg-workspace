@@ -1,0 +1,6 @@
+# Applied by Workers Static Assets to the SPA shell and its assets.
+# Worker-generated responses get the same set from worker/index.ts.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin

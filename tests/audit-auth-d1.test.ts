@@ -118,3 +118,23 @@ describe('open live sockets are bound to their session', () => {
     expect(s.close).toHaveBeenCalled();
   });
 });
+
+describe('browser hardening headers', () => {
+  it('are added to API, HTML and file responses without overriding a route\'s own headers', async () => {
+    const { Hono } = await import('hono');
+    const { browserHardening } = await import('../worker/headers');
+    const app = new Hono();
+    app.use('*', browserHardening);
+    app.get('/api/json', (c) => c.json({ ok: true }));
+    app.get('/oauth/page', (c) => c.html('<h1>consent</h1>'));
+    app.get('/api/file', () => new Response('x', { headers: { 'Content-Type': 'application/pdf', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' } }));
+    for (const path of ['/api/json', '/oauth/page', '/api/file']) {
+      const res = await app.request(path);
+      expect(res.headers.get('x-content-type-options'), path).toBe('nosniff');
+      expect(res.headers.get('x-frame-options'), path).toBe(path === '/api/file' ? 'DENY' : 'SAMEORIGIN');
+      expect(res.headers.get('referrer-policy'), path).toBe('strict-origin-when-cross-origin');
+    }
+    // The route's own content type survives.
+    expect((await app.request('/api/file')).headers.get('content-type')).toBe('application/pdf');
+  });
+});

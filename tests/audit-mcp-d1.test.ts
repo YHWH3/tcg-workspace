@@ -142,3 +142,22 @@ describe('MCP safety rails (Phase 6 §4 foundations)', () => {
     expect((await call('get_page', { pageId: 'p' })).isError).not.toBe(true);
   });
 });
+
+describe('exact reads for invariants (5,000-row cap must not hide dependency edges)', () => {
+  it('add_dependency rejects a cycle even when the workspace holds >5,000 older links', async () => {
+    // Older links first: a whole-collection read (LIMIT 5000, no ORDER BY)
+    // returns these and silently drops the real dependency edge below.
+    await fx.db.prepare(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<5200)
+      INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at)
+      SELECT 'padlink'||i,'links','{"fromId":"x","toId":"y","kind":"related","fromType":"record","toType":"record"}','{}',400000+i,'alice',1 FROM n`).run();
+    await applyChanges(fx.env, 'alice', [
+      { id: 'dep-a', collection: 'tasks', patch: { title: 'A', boardId: 'b', status: 'todo' }, ts: 1 },
+      { id: 'dep-b', collection: 'tasks', patch: { title: 'B', boardId: 'b', status: 'todo' }, ts: 1 },
+    ]);
+    const first = await call('add_dependency', { blocker: 'dep-a', blocked: 'dep-b' });
+    expect(first.isError, JSON.stringify(first)).not.toBe(true);
+    const cycle = await call('add_dependency', { blocker: 'dep-b', blocked: 'dep-a' });
+    expect(cycle.isError, JSON.stringify(cycle)).toBe(true);
+    expect(String(cycle.error)).toMatch(/cycle/i);
+  }, 120_000);
+});
