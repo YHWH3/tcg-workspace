@@ -135,8 +135,9 @@ class FakeD1 {
       const previous = JSON.parse(String(binds[3]));
       const board = this.records.get(next.boardId ?? 'board-default');
       const gate = board?.collection === 'boards' ? parseGate(JSON.parse(board.data)) : null;
-      if (gate && next.status === gate.stageId && (next.status !== previous.status || next.boardId !== previous.boardId || gate.approverField)) {
-        const approved = [...this.approvals.values()].some(row => row.target_type === 'record' && row.target_id === binds[6]
+      const pinned = gate?.approverField ? `p_${gate.approverField}` : null;
+      if (gate && next.status === gate.stageId && (next.status !== previous.status || next.boardId !== previous.boardId || (pinned && next[pinned] !== previous[pinned]))) {
+        const approved = [...this.approvals.values()].some(row => row.target_type === 'record' && row.target_id === binds[8]
           && row.status === 'approved' && (row.stage_id === gate.stageId || row.stage_id === null)
           && (!gate.approverField || row.approver_id === next[`p_${gate.approverField}`]));
         if (!approved) throw new Error('malformed JSON');

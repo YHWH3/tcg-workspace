@@ -7,9 +7,10 @@
 import { Hono } from 'hono';
 import type { Mutation } from '../shared/types';
 import { notify } from './notifications';
+import { mergeRecord } from './merge';
 import { requireAuth, type Env, type AuthUser } from './auth';
 import {
-  MAX_APPROVAL_NOTE, fnv1a, gateMatches, isDecision,
+  MAX_APPROVAL_NOTE, fnv1a, gateTransition, isDecision,
   normalizeApprovalRequest, parseGate, requestKeyFor, requiredApproverId,
   type ApprovalDecision, type ApprovalGate,
 } from '../shared/approvals';
@@ -61,56 +62,76 @@ export async function findApprovedApproval(
 }
 
 /** Enforce board `approvalGate` on every write pathway. Called from
- * applyChanges after mutation validation. A status write into a gated stage
- * without a matching approved decision is stripped from the patch and reported
- * as `approval_required`; other fields in the same change still apply. */
+ * applyChanges after mutation validation, BEFORE planning. A write that would
+ * enter a gated stage (by status or by board) or re-pin its approver without a
+ * matching approved decision has the offending keys stripped from its patch and
+ * is reported as `approval_required`; other fields in the same change still
+ * apply. The merge is folded exactly as the real merge will apply it (same
+ * `mergeRecord`, stored field timestamps, request order), and an absent
+ * `boardId` resolves to `board-default` — so this pre-check and the
+ * transactional guard in `flushPlans` agree, and a policy refusal can only ever
+ * be an item-wise rejection, never a batch abort.
+ *
+ * `existing` lets applyChanges share the rows it already read; direct callers
+ * (unit tests) may omit it and the guard reads what it needs. */
 export async function guardStageWrites(
   env: { DB: D1Database },
   incoming: Mutation[],
-  reject: (id: unknown, collection: unknown, reason: string) => void
+  reject: (id: unknown, collection: unknown, reason: string) => void,
+  existing?: Map<string, { data: string; field_ts?: string }>,
 ): Promise<void> {
-  const stageWrites = incoming.filter(
-    (ch) => ch.collection === 'tasks' && ch.patch && typeof ch.patch.status === 'string'
-  );
-  if (!stageWrites.length) return;
+  const touchesGate = (ch: Mutation) =>
+    ch.collection === 'tasks' && !!ch.patch &&
+    ('status' in ch.patch || 'boardId' in ch.patch || Object.keys(ch.patch).some((k) => k.startsWith('p_')));
+  const relevant = incoming.filter(touchesGate);
+  if (!relevant.length) return;
 
-  const ids = [...new Set(stageWrites.map((c) => c.id))];
-  const rows = await fetchRecordData(env.DB, ids);
-
-  const boardIds = new Set<string>();
-  const boardOf = new Map<string, string>();
-  for (const ch of stageWrites) {
-    const bid =
-      typeof ch.patch.boardId === 'string'
-        ? ch.patch.boardId
-        : (rows.get(ch.id)?.boardId as string | undefined);
-    if (bid) {
-      boardOf.set(ch.id, bid);
-      boardIds.add(bid);
+  const stored = new Map<string, { data: Record<string, unknown>; field_ts: Record<string, number> }>();
+  const parse = (id: string, raw: { data: string; field_ts?: string }) => {
+    try {
+      stored.set(id, { data: JSON.parse(raw.data) as Record<string, unknown>, field_ts: raw.field_ts ? (JSON.parse(raw.field_ts) as Record<string, number>) : {} });
+    } catch {
+      /* unparseable row — treated as absent for gate purposes */
     }
+  };
+  if (existing) {
+    for (const ch of incoming) {
+      const row = ch.collection === 'tasks' ? existing.get(ch.id) : undefined;
+      if (row && !stored.has(ch.id)) parse(ch.id, row);
+    }
+  } else {
+    for (const [id, data] of await fetchRecordData(env.DB, [...new Set(relevant.map((c) => c.id))])) stored.set(id, { data, field_ts: {} });
+  }
+
+  const boardIds = new Set<string>(['board-default']);
+  for (const ch of relevant) {
+    if (typeof ch.patch.boardId === 'string' && ch.patch.boardId) boardIds.add(ch.patch.boardId);
+    const sb = stored.get(ch.id)?.data.boardId;
+    if (typeof sb === 'string' && sb) boardIds.add(sb);
   }
   const boards = await fetchRecordData(env.DB, [...boardIds]);
 
-  for (const ch of stageWrites) {
-    const to = ch.patch.status as string;
-    const board = boards.get(boardOf.get(ch.id) ?? '');
-    const gate = parseGate(board);
-    if (!gateMatches(gate, to)) continue;
-
-    const merged = rows.get(ch.id) ?? {};
-    const requiredApprover = gate.approverField
-      ? requiredApproverId(gate, {
-          ...merged,
-          [`p_${gate.approverField}`]: ch.patch[`p_${gate.approverField}`] ?? merged[`p_${gate.approverField}`],
-        })
-      : undefined;
-
-    const ok = (!gate.approverField||!!requiredApprover) && await findApprovedApproval(env.DB, ch.id, to, requiredApprover);
-    if (!ok) {
-      reject(ch.id, ch.collection, 'approval_required');
-      // Strip the forbidden transition; other fields in the patch still merge.
-      delete ch.patch.status;
+  const state = new Map<string, { data: Record<string, unknown>; field_ts: Record<string, number> }>();
+  for (const ch of incoming) {
+    if (ch.collection !== 'tasks' || !ch.patch) continue;
+    const before = state.get(ch.id) ?? stored.get(ch.id) ?? { data: {}, field_ts: {} };
+    let merged = mergeRecord(before, { patch: ch.patch, ts: ch.ts });
+    if (touchesGate(ch)) {
+      const boardId = typeof merged.data.boardId === 'string' && merged.data.boardId ? merged.data.boardId : 'board-default';
+      const gate = parseGate(boards.get(boardId));
+      const { required, strip } = gateTransition(gate, before.data, merged.data);
+      if (required && gate) {
+        const requiredApprover = gate.approverField ? requiredApproverId(gate, merged.data) : undefined;
+        const ok = (!gate.approverField || !!requiredApprover) && (await findApprovedApproval(env.DB, ch.id, gate.stageId, requiredApprover));
+        if (!ok) {
+          reject(ch.id, ch.collection, 'approval_required');
+          // Strip the forbidden transition; other fields in the patch still merge.
+          for (const key of strip) delete ch.patch[key];
+          merged = mergeRecord(before, { patch: ch.patch, ts: ch.ts });
+        }
+      }
     }
+    state.set(ch.id, { data: merged.data, field_ts: merged.field_ts });
   }
 }
 

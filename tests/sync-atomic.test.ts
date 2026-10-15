@@ -51,7 +51,8 @@ class FakeD1 {
       const previous = JSON.parse(String(binds[3]));
       const board = this.rows.get(next.boardId ?? 'board-default');
       const gate = board?.collection === 'boards' ? parseGate(JSON.parse(board.data)) : null;
-      if (gate && next.status === gate.stageId && (next.status !== previous.status || next.boardId !== previous.boardId || gate.approverField)) {
+      const pinned = gate?.approverField ? `p_${gate.approverField}` : null;
+      if (gate && next.status === gate.stageId && (next.status !== previous.status || next.boardId !== previous.boardId || (pinned && next[pinned] !== previous[pinned]))) {
         // This fixture has no approvals. A matching gate must fail, never
         // be treated as a harmless SELECT merely to satisfy the parser.
         throw new Error('malformed JSON');
