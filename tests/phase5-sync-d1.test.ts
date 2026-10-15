@@ -201,3 +201,149 @@ describe('Phase 5 permission-aware sync HTTP contract on actual D1', () => {
     expect(body.records).toHaveLength(sequence); expect(body.protocol).toBeUndefined();
   });
 });
+
+describe('durable permission reconciliation snapshots on actual D1', () => {
+  const headers = (actor: string) => ({ authorization: `Bearer ${token(actor)}`, 'Content-Type': 'application/json' });
+  async function begin(actor = 'editor', requestId = 'snapshot-test', pageSize = 2) {
+    return sync.request('http://localhost/snapshot', { method: 'POST', headers: headers(actor), body: JSON.stringify({ protocol: 2, generation: await generation(), requestId, pageSize }) }, env, ctx);
+  }
+  type Snapshot = { snapshotId: string; generation: number; cutoff: number; cursor: string; expiresAt: number };
+  type Page = { records: { id: string; data: Record<string, unknown> }[]; cursor: string | null; done: boolean; cutoff: number };
+  async function page(snapshot: Snapshot, actor = 'editor', cursor = snapshot.cursor) {
+    return sync.request(`http://localhost/snapshot/${snapshot.snapshotId}?cursor=${encodeURIComponent(cursor)}`, { headers: headers(actor) }, env, ctx);
+  }
+
+  it('rejects a 20001-record snapshot atomically instead of certifying a truncated cache', async () => {
+    await db.prepare(`WITH RECURSIVE fixture(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM fixture WHERE i<20001)
+      INSERT INTO records(id,collection,data,field_ts,seq,space_id)
+      SELECT 'capacity-'||i,'pages','{"title":"fixture"}','{}',i+100,'space-core' FROM fixture`).run();
+    const response = await begin(); expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ error: 'snapshot_too_large' });
+    expect((await db.prepare('SELECT COUNT(*) n FROM sync_snapshots').first<{ n: number }>())!.n).toBe(0);
+    expect((await db.prepare('SELECT COUNT(*) n FROM sync_snapshot_items').first<{ n: number }>())!.n).toBe(0);
+    expect((await db.prepare('SELECT COUNT(*) n FROM records').first<{ n: number }>())!.n).toBe(20001 + sequence);
+  }, 60000);
+
+  it.each([0, 501, 1.5, '2'])('rejects invalid snapshot page size %s', async pageSize => {
+    const response = await sync.request('http://localhost/snapshot', { method: 'POST', headers: headers('editor'),
+      body: JSON.stringify({ protocol: 2, generation: await generation(), requestId: 'invalid', pageSize }) }, env, ctx);
+    expect(response.status).toBe(400);
+    expect((await db.prepare('SELECT COUNT(*) n FROM sync_snapshots').first<{ n: number }>())!.n).toBe(0);
+  });
+
+  it('does not allow permission activation or a missing protocol to be bypassed by snapshot routes', async () => {
+    await db.prepare('UPDATE access_state SET enabled=0 WHERE id=1').run();
+    expect((await begin()).status).toBe(426);
+    await db.prepare('UPDATE access_state SET enabled=1 WHERE id=1').run();
+    const response = await sync.request('http://localhost/snapshot', { method: 'POST', headers: headers('editor'), body: JSON.stringify({ requestId: 'old-client' }) }, env, ctx);
+    expect(response.status).toBe(426);
+  });
+
+  it('freezes payloads and cutoff, filters hidden references, and replays identical continuations', async () => {
+    const response = await begin(); expect(response.status).toBe(200);
+    const snapshot = await response.json() as Snapshot;
+    expect(snapshot.cutoff).toBe(sequence);
+    await db.prepare("UPDATE records SET data=json_set(data,'$.title','New title'),seq=? WHERE id='core'").bind(++sequence).run();
+    const first = await page(snapshot); expect(first.status).toBe(200);
+    const body = await first.json() as Page;
+    expect(body.records).toEqual([expect.objectContaining({ id: 'core', data: { title: 'Core title' } })]);
+    expect(await (await page(snapshot)).json()).toEqual(body);
+    expect(body.done).toBe(false); expect(body.cursor).toBeTruthy();
+    const tail = await page(snapshot, 'editor', body.cursor!);
+    expect(await tail.json()).toMatchObject({ records: [], done: true, cursor: null, cutoff: snapshot.cutoff });
+    const catchup = await (await pull('editor', { since: snapshot.cutoff })).json() as Page;
+    expect(catchup.records).toEqual([expect.objectContaining({ id: 'core', data: { title: 'New title' } })]);
+    expect(JSON.stringify(body)).not.toMatch(/Private Secret|Private body|Hidden relation|Cannot trust/);
+  });
+
+  it('binds snapshot IDs and continuations to the authenticated account and rejects cursor tampering', async () => {
+    const response = await begin(); expect(response.status).toBe(200); const snapshot = await response.json() as Snapshot;
+    expect((await page(snapshot, 'viewer')).status).toBe(404);
+    expect((await page(snapshot, 'editor', `${snapshot.cursor}x`)).status).toBe(400);
+    const other = await (await begin('editor', 'other')).json() as Snapshot;
+    expect((await page(other, 'editor', snapshot.cursor)).status).toBe(400);
+    const row = await db.prepare('SELECT cursor_secret FROM sync_snapshots WHERE id=?').bind(snapshot.snapshotId).first<{ cursor_secret: string }>();
+    expect(JSON.stringify(snapshot)).not.toContain(row!.cursor_secret);
+  });
+
+  it.each(['cancel', 'expire'])('does not publish a successful empty page if a snapshot is invalidated by %s during paging', async mode => {
+    const response = await begin(); expect(response.status).toBe(200); const snapshot = await response.json() as Snapshot;
+    let fired = false;
+    const raced = interceptD1Batches(db, async (target, statements, sql) => {
+      if (!fired && sql.some(s => s.startsWith('SELECT ordinal,record_id'))) {
+        fired = true;
+        await db.prepare(mode === 'cancel' ? 'DELETE FROM sync_snapshots WHERE id=?' : 'UPDATE sync_snapshots SET expires_at=1 WHERE id=?').bind(snapshot.snapshotId).run();
+      }
+      return target.batch(statements);
+    });
+    env = { ...env, DB: raced };
+    const result = await page(snapshot);
+    expect(fired).toBe(true); expect(result.status).toBe(mode === 'cancel' ? 404 : 410);
+    expect(await result.json()).not.toHaveProperty('records');
+  });
+
+  it('recovers duplicate/concurrent starts once and rejects different-input request reuse', async () => {
+    const responses = await Promise.all([begin(), begin()]);
+    expect(responses.map(r => r.status)).toEqual([200, 200]);
+    const snapshots = await Promise.all(responses.map(r => r.json())) as Snapshot[];
+    expect(snapshots[0]).toEqual(snapshots[1]);
+    expect((await db.prepare('SELECT COUNT(*) n FROM sync_snapshots').first<{ n: number }>())!.n).toBe(1);
+    expect((await begin('editor', 'snapshot-test', 3)).status).toBe(409);
+  });
+
+  it('invalidates snapshots after revocation and does not reuse them after regrant', async () => {
+    const response = await begin('viewer'); expect(response.status).toBe(200); const snapshot = await response.json() as Snapshot;
+    expect((await page(snapshot, 'viewer')).status).toBe(200);
+    await db.prepare("UPDATE space_members SET access='deny' WHERE user_id='viewer'").run();
+    expect((await page(snapshot, 'viewer')).status).toBe(409);
+    await db.prepare("UPDATE space_members SET access='allow' WHERE user_id='viewer'").run();
+    expect((await page(snapshot, 'viewer')).status).toBe(409);
+    const fresh = await begin('viewer', 'regrant'); expect(fresh.status).toBe(200);
+    const newSnapshot = await fresh.json() as Snapshot;
+    expect(newSnapshot.generation).toBeGreaterThan(snapshot.generation);
+    expect((await page(newSnapshot, 'viewer')).status).toBe(200);
+  });
+
+  it('expires snapshots and permits only their owner to cancel ephemeral state', async () => {
+    const response = await begin(); expect(response.status).toBe(200); const snapshot = await response.json() as Snapshot;
+    const cancel = (actor: string) => sync.request(`http://localhost/snapshot/${snapshot.snapshotId}`, { method: 'DELETE', headers: headers(actor) }, env, ctx);
+    expect((await cancel('viewer')).status).toBe(404);
+    await db.prepare('UPDATE sync_snapshots SET expires_at=1 WHERE id=?').bind(snapshot.snapshotId).run();
+    expect((await page(snapshot)).status).toBe(410);
+    expect((await cancel('editor')).status).toBe(200);
+    expect((await cancel('editor')).status).toBe(404);
+    expect((await db.prepare('SELECT COUNT(*) n FROM sync_snapshot_items').first<{ n: number }>())!.n).toBe(0);
+    expect((await db.prepare('SELECT COUNT(*) n FROM records').first<{ n: number }>())!.n).toBe(sequence);
+  });
+
+  it.each(['before', 'after'])('recovers a %s-commit interruption without a partial frozen snapshot', async mode => {
+    let injected = false;
+    const raced = interceptD1Batches(db, async (target, statements, sql) => {
+      const creation = sql.some(s => s.includes('INSERT INTO sync_snapshot_items'));
+      if (creation && !injected && mode === 'before') { injected = true; throw new Error('injected snapshot creation interruption'); }
+      const result = await target.batch(statements);
+      if (creation && !injected && mode === 'after') { injected = true; throw new Error('injected lost snapshot response'); }
+      return result;
+    });
+    const original = env; env = { ...env, DB: raced };
+    let first: Response | undefined;
+    if (mode === 'before') await expect(begin()).rejects.toThrow('injected snapshot creation interruption');
+    else { first = await begin(); expect(first.status).toBe(200); }
+    env = original;
+    expect(injected).toBe(true);
+    const retry = await begin(); expect(retry.status).toBe(200); const snapshot = await retry.json() as Snapshot;
+    if (mode === 'after') expect(await first!.json()).toEqual(snapshot);
+    expect((await db.prepare('SELECT COUNT(*) n FROM sync_snapshots').first<{ n: number }>())!.n).toBe(1);
+    expect((await page(snapshot)).status).toBe(200);
+  });
+
+  it('bounds concurrent active snapshots and reclaims only expired ephemeral copies', async () => {
+    expect((await begin('editor', 'a')).status).toBe(200);
+    expect((await begin('editor', 'b')).status).toBe(200);
+    expect((await begin('editor', 'c')).status).toBe(429);
+    await db.prepare("UPDATE sync_snapshots SET expires_at=1 WHERE request_id='a'").run();
+    expect((await begin('editor', 'c')).status).toBe(200);
+    expect((await db.prepare('SELECT COUNT(*) n FROM sync_snapshots').first<{ n: number }>())!.n).toBe(2);
+    expect((await db.prepare('SELECT COUNT(*) n FROM records').first<{ n: number }>())!.n).toBe(sequence);
+  });
+});

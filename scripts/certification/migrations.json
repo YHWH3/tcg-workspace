@@ -50,5 +50,9 @@
   {
     "name": "0013_phase5_visibility_epoch.sql",
     "sha256": "316488940e081e6240b7253d5956d974d9cd95724e07508865b1810d53d2d309"
+  },
+  {
+    "name": "0014_phase5_sync_snapshots.sql",
+    "sha256": "5e84a04b3160ad4f5599f8302105f35380eba3535dd66800bebd03add1baeac3"
   }
 ]

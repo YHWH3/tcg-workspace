@@ -164,17 +164,66 @@ Fixture setup is excluded. These are local Miniflare measurements, not deployed
 latency or production billing. Machine evidence is generated at
 `performance/phase5-sync.json` under `CERT_ARTIFACT_DIR`.
 
-**Still incomplete:** durable snapshot sessions, client gating/atomic cache
+**Still incomplete at this checkpoint:** client gating/atomic cache
 replacement/eviction/quarantine/regrant, WS/session revocation and the remaining
 REST/MCP/file/public/background read surfaces. Activation remains **0**. The
 new incremental endpoint alone is not a complete permissions implementation.
+
+## P5-2 durable snapshot checkpoint
+
+Migration 0014 and `worker/syncSnapshot.ts` implement fixed-cutoff, account/epoch
+bound snapshots through the existing authenticated sync router. Continuations
+are HMAC signed with a per-session secret kept only in D1. Creation is atomic,
+duplicate/concurrent starts recover by request identity, and a lost committed
+response does not create a second copy. Pages recheck current graph visibility
+and snapshot validity; old payloads remain frozen while newer text revisions are
+picked up after the cutoff. Revocation and regrant cannot revive an old session.
+
+Bounds: 15-minute session lifetime; 2 active copies/account; 20,000 candidates /
+16 MiB payload/copy; 32 MiB aggregate payload. Overflow rolls back, without a
+partial header/items or a truncated success. Expired ephemeral data is pruned on
+creation and can be cancelled by its authenticated owner. Periodic maintenance
+cleanup and client-side snapshot staging/activation are still outstanding.
+
+Snapshot red run: **8 FAIL / 15 PASS** (all newly added snapshot cases failed
+against the router without snapshot support). Cancellation/expiry during paging
+then exposed **2 additional failures**: a successful empty page could be returned
+after the session disappeared. Transactional snapshot validity fences corrected
+both. The 20,001-record test verifies a 413 and zero committed snapshot rows,
+while all source records remain intact. Snapshot/session/manifest/cursor suite:
+**31 PASS**. Combined with write and foundation tests: **89/89 PASS**, TypeScript
+and whitespace checks pass. Evidence: `.artifacts/phase5-writes/snapshot-red.json`,
+`snapshot-invalidation-red.json`, `snapshot-targeted.json`.
+
+### P5-REL-02 — Preserve cascading tombstone/restore semantics
+
+The activated authority planner initially denied a descendant tombstone because
+its ancestor was deleted in the same atomic call; parent+child deletion returned
+zero changes. The deterministic regression failed first. Authorization now
+allows only existing-record `deleted`/`deletedVia` bookkeeping with the same
+space capabilities and graph/epoch fences. Parent+child delete/restore passes,
+and an attempt to edit a hidden descendant body remains denied. This is not a
+general grant to read or edit content under deleted parents.
+
+## Verified committed quick checkpoint
+
+`npm run certify:phase4:quick` on
+`252787617f8fda6175e3fe7a394ee16d6634cbe7`: **13/13 applicable gates PASS**, exit 0;
+**789 unit / 184 Phase 4 actual-D1 / 58 harness assertions PASS**, 13 migrations,
+TypeScript/build, dependency/lockfile, raw security audit and resource evidence.
+Source fingerprint:
+`45b2321cb7579c0a04d19dc5ca05dcc603ef1bab7146ff6104f5a371189bc787`.
+Artifacts: `.artifacts/certification/252787617f8fda6175e3fe7a394ee16d6634cbe7-2026-10-15T10-16-50-593Z-quick/`.
+The source was unchanged throughout the run. This quick checkpoint predates the
+snapshot changes and does not certify them, browser/MCP integration or completed
+Phase 5. PR #7 remains draft. No merge or deployment.
 
 ## Required work still outstanding
 
 | Workstream | Remaining implementation and acceptance |
 |---|---|
 | P5-1 foundation | Fresh-signup ownership, remaining protected configuration references, ownership transfer, audited role/space updates, API integration |
-| P5-2 sync/access | Remaining REST/MCP/file/public/background/history enforcement; complete protected field validation; durable move jobs; snapshots; client gating/eviction/quarantine/regrant; WS/session revocation |
+| P5-2 sync/access | Remaining REST/MCP/file/public/background/history enforcement; complete protected field validation; durable move jobs; snapshot maintenance; client staging/gating/eviction/quarantine/regrant; WS/session revocation |
 | P5-3 search | Authoritative dirty/index pipeline, permission-safe ranking/pagination, APIs/MCP, local/online mobile palette, workload/security tests |
 | P5-4 guests/sessions | Bounded invites and seven-seat atomic acceptance; sessions and disabled accounts; space/member management UI; multi-tab/browser integration |
 | P5-5 history/scale | Atomic history, revision-safe restore/API/UI, usage monitoring, bounded safe caches, retention policy controls |

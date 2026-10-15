@@ -101,7 +101,7 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
   if (spaceIds.length > MAX_ACCESS_SPACES) throw new RecordAccessError('scope_graph_budget');
   const context = await loadAccessContext(db, userId, spaceIds);
   if (context.generation !== generation || !context.enabled) throw new RecordAccessError('access_reset_required');
-  const read = (scope: RecordScope | undefined) => !!scope && !scope.serviceOnly && !scope.ancestorDeleted
+  const read = (scope: RecordScope | undefined, tombstoneOnly = false) => !!scope && !scope.serviceOnly && (tombstoneOnly || !scope.ancestorDeleted)
     && scope.readSpaceIds.every(id => canRead(spaceAccess(context, id)));
   let blockedExpectation = false;
   for (const id of expected?.keys() ?? []) {
@@ -111,14 +111,22 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
   }
   for (const [id, record] of candidates) {
     const old = existing.get(id), scope = scopes.get(id), oldScope = oldScopes.get(id);
-    if (!isActivePrincipal(context.principal) || !read(scope) || (old && !read(oldScope))) {
+    // Cascading delete/restore may encounter an already-deleted ancestor (or
+    // one being deleted in this call). Permit only tombstone bookkeeping,
+    // still requiring the same space capability and all revision fences.
+    // This must never authorize reading/editing the hidden descendant body.
+    const fields = touched.get(id)!;
+    const tombstoneOnly = !!old && typeof record.data.deleted === 'boolean'
+      && [...fields].every(field => field === 'deleted' || field === 'deletedVia')
+      && (record.data.deletedVia == null || typeof record.data.deletedVia === 'string');
+    if (!isActivePrincipal(context.principal) || !read(scope, tombstoneOnly) || (old && !read(oldScope, tombstoneOnly))) {
       // Do not distinguish guessed IDs, hidden parent/type/configuration or
       // malformed ownership for a caller with no readable scope.
       denied.set(id, { id, collection: record.collection, reason: 'not_found_or_forbidden' }); continue;
     }
     if (old && old.collection !== record.collection) { reject(id, record.collection, 'collection_mismatch'); continue; }
     if (oldScope && scope!.spaceId !== oldScope.spaceId) { reject(id, record.collection, 'explicit_move_required'); continue; }
-    const access = spaceAccess(context, scope!.spaceId), fields = touched.get(id)!;
+    const access = spaceAccess(context, scope!.spaceId);
     const initial = before.get(id)!.data, after = record.data;
     if (record.collection === 'comments') {
       if (old ? !canEditComment(access, String(initial.authorId ?? '')) : !canComment(access)) reject(id, record.collection, 'read_only');

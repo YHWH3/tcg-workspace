@@ -64,6 +64,18 @@ beforeEach(async () => {
 afterEach(async () => { await mf?.dispose(); });
 
 describe('Phase 5 actual applyChanges and sync write enforcement', () => {
+  it('soft-deletes and restores a parent and its descendant without losing cascade state', async () => {
+    await put('body', 'blocks', { pageId: 'page', text: 'Preserve body' });
+    const removed = await applyChanges(env, 'editor', [change('page', 'pages', { deleted: true }), change('body', 'blocks', { deleted: true, deletedVia: 'page' })], { atomic: true });
+    expect(removed.changed).toBe(2); expect(removed.rejected).toBe(0);
+    expect(await data('body')).toMatchObject({ deleted: true, deletedVia: 'page', text: 'Preserve body' });
+    const hiddenEdit = await applyChanges(env, 'editor', [change('body', 'blocks', { text: 'Cannot edit hidden body', deleted: false })]);
+    expect(hiddenEdit.changed).toBe(0); expect(hiddenEdit.rejected).toBe(1);
+    const restored = await applyChanges(env, 'editor', [change('page', 'pages', { deleted: false }), change('body', 'blocks', { deleted: false, deletedVia: null })], { serverTs: true, atomic: true });
+    expect(restored.changed).toBe(2); expect(restored.rejected).toBe(0);
+    expect(await data('body')).toMatchObject({ deleted: false, deletedVia: null, text: 'Preserve body' });
+  });
+
   it('returns visible conflict content only after current read authorization', async () => {
     const result = await applyChanges(env, 'editor', [change('record', 'tasks', { title: 'Stale' })], { expect: new Map([['record', 0]]) });
     expect(result.changed).toBe(0);

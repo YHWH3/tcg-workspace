@@ -13,6 +13,7 @@ import { AccessError } from './access';
 import { authorizeMutations, writeAuthorityFences, type WriteAuthority } from './mutationAccess';
 import { readAuthorizedRecords, RecordAccessError } from './recordAccess';
 import { loadAccessState, pullAuthorized, syncFailure, validateSyncProtocol } from './syncAccess';
+import { snapshotsApi } from './syncSnapshot';
 
 const MAX_CHANGES = 500;
 const MAX_ID_LEN = 64;
@@ -597,6 +598,7 @@ sync.onError((error, c) => {
   if (result) return c.json({ error: result.error }, result.status);
   throw error;
 });
+sync.route('/snapshot', snapshotsApi);
 
 sync.post('/push', async (c) => {
   const body = await c.req.json<{ changes?: unknown; protocol?: unknown; generation?: unknown }>().catch(() => null);

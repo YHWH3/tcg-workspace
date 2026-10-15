@@ -30,7 +30,7 @@ export function validateSyncProtocol(state: AccessState, protocol: unknown, gene
 
 /** Bounded space discovery contains IDs only. Names/configurations are fetched
  * only after effective membership has been checked. */
-async function syncContext(db: D1Database, userId: string, state: AccessState): Promise<AccessContext> {
+export async function syncContext(db: D1Database, userId: string, state: AccessState): Promise<AccessContext> {
   const ids = (await db.prepare('SELECT id FROM spaces ORDER BY id LIMIT ?').bind(MAX_ACCESS_SPACES + 1).all<{ id: string }>()).results;
   if (ids.length > MAX_ACCESS_SPACES) throw new RecordAccessError('scope_graph_budget');
   const context = await loadAccessContext(db, userId, ids.map(r => r.id));
@@ -39,7 +39,7 @@ async function syncContext(db: D1Database, userId: string, state: AccessState): 
   return context;
 }
 
-async function fencedRead(db: D1Database, context: AccessContext, statements: D1PreparedStatement[]): Promise<D1Result[]> {
+export async function fencedRead(db: D1Database, context: AccessContext, statements: D1PreparedStatement[]): Promise<D1Result[]> {
   try { return await db.batch([accessFence(db, context), ...statements]); }
   catch (error) {
     // Translate an epoch guard rollback into the protocol's recoverable reset,

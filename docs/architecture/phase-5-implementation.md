@@ -236,6 +236,28 @@ generation, and reconcile drafts/media. A crash leaves either the prior gated
 cache or the complete new cache, not a partially trusted visible snapshot.
 Resume/restart expired snapshots safely. Incremental catchup follows the cutoff.
 
+Migration 0014 stores ephemeral `sync_snapshots` and `sync_snapshot_items`, with
+account/request identity, generation, fixed cutoff, page size, expiry and a
+server-only continuation signing key. `POST /api/sync/snapshot` takes protocol,
+generation, requestId and pageSize (1–500). SQL freezes scoped candidates and
+the cutoff in one transaction; no partially captured session can be returned.
+`GET /api/sync/snapshot/:id?cursor=` authenticates the account, verifies the HMAC
+continuation and rechecks current ancestry/endpoints before publishing frozen
+payloads. Content updates after the cutoff arrive in incremental catchup. Access
+changes invalidate the whole session. Each page fences both permission generation
+and continued existence/expiry of the snapshot, including empty final pages.
+
+Starts recover by the unique account/request key after a lost response;
+different page sizes/generations cannot reuse that request. Replaying a cursor
+returns the same frozen page while its generation remains current. Sessions last
+15 minutes; two active copies per account, at most 20,000 candidate records /
+16 MiB payload per copy and 32 MiB aggregate snapshot payload. These are explicit
+local resource safety bounds, not seat/pricing policy. Exceeding them rolls back
+the complete capture and returns 413/429, never a truncated success. Expired
+ephemeral copies are pruned on snapshot creation; periodic bounded cleanup is
+still to be wired into Phase 5 maintenance. Account-owned cancellation removes
+only the ephemeral copy and its items, never records/history/media.
+
 This generation/snapshot protocol replaces the proposal's record eviction feed:
 a finite feed alone cannot prove eviction completeness after stale cursors,
 moves or deleted eviction history. Regrant necessarily obtains a newer snapshot;
