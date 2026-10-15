@@ -218,38 +218,49 @@ auth.post('/signup', async (c) => {
   const color = USER_COLORS[count % USER_COLORS.length];
   const now = Date.now();
 
-  if (!bootstrap) {
-    const code = (body.inviteCode ?? '').trim().toUpperCase();
-    const redeemed = await db
-      .prepare('UPDATE invites SET used_by = ?, used_at = ? WHERE code = ? AND used_by IS NULL')
-      .bind(id, now, code)
-      .run();
-    if (!redeemed.meta.changes) return c.json({ error: 'Invalid or used invite code' }, 403);
+  const code = (body.inviteCode ?? '').trim().toUpperCase();
+  const token = randomToken(), tokenHash = await sha256Hex(token);
+  // Ownership, capacity, invite redemption and the returned session are one
+  // D1 transaction. In particular the pre-hash count is never authority: two
+  // first-signup requests must not each create a workspace owner.
+  const eligibility = bootstrap ? 'NOT EXISTS(SELECT 1 FROM users)'
+    : 'EXISTS(SELECT 1 FROM invites WHERE code=? AND used_by IS NULL)';
+  const insert = db.prepare(`INSERT INTO users
+    (id,username,name,password_hash,salt,role,workspace_role,color,created_at)
+    SELECT ?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM users) < ? AND ${eligibility}`);
+  const values = [id, username, name, hash, salt, role, bootstrap ? 'owner' : 'member', color, now, MAX_USERS];
+  const statements = [
+    insert.bind(...values, ...(bootstrap ? [] : [code])),
+    db.prepare("SELECT CASE WHEN EXISTS(SELECT 1 FROM users WHERE id=?) THEN 1 ELSE json_extract('{','$') END").bind(id),
+  ];
+  if (bootstrap) {
+    statements.push(
+      db.prepare("INSERT INTO space_members(space_id,user_id,role,access,updated_at) VALUES('space-core',?,'owner','allow',?)").bind(id, now),
+      db.prepare("UPDATE spaces SET created_by=? WHERE id='space-core'").bind(id),
+      db.prepare(`INSERT INTO access_audit(id,actor_id,space_id,action,after_json,generation,created_at)
+        SELECT ?,?,'space-core','bootstrap_owner',?,generation,? FROM access_state WHERE id=1`)
+        .bind(crypto.randomUUID(), id, JSON.stringify({ workspaceRole: 'owner', spaceRole: 'owner' }), now),
+    );
+  } else {
+    statements.push(db.prepare('UPDATE invites SET used_by=?,used_at=? WHERE code=? AND used_by IS NULL').bind(id, now, code));
   }
-
+  statements.push(db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)')
+    .bind(tokenHash, id, now + SESSION_TTL_MS, now));
   try {
-    await db
-      .prepare('INSERT INTO users (id, username, name, password_hash, salt, role, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(id, username, name, hash, salt, role, color, now)
-      .run();
-  } catch (e) {
+    await db.batch(statements);
+  } catch (error) {
+    // Read-only diagnosis after rollback. Never compensate by deleting a user:
+    // another request may already own the invite/capacity we observed earlier.
+    if (await db.prepare('SELECT id FROM users WHERE username=?').bind(username).first()) return c.json({ error: 'Username taken' }, 409);
+    if ((await userCount(db)) >= MAX_USERS) return c.json({ error: 'Workspace is full (7 seats)' }, 403);
+    if (bootstrap && (await userCount(db)) > 0) return c.json({ error: 'Workspace already initialized; use an invite' }, 409);
     if (!bootstrap) {
-      await db.prepare('UPDATE invites SET used_by = NULL, used_at = NULL WHERE used_by = ?').bind(id).run();
+      const available = await db.prepare('SELECT code FROM invites WHERE code=? AND used_by IS NULL').bind(code).first();
+      if (!available) return c.json({ error: 'Invalid or used invite code' }, 403);
     }
-    if (String(e).includes('UNIQUE')) return c.json({ error: 'Username taken' }, 409);
-    throw e;
+    throw error;
   }
 
-  const seats = await userCount(db);
-  if (seats > MAX_USERS) {
-    await db.batch([
-      db.prepare('DELETE FROM users WHERE id = ?').bind(id),
-      db.prepare('UPDATE invites SET used_by = NULL, used_at = NULL WHERE used_by = ?').bind(id),
-    ]);
-    return c.json({ error: 'Workspace is full (7 seats)' }, 403);
-  }
-
-  const token = await createSession(db, id);
   return c.json({ token, user: publicUser({ id, username, name, role, color }) });
 });
 

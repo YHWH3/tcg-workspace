@@ -352,11 +352,63 @@ Executed evidence (local, not completed Phase 5 certification):
 All other referenced JSON/log files above are under
 `.artifacts/phase5-cache-checkpoint/`. Artifacts remain ignored by Git.
 
+## Committed client integration checkpoint — `da80992`
+
+`da80992dfc36b52ce4bcbef46cbb47b00f92fd46` was committed and pushed to draft
+PR #7. Clean source fingerprint:
+`a8e5aa5a31368c141c0c8bc6b3e6e911669be07170d270c73c6517f1b820a34d`.
+
+- `npm run certify:phase4:quick`: **13/13 gates PASS**, exit 0, 849 unit tests,
+  184 Phase 4 actual-D1 tests, 58 harness assertions, 14 migrations,
+  TypeScript/build/lockfile/security/resource/source-integrity gates.
+  `.artifacts/certification/da80992dfc36b52ce4bcbef46cbb47b00f92fd46-2026-10-15T11-12-09-483Z-quick/`.
+- `node scripts/verify-phase5-sync.mjs`: **24/24 PASS**, eight journeys per
+  Chromium/Firefox/WebKit, exit 0, clean committed SHA and fingerprint match.
+  `.artifacts/phase5-sync-da80992/results.json`.
+- Filtered sync workload: 1,000 fixture records, 501 authorized results in 11
+  pages; at most 7 D1 binding calls/page, 1,485 batch rows read/page, zero writes;
+  maximum local page duration 56.48 ms. Batch row metadata excludes the additional
+  indexed space-discovery read; binding counts include it. Local measurements,
+  not production latency/billing evidence.
+
+This is a quick regression checkpoint plus a focused browser gate. It is not
+complete Phase 5 certification, nor a rerun of all legacy MCP/browser gates.
+The additional signup work below is newer source and requires its own checks.
+
+## Fresh signup ownership and atomic admission
+
+**P5-SEC-05:** simultaneous initial signup could create multiple legacy admins,
+without canonical workspace/Core ownership. The old count-before-password-hash
+check did not fence admission. **P5-REL-06:** account creation, invite use and
+session persistence were separate writes; session failure stranded an account,
+and two requests for the last seat could both fail after compensating deletion.
+
+Six actual-D1 tests failed against the unchanged implementation. Signup now uses
+one guarded D1 batch: capacity/invite or empty-workspace predicate, user insert,
+bootstrap Core owner membership/creator/audit, invite redemption and session.
+A failing statement rolls the whole operation back; error diagnosis is read-only.
+Existing response roles remain admin/member for backward compatibility; canonical
+workspace roles are owner/member. Permissions stay off. No migration rewrites
+existing users or sessions.
+
+The same six tests pass; a seventh covers username conflict retaining an unused
+invite. Coverage includes parallel first signup, same invite, last seat, failed
+session insertion, interrupted atomic commit/retry, canonical ownership and
+unchanged activation. Surrounding actual-D1 access/sync/write plus OAuth regression run: **100/100
+PASS**, exit 0 (`signup-surrounding-green.json`). No results are borrowed from
+`da80992` for this source.
+
+Built Worker `scripts/smoke.sh` ran automatically on fresh disposable D1,
+**44/44 PASS**, exit 0;
+`.artifacts/phase5-signup-built/` retains logs, fixture provenance, source
+fingerprint and SQL proof of the new Core owner/audit. No production resources
+were accessed.
+
 ## Required work still outstanding
 
 | Workstream | Remaining implementation and acceptance |
 |---|---|
-| P5-1 foundation | Fresh-signup ownership, remaining protected configuration references, ownership transfer, audited role/space updates, API integration |
+| P5-1 foundation | Remaining protected configuration references, ownership transfer, audited role/space updates, API integration |
 | P5-2 sync/access | Remaining REST/MCP/file/public/background/history enforcement; complete protected field validation; durable move jobs; snapshot maintenance; remaining client role states and wider adversarial/cache coverage; scoped WS/session revocation |
 | P5-3 search | Authoritative dirty/index pipeline, permission-safe ranking/pagination, APIs/MCP, local/online mobile palette, workload/security tests |
 | P5-4 guests/sessions | Bounded invites and seven-seat atomic acceptance; sessions and disabled accounts; space/member management UI; multi-tab/browser integration |
