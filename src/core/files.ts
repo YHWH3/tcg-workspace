@@ -226,19 +226,14 @@ export async function addFile(input: Blob | File, opts: { parentType: ParentType
   return id;
 }
 
-/** Soft-delete the metadata record and best-effort delete the blob everywhere. */
+/** The synced tombstone is the durable server cleanup intent. Local bytes can
+ * be discarded once it is queued; no one-shot network deletion is required. */
 export async function deleteFile(fileId: string): Promise<void> {
   const meta = await db.files.get(fileId);
   await mutate('files', fileId, { deleted: true });
   const ids = [fileId, meta?.thumbId as string | undefined].filter(Boolean) as string[];
+  if (meta?.thumbId) await mutate('files', String(meta.thumbId), { deleted: true });
   await db.blobs.bulkDelete(ids);
-  for (const id of ids) {
-    try {
-      await api(`/api/files/${id}`, { method: 'DELETE' });
-    } catch {
-      /* offline/best-effort */
-    }
-  }
 }
 
 /* ---------- queries ---------- */
@@ -270,6 +265,7 @@ export async function uploadPendingBlobs(): Promise<void> {
   const pending = await db.blobs.where('state').equals('pending').toArray();
   for (const row of pending) {
     try {
+      if ((await db.files.get(row.id))?.deleted) { await db.blobs.delete(row.id); continue; }
       const total = chunkCount(row.blob.size);
       for (let i = row.uploadedChunks; i < total; i++) {
         await putChunk(row.id, i, chunkSlice(row.blob, i));
@@ -278,7 +274,7 @@ export async function uploadPendingBlobs(): Promise<void> {
       await api(`/api/files/${row.id}/complete`, { method: 'POST', body: { mime: row.blob.type, size: row.blob.size, chunks: total } });
       await db.blobs.update(row.id, { state: 'uploaded' });
     } catch (e) {
-      if (e instanceof ApiError && (e.status === 413 || e.status === 507)) {
+      if (e instanceof ApiError && (e.status === 410 || e.status === 413 || e.status === 507)) {
         await db.blobs.update(row.id, { state: 'failed', error: e.message });
         toast(`Upload failed: ${e.message}`, 'error');
         continue; // never jam the queue

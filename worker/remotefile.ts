@@ -1,10 +1,9 @@
 import type { Env } from './auth';
-import { MAX_FILE_SIZE, QUOTA_BYTES } from './files';
+import { MAX_FILE_SIZE, QUOTA_BYTES, fileChunkSlices } from './files';
 import { uuid } from '../shared/order';
 import { kindOf } from '../shared/filekinds';
 import { applyChanges } from './sync';
 
-const CHUNK = 1024 * 1024; // 1 MiB, matching the client upload protocol
 const ALLOWED = /^(image|video|audio)\/|^application\/pdf$/;
 
 export class RemoteFileError extends Error {
@@ -71,7 +70,8 @@ export async function importFileFromUrl(
   if ((await usageBytes(env.DB)) + bytes.length > QUOTA_BYTES) throw new RemoteFileError(507, 'storage quota exceeded');
 
   const fileId = uuid();
-  const chunks = Math.max(1, Math.ceil(bytes.length / CHUNK));
+  const slices = fileChunkSlices(bytes);
+  const chunks = Math.max(1, slices.length);
   const stmts: D1PreparedStatement[] = [
     env.DB.prepare('INSERT INTO files (id, mime, size, chunks, uploaded_by, created_at, complete) VALUES (?, ?, ?, ?, ?, ?, 1)').bind(
       fileId,
@@ -82,11 +82,9 @@ export async function importFileFromUrl(
       Date.now(),
     ),
   ];
-  for (let i = 0; i < chunks; i++) {
-    stmts.push(
-      env.DB.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, ?, ?)').bind(fileId, i, bytes.subarray(i * CHUNK, Math.min((i + 1) * CHUNK, bytes.length))),
-    );
-  }
+  slices.forEach((part, i) => {
+    stmts.push(env.DB.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, ?, ?)').bind(fileId, i, part));
+  });
   for (let i = 0; i < stmts.length; i += 100) await env.DB.batch(stmts.slice(i, i + 100));
 
   const name = opts.name ?? decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() ?? 'file').slice(0, 120);

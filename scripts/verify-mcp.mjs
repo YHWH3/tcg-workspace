@@ -1,24 +1,61 @@
 #!/usr/bin/env node
+import {verifyOAuthSecurity} from './phase4-oauth-security.mjs';
 // Phase C verification: OAuth dance + MCP tools (official SDK) + UI live-poke +
 // field/template UI + screenshots. Run against `wrangler dev --port 8788`
 // (fresh D1 + smoke.sh first) or staging.
 // Usage: node scripts/verify-mcp.mjs [base]   default http://localhost:8788
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+import { assertionManifests } from './certification-manifests.mjs';
+const certification = createCertificationReporter('verify-mcp', assertionManifests['verify-mcp']);
 import { chromium } from 'playwright';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import crypto from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, relative, resolve } from 'node:path';
 
-const BASE = process.argv[2] ?? 'http://localhost:8788';
-const SHOTS = '/tmp/notion-shots/v5';
+const requestedBase = process.argv[2] ?? 'http://localhost:8788';
+const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+let BASE;
+try {
+  const parsedBase = new URL(requestedBase);
+  if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (parsedBase.pathname !== '/' && parsedBase.pathname !== '') || parsedBase.username || parsedBase.password || parsedBase.search || parsedBase.hash) throw new Error('not a loopback HTTP origin');
+  BASE = parsedBase.origin;
+} catch {
+  console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
+  process.exit(2);
+}
+const SHOTS = process.env.CERT_ARTIFACT_DIR ?? '/tmp/notion-shots/v5';
 mkdirSync(SHOTS, { recursive: true });
 const USER = process.env.MCP_USER ?? 'admin';
 const PASS = process.env.MCP_PASS ?? 'password123';
 const TASK_COUNT = Number(process.env.MCP_TASK_COUNT ?? 12); // ~100 on staging for CPU check
+const fixtureConfig = process.env.PHASE4_FIXTURE_CONFIG?.trim() ?? '';
+const fixtureState = process.env.PHASE4_FIXTURE_STATE?.trim() ?? '';
+if (!fixtureConfig || !fixtureState) {
+  console.error('FATAL: PHASE4_FIXTURE_CONFIG and PHASE4_FIXTURE_STATE are required together for the destructive deleted-user check');
+  process.exit(2);
+}
+const configPath = resolve(fixtureConfig);
+const statePath = resolve(fixtureState);
+try {
+  if (!existsSync(configPath) || !statSync(configPath).isFile() || !existsSync(statePath) || !statSync(statePath).isDirectory()) throw new Error('fixture config/state does not exist with the expected types');
+  const configParent = realpathSync(dirname(configPath));
+  const realConfig = realpathSync(configPath);
+  const realState = realpathSync(statePath);
+  const tempRoot = realpathSync(tmpdir());
+  const relativeFixture = relative(tempRoot, configParent);
+  if (basename(realConfig) !== 'wrangler.json' || basename(realState) !== 'state' || dirname(realState) !== configParent || !basename(configParent).startsWith('tcg-phase4-disposable-') || !relativeFixture || relativeFixture.startsWith('..') || resolve(tempRoot, relativeFixture) !== configParent) throw new Error('fixture config/state must be the exact disposable helper layout under the OS temp directory');
+} catch (error) {
+  console.error(`FATAL: refusing fixture config/state targets: ${error?.message ?? error}`);
+  process.exit(2);
+}
 
 let PASS_COUNT = 0,
   FAIL_COUNT = 0;
 const check = (name, cond, extra = '') => {
+  certification.record('none', 'none', name, cond ? 'PASS' : 'FAIL', cond ? null : (extra || 'Assertion evaluated false'));
   if (cond) {
     PASS_COUNT++;
     console.log(`  ✅ ${name}`);
@@ -136,6 +173,8 @@ for (const n of ['search', 'fetch', 'workspace_overview', 'get_page', 'create_pa
 
 const { prompts } = await client.listPrompts();
 check('prompts registered', ['plan_project', 'make_sop', 'capture_notes'].every((p) => prompts.map((x) => x.name).includes(p)));
+const securityPrompt=await client.getPrompt({name:'capture_notes',arguments:{notes:'Non-secret security migration fixture'}});
+check('security: MCP prompt invocation preserves supplied arguments',securityPrompt.messages.some(m=>m.content.type==='text'&&m.content.text.includes('Non-secret security migration fixture')));
 
 const call = async (name, args) => {
   const r = await client.callTool({ name, arguments: args });
@@ -261,7 +300,7 @@ const adminLogin = await api('/api/auth/login', { method: 'POST', body: { userna
 const adminToken = adminLogin.data.token;
 check('app login for UI', !!adminToken);
 
-const browser = await chromium.launch();
+const browser = await certification.trackBrowser(await chromium.launch(), 'chromium');
 const mkPage = async ({ viewport = { width: 1280, height: 800 }, mobile = false } = {}) => {
   const ctx2 = await browser.newContext({ viewport, colorScheme: 'light', ...(mobile ? { isMobile: true, hasTouch: true } : {}) });
   const pg = await ctx2.newPage();
@@ -297,7 +336,7 @@ const appeared = await ui
   .waitForSelector('text=LIVE-POKE TASK', { timeout: 6000 })
   .then(() => true)
   .catch(() => false);
-check(`live poke: new task visible in ~${Date.now() - t0}ms without reload`, appeared);
+check('live poke: new task visible without reload', appeared, `latency=${Date.now() - t0}ms`);
 
 // field chips render on a card
 await ui.locator('[data-task-card]').first().waitFor({ timeout: 8000 });
@@ -376,31 +415,37 @@ await mCtx.close();
 await uiCtx.close();
 await browser.close();
 
+await verifyOAuthSecurity({api,check,BASE,USER,PASS});
+
 /* ================= PART 4: token for deleted user → 401 ================= */
 console.log('\n== deleted user token ==');
 // Snapshot a spare user's row, delete it, expect 401, restore it.
 const secondToken = accessToken; // token is bound to USER; delete USER and restore
-const isLocal = BASE.includes('localhost') || BASE.includes('127.0.0.1');
-if (isLocal) {
-  const { execSync } = await import('node:child_process');
-  const rowJson = execSync(`npx wrangler d1 execute workspace-db --local --json --command "SELECT * FROM users WHERE username='${USER}'"`, { cwd: process.cwd() }).toString();
-  const rows = JSON.parse(rowJson);
-  const row = Array.isArray(rows) ? rows[0]?.results?.[0] : rows.results?.[0];
-  execSync(`npx wrangler d1 execute workspace-db --local --command "DELETE FROM users WHERE username='${USER}'"`, { cwd: process.cwd() });
-  await new Promise((r) => setTimeout(r, 400));
-  const dead = await api('/mcp', { method: 'POST', token: accessToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
-  check('token with deleted user → 401', dead.status === 401, `status=${dead.status}`);
-  if (row) {
-    const cols = Object.keys(row).join(', ');
-    const vals = Object.values(row).map((v) => (v === null ? 'NULL' : `'${String(v).replaceAll("'", "''")}'`)).join(', ');
-    execSync(`npx wrangler d1 execute workspace-db --local --command "INSERT INTO users (${cols}) VALUES (${vals})"`, { cwd: process.cwd() });
-    const back = await api('/api/auth/login', { method: 'POST', body: { username: USER, password: PASS } });
-    check('restored user can log in again', !!back.data.token);
-  }
-} else {
-  console.log('  (skipped — non-local base; deleting prod/staging users is not allowed)');
+const { execFileSync } = await import('node:child_process');
+const d1Args = ['wrangler', 'd1', 'execute', 'workspace-db', '--local', '--config', configPath, '--persist-to', statePath];
+const d1 = (args) => execFileSync('npx', [...d1Args, ...args], { cwd: process.cwd() }).toString();
+const rowJson = d1(['--json', '--command', `SELECT * FROM users WHERE username='${USER}'`]);
+const rows = JSON.parse(rowJson);
+const row = Array.isArray(rows) ? rows[0]?.results?.[0] : rows.results?.[0];
+d1(['--command', `DELETE FROM users WHERE username='${USER}'`]);
+await new Promise((r) => setTimeout(r, 400));
+const dead = await api('/mcp', { method: 'POST', token: accessToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
+check('token with deleted user → 401', dead.status === 401, `status=${dead.status}`);
+if (row) {
+  const cols = Object.keys(row).join(', ');
+  const vals = Object.values(row).map((v) => (v === null ? 'NULL' : `'${String(v).replaceAll("'", "''")}'`)).join(', ');
+  d1(['--command', `INSERT INTO users (${cols}) VALUES (${vals})`]);
+  const back = await api('/api/auth/login', { method: 'POST', body: { username: USER, password: PASS } });
+  check('restored user can log in again', !!back.data.token);
 }
+const sessionProbe=await api('/api/auth/login',{method:'POST',body:{username:USER,password:PASS}});
+const sessionHash=crypto.createHash('sha256').update(sessionProbe.data.token).digest('hex');
+d1(['--command',`UPDATE sessions SET expires_at=0 WHERE token_hash='${sessionHash}'`]);
+check('security: expired workspace session is rejected',(await api('/api/me',{token:sessionProbe.data.token})).status===401);
+const recoveredSession=await api('/api/auth/login',{method:'POST',body:{username:USER,password:PASS}});
+check('security: expired workspace session recovers by login',recoveredSession.status===200&&!!recoveredSession.data.token);
 void secondToken;
 
 console.log(`\n== ${PASS_COUNT} passed, ${FAIL_COUNT} failed ==`);
-process.exit(FAIL_COUNT ? 1 : 0);
+certification.finish();
+process.exit(FAIL_COUNT || process.exitCode ? 1 : 0);

@@ -9,6 +9,7 @@ import { IconButton, Menu, Popover } from '../../core/ui';
 import { cn, cmpOrder, orderBetween } from '../../core/utils';
 import { TaskCard } from './TaskCard';
 import { addColumn, columnIdFor, columnsOf, createTask, deleteColumn, moveColumn, COLUMN_COLORS, recolorColumn, renameColumn, setTaskField, type BoardColumn, type BoardRow, type TaskRow } from './api';
+import { noteGatedMove } from './GateMove';
 
 export function Board({ board, tasks }: { board: BoardRow; tasks: TaskRow[] }) {
   const cols = columnsOf(board);
@@ -55,6 +56,7 @@ export function Board({ board, tasks }: { board: BoardRow; tasks: TaskRow[] }) {
     }
     if (!cols.some((c) => c.id === targetColId)) return;
     const order = orderBetween(before, after);
+    noteGatedMove(board, task.id, targetColId); // P4-D: gated stage → request dialog (server still decides)
     void mutate('tasks', task.id, { status: targetColId, order });
   };
 
@@ -188,6 +190,7 @@ function SortableCard({ task, board, cols, col }: { task: TaskRow; board: BoardR
                               className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
                               onClick={() => {
                                 close();
+                                noteGatedMove(board, task.id, c.id);
                                 void setTaskField(task.id, { status: c.id });
                               }}
                             >

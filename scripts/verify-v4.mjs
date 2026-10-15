@@ -1,16 +1,20 @@
 // Phase B verification: presence+instant sync, moodboards, comments, public links.
 // Run against the BUILT app (wrangler dev :8788) so the DO + SW are live.
 // Usage: node scripts/verify-v4.mjs [base]
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+import { assertionManifests } from './certification-manifests.mjs';
+const certification = createCertificationReporter('verify-v4', assertionManifests['verify-v4']);
 import { chromium } from 'playwright';
 import { mkdir, readFile } from 'node:fs/promises';
 
-const BASE = process.argv[2] ?? 'http://localhost:8788';
-const OUT = '/tmp/notion-shots/v4';
-const FIXTURES = '/tmp/ws-fixtures';
+const BASE = localOrigin(process.argv[2] ?? process.env.CERT_BASE ?? 'http://localhost:8788');
+const OUT = process.env.CERT_ARTIFACT_DIR ?? '/tmp/notion-shots/v4';
+const FIXTURES = process.env.CERT_FILE_FIXTURES ?? '/tmp/ws-fixtures';
 await mkdir(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failures = 0;
 const check = (name, cond) => {
+  certification.record('chromium', 'desktop', name, cond ? 'PASS' : 'FAIL');
   console.log(cond ? `  PASS ${name}` : `  FAIL ${name}`);
   if (!cond) failures++;
 };
@@ -46,7 +50,7 @@ if (!admin.token || !bob.token) {
   process.exit(1);
 }
 
-const browser = await chromium.launch();
+const browser = await certification.trackBrowser(await chromium.launch(), 'chromium');
 const ctxA = await browser.newContext({ viewport: { width: 1440, height: 900 }, hasTouch: true });
 const ctxB = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const pageA = await ctxA.newPage();
@@ -72,9 +76,9 @@ console.log('== presence + instant sync');
 // Fresh page A + B both open
 const pageId = `pv4_${Date.now()}`;
 await push(admin.token, [{ id: pageId, collection: 'pages', patch: { title: 'Presence test', icon: '👀', order: 'z9' } }]);
-await pageA.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'networkidle' });
+await pageA.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'domcontentloaded' });
 await sleep(2500);
-await pageB.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'networkidle' });
+await pageB.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'domcontentloaded' });
 const t0 = Date.now();
 await pageA.waitForSelector('span[title*="is here"]', { timeout: 8000 }).catch(() => {});
 check("B's presence avatar on A's page <8s", (await pageA.locator('span[title*="is here"]').count()) > 0);
@@ -104,12 +108,13 @@ for (let i = 0; i < 20; i++) {
     break;
   }
 }
-check(`B sees A's edit via instant sync (~${Date.now() - t1}ms)`, seen);
+check("B sees A's edit via instant sync", seen);
+console.log(`  instant sync latency ~${Date.now() - t1}ms`);
 check("the 'changed' poke reached B's client", sawChanged && changedBefore !== undefined);
 
 // ---------- 2. moodboard ----------
 console.log('== moodboard');
-await pageA.goto(`${BASE}/moodboards`, { waitUntil: 'networkidle' });
+await pageA.goto(`${BASE}/moodboards`, { waitUntil: 'domcontentloaded' });
 await pageA.getByRole('button', { name: 'New board' }).last().click();
 await pageA.waitForURL(/\/moodboards\//);
 const mbId = pageA.url().split('/moodboards/')[1];
@@ -214,8 +219,8 @@ const z1 = await worldScale();
 check('two-finger pinch zooms', Math.abs(z1 - z0) > 0.05);
 
 // reload → everything persists
-await pageA.reload({ waitUntil: 'networkidle' });
-await sleep(1200);
+await pageA.reload({ waitUntil: 'domcontentloaded' });
+await pageA.locator('[data-mooditem]').first().waitFor({ timeout: 20_000 });
 check('items persist after reload', (await pageA.locator('[data-mooditem]').count()) >= 3);
 
 // extract palette on the image item
@@ -255,7 +260,7 @@ check('created task has coverFileId', !!made);
 
 // ---------- 3. comments ----------
 console.log('== comments');
-await pageA.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'networkidle' });
+await pageA.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'domcontentloaded' });
 await sleep(800);
 // desktop: hover block → comment badge → popover thread
 await pageA.locator('[data-block]').first().hover();
@@ -280,7 +285,7 @@ await mpage.addInitScript(([t, u]) => {
   localStorage.setItem('ws_user', JSON.stringify(u));
   localStorage.setItem('ws_uid', u.id);
 }, [admin.token, admin.user]);
-await mpage.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'networkidle' });
+await mpage.goto(`${BASE}/pages/${pageId}`, { waitUntil: 'domcontentloaded' });
 await sleep(1000);
 await mpage.locator('button[aria-label="Block options"]').first().click();
 await sleep(400);
@@ -315,7 +320,7 @@ await push(admin.token, [
 // create a share through the UI (popover screenshot) — via a page we open
 const shareUiId = `shareui_${Date.now()}`;
 await push(admin.token, [{ id: shareUiId, collection: 'pages', patch: { title: 'Share UI', order: 'zC' } }]);
-await pageA.goto(`${BASE}/pages/${shareUiId}`, { waitUntil: 'networkidle' });
+await pageA.goto(`${BASE}/pages/${shareUiId}`, { waitUntil: 'domcontentloaded' });
 await sleep(800);
 await pageA.locator('button[aria-label="Share"]').click();
 await sleep(500);
@@ -333,7 +338,7 @@ check('share token via API', !!shareToken);
 // fresh unauthenticated context
 const pctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const ppage = await pctx.newPage();
-await ppage.goto(`${BASE}/s/${shareToken}`, { waitUntil: 'networkidle' });
+await ppage.goto(`${BASE}/s/${shareToken}`, { waitUntil: 'domcontentloaded' });
 await sleep(1500);
 check('public page renders heading', (await ppage.locator('text=Public page').count()) > 0);
 check('public page renders image', (await ppage.locator(`img[src*="${imgId}"]`).count()) > 0);
@@ -345,7 +350,7 @@ check('public noindex set', (await ppage.locator('meta[name="robots"][content="n
 await ppage.screenshot({ path: `${OUT}/public-page-desktop.png` });
 // sub-page navigation
 await ppage.locator(`a[href="/s/${shareToken}/${sub}"]`).click().catch(async () => {
-  await ppage.goto(`${BASE}/s/${shareToken}/${sub}`, { waitUntil: 'networkidle' });
+  await ppage.goto(`${BASE}/s/${shareToken}/${sub}`, { waitUntil: 'domcontentloaded' });
 });
 await sleep(800);
 check('public sub-page renders', (await ppage.locator('text=child content').count()) > 0);
@@ -353,7 +358,7 @@ check('public sub-page renders', (await ppage.locator('text=child content').coun
 // mobile public render
 const mpctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 const mpp = await mpctx.newPage();
-await mpp.goto(`${BASE}/s/${shareToken}`, { waitUntil: 'networkidle' });
+await mpp.goto(`${BASE}/s/${shareToken}`, { waitUntil: 'domcontentloaded' });
 await sleep(1200);
 check('public page renders on mobile', (await mpp.locator('text=Public page').count()) > 0);
 await mpp.screenshot({ path: `${OUT}/public-page-mobile.png` });
@@ -364,23 +369,26 @@ check('non-descendant page denied publicly', (await api(`/api/public/${shareToke
 
 // revoke → inactive message
 await api(`/api/shares/${root}`, { method: 'DELETE', token: admin.token });
-await ppage.reload({ waitUntil: 'networkidle' });
-await sleep(1600);
+await ppage.reload({ waitUntil: 'domcontentloaded' });
+// Assert the requested server-confirmed inactive surface, not an unrelated
+// global network-idle condition (PWA/background requests may remain active).
+await ppage.getByText('no longer active',{exact:false}).first().waitFor({timeout:15000});
 check('revoked link shows inactive message', (await ppage.locator('text=no longer active').count()) > 0);
 await ppage.screenshot({ path: `${OUT}/public-inactive.png` });
 
 // ---------- 5. fixed board header screenshots ----------
 console.log('== screenshots');
-await pageA.goto(`${BASE}/boards/board-default`, { waitUntil: 'networkidle' });
+await pageA.goto(`${BASE}/boards/board-default`, { waitUntil: 'domcontentloaded' });
 await sleep(1000);
 await pageA.screenshot({ path: `${OUT}/board-header-desktop.png` });
-await mpage.goto(`${BASE}/boards/board-default`, { waitUntil: 'networkidle' });
+await mpage.goto(`${BASE}/boards/board-default`, { waitUntil: 'domcontentloaded' });
 await sleep(1000);
 await mpage.screenshot({ path: `${OUT}/board-header-mobile.png` });
-await mpage.goto(`${BASE}/moodboards/${mbId}`, { waitUntil: 'networkidle' });
+await mpage.goto(`${BASE}/moodboards/${mbId}`, { waitUntil: 'domcontentloaded' });
 await sleep(1200);
 await mpage.screenshot({ path: `${OUT}/moodboard-mobile.png` });
 
 await browser.close();
 console.log(failures === 0 ? 'ALL PASS' : `${failures} FAILURES`);
-process.exit(failures ? 1 : 0);
+certification.finish();
+process.exit(failures || process.exitCode ? 1 : 0);

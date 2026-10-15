@@ -9,11 +9,21 @@ import { publicApi } from './public';
 import { oauthGrants, registerAuthorize } from './oauth';
 import { changesApi } from './changesets';
 import { mcpApiHandler } from './mcp';
+import { notificationsApi } from './notifications';
+import { approvalsApi } from './approvals';
+import { formsApi, publicFormsApi } from './forms';
+import { automationsApi } from './automations';
+import { runScheduled } from './reminders';
+import {withD1Budget,D1BudgetExhausted} from './d1budget';
 import type { Env, AuthUser } from './auth';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
+// API state must not survive account switches or public-form disable/re-enable
+// through HTTP caches. The service worker separately excludes these routes.
+app.use('/api/*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
 
 app.onError((err, c) => {
+  if(err instanceof D1BudgetExhausted)return c.json({error:'processing_budget',retryable:true},503);
   console.error(JSON.stringify({ message: err.message, stack: err.stack }));
   return c.json({ error: 'internal error' }, 500);
 });
@@ -53,6 +63,11 @@ app.route('/api/shares', shares);
 app.route('/api/public', publicApi);
 app.route('/api/oauth', oauthGrants);
 app.route('/api/changes', changesApi);
+app.route('/api/notifications', notificationsApi);
+app.route('/api/approvals', approvalsApi);
+app.route('/api/forms', formsApi);
+app.route('/api/automations', automationsApi);
+app.route('/api/public/forms', publicFormsApi);
 app.route('/api', admin);
 
 app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));
@@ -68,6 +83,7 @@ registerAuthorize(app);
  */
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    env=withD1Budget(env);
     // The protected-resource URL must equal this request's origin or token
     // audience validation fails — derive it per request (no var needed).
     const base = new URL(request.url).origin;
@@ -82,6 +98,15 @@ export default {
       resourceMetadata: { resource: `${base}/mcp`, resource_name: 'Workspace' },
       allowPrivateUseRedirectUris: true,
     }).fetch(request, env, ctx);
+  },
+
+  /**
+   * Phase 4 cron (every 15 min): reminders, date-offset automation triggers,
+   * and the durable event-outbox sweep. Local testing:
+   * `wrangler dev --test-scheduled` then POST /cdn-cgi/handler/scheduled.
+   */
+  scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): void {
+    ctx.waitUntil(runScheduled(withD1Budget(env), event.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;
 

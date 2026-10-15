@@ -200,7 +200,13 @@ export async function deleteColumn(board: BoardRow, colId: string, moveTo?: stri
 }
 
 export async function deleteBoard(board: BoardRow): Promise<void> {
-  // Move any tasks to the default board's first column so nothing is orphaned.
+  // Generic databases are archived as a unit: identities, relations, views,
+  // subrecords, body blocks and attachments retain their original database.
+  if (board.kind === 'records') {
+    await mutate('boards', board.id, { archived: true });
+    return;
+  }
+  // Task boards retain the original move-to-default disposition.
   if (board.id !== DEFAULT_BOARD_ID) {
     const def = (await db.boards.get(DEFAULT_BOARD_ID)) as BoardRow | undefined;
     const status = firstColumnId(def);

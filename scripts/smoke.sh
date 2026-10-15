@@ -3,6 +3,9 @@
 # Usage: ./scripts/smoke.sh [base_url]   (default http://localhost:5173)
 set -u
 BASE="${1:-http://localhost:5173}"
+node --input-type=module -e 'import {localOrigin} from "./scripts/certification/core.mjs";localOrigin(process.argv[1]);' "$BASE" || exit 2
+SMOKE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/tcg-smoke.XXXXXX") || exit 2
+trap 'rm -rf "$SMOKE_TMP"' EXIT
 PASS=0; FAIL=0
 
 req() { # method path [token] [json]
@@ -10,7 +13,7 @@ req() { # method path [token] [json]
   local args=(-s -X "$method" -H "Content-Type: application/json")
   [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
   [ -n "$body" ] && args+=(-d "$body")
-  curl "${args[@]}" "$BASE$path"
+  curl --connect-timeout 5 --max-time 30 "${args[@]}" "$BASE$path"
 }
 jget() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)" 2>/dev/null; }
 
@@ -105,24 +108,24 @@ check "concurrent disjoint-field pushes (20 races)" "$CONC_OK" "20"
 
 # 13. file storage: chunked upload, byte-identical download, limits
 FID="smokefile_$$"
-head -c 2621440 /dev/urandom > /tmp/smoke_file.bin   # 2.5 MiB → 3 chunks
-SHA_IN=$(shasum -a 256 /tmp/smoke_file.bin | awk '{print $1}')
+head -c 2621440 /dev/urandom > ${SMOKE_TMP}/smoke_file.bin   # 2.5 MiB → 3 chunks
+SHA_IN=$(shasum -a 256 ${SMOKE_TMP}/smoke_file.bin | awk '{print $1}')
 
-code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+code() { curl --connect-timeout 5 --max-time 30 -s -o /dev/null -w '%{http_code}' "$@"; }
 
 # unauthenticated chunk upload → 401
 check "unauth chunk PUT 401" "$(code -X PUT --data-binary 'x' "$BASE/api/files/$FID/chunks/0")" "401"
 
 # incomplete file → GET 404
-split -b 1048576 /tmp/smoke_file.bin /tmp/smoke_chunk_
-C=$(code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_chunk_aa "$BASE/api/files/$FID/chunks/0")
+split -b 1048576 ${SMOKE_TMP}/smoke_file.bin ${SMOKE_TMP}/smoke_chunk_
+C=$(code -X PUT -H "Authorization: Bearer $TA" --data-binary @${SMOKE_TMP}/smoke_chunk_aa "$BASE/api/files/$FID/chunks/0")
 check "chunk 0 PUT ok" "$C" "200"
 check "incomplete file GET 404" "$(code -H "Authorization: Bearer $TA" "$BASE/api/files/$FID")" "404"
 
 # remaining chunks, idempotent re-PUT of chunk 0
-code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_chunk_aa "$BASE/api/files/$FID/chunks/0" >/dev/null
-code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_chunk_ab "$BASE/api/files/$FID/chunks/1" >/dev/null
-code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_chunk_ac "$BASE/api/files/$FID/chunks/2" >/dev/null
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @${SMOKE_TMP}/smoke_chunk_aa "$BASE/api/files/$FID/chunks/0" >/dev/null
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @${SMOKE_TMP}/smoke_chunk_ab "$BASE/api/files/$FID/chunks/1" >/dev/null
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @${SMOKE_TMP}/smoke_chunk_ac "$BASE/api/files/$FID/chunks/2" >/dev/null
 
 R=$(req POST "/api/files/$FID/complete" "$TA" '{"mime":"application/octet-stream","size":2621440,"chunks":3}')
 check "complete ok" "$(echo "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ok"))')" "True"
@@ -130,10 +133,10 @@ check "complete ok" "$(echo "$R" | python3 -c 'import json,sys; print(json.load(
 R=$(req POST "/api/files/$FID/complete" "$TA" '{"mime":"application/octet-stream","size":2621440,"chunks":3}')
 check "complete idempotent" "$(echo "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ok"))')" "True"
 
-curl -s -H "Authorization: Bearer $TA" -o /tmp/smoke_file.out "$BASE/api/files/$FID"
-SHA_OUT=$(shasum -a 256 /tmp/smoke_file.out | awk '{print $1}')
+curl --connect-timeout 5 --max-time 30 -s -H "Authorization: Bearer $TA" -o ${SMOKE_TMP}/smoke_file.out "$BASE/api/files/$FID"
+SHA_OUT=$(shasum -a 256 ${SMOKE_TMP}/smoke_file.out | awk '{print $1}')
 check "GET byte-identical (sha256)" "$SHA_OUT" "$SHA_IN"
-check "GET cache header" "$(curl -s -D - -o /dev/null -H "Authorization: Bearer $TA" "$BASE/api/files/$FID" | grep -i 'cache-control' | tr -d '\r' | tr '[:upper:]' '[:lower:]')" "cache-control: private, max-age=31536000, immutable"
+check "GET cache header" "$(curl --connect-timeout 5 --max-time 30 -s -D - -o /dev/null -H "Authorization: Bearer $TA" "$BASE/api/files/$FID" | grep -i 'cache-control' | tr -d '\r' | tr '[:upper:]' '[:lower:]')" "cache-control: private, max-age=31536000, immutable"
 
 # usage endpoint reflects the upload
 USED=$(req GET /api/files/usage "$TA" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["used"] >= 2621440, d["limit"])')
@@ -145,24 +148,24 @@ code -X PUT -H "Authorization: Bearer $TA" --data-binary 'x' "$BASE/api/files/$F
 check "oversized file complete 413" "$(code -X POST -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"mime":"x","size":21943040,"chunks":1}' "$BASE/api/files/$FID2/complete")" "413"
 
 # oversize chunk rejected
-head -c 3145729 /dev/urandom > /tmp/smoke_big.bin   # > 2 MiB chunk cap
-check "oversize chunk PUT 413" "$(code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_big.bin "$BASE/api/files/bigchunk_$$/chunks/0")" "413"
+head -c 3145729 /dev/urandom > ${SMOKE_TMP}/smoke_big.bin   # > 2 MiB chunk cap
+check "oversize chunk PUT 413" "$(code -X PUT -H "Authorization: Bearer $TA" --data-binary @${SMOKE_TMP}/smoke_big.bin "$BASE/api/files/bigchunk_$$/chunks/0")" "413"
 
 # delete removes the file
 check "DELETE ok" "$(code -X DELETE -H "Authorization: Bearer $TA" "$BASE/api/files/$FID")" "200"
 check "deleted file GET 404" "$(code -H "Authorization: Bearer $TA" "$BASE/api/files/$FID")" "404"
 
-rm -f /tmp/smoke_file.bin /tmp/smoke_file.out /tmp/smoke_big.bin /tmp/smoke_chunk_*
+rm -f ${SMOKE_TMP}/smoke_file.bin ${SMOKE_TMP}/smoke_file.out ${SMOKE_TMP}/smoke_big.bin ${SMOKE_TMP}/smoke_chunk_*
 
 # 15. public share links + live socket auth
 PID="share_root_$$"; CID="share_child_$$"; OID="share_other_$$"
 NOW=$(python3 -c 'import time; print(int(time.time()*1000))')
 # a referenced file + an unreferenced one
 PUBFID="pubfile_$$"; UNREFFID="unref_$$"
-echo -n 'public-bytes' > /tmp/smoke_pub.bin
-code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_pub.bin "$BASE/api/files/$PUBFID/chunks/0" >/dev/null
+echo -n 'public-bytes' > ${SMOKE_TMP}/smoke_pub.bin
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @${SMOKE_TMP}/smoke_pub.bin "$BASE/api/files/$PUBFID/chunks/0" >/dev/null
 code -X POST -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"mime":"text/plain","size":12,"chunks":1}' "$BASE/api/files/$PUBFID/complete" >/dev/null
-code -X PUT -H "Authorization: Bearer $TA" --data-binary @/tmp/smoke_pub.bin "$BASE/api/files/$UNREFFID/chunks/0" >/dev/null
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @${SMOKE_TMP}/smoke_pub.bin "$BASE/api/files/$UNREFFID/chunks/0" >/dev/null
 code -X POST -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"mime":"text/plain","size":12,"chunks":1}' "$BASE/api/files/$UNREFFID/complete" >/dev/null
 # pages + a block referencing PUBFID inside the child
 req POST /api/sync/push "$TA" "{\"changes\":[{\"id\":\"$PID\",\"collection\":\"pages\",\"patch\":{\"title\":\"Shared\",\"order\":\"aY\"},\"ts\":$NOW},{\"id\":\"$CID\",\"collection\":\"pages\",\"patch\":{\"title\":\"Child\",\"parentId\":\"$PID\",\"order\":\"aZ\"},\"ts\":$NOW},{\"id\":\"$OID\",\"collection\":\"pages\",\"patch\":{\"title\":\"Other\",\"order\":\"b0\"},\"ts\":$NOW},{\"id\":\"pb1_$$\",\"collection\":\"blocks\",\"patch\":{\"pageId\":\"$CID\",\"type\":\"image\",\"fileId\":\"$PUBFID\",\"order\":\"c0\",\"text\":\"\"},\"ts\":$NOW}]}" >/dev/null
@@ -174,29 +177,29 @@ R=$(req POST /api/shares "$TA" "{\"pageId\":\"$PID\"}")
 check "share create idempotent" "$(echo "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')" "$TOKEN"
 check "share listed" "$(req GET /api/shares "$TA" | python3 -c "import json,sys; print(any(s['page_id']=='$PID' for s in json.load(sys.stdin)))")" "True"
 
-R=$(curl -s "$BASE/api/public/$TOKEN")
+R=$(curl --connect-timeout 5 --max-time 30 -s "$BASE/api/public/$TOKEN")
 check "public tree has child page" "$(echo "$R" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(n['id']=='$CID' for n in d['tree']), d['page']['title'])")" "True Shared"
 check "public child page ok" "$(code "$BASE/api/public/$TOKEN/pages/$CID")" "200"
-R=$(curl -s "$BASE/api/public/$TOKEN/pages/$CID")
+R=$(curl --connect-timeout 5 --max-time 30 -s "$BASE/api/public/$TOKEN/pages/$CID")
 check "public page block has file" "$(echo "$R" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['blocks'][0]['fileId']=='$PUBFID')")" "True"
 check "non-descendant page denied" "$(code "$BASE/api/public/$TOKEN/pages/$OID")" "404"
-curl -s -o /tmp/smoke_pubdl.out "$BASE/api/public/$TOKEN/files/$PUBFID"
-check "public file allowed when referenced" "$(shasum -a 256 /tmp/smoke_pubdl.out | awk '{print $1}')" "$(shasum -a 256 /tmp/smoke_pub.bin | awk '{print $1}')"
+curl --connect-timeout 5 --max-time 30 -s -o ${SMOKE_TMP}/smoke_pubdl.out "$BASE/api/public/$TOKEN/files/$PUBFID"
+check "public file allowed when referenced" "$(shasum -a 256 ${SMOKE_TMP}/smoke_pubdl.out | awk '{print $1}')" "$(shasum -a 256 ${SMOKE_TMP}/smoke_pub.bin | awk '{print $1}')"
 check "public file denied when unreferenced" "$(code "$BASE/api/public/$TOKEN/files/$UNREFFID")" "404"
 
 check "shares require auth" "$(code -X POST -H 'Content-Type: application/json' -d '{"pageId":"x"}' "$BASE/api/shares")" "401"
 
 # live socket: upgrade without/with-bad subprotocol token must be rejected
 # --http1.1: h2 strips hop-by-hop Upgrade headers, so the worker would see a plain GET.
-WSCODE=$(curl -s --http1.1 -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "$BASE/api/live")
+WSCODE=$(curl --connect-timeout 5 --max-time 30 -s --http1.1 -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "$BASE/api/live")
 check "live upgrade without subprotocol rejected" "$([ "$WSCODE" = "401" ] || [ "$WSCODE" = "400" ] || [ "$WSCODE" = "426" ] && echo rejected)" "rejected"
-WSCODE=$(curl -s --http1.1 -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Protocol: ws-auth, deadbeef' "$BASE/api/live")
+WSCODE=$(curl --connect-timeout 5 --max-time 30 -s --http1.1 -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Protocol: ws-auth, deadbeef' "$BASE/api/live")
 check "live upgrade with bad token rejected" "$WSCODE" "401"
 
 # revoke → public routes go dark
 code -X DELETE -H "Authorization: Bearer $TA" "$BASE/api/shares/$PID" >/dev/null
 check "public 404 after revoke" "$(code "$BASE/api/public/$TOKEN")" "404"
-rm -f /tmp/smoke_pub.bin /tmp/smoke_pubdl.out
+rm -f ${SMOKE_TMP}/smoke_pub.bin ${SMOKE_TMP}/smoke_pubdl.out
 
 # 16. login works
 R=$(req POST /api/auth/login '' '{"username":"admin","password":"password123"}')

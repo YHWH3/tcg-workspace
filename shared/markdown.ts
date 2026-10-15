@@ -135,7 +135,7 @@ export function markdownToBlocks(markdown: string, resolvers: MentionResolvers =
 export function renderMentionText(text: string, r: MentionResolvers): string {
   return text.replace(TOKEN_RE, (_m, kind: string, id: string) => {
     if (kind === 'user') return `@${r.userName?.(id) ?? 'user'}`;
-    if (kind === 'rec') return `[[${r.recordTitle?.(id) ?? 'record'}]]`;
+    if (kind === 'rec') { const title=r.recordTitle?.(id); return title ? `[[${title}]]` : _m; }
     return `[[${r.pageTitle?.(id) ?? 'page'}]]`;
   });
 }
@@ -193,4 +193,23 @@ export function blocksToMarkdown(blocks: { type?: string; text?: string; checked
     lines.push('');
   }
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** The only Markdown descriptor → persisted block mapper. Structural owner,
+ * identity and ordering come from the caller, never from parsed attributes. */
+export function markdownBlockPatch(block: MdBlock & {fileId?:string;width?:number;height?:number;duration?:number;mime?:string}): Record<string,unknown> {
+  const allowed=new Set(['p','h1','h2','h3','bullet','numbered','todo','quote','code','divider','image','video','audio','file','embed']);
+  if(!allowed.has(block.type)) throw new Error('unsupported Markdown block type');
+  const patch:Record<string,unknown>={type:block.type,text:typeof block.text==='string'?block.text:''};
+  if(block.type==='todo') patch.checked=block.checked===true;
+  for(const key of ['caption','fileId','mime'] as const) if(typeof block[key]==='string') patch[key]=block[key];
+  for(const key of ['width','height','duration'] as const) if(typeof block[key]==='number'&&Number.isFinite(block[key])&&block[key]!>=0)patch[key]=block[key];
+  if(block.src?.startsWith('file:')) patch.fileId=block.src.slice(5);
+  else if(block.src) patch.src=block.src;
+  if(block.type==='embed') {
+    const ref=typeof block.url==='string'?parseLinkUrl(block.url):null;
+    if(!ref) throw new Error('embed requires a valid HTTP(S) URL');
+    patch.url=ref.url;patch.provider=ref.provider;
+  }
+  return patch;
 }

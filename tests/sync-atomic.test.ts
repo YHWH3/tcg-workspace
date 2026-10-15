@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { applyChanges } from '../worker/sync';
 import type { Env } from '../worker/auth';
 import type { Mutation } from '../shared/types';
+import { parseGate } from '../shared/approvals';
 
 /* Minimal in-memory D1 covering exactly the statements applyChanges uses.
- * batch() is atomic (snapshot/rollback) like real D1; `interleave(i)` runs
- * inside the batch — index 0 models a write that landed between the
+ * batch() simulates rollback for focused control-flow tests; real SQLite
+ * semantics are covered separately by phase4-events-d1.test.ts.
+ * `interleave(null)` models a write that landed between the
  * expectedRev precheck and the atomic write batch starting (the only
  * externally reachable race window). */
 interface Row {
@@ -21,7 +23,9 @@ interface Row {
 class FakeD1 {
   rows = new Map<string, Row>();
   maxSeq = 0;
-  interleave: ((index: number, db: FakeD1) => void) | null = null;
+  interleave: ((statement: { sql: string; binds: unknown[] } | null, db: FakeD1) => void) | null = null;
+  statements = new WeakMap<D1PreparedStatement, { sql: string; binds: unknown[] }>();
+  batchWrites: string[][] = [];
   /** SQL the test saw execute (debugging aid). */
   seen: string[] = [];
 
@@ -42,6 +46,18 @@ class FakeD1 {
       }
       return { rows: [{ 'CASE WHEN': 1 } as unknown as Row], changes: 0 };
     }
+    if (/SELECT CASE WHEN NOT EXISTS/.test(sql) && /approvalGate/.test(sql)) {
+      const next = JSON.parse(String(binds[0]));
+      const previous = JSON.parse(String(binds[3]));
+      const board = this.rows.get(next.boardId ?? 'board-default');
+      const gate = board?.collection === 'boards' ? parseGate(JSON.parse(board.data)) : null;
+      if (gate && next.status === gate.stageId && (next.status !== previous.status || next.boardId !== previous.boardId || gate.approverField)) {
+        // This fixture has no approvals. A matching gate must fail, never
+        // be treated as a harmless SELECT merely to satisfy the parser.
+        throw new Error('malformed JSON');
+      }
+      return { rows: [], changes: 0 };
+    }
     if (/WHERE id IN/.test(sql)) {
       const rows = binds.map((id) => this.rows.get(String(id))).filter((r): r is Row => !!r);
       return { rows, changes: 0 };
@@ -53,11 +69,11 @@ class FakeD1 {
         if (row.seq !== baseSeq) return { changes: 0 }; // CAS miss
         this.maxSeq += 1;
         this.rows.set(id, { ...row, data, field_ts: fieldTs, seq: this.maxSeq, updated_by: userId, updated_at: now });
-        return { changes: 1 };
+        return { rows: [this.rows.get(id)!], changes: 1 };
       }
       this.maxSeq += 1;
       this.rows.set(id, { id, collection, data, field_ts: fieldTs, seq: this.maxSeq, updated_by: userId, updated_at: now });
-      return { changes: 1 };
+      return { rows: [this.rows.get(id)!], changes: 1 };
     }
     throw new Error(`FakeD1 unhandled SQL: ${sql.slice(0, 80)}`);
   }
@@ -65,9 +81,11 @@ class FakeD1 {
   prepare(sql: string): D1PreparedStatement {
     const self = this;
     let binds: unknown[] = [];
+    const metadata = { sql, binds };
     const stmt = {
       bind: (...b: unknown[]) => {
         binds = b;
+        metadata.binds = b;
         return stmt;
       },
       run: async () => {
@@ -83,19 +101,22 @@ class FakeD1 {
         return (r.rows ?? [null])[0] ?? null;
       },
     };
-    return stmt as unknown as D1PreparedStatement;
+    const prepared = stmt as unknown as D1PreparedStatement;
+    this.statements.set(prepared, metadata);
+    return prepared;
   }
 
   async batch(stmts: D1PreparedStatement[]): Promise<D1Result<unknown>[]> {
-    // Interleave index 0 runs before the snapshot → the raced write is part
+    this.batchWrites.push(stmts.map(s => this.statements.get(s)!).filter(s => /INSERT INTO records/.test(s.sql)).map(s => String(s.binds[0])));
+    // The null callback runs before the snapshot → the raced write is part
     // of the state the transaction sees (it landed before the batch began).
-    this.interleave?.(0, this);
+    this.interleave?.(null, this);
     const snapshot = new Map([...this.rows].map(([k, v]) => [k, { ...v }]));
     const maxSeq = this.maxSeq;
     const out: D1Result<unknown>[] = [];
     try {
       for (let i = 0; i < stmts.length; i++) {
-        if (i > 0) this.interleave?.(i, this);
+        this.interleave?.(this.statements.get(stmts[i])!, this);
         out.push((await stmts[i].run()) as D1Result<unknown>);
       }
     } catch (e) {
@@ -111,7 +132,7 @@ const envOf = (db: FakeD1) => ({ DB: db }) as unknown as Env;
 const chg = (id: string, patch: Record<string, unknown>): Mutation => ({ id, collection: 'tasks', patch, ts: Date.now() });
 
 describe('applyChanges atomic expectedRev gate (review B2)', () => {
-  it('writes expected + non-expected ops together when every expectation holds', async () => {
+  it('writes the expected atomic group then non-expected ops when every expectation holds', async () => {
     const db = new FakeD1();
     db.put('A', 1, { title: 'A0' });
     db.put('B', 2, { title: 'B0' });
@@ -127,6 +148,19 @@ describe('applyChanges atomic expectedRev gate (review B2)', () => {
     expect(JSON.parse(db.rows.get('B')!.data).title).toBe('B1');
     expect(db.rows.has('C')).toBe(true);
     expect(db.rows.has('D')).toBe(true);
+    expect(db.batchWrites).toEqual([['A', 'B'], ['C', 'D']]);
+  });
+
+  it('explicit atomic:true keeps expected and free rows in one transaction', async () => {
+    const db = new FakeD1();
+    db.put('A', 1, { title: 'A0' });
+    db.put('B', 2, { title: 'B0' });
+    const res = await applyChanges(envOf(db), 'u1', [chg('A', { title: 'A1' }), chg('B', { title: 'B1' }), chg('C', { title: 'new' })], {
+      expect: new Map([['A', 1], ['B', 2]]), atomic: true,
+    });
+    expect(res.applied.map(item => item.id)).toEqual(['A', 'B', 'C']);
+    expect(db.batchWrites).toEqual([['A', 'B', 'C']]);
+    expect(res.conflicts).toBeUndefined();
   });
 
   it('aborts the ENTIRE call — including non-expected ops — when an expectation raced before the batch', async () => {
@@ -135,8 +169,8 @@ describe('applyChanges atomic expectedRev gate (review B2)', () => {
     db.put('B', 2, { title: 'B0' });
     // Between the expectedRev precheck and the write batch, another writer
     // bumps A's seq. Only the in-batch guard can catch this.
-    db.interleave = (i) => {
-      if (i === 0) {
+    db.interleave = (statement) => {
+      if (statement === null) {
         const r = db.rows.get('A')!;
         db.maxSeq += 1;
         db.rows.set('A', { ...r, data: '{"title":"raced"}', seq: db.maxSeq });
@@ -165,8 +199,8 @@ describe('applyChanges atomic expectedRev gate (review B2)', () => {
     db.put('B', 2, { title: 'B0' });
     // Anomaly: a write lands mid-batch (impossible inside a real D1 batch
     // transaction, but the code must not silently mis-report if it happens).
-    db.interleave = (i) => {
-      if (i === 2) {
+    db.interleave = (statement) => {
+      if (statement && /INSERT INTO records/.test(statement.sql) && statement.binds[0] === 'B') {
         const r = db.rows.get('B')!;
         db.maxSeq += 1;
         db.rows.set('B', { ...r, data: '{"title":"raced"}', seq: db.maxSeq });

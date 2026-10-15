@@ -6,13 +6,14 @@ import type { Env } from './auth';
 import { randomToken } from './password';
 import { applyChanges, pokeLive, MAX_EXPECTED, type ConflictInfo } from './sync';
 import { getRec, getRecs, listBy, listCollection, listDefaultBoardTasks, casUpdate, type RecRow } from './records';
+import { argsHash } from '../shared/stablejson';
 import { withIdempotency } from './idempotency';
 import { beginChangeset, commitChangeset, undoChangeset, type ChangesetCtx } from './changesets';
 import { planDeleteImpact, type ImpactRow } from '../shared/impact';
 import type { AuthUser } from './auth';
 import { importFileFromUrl, RemoteFileError } from './remotefile';
 import { cmpOrder, orderBetween, uuid } from '../shared/order';
-import { blocksToMarkdown, markdownToBlocks, renderMentionText, resolveMentionText } from '../shared/markdown';
+import { blocksToMarkdown, markdownToBlocks, renderMentionText, resolveMentionText, markdownBlockPatch } from '../shared/markdown';
 import { planTemplateInstantiation, type RecSnapshot } from '../shared/templates';
 import { coerceFieldValue, fieldsOf, formatFieldValue, isSelectType, optionByName, propKey, type FieldDef } from '../shared/fields';
 import { normalizeItem, cardRef, connectorLinkPlan, DEFAULT_ITEM_SIZE, itemBounds, type MoodItem, type ItemRef } from '../shared/mooditems';
@@ -26,6 +27,7 @@ import { archivePatch, isArchived } from '../shared/archive';
 import { findReusableBoards, planInstallPreview } from '../shared/bundled';
 import { BUNDLED, BUNDLED_AUTHORS, bundledTemplate } from './bundledTemplates';
 import { COLUMN_COLORS } from '../src/modules/boards/model';
+import { registerApprovalTools } from './mcpApprovals'; // P4-D
 import type { Collection } from '../shared/collections';
 
 const MAX_WRITE_RECORDS = 500;
@@ -78,19 +80,55 @@ class WriteConflict extends Error {
  * change set (activity rows excluded), and fail loudly on expectedRev
  * mismatches. `expect` caps at one atomic batch of expected ids.
  */
-async function write(c: Ctx, ops: WriteOp[], opts: { expect?: Map<string, number> } = {}): Promise<void> {
+export async function write(c: Ctx, ops: WriteOp[], opts: { expect?: Map<string, number> } = {}): Promise<void> {
   if (opts.expect && opts.expect.size > MAX_EXPECTED) throw new Error(`at most ${MAX_EXPECTED} expected ids per call`);
-  for (let i = 0; i < ops.length; i += MAX_WRITE_RECORDS) {
-    const chunk = ops.slice(i, i + MAX_WRITE_RECORDS);
-    const r = await applyChanges(
-      c.env,
-      c.userId,
-      chunk.map((o) => ({ id: o.id, collection: o.collection, patch: o.patch, ts: 0 })),
-      { serverTs: true, expect: opts.expect },
-    );
-    if (r.conflicts?.length) throw new WriteConflict(r.conflicts);
-    if (r.conflict) throw new Error('write conflict, retry');
-    c.cs?.items.push(...r.applied.filter((a) => a.collection !== 'activity'));
+  let job: {id:string;plan:string;expectations:string}|null=null;
+  let lease:string|null=null;
+  // Large edits use a persisted plan: random IDs of split/append blocks must
+  // survive a retry. Creation tools retain the documented 500-write ceiling.
+  if(ops.length>MAX_WRITE_RECORDS && ((opts.expect?.size??0)>0 || ['edit_page','edit_record_body','update_mood_items','layout_moodboard'].includes(c.cs?.tool??''))) {
+    if(!c.cs?.requestId) throw new Error('multi-chunk edits require requestId for durable retry');
+    if(!['edit_page','edit_record_body','update_mood_items','layout_moodboard','delete_item','restore_item'].includes(c.cs.tool)) throw new Error('at most 500 writes for this tool; split the operation');
+    job=await c.env.DB.prepare('SELECT id,plan,expectations FROM mcp_write_jobs WHERE user_id=? AND request_id=? AND tool=?').bind(c.userId,c.cs.requestId,c.cs.tool).first();
+    if(!job) {
+      // Preflight every guarded revision before any chunk, including guards
+      // in a later chunk. Per-chunk CAS still checks races at commit time.
+      const current=await getRecs(c.env,[...(opts.expect?.keys()??[])]);
+      const conflicts=[...(opts.expect??[])].filter(([id,rev])=>current.get(id)?.rev!==rev).map(([id,rev])=>({id,collection:current.get(id)?.collection??'blocks',expectedRev:rev,currentRev:current.get(id)?.rev??null,current:current.get(id)?.data??null,updatedBy:current.get(id)?.updatedBy??null,updatedAt:current.get(id)?.updatedAt??null}));
+      if(conflicts.length) throw new WriteConflict(conflicts);
+      await c.env.DB.prepare('INSERT OR IGNORE INTO mcp_write_jobs(id,user_id,request_id,tool,plan,expectations,args_hash) VALUES(?,?,?,?,?,?,(SELECT args_hash FROM mcp_requests WHERE user_id=? AND request_id=?))').bind(c.cs.id,c.userId,c.cs.requestId,c.cs.tool,JSON.stringify(ops),JSON.stringify([...(opts.expect??[])]),c.userId,c.cs.requestId).run();
+      job=await c.env.DB.prepare('SELECT id,plan,expectations FROM mcp_write_jobs WHERE user_id=? AND request_id=? AND tool=?').bind(c.userId,c.cs.requestId,c.cs.tool).first();
+    }
+    if(!job) throw new Error('missing durable write plan');
+    c.cs.id=job.id;ops=JSON.parse(job.plan);opts.expect=new Map(JSON.parse(job.expectations));
+    lease=crypto.randomUUID();
+    const claimed=await c.env.DB.prepare('UPDATE mcp_write_jobs SET lease_id=?,lease_until=? WHERE id=? AND cancelled=0 AND COALESCE(lease_until,0)<=?').bind(lease,Date.now()+120_000,job.id,Date.now()).run();
+    if(!claimed.meta.changes) throw new Error('multi-chunk edit is running; retry');
+    const done=new Set((await c.env.DB.prepare('SELECT record_id FROM mcp_write_done WHERE job_id=?').bind(job.id).all<{record_id:string}>()).results.map(r=>r.record_id));
+    ops=ops.filter(o=>!done.has(o.id));
+  }
+  try {
+    for (let i = 0; i < ops.length; i += MAX_WRITE_RECORDS) {
+      const chunk = ops.slice(i, i + MAX_WRITE_RECORDS);
+      const ids=new Set(chunk.map(o=>o.id));
+      const expect=new Map([...(opts.expect??[])].filter(([id])=>ids.has(id)));
+      if(job) await c.env.DB.prepare('UPDATE mcp_write_jobs SET lease_until=? WHERE id=? AND lease_id=?').bind(Date.now()+120_000,job.id,lease).run();
+      const jobId=job?.id;
+      const r = await applyChanges(c.env,c.userId,chunk.map(o=>({...o,ts:0})),{
+        serverTs:true,expect,journal:c.cs??undefined,event:{source:'mcp',ctx:c.ectx,changesetId:c.cs?.id},
+        ...(jobId?{execution:{
+          guard:()=>c.env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM mcp_write_jobs WHERE id=? AND cancelled=0 AND lease_id=? AND lease_until>?) THEN 1 ELSE json_extract('{','$') END`).bind(jobId,lease,Date.now()),
+          checkpoint:(id:string)=>c.env.DB.prepare('INSERT OR IGNORE INTO mcp_write_done(job_id,record_id) VALUES(?,?)').bind(jobId,id),
+        }}:{}),
+      });
+      c.cs?.items.push(...r.applied.filter(a=>a.collection!=='activity'));
+      if(r.partialError) throw new Error('write interrupted; retry the same requestId to resume');
+      if(r.conflicts?.length) throw new WriteConflict(r.conflicts);
+      if(r.rejected) throw new Error((r.rejectedItems??[]).map(x=>x.reason).join('; ')||'write rejected');
+      if(r.conflict) throw new Error('write conflict, retry');
+    }
+  } finally {
+    if(job&&lease) await c.env.DB.prepare('UPDATE mcp_write_jobs SET lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?').bind(job.id,lease).run().catch(()=>{});
   }
   pokeLive(c.env, c.ectx);
 }
@@ -132,6 +170,8 @@ async function mentionResolvers(c: Ctx) {
   return {
     resolveUser: resolverFor(c, 'user'),
     resolvePage: resolverFor(c, 'page'),
+    resolveRecord: resolverFor(c, 'record'),
+    recordTitle: (id: string) => c.recordTitleById.get(id),
     userName: (id: string) => c.userNameById.get(id),
     pageTitle: (id: string) => c.pageTitleById.get(id),
   };
@@ -150,6 +190,8 @@ interface Ctx {
   userByKey: Map<string, string[]>;
   userNameById: Map<string, string>;
   pageTitleById: Map<string, string>;
+  recordTitleById: Map<string, string>;
+  recordIdByTitle: Map<string, string[]>;
   pageIdByTitle: Map<string, string[]>;
   cachesReady: boolean;
   /** accumulated ambiguity/mention warnings merged into tool results */
@@ -162,21 +204,26 @@ interface Ctx {
 
 type Resolution = { id: string } | { ambiguous: { id: string; title?: string; name?: string }[] } | { missing: true };
 
-function resolveOne(c: Ctx, kind: 'page' | 'user', ids: string[] | undefined): Resolution {
+function resolveOne(c: Ctx, kind: 'page' | 'user' | 'record', ids: string[] | undefined): Resolution {
   if (!ids?.length) return { missing: true };
   if (ids.length === 1) return { id: ids[0] };
   return {
-    ambiguous: ids.slice(0, 10).map((id) => (kind === 'page' ? { id, title: c.pageTitleById.get(id) } : { id, name: c.userNameById.get(id) })),
+    ambiguous: ids.slice(0, 10).map((id) => (kind === 'page' ? { id, title: c.pageTitleById.get(id) } : kind === 'record' ? {id,title:c.recordTitleById.get(id)} : { id, name: c.userNameById.get(id) })),
   };
 }
 
 /** `[[Title]]`/`@handle` inside markdown: resolve, warn on ambiguity, leave literal on miss/ambiguity. */
-function resolverFor(c: Ctx, kind: 'page' | 'user'): (key: string) => string | undefined {
+function resolverFor(c: Ctx, kind: 'page' | 'user' | 'record'): (key: string) => string | undefined {
   return (key) => {
     const k = key.trim().toLowerCase();
-    const ids = kind === 'page' ? c.pageIdByTitle.get(k) : c.userByKey.get(k);
+    if(kind==='page'&&k.startsWith('rec:')) return undefined;
+    // An ambiguous page name must not silently fall through to a record.
+    if(kind==='record' && c.pageIdByTitle.has(k)) return undefined;
+    const explicit=kind==='record' && k.startsWith('rec:') ? key.trim().slice(4) : null;
+    const ids = kind === 'page' ? c.pageIdByTitle.get(k) : kind==='record' ? (explicit ? (c.recordTitleById.has(explicit)?[explicit]:[]) : c.recordIdByTitle.get(k)) : c.userByKey.get(k);
     const r = resolveOne(c, kind, ids);
     if ('id' in r) return r.id;
+    if(kind==='page' && 'missing' in r) return undefined;
     c.warnings.push('ambiguous' in r ? `ambiguous ${kind} "${key}" — left as literal text` : `${kind} "${key}" not found — left as literal text`);
     return undefined;
   };
@@ -232,6 +279,7 @@ async function blockOps(c: Ctx, pageId: string, markdown: string, existing: Rec[
   const mdBlocks = markdownToBlocks(markdown, {
     resolveUser: resolverFor(c, 'user'),
     resolvePage: resolverFor(c, 'page'),
+    resolveRecord: resolverFor(c, 'record'),
   });
   const ordered = existing.filter((b) => !b.data.deleted).sort(byOrder);
   const ops: WriteOp[] = [];
@@ -249,10 +297,7 @@ async function blockOps(c: Ctx, pageId: string, markdown: string, existing: Rec[
   for (const b of mdBlocks) {
     const key = orderBetween(prevKey, nextKey);
     prevKey = key;
-    const patch: Record<string, unknown> = { pageId, order: key, type: b.type, text: b.text ?? '' };
-    if (b.type === 'todo') patch.checked = !!b.checked;
-    if (b.caption) patch.caption = b.caption;
-    if (b.src) patch.src = b.src; // caller resolves to fileId afterwards
+    const patch = { pageId, order: key, ...markdownBlockPatch(b) };
     ops.push({ collection: 'blocks', id: uuid(), patch });
   }
   return ops;
@@ -291,6 +336,15 @@ async function fillCaches(c: Ctx): Promise<void> {
   for (const p of live(await recs(c.env, 'pages'))) {
     c.pageTitleById.set(p.id, String(p.data.title ?? 'Untitled'));
     pushKey(c.pageIdByTitle, String(p.data.title ?? 'Untitled').toLowerCase(), p.id);
+  }
+  // Phase 0–4 permissions expose this workspace to authenticated members.
+  // Never hydrate deleted records or records in deleted databases.
+  const boards=new Map((await recs(c.env,'boards')).map(b=>[b.id,b]));
+  for(const r of live(await recs(c.env,'tasks'))) {
+    if(boards.get(String(r.data.boardId))?.data.deleted) continue;
+    const title=String(r.data.title??'Untitled');
+    c.recordTitleById.set(r.id,title);
+    pushKey(c.recordIdByTitle,title.toLowerCase(),r.id);
   }
 }
 
@@ -396,11 +450,37 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   function reg<S extends z.ZodRawShape>(name: string, meta: { description: string; inputSchema: z.ZodObject<S>; annotations?: Record<string, unknown> }, handler: (args: z.infer<z.ZodObject<S>>) => Promise<ToolResult>): void {
     server.registerTool(name, { ...meta, inputSchema: meta.inputSchema.extend({ requestId: requestIdInput }) } as never, async (rawArgs: unknown) => {
       const args = rawArgs as z.infer<z.ZodObject<S>> & { requestId?: string };
+      const saved = args.requestId ? await ctx.env.DB.prepare('SELECT plan,expectations,args_hash FROM mcp_write_jobs WHERE user_id=? AND request_id=? AND tool=?')
+        .bind(ctx.userId,args.requestId,name).first<{plan:string;expectations:string;args_hash:string|null}>() : null;
+      // Validate retained operation identity before creating a fresh short-lived
+      // idempotency row; a rejected reuse must not lock out the original retry.
+      if(saved?.args_hash && saved.args_hash!==await argsHash(args)) return err('requestId was already used with different arguments in a durable operation');
       const run = async (): Promise<{ text: string; isError: boolean }> => {
         ctx.cs = beginChangeset({ userId: ctx.userId, clientName: ctx.clientName, tool: name, requestId: args.requestId ?? null });
         ctx.toolName = name;
         try {
-          const res = await handler(args);
+          // Resume before running handler validation: the original chunk may
+          // itself have deleted a guarded block/target. Rebuilding from that
+          // changed state can neither recover the original generated IDs nor
+          // safely decide whether the saved operation completed.
+          let res:ToolResult;
+          if(saved) {
+            const input=args as Record<string,unknown>;
+            const pageId=typeof input.pageId==='string'?input.pageId:null;
+            const recordId=typeof input.recordId==='string'?input.recordId:null;
+            if(pageId||recordId) {
+              const parent=await rec(ctx.env,pageId?'pages':'tasks',(pageId??recordId)!);
+              if(!parent||parent.data.deleted) throw new Error('bulk edit parent is unavailable; restore it or undo the partial changeset');
+            }
+            const ops=JSON.parse(saved.plan) as WriteOp[];
+            await write(ctx,ops,{expect:new Map(JSON.parse(saved.expectations))});
+            res=txt({resumed:true,operation:name,updated:ops.length,
+              ...(pageId?{id:pageId,url:pageUrl(ctx,pageId)}:{}),
+              ...(recordId?{recordId}:{}),
+              ...(typeof input.moodboardId==='string'?{moodboardId:input.moodboardId}:{}),
+              ...(typeof input.id==='string'?{id:input.id,type:input.type,...(name==='delete_item'?{deleted:true}:{}),...(name==='restore_item'?{restored:true}:{})}:{}),
+            });
+          } else res=await handler(args);
           // Commit even on error results: any write that already landed must
           // stay undoable — no successful write without a change set (§4.2).
           const csId = await commitChangeset(ctx.env, ctx.cs);
@@ -433,7 +513,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
    * attribution) and records landed writes into the change set inside
    * casUpdate itself — nothing can land unrecorded before a later push. */
   const cas = (collection: string, id: string, mutate: Parameters<typeof casUpdate>[4]) =>
-    casUpdate(ctx.env, ctx.userId, collection, id, mutate, { recordTo: ctx.cs?.items ?? undefined });
+    casUpdate(ctx.env, ctx.userId, collection, id, mutate, { journal:ctx.cs??undefined,recordTo: ctx.cs?.items ?? undefined, ectx: ctx.ectx, source: 'mcp' });
 
   /* ---------- 1-2. search / fetch (ChatGPT connector contract) ---------- */
 
@@ -773,10 +853,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         const parsed = markdownToBlocks(r.markdown, {
           resolveUser: resolverFor(ctx, 'user'),
           resolvePage: resolverFor(ctx, 'page'),
+          resolveRecord: resolverFor(ctx, 'record'),
         });
         const first = parsed[0];
         if (!first) continue;
-        ops.push({ collection: 'blocks', id: r.blockId, patch: { type: first.type, text: first.text ?? '', ...(first.type === 'todo' ? { checked: !!first.checked } : {}) } });
+        ops.push({ collection: 'blocks', id: r.blockId, patch: markdownBlockPatch(first) });
         // §10.7: markdown may parse to >1 block — the first replaces in place,
         // the rest are inserted right after it and reported.
         if (parsed.length > 1) {
@@ -787,9 +868,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           for (const b of parsed.slice(1)) {
             const key = orderBetween(prevKey, nextKey);
             prevKey = key;
-            const patch: Record<string, unknown> = { pageId: a.pageId, order: key, type: b.type, text: b.text ?? '' };
-            if (b.type === 'todo') patch.checked = !!b.checked;
-            if (b.caption) patch.caption = b.caption;
+            const patch = { pageId: a.pageId, order: key, ...markdownBlockPatch(b) };
             ops.push({ collection: 'blocks', id: uuid(), patch });
           }
           splitReplaces.push(r.blockId);
@@ -2296,12 +2375,12 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'delete_item',
     {
-      description: 'Soft-delete an item (page, task, board, moodboard, mooditem, comment, file, block). Requires expectedRev. Call with dryRun:true first and show the user the impact before deleting. Recoverable via restore_item / undo_change.',
+      description: 'Archive a generic records database in place; soft-delete other items (page, task, board, moodboard, mooditem, comment, file, block). Requires expectedRev. Call with dryRun:true first and show the user the impact before deleting. Recoverable via restore_item / undo_change.',
       inputSchema: z.object({
         type: deleteTypes,
         id: z.string(),
         expectedRev: z.number().describe('The record rev from a read — required so you never delete a record changed since you saw it'),
-        taskAction: z.enum(['move_to_default', 'delete']).optional().describe('Board delete: what to do with live tasks (default move_to_default)'),
+        taskAction: z.enum(['move_to_default', 'delete']).optional().describe('Tasks-board delete disposition (default move_to_default); generic records databases always archive in place'),
         dryRun: dryRunInput,
       }),
       annotations: { destructiveHint: true, idempotentHint: true },
@@ -2312,6 +2391,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const r = await rec(ctx.env, collection, id);
       if (!r) return err(`${type} not found`);
       if (r.data.deleted) return txt({ type, id, deleted: true, already: true });
+
+      // Generic databases preserve their entire organization as an archive.
+      // No disposition silently converts People/Organizations into tasks.
+      if(type==='board'&&r.data.kind==='records') {
+        if(a.dryRun) return txt({dryRun:true,summary:'Archive database; preserve records, fields, views, body and relations',counts:{archive:1},impact:{databaseId:id},warnings:[]});
+        await write(ctx,[{collection:'boards',id,patch:{archived:true}}],{expect:new Map([[id,a.expectedRev]])});
+        return txt({type,id,archived:true,disposition:'archive',restoreWith:'restore_item'});
+      }
 
       // ---- gather the rows a delete touches (targeted reads only) ----
       const impType = (type === 'page' ? 'page' : type === 'record' ? 'task' : type) as 'page' | 'board' | 'task' | 'comment' | 'file' | 'moodboard' | 'mooditem';
@@ -2421,7 +2508,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const r = await rec(ctx.env, collection, id);
       if (!r) return err(`${type} not found`);
       const expect = a.expectedRev !== undefined ? new Map([[id, a.expectedRev]]) : undefined;
-      const ops: WriteOp[] = [{ collection, id, patch: { deleted: false } }];
+      const ops: WriteOp[] = [{ collection, id, patch: { deleted: false, ...(type==='board'&&r.data.kind==='records'?{archived:false}:{}) } }];
       if (collection === 'tasks') {
         for (const d of (await listBy(ctx.env, 'tasks', 'deletedVia', id, { includeDeleted: true }))) ops.push({ collection: 'tasks', id: d.id, patch: { deleted: false, deletedVia: null } });
       }
@@ -2740,14 +2827,16 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (!cs) return err('changeset not found');
       if (ctx.userRole !== 'admin' && cs.user_id !== ctx.userId) return err('forbidden');
       if (cs.undone_by) return err('already undone');
+      if(a.dryRun) {
       const { results } = await ctx.env.DB.prepare('SELECT collection, record_id, created, before, after, field_ts FROM changeset_items WHERE changeset_id = ? ORDER BY idx').bind(a.changesetId).all<{ collection: string; record_id: string; created: number; before: string; after: string; field_ts: string }>();
       const items = results.map((r) => ({ collection: r.collection, record_id: r.record_id, created: r.created, before: JSON.parse(r.before), after: JSON.parse(r.after), field_ts: JSON.parse(r.field_ts) }));
       const current = await getRecs(ctx.env, items.map((i) => i.record_id));
       const { planUndo } = await import('../shared/undo');
       const plan = planUndo(items, new Map([...current.entries()].map(([rid, rr]) => [rid, { data: rr.data, field_ts: rr.fieldTs }])));
-      if (a.dryRun) return txt({ dryRun: true, summary: `undo ${cs.tool} (${a.changesetId})`, counts: { restore: plan.patches.length, skipped: plan.skipped.length }, warnings: plan.skipped.map((s) => `${s.id}.${s.field}: ${s.reason}`), impact: { patches: plan.patches } });
+      return txt({ dryRun: true, summary: `undo ${cs.tool} (${a.changesetId})`, counts: { restore: plan.patches.length, skipped: plan.skipped.length }, warnings: plan.skipped.map((s) => `${s.id}.${s.field}: ${s.reason}`), impact: { patches: plan.patches } });
+      }
       const out = await undoChangeset(ctx.env, { id: ctx.userId, role: ctx.userRole } as AuthUser, a.changesetId);
-      if (!out.ok) return err(out.error ?? 'undo failed');
+      if (!out.ok) return { ...txt(out), isError: true };
       return txt({ undone: a.changesetId, undoChangesetId: out.undoChangesetId, restored: out.restored, skipped: out.skipped });
     },
   );
@@ -3453,7 +3542,6 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const existing = await existingBoards();
       const marker = live(await recs(ctx.env, 'pages')).find((p) => p.data.templateKey === a.bundled);
       if (a.dryRun) return txt({ dryRun: true, bundled: a.bundled, alreadyInstalled: !!marker, ...planInstallPreview(bundle, existing) });
-      if (marker && !a.force) return txt({ alreadyInstalled: true, pageId: marker.id, pageUrl: pageUrl(ctx, marker.id), url: pageUrl(ctx, marker.id) });
       if (a.parentId) {
         const pp = await rec(ctx.env, 'pages', a.parentId);
         if (!pp || pp.data.deleted) return err('parentId page not found');
@@ -3484,6 +3572,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       }
       const missing: WriteOp[] = plan.writes.filter((w) => !existingIds.has(w.id));
       const already = plan.writes.length - missing.length;
+      // An older Phase 3 root marker does not prove newly authored Phase 4
+      // configurations are present. Reconcile missing stable rows even when
+      // installed, never overwrite edited or tombstoned user rows.
+      if(marker&&!missing.length) return txt({alreadyInstalled:true,pageId:marker.id,pageUrl:pageUrl(ctx,marker.id),url:pageUrl(ctx,marker.id)});
       // Planner already orders the root marker last; keep non-page→block→page
       // ordering for deterministic batching.
       const rank = (w: WriteOp): number =>
@@ -3801,7 +3893,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           blockedBy: depLinks.filter((l) => String(l.data.toId) === recordId).map((l) => ({ id: String(l.data.fromId), title: titleOfRec(String(l.data.fromId)) })),
           blocking: depLinks.filter((l) => String(l.data.fromId) === recordId).map((l) => ({ id: String(l.data.toId), title: titleOfRec(String(l.data.toId)) })),
           related: relRelated.map((l) => ({ linkId: l.id, other: String(l.data.fromId) === recordId ? String(l.data.toId) : String(l.data.fromId), title: titleOfRec(String(l.data.fromId) === recordId ? String(l.data.toId) : String(l.data.fromId)) })),
-          body: blocksToMarkdown(bodyBlocks.map((b) => ({ type: String(b.data.type ?? 'p'), text: String(b.data.text ?? ''), checked: !!b.data.checked })), { userName: (id) => ctx.userNameById.get(id), pageTitle: (id) => ctx.pageTitleById.get(id) }),
+          body: blocksToMarkdown(bodyBlocks.map(b=>b.data), await mentionResolvers(ctx)),
           bodyBlocks: bodyBlocks.map((b) => ({ id: b.id, type: b.data.type ?? 'p', text: b.data.text ?? '', rev: b.rev })),
           comments: comments.length,
           updatedBy: r.updatedBy, updatedAt: r.updatedAt,
@@ -3840,10 +3932,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         if (!src) return err(`block ${rr.blockId} not found`);
         // Guard the block at ITS OWN read rev (review B3).
         expect.set(rr.blockId, rr.expectedRev);
-        const parsed = markdownToBlocks(rr.markdown, { resolveUser: resolverFor(ctx, 'user'), resolvePage: resolverFor(ctx, 'page') });
+        const parsed = markdownToBlocks(rr.markdown, { resolveUser: resolverFor(ctx, 'user'), resolvePage: resolverFor(ctx, 'page'), resolveRecord: resolverFor(ctx, 'record') });
         const first = parsed[0];
         if (!first) continue;
-        ops.push({ collection: 'blocks', id: rr.blockId, patch: { type: first.type, text: first.text ?? '', ...(first.type === 'todo' ? { checked: !!first.checked } : {}) } });
+        ops.push({ collection: 'blocks', id: rr.blockId, patch: markdownBlockPatch(first) });
       }
       for (const d of a.deleteBlocks ?? []) {
         if (!existing.some((b) => b.id === d.blockId)) return err(`block ${d.blockId} not found`);
@@ -3852,6 +3944,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       }
       if (a.markdown && a.insertAfterBlockId) ops.push(...(await blockOps(ctx, a.recordId, a.markdown, existing, a.insertAfterBlockId)));
       if (a.appendMarkdown) ops.push(...(await blockOps(ctx, a.recordId, a.appendMarkdown, existing)));
+      await resolveImageSrcs(ctx, ops);
       await write(ctx, ops, { expect });
       return txt({ recordId: a.recordId, url: recordUrl(String(r.data.boardId ?? 'board-default'), a.recordId), updated: ops.length });
     },
@@ -4003,6 +4096,9 @@ ${notes ? `Notes:\n${notes}\n` : 'The user will paste raw field notes next.\n'}
     }),
   );
 
+  /* ---------- Phase 4 approvals (Workstream D — delimited) ---------- */
+  registerApprovalTools(server, reg, ctx);
+
   return server;
 }
 
@@ -4084,6 +4180,8 @@ function ctxFor(env: Env, ectx: ExecutionContext, mcpCtx: McpRequestContext, pro
     userByKey: new Map(),
     userNameById: new Map(),
     pageTitleById: new Map(),
+    recordTitleById: new Map(),
+    recordIdByTitle: new Map(),
     pageIdByTitle: new Map(),
     cachesReady: false,
     warnings: [],

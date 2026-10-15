@@ -8,7 +8,14 @@
 //
 // Usage: node scripts/verify-v7.mjs            — full run (servers managed)
 //        node scripts/verify-v7.mjs --no-spawn — reuse a wrangler dev already up
-import { spawn, execSync } from 'node:child_process';
+import { readAccountStore } from './certification/browser-db.mjs';
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+const suiteManifest = {"chromium": {"desktop": ["canvasSuite", "modeSuite", "offlineSuite", "multiUserSuite", "undoSuite", "publicShareSuite", "viewsSuite", "perfSuite"], "compact": ["compactSuite", "viewsSuite"], "tablet": ["viewsSuite"]}, "firefox": {"desktop": ["coreSubset", "publicShareSuite"], "compact": ["compactSuite"]}, "webkit": {"desktop": ["coreSubset", "publicShareSuite"], "compact": ["compactSuite"]}};
+const requestedEngines = process.argv.find(a => a.startsWith('--only='))?.slice(7).split(',') ?? ['chromium', 'firefox', 'webkit'];
+const plannedTests = requestedEngines.flatMap(engine => Object.entries(suiteManifest[engine] ?? {}).flatMap(([viewport, suites]) => suites.map(suite => `${engine}/${viewport}/${suite}`)));
+const certification = createCertificationReporter('verify-v7', plannedTests);
+let activeEngine = 'system', activeViewport = 'none';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, existsSync, mkdirSync, writeFileSync, readFileSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,18 +24,29 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import crypto from 'node:crypto';
 
-const BASE = process.env.V7_BASE ?? 'http://localhost:8788';
+const requestedBase = process.env.V7_BASE ?? 'http://localhost:8788';
+const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+let BASE;
+try {
+  const parsedBase = new URL(requestedBase);
+  if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (parsedBase.pathname !== '/' && parsedBase.pathname !== '')) throw new Error('not loopback HTTP');
+  BASE = localOrigin(parsedBase.href);
+} catch {
+  console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
+  process.exit(2);
+}
 const PASS = process.env.MCP_PASS ?? 'password123';
 const NO_SPAWN = process.argv.includes('--no-spawn');
-const SHOTS = '/tmp/p2-shots';
+const SHOTS = process.env.CERT_ARTIFACT_DIR ?? '/tmp/p2-shots';
 const FIX = '/tmp/p2-fixtures';
 mkdirSync(SHOTS, { recursive: true });
 mkdirSync(FIX, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const results = []; // {engine, viewport, check, status}
-const note = (engine, viewport, check, status) => {
-  results.push({ engine, viewport, check, status });
+const note = (engine, viewport, check, status, error = null) => {
+  certification.record(engine, viewport, check, status, error, { external: engine === 'manual' });
+  results.push({ engine, viewport, check, status, error });
   console.log(`  ${status.padEnd(7)} [${engine}/${viewport}] ${check}`);
 };
 
@@ -53,14 +71,15 @@ async function waitHttp(url, timeoutMs = 90000) {
 }
 
 const killTree = () => {
-  for (const p of procs) { try { process.kill(-p.pid, 'SIGKILL'); } catch { try { p.kill('SIGKILL'); } catch {} } }
-  try { execSync("lsof -ti:8788 | xargs -r kill -9; pkill -9 -f 'wrangler-dist/cli.j[s] de[v]'; pkill -9 -f 'worker[d]-linux'", { stdio: 'ignore' }); } catch {}
+  if (NO_SPAWN) return;
+  for (const p of procs) {
+    if (!p?.pid || p.exitCode !== null || p.signalCode) continue;
+    try { process.kill(-p.pid, 'SIGTERM'); } catch { try { p.kill('SIGTERM'); } catch {} }
+  }
 };
+if (!NO_SPAWN) process.on('exit', killTree);
 
 if (!NO_SPAWN) {
-  // stale wrangler on :8788 poisons the fresh-D1 assumption — kill it first
-  try { execSync("lsof -ti:8788 | xargs -r kill -9; pkill -9 -f 'wrangler-dist/cli.j[s] de[v]'; pkill -9 -f 'worker[d]-linux'", { stdio: 'ignore' }); } catch {}
-  await sleep(300);
   // rebuild when dist is missing OR any shipped source is newer than the bundle
   const distIndex = 'dist/client/index.html';
   const stale = !existsSync(distIndex) || (() => {
@@ -94,7 +113,6 @@ if (!NO_SPAWN) {
   }
   if (!ok) { console.log('FATAL: wrangler dev never came up / schema missing'); process.exit(2); }
 }
-process.on('exit', killTree);
 
 /* ---------------- REST helpers ---------------- */
 const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}) => {
@@ -204,33 +222,9 @@ if (sr.status !== 200) { console.log('FATAL: seed push failed', sr.status, JSON.
 console.log('seeded fixture pushed');
 
 /* ---------------- page helpers ---------------- */
-const dexieDb = (page, uid) =>
-  page.evaluate(async (u) => {
-    const db = await new Promise((res, rej) => { const r = indexedDB.open(`workspace-${u}`); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    return db;
-  }, uid);
-
-const dexieGet = (page, table, id, uid) =>
-  page.evaluate(async ([t, i, u]) => {
-    const db = await new Promise((res, rej) => { const r = indexedDB.open(`workspace-${u}`); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    if (!db.objectStoreNames.contains(t)) return null;
-    return await new Promise((res) => {
-      const tx = db.transaction(t, 'readonly').objectStore(t).get(i);
-      tx.onsuccess = () => res(tx.result ?? null);
-      tx.onerror = () => res(null);
-    });
-  }, [table, id, uid]).catch(() => null);
-
-const dexieAll = (page, table, uid, filter) =>
-  page.evaluate(async ([t, u, f]) => {
-    const db = await new Promise((res, rej) => { const r = indexedDB.open(`workspace-${u}`); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    if (!db.objectStoreNames.contains(t)) return [];
-    return await new Promise((res) => {
-      const tx = db.transaction(t, 'readonly').objectStore(t).getAll();
-      tx.onsuccess = () => res(tx.result.filter((r) => !f || eval(f)(r)));
-      tx.onerror = () => res([]);
-    });
-  }, [table, uid, filter ? `(${filter})` : null]).catch(() => []);
+// Never open an absent/legacy IndexedDB name: the application owns schema creation.
+const dexieGet = (page, table, id, uid) => readAccountStore(page, table, { id, userId: uid });
+const dexieAll = (page, table, uid, filter) => readAccountStore(page, table, { userId: uid, filter: filter ? Function(`return (${filter})`)() : undefined });
 
 const boardItems = (page, uid, boardId) => dexieAll(page, 'mooditems', uid, `i => i.boardId === '${boardId}' && !i.deleted`);
 
@@ -1368,6 +1362,8 @@ async function coreSubset(page, E, V, uid, token) {
   await page.screenshot({ path: `${SHOTS}/core-${E}-${V}.png` });
 }
 
+const run = (label, fn) => certification.run(`${activeEngine}/${activeViewport}/${label}`, activeEngine, activeViewport, fn);
+
 /* ==================== MATRIX ==================== */
 const engines = { chromium, firefox, webkit };
 const DESKTOP = { width: 1440, height: 900 };
@@ -1379,48 +1375,53 @@ const runEngines = only ? only.split(',') : ['chromium', 'firefox', 'webkit'];
 
 for (const name of runEngines) {
   const engine = engines[name];
-  if (!engine) continue;
-  const browser = await engine.launch();
+  if (!engine) { note(name, 'none', 'mandatory browser selection', 'FAIL', new Error(`Unknown engine ${name}`)); continue; }
+  activeEngine = name;
+  let browser;
+  try { browser = await certification.trackBrowser(await engine.launch(), name); } catch (error) { note(name, 'none', 'mandatory browser launch', 'FAIL', error); continue; }
   console.log(`\n=== ${name} ===`);
 
+  activeViewport = 'desktop';
   // desktop: chromium gets the full suite; ff/webkit the tagged core subset
   {
     const ctx = await browser.newContext({ viewport: DESKTOP });
     const page = await loginPage(ctx, admin);
     if (name === 'chromium') {
-      await canvasSuite(page, name, 'desktop', admin.user.id);
-      await modeSuite(page, name, 'desktop', admin.user.id);
-      await offlineSuite(page, name, 'desktop', admin.user.id);
-      await multiUserSuite(browser, name, 'desktop', admin.user.id);
-      await undoSuite(browser, name, 'desktop');
-      await publicShareSuite(browser, name, 'desktop');
-      await viewsSuite(page, name, 'desktop', admin.user.id, false);
-      await perfSuite(page, name, 'desktop', admin.user.id);
+      await run('canvasSuite', () => canvasSuite(page, name, 'desktop', admin.user.id));
+      await run('modeSuite', () => modeSuite(page, name, 'desktop', admin.user.id));
+      await run('offlineSuite', () => offlineSuite(page, name, 'desktop', admin.user.id));
+      await run('multiUserSuite', () => multiUserSuite(browser, name, 'desktop', admin.user.id));
+      await run('undoSuite', () => undoSuite(browser, name, 'desktop'));
+      await run('publicShareSuite', () => publicShareSuite(browser, name, 'desktop'));
+      await run('viewsSuite', () => viewsSuite(page, name, 'desktop', admin.user.id, false));
+      await run('perfSuite', () => perfSuite(page, name, 'desktop', admin.user.id));
     } else {
-      await coreSubset(page, name, 'desktop', admin.user.id, admin.token);
-      await publicShareSuite(browser, name, 'desktop');
+      await run('coreSubset', () => coreSubset(page, name, 'desktop', admin.user.id, admin.token));
+      await run('publicShareSuite', () => publicShareSuite(browser, name, 'desktop'));
     }
     await ctx.close();
   }
 
+  activeViewport = 'compact';
   // compact touch
   {
-    const ctx = await browser.newContext({ viewport: COMPACT, hasTouch: true, isMobile: true });
+    const ctx = await browser.newContext({ viewport: COMPACT, hasTouch: true, isMobile: name !== 'firefox' });
     const page = await loginPage(ctx, admin);
     if (name === 'chromium') {
-      await compactSuite(page, name, 'compact', admin.user.id);
-      await viewsSuite(page, name, 'compact', admin.user.id, true);
+      await run('compactSuite', () => compactSuite(page, name, 'compact', admin.user.id));
+      await run('viewsSuite', () => viewsSuite(page, name, 'compact', admin.user.id, true));
     } else {
-      await compactSuite(page, name, 'compact', admin.user.id);
+      await run('compactSuite', () => compactSuite(page, name, 'compact', admin.user.id));
     }
     await ctx.close();
   }
 
   // tablet (chromium only — layout spot-check)
   if (name === 'chromium') {
+    activeViewport = 'tablet';
     const ctx = await browser.newContext({ viewport: TABLET });
     const page = await loginPage(ctx, admin);
-    await viewsSuite(page, name, 'tablet', admin.user.id, false);
+    await run('viewsSuite', () => viewsSuite(page, name, 'tablet', admin.user.id, false));
     await ctx.close();
   }
 
@@ -1439,4 +1440,5 @@ for (const r of results) {
   console.log(`${r.status.padEnd(8)} [${r.engine}/${r.viewport}] ${r.check}`);
 }
 console.log(`\nTOTAL: ${byStatus.PASS} PASS / ${byStatus.FAIL} FAIL / ${byStatus['NOT RUN']} NOT RUN`);
-process.exit(byStatus.FAIL ? 1 : 0);
+certification.finish();
+process.exit(byStatus.FAIL || process.exitCode ? 1 : 0);

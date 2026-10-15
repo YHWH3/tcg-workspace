@@ -10,6 +10,7 @@ import { Avatar, IconButton, Menu, Popover } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { cn, formatDate, todayISO } from '../../core/utils';
 import { isDone, setTaskField, taskBoardId, type BoardRow, type TaskRow } from './api';
+import { noteGatedMove } from './GateMove';
 import { columnsOf } from './model';
 import { FieldChips } from './FieldValue';
 
@@ -86,7 +87,10 @@ function MoveToStage({ task, board }: { task: TaskRow; board: BoardRow }) {
             close={close}
             items={columns.map((c) => ({
               label: c.name,
-              onClick: () => void setTaskField(task.id, { status: c.id }),
+              onClick: () => {
+                noteGatedMove(board, task.id, c.id);
+                void setTaskField(task.id, { status: c.id });
+              },
             }))}
           />
         </div>

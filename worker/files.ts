@@ -15,7 +15,28 @@ export function svgHeaders(mime: string | null | undefined): Record<string, stri
 
 export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB per file
 export const QUOTA_BYTES = 450 * 1024 * 1024; // 450 MB workspace quota
-const MAX_CHUNK = 2 * 1024 * 1024; // D1 row limit; clients send 1 MiB
+/** Cloudflare D1 rejects a single string/BLOB/row at or above this size. */
+export const D1_MAX_ROW_BYTES = 2_000_000;
+/** Shared chunk contract. 1 MiB is under the D1 row ceiling; 2 MiB is not. */
+export const FILE_CHUNK_BYTES = 1_048_576;
+
+/** Split bytes into consecutive chunks that are each safe to bind as a D1 BLOB.
+ * Each slice owns its buffer. A view over the original file would let a binding
+ * send the whole file as one row and exceed D1's per-row maximum. */
+export function fileChunkSlices(bytes: Uint8Array): Uint8Array[] {
+  if (FILE_CHUNK_BYTES >= D1_MAX_ROW_BYTES) throw new Error('chunk contract exceeds D1 row limit');
+  const slices: Uint8Array[] = [];
+  for (let offset = 0; offset < bytes.byteLength; offset += FILE_CHUNK_BYTES) {
+    const end = Math.min(offset + FILE_CHUNK_BYTES, bytes.byteLength);
+    const part = new Uint8Array(end - offset);
+    part.set(bytes.subarray(offset, end));
+    if (part.byteLength === 0 || part.byteLength >= D1_MAX_ROW_BYTES || part.buffer.byteLength !== part.byteLength) {
+      throw new Error('chunk exceeds D1 row limit');
+    }
+    slices.push(part);
+  }
+  return slices;
+}
 export const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const WHISPER_MODEL = '@cf/openai/whisper-large-v3-turbo';
 // Whisper-large-v3-turbo input ceiling; voice notes are also capped client-side at 5 min.
@@ -69,17 +90,26 @@ files.put('/:id/chunks/:idx', async (c) => {
 
   const body = await c.req.arrayBuffer();
   if (body.byteLength === 0) return c.json({ error: 'empty chunk' }, 400);
-  if (body.byteLength > MAX_CHUNK) return c.json({ error: 'chunk too large' }, 413);
+  if (body.byteLength > FILE_CHUNK_BYTES || body.byteLength >= D1_MAX_ROW_BYTES) return c.json({ error: 'chunk too large' }, 413);
 
   const db = c.env.DB;
+  if (await db.prepare('SELECT id FROM file_deletions WHERE id=?').bind(id).first()) return c.json({ error: 'file deleted' }, 410);
   const existing = await db.prepare('SELECT id, complete FROM files WHERE id = ?').bind(id).first<{ id: string; complete: number }>();
   if (existing?.complete) return c.json({ error: 'file already complete' }, 409);
   if (!existing) {
     // Tentative quota check when a new upload starts (final check at complete).
     if ((await usageBytes(db)) >= QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
-    await db.prepare('INSERT INTO files (id, uploaded_by, created_at, complete) VALUES (?, ?, ?, 0)').bind(id, c.get('user').id, Date.now()).run();
+    await db.prepare('INSERT OR IGNORE INTO files (id, uploaded_by, created_at, complete) VALUES (?, ?, ?, 0)').bind(id, c.get('user').id, Date.now()).run();
   }
-  await db.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, ?, ?) ON CONFLICT(file_id, idx) DO UPDATE SET data = excluded.data').bind(id, idx, body).run();
+  // The completion check belongs to the same statement as the write: a PUT
+  // that read pending state before another request completed must not alter
+  // the acknowledged file afterwards.
+  const written = await db.prepare(`INSERT INTO file_chunks (file_id, idx, data)
+    SELECT ?, ?, ? WHERE EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0)
+    ON CONFLICT(file_id, idx) DO UPDATE SET data = excluded.data
+      WHERE EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0)`)
+    .bind(id, idx, body, id, id).run();
+  if (!(written.meta.changes ?? 0)) return c.json({ error: 'file already complete' }, 409);
   return c.json({ ok: true, idx, size: body.byteLength });
 });
 
@@ -87,12 +117,13 @@ files.post('/:id/complete', async (c) => {
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
   const body = await c.req.json<{ mime?: string; size?: number; chunks?: number }>().catch(() => null);
-  if (!body || typeof body.chunks !== 'number' || body.chunks < 1 || typeof body.size !== 'number' || body.size < 1) {
+  if (!body || typeof body.chunks !== 'number' || !Number.isInteger(body.chunks) || body.chunks < 1 || typeof body.size !== 'number' || !Number.isInteger(body.size) || body.size < 1) {
     return c.json({ error: 'invalid body' }, 400);
   }
   if (body.size > MAX_FILE_SIZE) return c.json({ error: 'file too large (max 20 MB)' }, 413);
 
   const db = c.env.DB;
+  if (await db.prepare('SELECT id FROM file_deletions WHERE id=?').bind(id).first()) return c.json({ error: 'file deleted' }, 410);
   const meta = await db.prepare('SELECT * FROM files WHERE id = ?').bind(id).first<FileRow>();
   if (!meta) return c.json({ error: 'no chunks uploaded' }, 400);
   if (meta.complete) return c.json({ ok: true }); // idempotent
@@ -111,40 +142,72 @@ files.post('/:id/complete', async (c) => {
     .first<{ missing: number }>();
   if (gaps && gaps.missing > 0) return c.json({ error: 'missing chunks' }, 400);
   if (agg.bytes !== body.size) return c.json({ error: 'size mismatch' }, 400);
+  const oversized = await db.prepare('SELECT 1 AS hit FROM file_chunks WHERE file_id=? AND LENGTH(data)>=? LIMIT 1').bind(id, D1_MAX_ROW_BYTES).first<{ hit: number }>();
+  if (oversized) return c.json({ error: 'chunk too large' }, 413);
 
   if ((await usageBytes(db)) + body.size > QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
 
   const mime = typeof body.mime === 'string' && body.mime.length <= 100 ? body.mime : 'application/octet-stream';
+  // Recheck integrity and quota in the final write transaction. Preliminary
+  // reads improve errors but cannot authorize a later concurrent completion.
+  const readySql = `complete=0
+    AND (SELECT COUNT(*) FROM file_chunks WHERE file_id=files.id)=?
+    AND (SELECT COALESCE(SUM(LENGTH(data)),0) FROM file_chunks WHERE file_id=files.id)=?
+    AND (SELECT MIN(idx) FROM file_chunks WHERE file_id=files.id)=0
+    AND (SELECT MAX(idx) FROM file_chunks WHERE file_id=files.id)=?-1
+    AND NOT EXISTS(SELECT 1 FROM file_chunks WHERE file_id=files.id AND LENGTH(data)>=?)
+    AND (SELECT COALESCE(SUM(size),0) FROM files WHERE complete=1)+?<=?`;
+  const interrupted = async () => {
+    const current = await db.prepare('SELECT complete FROM files WHERE id=?').bind(id).first<{ complete: number }>();
+    if (current?.complete) return c.json({ ok: true });
+    if ((await usageBytes(db)) + body.size! > QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
+    return c.json({ error: 'file changed during completion; retry upload' }, 409);
+  };
 
   // SVG is active markup: sanitize on write and store the canonical output.
   if (mime === 'image/svg+xml') {
     const { results } = await db.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ data: unknown }>();
     const svg = sanitizeSvg(new TextDecoder().decode(concatRows(results)));
     if (!svg.ok) {
-      await db.batch([db.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id), db.prepare('DELETE FROM files WHERE id = ?').bind(id)]);
+      await db.batch([
+        db.prepare('DELETE FROM file_chunks WHERE file_id=? AND EXISTS(SELECT 1 FROM files WHERE id=? AND complete=0)').bind(id, id),
+        db.prepare('DELETE FROM files WHERE id=? AND complete=0').bind(id),
+      ]);
       return c.json({ error: 'svg failed sanitization', reasons: svg.reasons }, 400);
     }
     const bytes = new TextEncoder().encode(svg.svg);
-    await db.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id).run();
-    const chunks: D1PreparedStatement[] = [];
-    for (let off = 0, idx = 0; off < bytes.length; off += MAX_CHUNK, idx++) {
-      chunks.push(db.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, ?, ?)').bind(id, idx, bytes.slice(off, off + MAX_CHUNK)));
+    const parts = fileChunkSlices(bytes);
+    const chunks: D1PreparedStatement[] = [
+      db.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM files WHERE id=? AND ${readySql}) THEN 1 ELSE json_extract('{','$') END`)
+        .bind(id, body.chunks, body.size, body.chunks, D1_MAX_ROW_BYTES, bytes.length, QUOTA_BYTES),
+      db.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id),
+    ];
+    for (const [idx, part] of parts.entries()) {
+      chunks.push(db.prepare('INSERT INTO file_chunks (file_id, idx, data) VALUES (?, ?, ?)').bind(id, idx, part));
     }
-    await db.batch(chunks);
-    await db.prepare('UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ?').bind(mime, bytes.length, chunks.length, id).run();
+    chunks.push(db.prepare('UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ?')
+      .bind(mime, bytes.length, parts.length, id));
+    try { await db.batch(chunks); }
+    catch (error) {
+      if (error instanceof Error && /malformed JSON/i.test(error.message)) return interrupted();
+      return c.json({ error: 'file completion interrupted; retry' }, 503);
+    }
     return c.json({ ok: true });
   }
 
-  await db.prepare('UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ?').bind(mime, body.size, body.chunks, id).run();
+  const completed = await db.prepare(`UPDATE files SET mime = ?, size = ?, chunks = ?, complete = 1 WHERE id = ? AND ${readySql}`)
+    .bind(mime, body.size, body.chunks, id, body.chunks, body.size, body.chunks, D1_MAX_ROW_BYTES, body.size, QUOTA_BYTES).run();
+  if (!(completed.meta.changes ?? 0)) return interrupted();
   return c.json({ ok: true });
 });
 
 files.get('/:id', async (c) => {
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
-  const meta = await c.env.DB.prepare('SELECT mime, size, complete FROM files WHERE id = ?').bind(id).first<FileRow>();
+  const meta = await c.env.DB.prepare('SELECT mime, size, chunks, complete FROM files WHERE id = ?').bind(id).first<FileRow>();
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
-  const { results } = await c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ data: unknown }>();
+  const { results } = await c.env.DB.prepare('SELECT idx, data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(id).all<{ idx: number; data: unknown }>();
+  if (results.length !== (meta.chunks ?? results.length) || results.some((row, index) => row.idx !== index)) return c.json({ error: 'not found' }, 404);
   const out = concatRows(results);
   return new Response(out, {
     headers: {
@@ -159,7 +222,26 @@ files.get('/:id', async (c) => {
 files.delete('/:id', async (c) => {
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
-  await c.env.DB.batch([c.env.DB.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(id), c.env.DB.prepare('DELETE FROM files WHERE id = ?').bind(id)]);
+  const row=await c.env.DB.prepare('SELECT collection,data FROM records WHERE id=?').bind(id).first<{collection:string;data:string}>();
+  if(row) {
+    if(row.collection!=='files') return c.json({error:'not a file'},409);
+    const {applyChanges}=await import('./sync');
+    const data=JSON.parse(row.data) as {thumbId?:string};
+    const changes=[{id,collection:'files',patch:{deleted:true},ts:0}];
+    if(data.thumbId) changes.push({id:data.thumbId,collection:'files',patch:{deleted:true},ts:0});
+    const result=await applyChanges(c.env,c.get('user').id,changes,{serverTs:true,event:{source:'client',ctx:c.executionCtx}});
+    if(result.partialError||result.rejected) return c.json({error:'cleanup interrupted; retry'},503);
+  } else {
+    // Legacy/incomplete uploads have no synced metadata. Only their uploader
+    // or an administrator may retire them; record IDs cannot be repurposed.
+    const blob=await c.env.DB.prepare('SELECT uploaded_by FROM files WHERE id=?').bind(id).first<{uploaded_by:string|null}>();
+    if(blob&&blob.uploaded_by!==c.get('user').id&&c.get('user').role!=='admin') return c.json({error:'forbidden'},403);
+    await c.env.DB.batch([
+      c.env.DB.prepare('INSERT INTO file_deletions(id,created_at) VALUES(?,?) ON CONFLICT(id) DO NOTHING').bind(id,Date.now()),
+      c.env.DB.prepare('DELETE FROM file_chunks WHERE file_id IN (SELECT id FROM reclaimable_files WHERE id=?)').bind(id),
+      c.env.DB.prepare('DELETE FROM files WHERE id IN (SELECT id FROM reclaimable_files WHERE id=?)').bind(id),
+    ]);
+  }
   return c.json({ ok: true });
 });
 

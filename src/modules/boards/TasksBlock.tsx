@@ -10,6 +10,7 @@ import { mutate } from '../../core/sync/engine';
 import { useResolvedUser } from '../../core/users';
 import { cn, cmpOrder } from '../../core/utils';
 import { columnIdFor, columnsOf, createTask, lastColumnId } from './api';
+import { GateMoveHost, noteGatedMove } from './GateMove';
 import { registerBlockType, type MediaBlockProps } from '../pages/blocks/registry';
 
 /** Embedded board task list inside a page block. */
@@ -66,6 +67,7 @@ function TasksBlock({ block }: MediaBlockProps) {
 
   return (
     <div className="rounded-xl border border-neutral-200 px-3 py-2 dark:border-neutral-800">
+      <GateMoveHost /> {/* P4-D: gated-stage request dialog */}
       <p className="mb-1 text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">
         {board ? `${String(board.icon ?? '')} ${String(board.name)}` : 'Board'}
       </p>
@@ -82,7 +84,11 @@ function TasksBlock({ block }: MediaBlockProps) {
                 'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors',
                 done ? 'border-blue-500 bg-blue-500 text-white' : 'border-neutral-300 hover:border-blue-400 dark:border-neutral-600',
               )}
-              onClick={() => void mutate('tasks', t.id, { status: done ? cols[0]?.id ?? 'todo' : lastCol })}
+              onClick={() => {
+                const next = done ? cols[0]?.id ?? 'todo' : lastCol;
+                noteGatedMove(board, t.id, next); // P4-D
+                void mutate('tasks', t.id, { status: next });
+              }}
               aria-label={done ? 'Reopen task' : 'Complete task'}
             >
               {done && <Check size={10} />}

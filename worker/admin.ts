@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { inviteCode, requireAdmin, requireAuth, MAX_USERS } from './auth';
 import type { Env, AuthUser } from './auth';
 import type { PublicUser } from '../shared/types';
+import { maintainDateIndex } from './events';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 admin.use('*', requireAuth);
@@ -51,6 +52,30 @@ admin.patch('/users/:id', requireAdmin, async (c) => {
   }
   await c.env.DB.prepare('UPDATE users SET role = ? WHERE id = ?').bind(body.role, target).run();
   return c.json({ ok: true });
+});
+
+// Phase 4 §5 (Workstream B): one-shot backfill after migration 0007 — resync
+// date_index for every tasks row. Safe to re-run (delete + insert per record).
+// Doc-mandated path (other admin routes keep the historical /api/<x> shape).
+admin.post('/admin/reindex-dates', requireAdmin, async (c) => {
+  const { results } = await c.env.DB
+    .prepare(`SELECT id, data FROM records WHERE collection = 'tasks' LIMIT 5000`)
+    .all<{ id: string; data: string }>();
+  let reindexed = 0;
+  for (let i = 0; i < results.length; i += 200) {
+    const applied = results.slice(i, i + 200).map((r) => {
+      let data: Record<string, unknown> = {};
+      try {
+        data = JSON.parse(r.data) as Record<string, unknown>;
+      } catch {
+        /* keep empty — maintainDateIndex will just clear its rows */
+      }
+      return { id: r.id, collection: 'tasks', created: false, fields: [] as string[], before: {}, after: data };
+    });
+    await maintainDateIndex(c.env, applied, true);
+    reindexed += applied.length;
+  }
+  return c.json({ ok: true, reindexed });
 });
 
 admin.delete('/users/:id', requireAdmin, async (c) => {

@@ -8,24 +8,44 @@
 // Usage: node scripts/verify-v8.mjs              — full run (servers managed)
 //        node scripts/verify-v8.mjs --no-spawn   — reuse a wrangler dev on :8788
 //        node scripts/verify-v8.mjs --only=chromium
-import { spawn, execSync } from 'node:child_process';
+import { readAccountStore } from './certification/browser-db.mjs';
+import { createCertificationReporter, localOrigin } from './certification-report.mjs';
+const suiteManifest = {"chromium": {"desktop": ["installSuite", "dashboardSuite", "reviewSuite", "convertSuite", "archiveSuite", "fieldOpsSuite", "failureSuite", "perfSuite"], "compact": ["archiveSuite-compact", "reviewSuite-compact", "fieldOpsSuite-compact"], "tablet": ["archiveSuite-tablet"], "320px": ["archiveSuite-320"]}, "firefox": {"desktop": ["fieldOpsSuite", "archiveSuite", "reviewSuite", "perfSuite"], "compact": ["fieldOpsSuite-compact", "archiveSuite-compact"]}, "webkit": {"desktop": ["fieldOpsSuite", "archiveSuite", "reviewSuite", "perfSuite"], "compact": ["fieldOpsSuite-compact", "archiveSuite-compact"]}};
+const requestedEngines = process.argv.find(a => a.startsWith('--only='))?.slice(7).split(',') ?? ['chromium', 'firefox', 'webkit'];
+const plannedTests = requestedEngines.flatMap(engine => Object.entries(suiteManifest[engine] ?? {}).flatMap(([viewport, suites]) => suites.map(suite => `${engine}/${viewport}/${suite}`)));
+const certification = createCertificationReporter('verify-v8', plannedTests);
+let activeEngine = 'system', activeViewport = 'none';
+import assert from 'node:assert/strict';
+import { connectFixtureMcp } from './certification/mcp-client.mjs';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, existsSync, mkdirSync, writeFileSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir, cpus, totalmem } from 'node:os';
 import { join } from 'node:path';
 import { chromium, firefox, webkit } from 'playwright';
 
-const BASE = process.env.V8_BASE ?? 'http://localhost:8788';
+const requestedBase = process.env.V8_BASE ?? 'http://localhost:8788';
+const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+let BASE;
+try {
+  const parsedBase = new URL(requestedBase);
+  if (parsedBase.protocol !== 'http:' || !localHosts.has(parsedBase.hostname) || (parsedBase.pathname !== '/' && parsedBase.pathname !== '')) throw new Error('not loopback HTTP');
+  BASE = localOrigin(parsedBase.href);
+} catch {
+  console.error(`FATAL: refusing non-local base URL: ${requestedBase}`);
+  process.exit(2);
+}
 const PASS = process.env.MCP_PASS ?? 'password123';
 const NO_SPAWN = process.argv.includes('--no-spawn');
-const SHOTS = '/tmp/p3-shots';
+const SHOTS = process.env.CERT_ARTIFACT_DIR ?? '/tmp/p3-shots';
 const FIX = '/tmp/p3-fixtures';
 mkdirSync(SHOTS, { recursive: true });
 mkdirSync(FIX, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const results = []; // {engine, viewport, check, status}
-const note = (engine, viewport, check, status) => {
-  results.push({ engine, viewport, check, status });
+const note = (engine, viewport, check, status, error = null) => {
+  certification.record(engine, viewport, check, status, error, { external: engine === 'manual' });
+  results.push({ engine, viewport, check, status, error });
   console.log(`  ${status.padEnd(7)} [${engine}/${viewport}] ${check}`);
 };
 const perf = []; // {metric, engine, viewport, ms, note}
@@ -44,13 +64,15 @@ writeFileSync(`${FIX}/big.bin`, Buffer.alloc(21 * 1024 * 1024, 7)); // >20MB lim
 /* ---------------- servers (v7 conventions) ---------------- */
 const procs = [];
 const killTree = () => {
-  for (const p of procs) { try { process.kill(-p.pid, 'SIGKILL'); } catch { try { p.kill('SIGKILL'); } catch {} } }
-  try { execSync("lsof -ti:8788 | xargs -r kill -9; pkill -9 -f 'wrangler-dist/cli.j[s] de[v]'; pkill -9 -f 'worker[d]-linux'", { stdio: 'ignore' }); } catch {}
+  if (NO_SPAWN) return;
+  for (const p of procs) {
+    if (!p?.pid || p.exitCode !== null || p.signalCode) continue;
+    try { process.kill(-p.pid, 'SIGTERM'); } catch { try { p.kill('SIGTERM'); } catch {} }
+  }
 };
+if (!NO_SPAWN) process.on('exit', killTree);
 
 if (!NO_SPAWN) {
-  try { execSync("lsof -ti:8788 | xargs -r kill -9; pkill -9 -f 'wrangler-dist/cli.j[s] de[v]'; pkill -9 -f 'worker[d]-linux'", { stdio: 'ignore' }); } catch {}
-  await sleep(300);
   const distIndex = 'dist/client/index.html';
   const stale = !existsSync(distIndex) || (() => {
     const built = statSync(distIndex).mtimeMs;
@@ -83,7 +105,6 @@ if (!NO_SPAWN) {
   }
   if (!ok) { console.log('FATAL: wrangler dev never came up / schema missing'); process.exit(2); }
 }
-process.on('exit', killTree);
 
 /* ---------------- REST helpers ---------------- */
 const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}) => {
@@ -194,38 +215,9 @@ for (let i = 0; i < seed.length; i += 400) {
 console.log(`seeded fixture pushed (${seed.length} rows incl. ${PERF_N} perf)`);
 
 /* ---------------- page helpers ---------------- */
-// NOTE: open() without a version creates an EMPTY v1 db in fresh contexts and an
-// unclosed connection would block the app's own Dexie schema upgrade (deadlock).
-// So: check existence via indexedDB.databases(), and always close().
-const dexieGet = (page, table, id, uid) =>
-  page.evaluate(async ([t, i, u]) => {
-    const meta = (await indexedDB.databases?.()) ?? [];
-    if (!meta.some((d) => d.name === `workspace-${u}`)) return null;
-    const db = await new Promise((res, rej) => { const r = indexedDB.open(`workspace-${u}`); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    try {
-      if (!db.objectStoreNames.contains(t)) return null;
-      return await new Promise((res) => {
-        const tx = db.transaction(t, 'readonly').objectStore(t).get(i);
-        tx.onsuccess = () => res(tx.result ?? null);
-        tx.onerror = () => res(null);
-      });
-    } finally { db.close(); }
-  }, [table, id, uid]).catch(() => null);
-
-const dexieAll = (page, table, uid, filter) =>
-  page.evaluate(async ([t, u, f]) => {
-    const meta = (await indexedDB.databases?.()) ?? [];
-    if (!meta.some((d) => d.name === `workspace-${u}`)) return [];
-    const db = await new Promise((res, rej) => { const r = indexedDB.open(`workspace-${u}`); r.onsuccess = () => res(r.result); r.onerror = rej; });
-    try {
-      if (!db.objectStoreNames.contains(t)) return [];
-      return await new Promise((res) => {
-        const tx = db.transaction(t, 'readonly').objectStore(t).getAll();
-        tx.onsuccess = () => res(tx.result.filter((r) => !f || eval(f)(r)));
-        tx.onerror = () => res([]);
-      });
-    } finally { db.close(); }
-  }, [table, uid, filter ? `(${filter})` : null]).catch(() => []);
+// Never open an absent/legacy IndexedDB name: the application owns schema creation.
+const dexieGet = (page, table, id, uid) => readAccountStore(page, table, { id, userId: uid });
+const dexieAll = (page, table, uid, filter) => readAccountStore(page, table, { userId: uid, filter: filter ? Function(`return (${filter})`)() : undefined });
 
 const poll = async (fn, timeoutMs = 10000, step = 400) => {
   const t0 = Date.now();
@@ -499,7 +491,7 @@ async function fieldOpsSuite(browser, page, E, V, { secondContext = true } = {})
   N('J5: attached photo has a files row', fileOk ? 'PASS' : 'FAIL');
   // second device context sees record + relation
   if (secondContext && rec) {
-    const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: E !== 'firefox' });
     const p2 = await loginPage(ctx2, admin);
     await p2.goto(`${BASE}/boards/${DB_OBS}`, { waitUntil: 'domcontentloaded' });
     await sleep(2500);
@@ -521,24 +513,56 @@ async function fieldOpsSuite(browser, page, E, V, { secondContext = true } = {})
 /* ==================== J6: conversion ==================== */
 async function convertSuite(page, E, V) {
   const N = (check, status) => note(E, V, check, status);
-  // look for a convert affordance on a record (menu / action bar)
-  await page.goto(`${BASE}/boards/${DB_OBS}/tasks/v8_conf_rec`, { waitUntil: 'domcontentloaded' });
-  await sleep(1200);
-  const body = await page.locator('body').innerText();
-  const menuBtns = await page.locator('[aria-label*="menu" i], [aria-label*="more" i], button:has(svg)').count();
-  let convertHit = /convert/i.test(body);
-  if (!convertHit) {
-    // try opening likely menus
-    const menus = await page.locator('[aria-label*="menu" i], [aria-label="Record actions"], [aria-label*="actions" i]').all();
-    for (const m of menus.slice(0, 4)) { await m.dispatchEvent('click').catch(() => {}); await sleep(300); if (/convert/i.test(await page.locator('body').innerText())) { convertHit = true; break; } }
-    await page.keyboard.press('Escape');
-  }
-  // Spec §H delivers conversion as MCP ops only — a client affordance is not
-  // required, so absence is NOT RUN, not FAIL. J6's conversion coverage
-  // (stage/link/idempotency/undo/expectedRev) lives in verify-mcp-phase3.
-  N('J6: Idea→Project conversion affordance in record UI (optional; MCP is the delivered surface)', convertHit ? 'PASS' : 'NOT RUN');
-  N('J6: conversion idempotent retry in UI', 'NOT RUN');
-  N('J6: conversion undo in UI', 'NOT RUN');
+  // Conversion is delivered through MCP. Exercise that supported entry point,
+  // then prove the rendered body/link and the existing Settings undo workflow.
+  const sourceId = `v8_conversion_${E}`, templateId = `v8_conversion_tpl_${E}`;
+  const title = `Conversion certification ${E}`, bodyText = 'Conversion body checkpoint';
+  const seeded = await push(T, [
+    { id: sourceId, collection: 'tasks', patch: { boardId: DB_OBS, title, status: 'logged', description: 'Conversion description checkpoint' } },
+    { id: templateId, collection: 'pages', patch: { title: 'Conversion fixture template', isTemplate: true, order: 'c0' } },
+    { id: templateId + '_block', collection: 'blocks', patch: { pageId: templateId, type: 'p', text: bodyText, order: 'a0' } },
+  ]);
+  assert.equal(seeded.status, 200, 'conversion fixture must persist');
+  const mcp = await connectFixtureMcp(BASE, { password: PASS, name: 'V8 conversion certification' });
+  try {
+    const converted = await mcp.call('convert_record', { recordId: sourceId, toDatabaseId: DB_PROJ, templateId, sourceStage: 'reviewed' });
+    N('J6: MCP conversion returns destination and auditable change set', converted.destId && converted.changesetId ? 'PASS' : 'FAIL');
+    assert.ok(converted.destId && converted.changesetId, 'conversion identifiers missing');
+    const replayed = await mcp.call('convert_record', { recordId: sourceId, toDatabaseId: DB_PROJ, templateId, sourceStage: 'reviewed' });
+    const rows = await pullAll(T), destinations = rows.filter(r => r.collection === 'tasks' && !r.data?.deleted && r.data?.convertedFrom === sourceId && r.data?.boardId === DB_PROJ);
+    N('J6: conversion replay returns same destination without duplicate records', replayed.destId === converted.destId && destinations.length === 1 ? 'PASS' : 'FAIL');
+    const related = rows.find(r => r.collection === 'links' && !r.data?.deleted && r.data?.fromId === converted.destId && r.data?.toId === sourceId && r.data?.kind === 'related');
+    N('J6: conversion creates backlink and advances source stage', related && rows.find(r => r.id === sourceId)?.data?.status === 'reviewed' ? 'PASS' : 'FAIL');
+    await page.goto(`${BASE}/boards/${DB_PROJ}/tasks/${converted.destId}`, { waitUntil: 'domcontentloaded' });
+    const landed = await poll(async () => (await page.locator('[aria-label$=" title"]').first().inputValue().catch(() => '')) === title, 20000);
+    N('J6: converted destination title renders in the browser', landed ? 'PASS' : 'FAIL');
+    const bodyVisible = await poll(() => page.getByText(bodyText, { exact: false }).count().then(count => count > 0), 15000);
+    N('J6: conversion template body renders in the browser', bodyVisible ? 'PASS' : 'FAIL');
+    // Related groups start collapsed if data arrives after the panel mounts.
+    // Open the actual group and follow its control to verify the backlink.
+    const relatedGroup = page.getByRole('button', { name: /^Related\s+1$/ });
+    await relatedGroup.waitFor({ state: 'visible', timeout: 20000 });
+    if (await relatedGroup.getAttribute('aria-expanded') === 'false') await relatedGroup.click();
+    const sourceLink = page.getByRole('button', { name: title, exact: true });
+    await sourceLink.waitFor({ state: 'visible', timeout: 15000 });
+    await sourceLink.click();
+    await page.waitForURL(`${BASE}/boards/${DB_OBS}/tasks/${sourceId}`);
+    N('J6: related source record is rendered as a navigable browser link', (await page.locator('[aria-label$=" title"]').first().inputValue()) === title ? 'PASS' : 'FAIL');
+    await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' });
+    const history = await api('/api/changes?mine=1', { token: T });
+    const changeIndex = history.data?.changesets?.findIndex(change => change.id === converted.changesetId);
+    assert.ok(changeIndex >= 0, 'original conversion change set missing from current history');
+    const changeRow = page.locator('section').filter({ hasText: 'Recent AI changes' }).locator('li').nth(changeIndex);
+    await changeRow.getByRole('button', { name: 'Undo', exact: true }).waitFor({ timeout: 15000 });
+    await changeRow.getByRole('button', { name: 'Undo', exact: true }).click();
+    const confirmation = page.locator('div').filter({ has: page.getByText('Undo this change set?', { exact: true }) }).last();
+    await confirmation.getByRole('button', { name: 'Undo', exact: true }).click();
+    const restored = await poll(async () => {
+      const current = await pullAll(T), dest = current.find(r => r.id === converted.destId), link = current.find(r => r.id === related?.id);
+      return (!dest || dest.data?.deleted === true) && (!link || link.data?.deleted === true) && current.find(r => r.id === sourceId)?.data?.status === 'logged';
+    }, 20000);
+    N('J6: Settings undo removes conversion destination/link and restores source stage', restored ? 'PASS' : 'FAIL');
+  } finally { await mcp.close(); }
 }
 
 /* ==================== J7: archive ==================== */
@@ -662,7 +686,7 @@ async function failureSuite(browser, page, E, V) {
   N(`J8: conflicting writes merge per-field (title kept=${keptTitle} desc kept=${keptDesc})`, edited ? (keptTitle && keptDesc ? 'PASS' : 'FAIL') : 'NOT RUN');
   await ctxA.close();
   // 3) deleted capture context → draft preserved + explicit re-pick required
-  const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: E !== 'firefox' });
   const p3 = await loginPage(ctx3, admin);
   await p3.addInitScript(() => {
     // P3-R3: field context is account-scoped — ws_field_ctx:<uid> (ws_uid is
@@ -680,7 +704,7 @@ async function failureSuite(browser, page, E, V) {
   N(`J8: deleted capture context → draft preserved + re-pick required (banner=${shownGone} draft=${draftKept})`, shownGone && draftKept ? 'PASS' : 'FAIL');
   await ctx3.close();
   // 4) failed upload → distinct error state (21MB file rejected with toast)
-  const ctx4 = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const ctx4 = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: E !== 'firefox' });
   const p4 = await loginPage(ctx4, admin);
   await p4.goto(`${BASE}/capture`, { waitUntil: 'domcontentloaded' });
   await sleep(1200);
@@ -700,31 +724,45 @@ async function failureSuite(browser, page, E, V) {
 
 /* ==================== perf ==================== */
 async function perfSuite(page, E, V) {
-  // table render over the 1100-row db (row titles are input values, not text)
+  const N = (check, ok, detail) => note(E, V, check, ok ? 'PASS' : 'FAIL', ok ? null : detail);
   let t0 = Date.now();
   await page.goto(`${BASE}/boards/${DB_PERF}`, { waitUntil: 'domcontentloaded' });
-  await poll(async () => page.evaluate(() =>
+  const firstVisible = await poll(async () => page.evaluate(() =>
     [...document.querySelectorAll('input')].some((i) => (i.value ?? '').includes('Perf row 0')) ||
     document.body.innerText.includes('Perf row 0'),
   ), 30000, 500);
-  markPerf('records db open→first row (1100 rows)', E, V, Date.now() - t0);
-  // sync timings via REST (server-side truth)
+  const openMs = Date.now() - t0;
+  markPerf('records db open→first row (1100 rows)', E, V, openMs, firstVisible ? 'visible' : 'missing');
+  N('J-perf: 1100-row database paints its first row', firstVisible, `first row was not visible after ${openMs}ms`);
+
   t0 = Date.now();
-  const chunk = Array.from({ length: 400 }, (_, i) => ({ id: `v8_perfpush_${i}`, collection: 'tasks', patch: { boardId: DB_PERF, title: `push ${i}`, status: 'open', order: `zz${i}`, createdAt: Date.now() } }));
+  const chunk = Array.from({ length: 400 }, (_, i) => ({ id: `v8_perfpush_${E}_${i}`, collection: 'tasks', patch: { boardId: DB_PERF, title: `push ${E} ${i}`, status: 'open', order: `zz${i}`, createdAt: Date.now() } }));
   const pr = await push(T, chunk);
-  markPerf('sync push 400 records', E, V, Date.now() - t0, `status=${pr.status}`);
+  const pushMs = Date.now() - t0;
+  markPerf('sync push 400 records', E, V, pushMs, `status=${pr.status}`);
+  N('J-perf: 400-record sync push is accepted', pr.status === 200, `push status ${pr.status} after ${pushMs}ms`);
+
   t0 = Date.now();
   const all = await pullAll(T);
-  markPerf(`sync pull since=0 (${all.length} rows)`, E, V, Date.now() - t0);
-  const maxSeq = Math.max(...all.map((r) => r.seq ?? 0));
+  const pullMs = Date.now() - t0;
+  const perfRows = all.filter(row => row.collection === 'tasks' && row.data?.boardId === DB_PERF && row.data?.deleted !== true);
+  markPerf(`sync pull since=0 (${all.length} rows)`, E, V, pullMs, `perfRows=${perfRows.length}`);
+  N('J-perf: full pull contains the 1100 seeded rows and the 400-row push', perfRows.length >= PERF_N + 400, `pulled ${perfRows.length} performance rows in ${pullMs}ms`);
+
+  const maxSeq = all.reduce((max, row) => Math.max(max, row.seq ?? 0), 0);
   t0 = Date.now();
-  await api(`/api/sync/pull?since=${maxSeq}`, { token: T });
-  markPerf('sync pull incremental (no-op)', E, V, Date.now() - t0);
-  // navigation between dashboard page and the big db
+  const incremental = await api(`/api/sync/pull?since=${maxSeq}`, { token: T });
+  const idleMs = Date.now() - t0;
+  const idleRows = incremental.data?.records?.length ?? -1;
+  markPerf('sync pull incremental (no-op)', E, V, idleMs, `status=${incremental.status} rows=${idleRows}`);
+  N('J-perf: incremental pull after the cursor returns no new rows', incremental.status === 200 && idleRows === 0, `status ${incremental.status}, rows ${idleRows}, ${idleMs}ms`);
+
   t0 = Date.now();
   await page.goto(`${BASE}/boards`, { waitUntil: 'domcontentloaded' });
-  await poll(() => page.locator('text=Perf Records').count().then((c) => c > 0), 15000);
-  markPerf('boards index navigation', E, V, Date.now() - t0);
+  const listed = await poll(() => page.locator('text=Perf Records').count().then((c) => c > 0), 15000);
+  const navMs = Date.now() - t0;
+  markPerf('boards index navigation', E, V, navMs, listed ? 'listed' : 'missing');
+  N('J-perf: boards index lists the 1100-row database', listed, `Perf Records was not listed after ${navMs}ms`);
 }
 
 /* ==================== MATRIX ==================== */
@@ -739,14 +777,17 @@ const runEngines = only ? only.split(',') : ['chromium', 'firefox', 'webkit'];
 console.log(`machine: ${cpus().length} cores, ${(totalmem() / 1073741824).toFixed(0)}GB RAM, node ${process.version}`);
 
 let shared = { packRoot: null };
-const run = async (label, fn) => { try { return await fn(); } catch (e) { note('?', '?', `${label} crashed`, 'FAIL'); console.log(`    💥 ${label}: ${e?.message?.slice(0, 200)}`); return undefined; } };
+const run = (label, fn) => certification.run(`${activeEngine}/${activeViewport}/${label}`, activeEngine, activeViewport, fn);
 
 for (const name of runEngines) {
   const engine = engines[name];
-  if (!engine) continue;
-  const browser = await engine.launch();
+  if (!engine) { note(name, 'none', 'mandatory browser selection', 'FAIL', new Error(`Unknown engine ${name}`)); continue; }
+  activeEngine = name;
+  let browser;
+  try { browser = await certification.trackBrowser(await engine.launch(), name); } catch (error) { note(name, 'none', 'mandatory browser launch', 'FAIL', error); continue; }
   console.log(`\n=== ${name} ===`);
 
+  activeViewport = 'desktop';
   // desktop
   {
     const ctx = await browser.newContext({ viewport: DESKTOP });
@@ -770,9 +811,10 @@ for (const name of runEngines) {
     await ctx.close();
   }
 
+  activeViewport = 'compact';
   // compact touch
   {
-    const ctx = await browser.newContext({ viewport: COMPACT, hasTouch: true, isMobile: true });
+    const ctx = await browser.newContext({ viewport: COMPACT, hasTouch: true, isMobile: name !== 'firefox' });
     const page = await loginPage(ctx, admin);
     if (name === 'chromium') {
       await run('archiveSuite-compact', () => archiveSuite(page, name, 'compact'));
@@ -787,11 +829,13 @@ for (const name of runEngines) {
 
   // chromium extras: tablet + 320px archive spot-check
   if (name === 'chromium') {
+    activeViewport = 'tablet';
     const ctx = await browser.newContext({ viewport: TABLET });
     const page = await loginPage(ctx, admin);
     await run('archiveSuite-tablet', () => archiveSuite(page, name, 'tablet'));
     await ctx.close();
-    const ctx2 = await browser.newContext({ viewport: NARROW, hasTouch: true, isMobile: true });
+    activeViewport = '320px';
+    const ctx2 = await browser.newContext({ viewport: NARROW, hasTouch: true, isMobile: name !== 'firefox' });
     const p2 = await loginPage(ctx2, admin);
     await run('archiveSuite-320', () => archiveSuite(p2, name, '320px'));
     await ctx2.close();
@@ -814,4 +858,6 @@ console.log('\n==================== PERF (measured) ====================');
 for (const p of perf) console.log(`  [${p.engine}/${p.viewport}] ${p.metric}: ${p.ms}ms ${p.extra}`);
 console.log(`  conditions: ${cpus().length} cores, ${(totalmem() / 1073741824).toFixed(0)}GB RAM, node ${process.version}, local wrangler dev --local, playwright`);
 console.log(`\nTOTAL: ${byStatus.PASS} PASS / ${byStatus.FAIL} FAIL / ${byStatus['NOT RUN']} NOT RUN`);
-process.exit(byStatus.FAIL ? 1 : 0);
+certification.setMetadata('performance', perf);
+certification.finish();
+process.exit(byStatus.FAIL || process.exitCode ? 1 : 0);

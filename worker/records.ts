@@ -3,6 +3,7 @@
 
 import { applyChanges, type AppliedChange, type ApplyResult } from './sync';
 import type { Env } from './auth';
+import type { ChangesetCtx } from './changesets';
 
 export interface RecRow {
   id: string;
@@ -84,7 +85,14 @@ export async function casUpdate(
   collection: string,
   id: string,
   mutate: (data: Record<string, unknown>, rev: number) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>,
-  opts: { attempts?: number; recordTo?: AppliedChange[] } = {},
+  opts: {
+    attempts?: number;
+    recordTo?: AppliedChange[];
+    journal?:ChangesetCtx;
+    /** Phase 4: emit semantic events for applied changes (MCP/automation callers). */
+    ectx?: { waitUntil(p: Promise<unknown>): void };
+    source?: 'mcp' | 'automation';
+  } = {},
 ): Promise<{ row: RecRow; result: ApplyResult } | { conflict: true } | { notFound: true }> {
   const attempts = opts.attempts ?? 5;
   for (let i = 0; i < attempts; i++) {
@@ -92,7 +100,14 @@ export async function casUpdate(
     if (!row || row.collection !== collection || row.data.deleted === true) return { notFound: true };
     const patch = await mutate(row.data, row.rev);
     if (patch === null) return { row, result: { rejected: 0, changed: 0, applied: [] } };
-    const result = await applyChanges(env, userId, [{ id, collection, patch, ts: Date.now() }], { serverTs: true, expect: new Map([[id, row.rev]]) });
+    const result = await applyChanges(env, userId, [{ id, collection, patch, ts: Date.now() }], {
+      serverTs: true,
+      expect: new Map([[id, row.rev]]),
+      journal:opts.journal,
+      event: { source: opts.source ?? 'mcp',ctx:opts.ectx,changesetId:opts.journal?.id },
+    });
+    if(result.partialError) throw new Error('write interrupted; retry');
+    if(result.rejectedItems?.length) throw new Error(result.rejectedItems.map(r=>r.reason).join('; '));
     if (!result.conflicts?.length) {
       // Record landed writes into the caller's change set synchronously — no
       // write can be stranded by a later failure in the tool call (§4.2).
