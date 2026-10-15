@@ -11,6 +11,7 @@ import { sha256Hex } from '../worker/password';
 import { planTemplateInstantiation } from '../shared/templates';
 import type { Env } from '../worker/auth';
 import type { Mutation } from '../shared/types';
+import { interceptRecordWrites } from './d1WriteBoundary';
 
 // Only background acceleration is disabled. Routes, sessions, SQLite CAS,
 // transaction guards, migrations and explicit recovery use actual D1.
@@ -427,14 +428,10 @@ describe('real D1 approval authority, replay and stage gates', () => {
   it('the transaction observes a gate configuration committed after the precheck', async () => {
     await applyChanges(env, 'alice', [change('racing', 'tasks', { title: 'Racing', boardId: 'intake', status: 'todo' })]);
     let first = true;
-    const raced = new Proxy(db, { get(target, key) {
-      if (key === 'batch') return async (statements: D1PreparedStatement[]) => {
-        if (first) { first = false; await applyChanges(env, 'alice', [change('intake', 'boards', { approvalGate: { stageId: 'done' } })]); }
-        return target.batch(statements);
-      };
-      const value = Reflect.get(target, key);
-      return typeof value === 'function' ? value.bind(target) : value;
-    } });
+    const raced = interceptRecordWrites(db, async (target, statements) => {
+      if (first) { first = false; await applyChanges(env, 'alice', [change('intake', 'boards', { approvalGate: { stageId: 'done' } })]); }
+      return target.batch(statements);
+    });
     const result = await applyChanges({ ...env, DB: raced }, 'bob', [change('racing', 'tasks', { status: 'done' })], { event: { source: 'client', ctx } });
     expect(result.changed).toBe(0);
     expect(result.partialError).toBeTruthy();

@@ -10,6 +10,7 @@ import type { Env } from '../worker/auth';
 import { files, QUOTA_BYTES } from '../worker/files';
 import { sha256Hex } from '../worker/password';
 import { publicFormsApi, resumeSubmission } from '../worker/forms';
+import { interceptD1Batches } from './d1WriteBoundary';
 
 // Keep routes, SQL transactions and explicit recovery real. Background
 // acceleration must not outlive this disposable fixture's assertions.
@@ -92,32 +93,18 @@ it('C18 rejects file completion when a concurrent chunk changes the validated by
     db.prepare("INSERT INTO file_chunks(file_id,idx,data) VALUES('race',0,?)").bind(new Uint8Array([1])),
   ]);
   let raced = false;
-  const raceDb = new Proxy(db, { get(target, key) {
-    if (key === 'prepare') return (sql: string) => {
-      const statement = target.prepare(sql);
-      if (!sql.startsWith('UPDATE files SET mime')) return statement;
-      const wrap = (bound: D1PreparedStatement): D1PreparedStatement => new Proxy(bound, { get(prepared, method) {
-        if (method === 'bind') return (...values: unknown[]) => wrap(prepared.bind(...values));
-        if (method === 'run') return async () => {
-          if (!raced) {
-            raced = true;
-            await target.prepare("UPDATE file_chunks SET data=? WHERE file_id='race' AND idx=0").bind(new Uint8Array([1, 2])).run();
-          }
-          return prepared.run();
-        };
-        const value = Reflect.get(prepared, method);
-        return typeof value === 'function' ? value.bind(prepared) : value;
-      } });
-      return wrap(statement);
-    };
-    const value = Reflect.get(target, key);
-    return typeof value === 'function' ? value.bind(target) : value;
-  } });
+  const raceDb = interceptD1Batches(db, async (target, statements, sql) => {
+    if (!raced && sql.some(s => s.startsWith('UPDATE files SET mime'))) {
+      raced = true;
+      await target.prepare("UPDATE file_chunks SET data=? WHERE file_id='race' AND idx=0").bind(new Uint8Array([1, 2])).run();
+    }
+    return target.batch(statements);
+  });
   const response = await files.request('http://localhost/race/complete', {
     method: 'POST', headers: { authorization: 'Bearer review-session', 'content-type': 'application/json' },
     body: JSON.stringify({ mime: 'image/png', size: 1, chunks: 1 }),
   }, { ...env, DB: raceDb });
-  expect(response.status).toBe(409);
+  expect(raced).toBe(true); expect(response.status).toBe(409);
   expect((await db.prepare("SELECT complete FROM files WHERE id='race'").first<{ complete: number }>())!.complete).toBe(0);
 });
 

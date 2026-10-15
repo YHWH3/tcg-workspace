@@ -67,7 +67,10 @@ export async function findApprovedApproval(
 export async function guardStageWrites(
   env: { DB: D1Database },
   incoming: Mutation[],
-  reject: (id: unknown, collection: unknown, reason: string) => void
+  reject: (id: unknown, collection: unknown, reason: string) => void,
+  /** Merged board configurations from this same write, including new boards.
+   * Persisted rows alone miss a gate created later in an atomic batch. */
+  proposedBoards?: ReadonlyMap<string, Record<string, unknown>>,
 ): Promise<void> {
   const stageWrites = incoming.filter(
     (ch) => ch.collection === 'tasks' && ch.patch && typeof ch.patch.status === 'string'
@@ -90,6 +93,7 @@ export async function guardStageWrites(
     }
   }
   const boards = await fetchRecordData(env.DB, [...boardIds]);
+  for (const [id, data] of proposedBoards ?? []) if (boardIds.has(id)) boards.set(id, data);
 
   for (const ch of stageWrites) {
     const to = ch.patch.status as string;

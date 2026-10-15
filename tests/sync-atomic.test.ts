@@ -37,6 +37,9 @@ class FakeD1 {
 
   exec(sql: string, binds: unknown[]): { rows?: Row[]; changes: number } {
     this.seen.push(sql.slice(0, 60));
+    // This focused fixture exercises the legacy Core path. Activated ACL and
+    // real SQLite transaction fences are tested in phase5-writes-d1.test.ts.
+    if (sql === 'SELECT generation,enabled FROM access_state WHERE id=1') return { rows: [{ generation: 1, enabled: 0 } as unknown as Row], changes: 0 };
     // Atomic expectation guard (must precede the generic SELECT branches).
     if (/JOIN json_each\(\?\)/.test(sql)) {
       const expectMap = JSON.parse(String(binds[0])) as Record<string, number>;
@@ -107,10 +110,11 @@ class FakeD1 {
   }
 
   async batch(stmts: D1PreparedStatement[]): Promise<D1Result<unknown>[]> {
-    this.batchWrites.push(stmts.map(s => this.statements.get(s)!).filter(s => /INSERT INTO records/.test(s.sql)).map(s => String(s.binds[0])));
+    const writes = stmts.map(s => this.statements.get(s)!).filter(s => /INSERT INTO records/.test(s.sql)).map(s => String(s.binds[0]));
+    if (writes.length) this.batchWrites.push(writes);
     // The null callback runs before the snapshot → the raced write is part
     // of the state the transaction sees (it landed before the batch began).
-    this.interleave?.(null, this);
+    if (writes.length) this.interleave?.(null, this);
     const snapshot = new Map([...this.rows].map(([k, v]) => [k, { ...v }]));
     const maxSeq = this.maxSeq;
     const out: D1Result<unknown>[] = [];

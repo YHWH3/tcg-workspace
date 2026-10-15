@@ -54,6 +54,8 @@ async function postLoginMaintenance(uid: string) {
 
 export async function initAuth() {
   const token = getToken();
+  const uid = localStorage.getItem('ws_uid');
+  const current = () => getToken() === token && localStorage.getItem('ws_uid') === uid;
   const user = cachedUser();
   if (!token) {
     authStore.set({ status: 'unauthed', user: null });
@@ -63,10 +65,12 @@ export async function initAuth() {
   authStore.set({ status: 'authed', user });
   try {
     const { user: fresh } = await api<{ user: PublicUser }>('/api/me');
+    if (!current()) return;
     cacheUser(fresh);
     authStore.set({ status: 'authed', user: fresh });
     await postLoginMaintenance(fresh.id);
   } catch (e) {
+    if (!current()) return;
     if (e instanceof ApiError && e.status === 401) dropSession();
     else if (user) await postLoginMaintenance(user.id); // offline open — still migrate
   }
@@ -153,16 +157,19 @@ export async function signIn(input: { username: string; password: string }) {
 }
 
 export async function signOut() {
+  const token = getToken(), uid = localStorage.getItem('ws_uid');
   try {
     await api('/api/auth/logout', { method: 'POST' });
   } catch {
     /* offline is fine */
   }
-  dropSession();
+  if (getToken() === token && localStorage.getItem('ws_uid') === uid) dropSession();
 }
 
 export async function updateMe(patch: { name?: string; color?: string }) {
+  const token = getToken(), uid = localStorage.getItem('ws_uid');
   const { user } = await api<{ user: PublicUser }>('/api/me', { method: 'PATCH', body: patch });
+  if (getToken() !== token || localStorage.getItem('ws_uid') !== uid) throw new Error('session_changed');
   cacheUser(user);
   authStore.set({ status: 'authed', user });
 }

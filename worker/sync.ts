@@ -9,6 +9,11 @@ import { guardStageWrites } from './approvals';
 import type { SemanticEvent } from '../shared/events';
 import type { ChangesetCtx } from './changesets';
 import {D1BudgetExhausted} from './d1budget';
+import { AccessError } from './access';
+import { authorizeMutations, writeAuthorityFences, type WriteAuthority } from './mutationAccess';
+import { readAuthorizedRecords, RecordAccessError } from './recordAccess';
+import { loadAccessState, pullAuthorized, syncFailure, validateSyncProtocol } from './syncAccess';
+import { snapshotsApi } from './syncSnapshot';
 
 const MAX_CHANGES = 500;
 const MAX_ID_LEN = 64;
@@ -60,26 +65,31 @@ interface Plan {
   beforeTs: Record<string, number>;
 }
 
-async function readRows(db: D1Database, ids: string[]): Promise<Map<string, RecordRow>> {
-  const out = new Map<string, RecordRow>();
-  if (!ids.length) return out;
+function rowsStatement(db: D1Database, ids: string[]): D1PreparedStatement {
   // One binding call for the whole id set. A 100-parameter chunk made a
   // 150-row write spend its budget on reads and commit nothing.
   // At most 100 placeholders keeps the fake D1 fixtures and D1's parameter cap.
-  if (ids.length > 100) {
-    const { results } = await db
+  if (ids.length > 100 || !ids.length) {
+    return db
       .prepare(`SELECT id, collection, data, field_ts, seq, updated_by, updated_at FROM records WHERE id IN (SELECT value FROM json_each(?))`)
-      .bind(JSON.stringify(ids))
-      .all<RecordRow>();
-    for (const row of results) out.set(row.id, row);
-    return out;
+      .bind(JSON.stringify(ids));
   }
-  const { results } = await db
+  return db
     .prepare(`SELECT id, collection, data, field_ts, seq, updated_by, updated_at FROM records WHERE id IN (${ids.map(() => '?').join(',')})`)
-    .bind(...ids)
-    .all<RecordRow>();
-  for (const row of results) out.set(row.id, row);
-  return out;
+    .bind(...ids);
+}
+async function readRows(db: D1Database, ids: string[]): Promise<Map<string, RecordRow>> {
+  if (!ids.length) return new Map();
+  const { results } = await rowsStatement(db, ids).all<RecordRow>();
+  return new Map(results.map(row => [row.id, row]));
+}
+async function readWriteSnapshot(db: D1Database, ids: string[]) {
+  const [records, stateResult] = await db.batch([
+    rowsStatement(db, ids), db.prepare('SELECT generation,enabled FROM access_state WHERE id=1'),
+  ]);
+  const state = stateResult.results[0] as { generation: number; enabled: number } | undefined;
+  if (!state || !Number.isSafeInteger(state.generation) || state.generation < 1 || ![0, 1].includes(state.enabled)) throw new AccessError('permission_schema_unavailable');
+  return { existing: new Map((records.results as unknown as RecordRow[]).map(row => [row.id, row])), ...state };
 }
 
 function applyPatches(plan: Plan, existing: RecordRow | null): void {
@@ -100,6 +110,9 @@ function applyPatches(plan: Plan, existing: RecordRow | null): void {
 }
 
 export interface ApplyOptions {
+  /** Set only by the sync router. Rechecked against the same authority snapshot
+   * used to plan writes so a revocation after HTTP validation cannot slip in. */
+  syncProtocol?: { protocol?: unknown; generation?: unknown };
   createOnly?:Set<string>;
   /** Persist audit items in the same transaction as the record and event. */
   journal?: ChangesetCtx;
@@ -241,12 +254,17 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     return true;
   });
 
+  if ((opts.expect?.size ?? 0) > MAX_EXPECTED) throw new Error(`at most ${MAX_EXPECTED} expected ids per call`);
+  if (!incoming.length && !opts.expect?.size) return { rejected, rejectedItems, changed: 0, applied: [] };
+  // One binding request still loads rows. The authority state is in the same
+  // read transaction, not a cached flag or an optional caller-provided grant.
+  const snapshot = await readWriteSnapshot(db, [...new Set([...incoming.map(ch => ch.id), ...(opts.expect?.keys() ?? [])])]);
+  if (opts.syncProtocol) validateSyncProtocol(snapshot, opts.syncProtocol.protocol, opts.syncProtocol.generation);
+  const existing = snapshot.existing;
   if (opts.serverTs && incoming.length) {
     // Read field_ts floors for stamping before planning.
-    const allIds = [...new Set(incoming.map((c) => c.id))];
-    const rows = await readRows(db, allIds);
     const floors = new Map<string, number>();
-    for (const [id, row] of rows) {
+    for (const [id, row] of existing) {
       try {
         const ts = JSON.parse(row.field_ts) as Record<string, number>;
         floors.set(id, Math.max(0, ...Object.values(ts)));
@@ -258,10 +276,31 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   }
   incoming=incoming.map(ch=>({...ch,patch:{...ch.patch}}));
 
+  let authority: WriteAuthority | undefined;
+  if (snapshot.enabled === 1) {
+    try {
+      const authorization = await authorizeMutations(db, userId, incoming, existing, opts.expect, snapshot.generation);
+      authority = authorization.authority;
+      for (const item of authorization.rejected) reject(item.id, item.collection, item.reason);
+      incoming = authorization.changes;
+      if (authorization.blockedExpectation || (rejected && (opts.atomic === true || (!!opts.expect?.size && opts.atomic !== false)))) return { rejected, rejectedItems, changed: 0, applied: [] };
+    } catch (error) {
+      if (!(error instanceof RecordAccessError)) throw error;
+      for (const ch of incoming) reject(ch.id, ch.collection, error.code === 'access_reset_required' ? 'access_changed_retry' : 'authorization_budget');
+      return { rejected, rejectedItems, changed: 0, applied: [] };
+    }
+  }
+
   // Phase 4 approval gates: a status write into a gated stage without a
   // matching approved decision is refused here — on EVERY pathway (client
   // push, MCP, automation, undo) — so generic sync can never bypass it.
-  await guardStageWrites(env, incoming, reject);
+  const proposedBoards = new Map<string, { data: Record<string, unknown>; field_ts: Record<string, number> }>();
+  for (const ch of incoming) if (ch.collection === 'boards') {
+    const row = existing.get(ch.id);
+    const initial = proposedBoards.get(ch.id) ?? (row?.collection === 'boards' ? { data: JSON.parse(row.data), field_ts: JSON.parse(row.field_ts) } : null);
+    proposedBoards.set(ch.id, mergeRecord(initial, ch));
+  }
+  await guardStageWrites(env, incoming, reject, new Map([...proposedBoards].map(([id, r]) => [id, r.data])));
 
   const plans = new Map<string, Plan>();
   for (const ch of incoming) {
@@ -277,8 +316,6 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     plan.patches.push({ patch: ch.patch, ts: ch.ts });
   }
 
-  const ids = [...plans.keys()];
-  const existing = await readRows(db, ids);
   for (const plan of plans.values()) {
     const row = existing.get(plan.id);
     if (row && row.collection !== plan.collection) {
@@ -302,6 +339,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   if (opts.expect && expected.size > MAX_EXPECTED) throw new Error(`at most ${MAX_EXPECTED} expected ids per call`);
   if (opts.expect && expected.size) {
     const conflicts = checkExpectations(existing, opts.expect);
+    if (authority && conflicts.length) await authorizedConflicts(db, userId, conflicts);
     if (conflicts.length && opts.atomic !== false) {
       return { rejected: rejected + expected.size, rejectedItems, changed: 0, conflicts, applied: [] };
     }
@@ -313,17 +351,30 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     if (conflicts.length) {
       // Non-atomic: drop the failed ids, write the rest.
       for (const c of conflicts) plans.delete(c.id);
-      const result = await flushPlans(env, userId, plans, expected, now, opts);
-      result.rejected += rejected;
-      result.conflicts = conflicts;
+      const result = await flushPlans(env, userId, plans, expected, now, opts, authority);
+      result.rejected += rejected + conflicts.length;
+      if (rejectedItems.length) result.rejectedItems = [...rejectedItems, ...(result.rejectedItems ?? [])];
+      result.conflicts = [...conflicts, ...(result.conflicts ?? [])];
       return result;
     }
   }
 
-  const result = await flushPlans(env, userId, plans, expected, now, opts);
+  const result = await flushPlans(env, userId, plans, expected, now, opts, authority);
   result.rejected += rejected;
   if (rejectedItems.length) result.rejectedItems = [...rejectedItems, ...(result.rejectedItems ?? [])];
   return result;
+}
+
+/** A conflict reply is a read. Recheck CURRENT access before returning content
+ * or revision metadata after a race, especially after a relation/root move. */
+async function authorizedConflicts(db: D1Database, userId: string, conflicts: ConflictInfo[]): Promise<void> {
+  const { records } = await readAuthorizedRecords(db, userId, conflicts.map(c => c.id), { includeDeleted: true });
+  for (const conflict of conflicts) {
+    const current = records.get(conflict.id);
+    conflict.current = current ? { ...current.data } : null;
+    conflict.currentRev = current?.rev ?? null;
+    conflict.updatedBy = null; conflict.updatedAt = null;
+  }
 }
 
 /** Extract the fields that changed on a written row for change-set recording. */
@@ -368,13 +419,18 @@ function expectationGuard(db: D1Database, expect: Map<string, number>): D1Prepar
 }
 
 /** Write the planned merges with seq CAS, retries and applied-change capture. */
-async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, expected: Set<string>, now: number, opts: ApplyOptions): Promise<ApplyResult> {
+async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, expected: Set<string>, now: number, opts: ApplyOptions, authority?: WriteAuthority): Promise<ApplyResult> {
   const db = env.DB;
   const conflicts: ConflictInfo[] = [];
   const applied: AppliedChange[] = [];
   const isAtomic = opts.atomic === true || (opts.atomic !== false && expected.size > 0);
   const eventIds: string[] = [];
-  const stmtFor = (p: Plan) =>
+  const stmtFor = (p: Plan) => authority ? db.prepare(`INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at,space_id)
+      VALUES(?,?,?,?,(SELECT COALESCE(MAX(seq),0)+1 FROM records),?,?,?)
+      ON CONFLICT(id) DO UPDATE SET data=excluded.data,field_ts=excluded.field_ts,
+        seq=(SELECT COALESCE(MAX(seq),0)+1 FROM records),updated_by=excluded.updated_by,updated_at=excluded.updated_at,space_id=excluded.space_id
+      WHERE records.seq=? RETURNING seq`)
+      .bind(p.id,p.collection,JSON.stringify(p.data),JSON.stringify(p.field_ts),userId,now,authority.spaces.get(p.id)!,p.baseSeq) :
     db
       .prepare(
         `INSERT INTO records (id, collection, data, field_ts, seq, updated_by, updated_at)
@@ -399,6 +455,7 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
       size=opts.atomic===true?todo.length:(isAtomic && expected.has(todo[i].id)?todo.filter(p=>expected.has(p.id)).length:100);
       const chunk = todo.slice(i, i + size);
       const statements: D1PreparedStatement[] = [];
+      if (authority) statements.push(...writeAuthorityFences(db, authority));
       if (opts.execution) statements.push(opts.execution.guard());
       const chunkAtomic=opts.atomic===true || (isAtomic&&chunk.some(p=>expected.has(p.id)));
       if (chunkAtomic) statements.push(expectationGuard(db, new Map(chunk.map(p => [p.id, p.baseSeq]))));
@@ -448,6 +505,13 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
       try {
         results = await db.batch(statements);
       } catch (err) {
+        if (authority && err instanceof Error && /malformed JSON/i.test(err.message)) {
+          // No protected state in this batch committed. Return a retryable
+          // failure without hydrating unrestricted records. Earlier chunks
+          // remain truthfully listed in applied and their journals/outboxes.
+          if (opts.event && eventIds.length) scheduleOutbox(env, opts.event.ctx, eventIds);
+          return { rejected: 0, changed: applied.length, applied, partialError: 'access or dependency changed; reauthorize and retry' };
+        }
         if (chunkAtomic && err instanceof Error && /malformed JSON/i.test(err.message) && !opts.execution) {
           const fresh = await readRows(db, chunk.map(p=>p.id));
           for (const p of chunk) conflicts.push({id:p.id,collection:p.collection,expectedRev:opts.expect?.get(p.id)??p.baseSeq,currentRev:null,current:null,updatedBy:null,updatedAt:null});
@@ -481,10 +545,12 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
         }
         const rev = Number(r.results?.[0]?.seq ?? (await readRows(db,[p.id])).get(p.id)?.seq ?? 0);
         applied.push(makeApplied(p,rev));
+        authority?.dependencies.set(p.id, rev);
         const event=staged.find(s=>s.plan===p); if(event) eventIds.push(event.id);
       }
       if(chunkAtomic&&conflicts.length) {
-        hydrateConflicts(conflicts,await readRows(db,conflicts.map(c=>c.id)));
+        if (authority) await authorizedConflicts(db,userId,conflicts);
+        else hydrateConflicts(conflicts,await readRows(db,conflicts.map(c=>c.id)));
         if(opts.event&&eventIds.length) scheduleOutbox(env,opts.event.ctx,eventIds);
         return {rejected:conflicts.length+todo.length-i-chunk.length,changed:applied.length,applied,conflicts};
       }
@@ -493,6 +559,7 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
       todo = [];
       break;
     }
+    if (authority) return { rejected: 0, changed: applied.length, applied, partialError: 'record changed; reauthorize and retry' };
     attempt++;
     // Concurrent writer touched these rows: re-read, re-merge, retry.
     const fresh = await readRows(db, failed.map((p) => p.id));
@@ -506,7 +573,10 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
     }
   }
 
-  if (conflicts.length) hydrateConflicts(conflicts, await readRows(db, conflicts.map(c=>c.id)));
+  if (conflicts.length) {
+    if (authority) await authorizedConflicts(db,userId,conflicts);
+    else hydrateConflicts(conflicts, await readRows(db, conflicts.map(c=>c.id)));
+  }
   if (opts.event && eventIds.length) scheduleOutbox(env, opts.event.ctx, eventIds);
   return { rejected: 0, changed: applied.length, conflict: todo.length > 0, conflicts: conflicts.length ? conflicts : undefined, applied };
 }
@@ -523,15 +593,24 @@ export function pokeLive(env: Env, ctx: { waitUntil(p: Promise<unknown>): void }
 
 export const sync = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 sync.use('*', requireAuth);
+sync.onError((error, c) => {
+  const result = syncFailure(error);
+  if (result) return c.json({ error: result.error }, result.status);
+  throw error;
+});
+sync.route('/snapshot', snapshotsApi);
 
 sync.post('/push', async (c) => {
-  const body = await c.req.json<{ changes?: unknown }>().catch(() => null);
+  const body = await c.req.json<{ changes?: unknown; protocol?: unknown; generation?: unknown }>().catch(() => null);
   if (!body || !Array.isArray(body.changes)) return c.json({ error: 'invalid body' }, 400);
   if (body.changes.length > MAX_CHANGES) return c.json({ error: `max ${MAX_CHANGES} changes per request` }, 400);
+  const state = await loadAccessState(c.env.DB);
+  validateSyncProtocol(state, body.protocol, body.generation);
 
   const user = c.get('user');
   const result = await applyChanges(c.env, user.id, body.changes, {
     event: { source: 'client', ctx: c.executionCtx },
+    syncProtocol: { protocol: body.protocol, generation: body.generation },
   });
   if (result.partialError) return c.json({ error: 'write interrupted; retry', committed: result.applied.map(a=>a.id) }, 503);
   if (result.conflict) return c.json({ error: 'conflict, retry' }, 409);
@@ -542,8 +621,11 @@ sync.post('/push', async (c) => {
 });
 
 sync.get('/pull', async (c) => {
+  const state = await loadAccessState(c.env.DB);
+  validateSyncProtocol(state, c.req.query('protocol'), c.req.query('generation'));
   const since = Number(c.req.query('since') ?? '0');
   const limit = Math.min(Math.max(Number(c.req.query('limit') ?? '500') || 500, 1), 500);
+  if (state.enabled) return c.json(await pullAuthorized(c.env.DB, c.get('user').id, state, since, limit));
   const { results } = await c.env.DB
     .prepare('SELECT id, collection, data, field_ts, seq FROM records WHERE seq > ? ORDER BY seq LIMIT ?')
     .bind(Number.isFinite(since) ? since : 0, limit + 1)

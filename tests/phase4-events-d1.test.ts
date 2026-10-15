@@ -12,6 +12,7 @@ import { todayUtc } from '../shared/recurrence';
 import { recoverAutomationRuns } from '../worker/automations';
 import type { Env, AuthUser } from '../worker/auth';
 import type { Mutation } from '../shared/types';
+import { interceptRecordWrites } from './d1WriteBoundary';
 
 // Keep commit verification independent of opportunistic waitUntil execution.
 // Persistence, SQL and explicit outbox recovery below are all real D1 calls.
@@ -26,43 +27,32 @@ let db: D1Database;
 let env: Env;
 const ctx = { waitUntil: (_promise: Promise<unknown>) => {} };
 
-/** Only intercept the request/ack boundary; never emulate SQL or transactions. */
 function faultyDatabase(mode: Fault, failBatch = 1): D1Database {
   let calls = 0;
-  return new Proxy(db, {
-    get(target, key) {
-      if (key === 'batch') return async (statements: D1PreparedStatement[]) => {
-        if (++calls !== failBatch) return target.batch(statements);
-        if (mode === 'before') throw new Error('injected failure before commit');
-        if (mode === 'during') {
-          // A real SQLite error after the first record/event statements must roll
-          // back ALL statements, including earlier successful CAS writes.
-          return target.batch([
-            ...statements.slice(0, 3),
-            target.prepare("SELECT json_extract('{', '$')"),
-            ...statements.slice(3),
-          ]);
-        }
-        await target.batch(statements);
-        throw new Error('injected lost commit acknowledgement');
-      };
-      const value = Reflect.get(target, key);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
+  // Faults target record commits, not preliminary read-only D1 batches. This
+  // keeps the original before/during/after commit guarantees under refactors.
+  return interceptRecordWrites(db, async (target, statements) => {
+    if (++calls !== failBatch) return target.batch(statements);
+    if (mode === 'before') throw new Error('injected failure before commit');
+    if (mode === 'during') {
+      // A real SQLite error after the first record/event statements must roll
+      // back ALL statements, including earlier successful CAS writes.
+      return target.batch([
+        ...statements.slice(0, 3),
+        target.prepare("SELECT json_extract('{', '$')"),
+        ...statements.slice(3),
+      ]);
+    }
+    await target.batch(statements);
+    throw new Error('injected lost commit acknowledgement');
   });
 }
 
 function beforeBatchDatabase(callback: () => Promise<void>): D1Database {
   let first = true;
-  return new Proxy(db, {
-    get(target, key) {
-      if (key === 'batch') return async (statements: D1PreparedStatement[]) => {
-        if (first) { first = false; await callback(); }
-        return target.batch(statements);
-      };
-      const value = Reflect.get(target, key);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
+  return interceptRecordWrites(db, async (target, statements) => {
+    if (first) { first = false; await callback(); }
+    return target.batch(statements);
   });
 }
 

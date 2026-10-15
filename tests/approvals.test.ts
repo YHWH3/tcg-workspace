@@ -130,6 +130,8 @@ class FakeD1 {
 
   exec(sql: string, binds: unknown[]): { results: unknown[]; changes: number } {
     this.seen.push(sql.slice(0, 70));
+    // Permission-enabled transactions use actual D1 in the Phase 5 suites.
+    if (sql === 'SELECT generation,enabled FROM access_state WHERE id=1') return { results: [{ generation: 1, enabled: 0 }], changes: 0 };
     if (/SELECT CASE WHEN NOT EXISTS/.test(sql) && /approvalGate/.test(sql)) {
       const next = JSON.parse(String(binds[0]));
       const previous = JSON.parse(String(binds[3]));
