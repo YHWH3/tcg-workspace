@@ -9,6 +9,7 @@ import { publicApi } from '../worker/public';
 import { publicFormsApi, FORM_MAX_FILES } from '../worker/forms';
 import { importFileFromUrl } from '../worker/remotefile';
 import { applyChanges } from '../worker/sync';
+import { runScheduled } from '../worker/reminders';
 import { openAuditFixture, ctx, type AuditFixture } from './audit-fixture';
 
 vi.mock('../worker/events', async (original) => ({
@@ -152,5 +153,32 @@ describe('public form attachment limits are reachable', () => {
       body: JSON.stringify({ submissionId: 'full-gallery', values: { title: 'Visitor' }, turnstileToken: 'pass', fileIds: ids, fileClaims: claims }),
     }, fx.env, ctx);
     expect(submit.status).toBe(200);
+  });
+});
+
+describe('incomplete uploads are bounded and reclaimed', () => {
+  const put = (id: string, idx: number, body: Uint8Array<ArrayBuffer>) =>
+    files.request(`http://localhost/${id}/chunks/${idx}`, { method: 'PUT', headers: { authorization: fx.auth('bob').authorization }, body }, fx.env, ctx);
+
+  it('one upload cannot accumulate more than the 20 MB per-file limit it could never complete with', async () => {
+    const mib = new Uint8Array(1_048_576).fill(7);
+    for (let i = 0; i < 20; i++) expect((await put('huge', i, mib)).status, `chunk ${i}`).toBe(200);
+    expect((await put('huge', 20, new Uint8Array(1))).status).toBe(413);
+    // Replacing an existing chunk is not growth.
+    expect((await put('huge', 0, new Uint8Array(10))).status).toBe(200);
+  });
+
+  it('abandoned incomplete uploads with no synced record are swept; known and recent ones are kept', async () => {
+    const ancient = Date.now() - 8 * 86_400_000;
+    for (const [id, created] of [['ghost', ancient], ['known', ancient], ['fresh', Date.now()]] as const) {
+      await fx.db.prepare('INSERT INTO files(id,uploaded_by,created_at,complete) VALUES(?,?,?,0)').bind(id, 'bob', created).run();
+      await fx.db.prepare('INSERT INTO file_chunks(file_id,idx,data) VALUES(?,0,X\'0102\')').bind(id).run();
+    }
+    await applyChanges(fx.env, 'bob', [{ id: 'known', collection: 'files', patch: { name: 'k.bin', parentType: 'task', parentId: 'x' }, ts: 1 }]);
+    await runScheduled(fx.env);
+    const left = (await fx.db.prepare('SELECT id FROM files ORDER BY id').all<{ id: string }>()).results.map((r) => r.id);
+    expect(left).toEqual(['fresh', 'known']);
+    expect((await fx.db.prepare("SELECT COUNT(*) n FROM file_chunks WHERE file_id='ghost'").first<{ n: number }>())!.n).toBe(0);
+    expect((await fx.db.prepare("SELECT COUNT(*) n FROM file_chunks WHERE file_id='known'").first<{ n: number }>())!.n).toBe(1);
   });
 });

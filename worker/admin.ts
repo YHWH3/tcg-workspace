@@ -3,6 +3,7 @@ import { inviteCode, requireAdmin, requireAuth, MAX_USERS } from './auth';
 import type { Env, AuthUser } from './auth';
 import type { PublicUser } from '../shared/types';
 import { maintainDateIndex } from './events';
+import { revokeAllGrants } from './ratelimit';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 admin.use('*', requireAuth);
@@ -92,5 +93,6 @@ admin.delete('/users/:id', requireAdmin, async (c) => {
     c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target),
     c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(target),
   ]);
+  if (target) await revokeAllGrants(c.env, target);
   return c.json({ ok: true });
 });

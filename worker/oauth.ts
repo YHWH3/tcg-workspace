@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth, type AuthUser, type Env } from './auth';
-import { verifyPassword } from './password';
+import { hashPassword, verifyPassword } from './password';
+import { clearLoginFailures, clientAddress, loginRetryAfter, recordLoginFailure } from './ratelimit';
 
 const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
@@ -136,15 +137,25 @@ export function registerAuthorize(app: Hono<{ Bindings: Env; Variables: { user: 
       }
       const username = String(form?.get('username') ?? '').trim();
       const password = String(form?.get('password') ?? '');
-      const user = await c.env.DB.prepare('SELECT id, username, password_hash, salt, name FROM users WHERE username = ?').bind(username).first<{ id: string; name: string; password_hash: string; salt: string }>();
-      const ok = user ? await verifyPassword(password, user.salt, user.password_hash) : false;
+      // The consent form accepts the workspace password, so it is a login
+      // endpoint and shares the login throttle (same buckets as /api/auth).
+      const ip = clientAddress(c.req);
+      const wait = await loginRetryAfter(c.env, ip, username);
       // Re-derive the client facts from the query (the form posts to the same
       // URL) so an error re-render shows accurate, unspoofable details.
       const authReq = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
       const details = await c.env.OAUTH_PROVIDER.describeConsent(authReq);
+      if (wait > 0) {
+        return htmlRes(page(consentBody(details, handle, 'Too many failed attempts. Try again later.')), 429, new Headers({ 'Retry-After': String(wait) }));
+      }
+      const user = await c.env.DB.prepare('SELECT id, username, password_hash, salt, name FROM users WHERE username = ?').bind(username).first<{ id: string; name: string; password_hash: string; salt: string }>();
+      if (!user) await hashPassword(password, new Uint8Array(16));
+      const ok = user ? await verifyPassword(password, user.salt, user.password_hash) : false;
       if (!ok || !user) {
+        await recordLoginFailure(c.env, ip, username);
         return htmlRes(page(consentBody(details, handle, 'Incorrect username or password.')), 401);
       }
+      await clearLoginFailures(c.env, ip, username);
       const approved = await c.env.OAUTH_PROVIDER.approveConsent(c.req.raw, handle);
       const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
         request: approved.request,

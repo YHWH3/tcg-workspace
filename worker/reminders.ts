@@ -30,6 +30,7 @@ const RETENTION = {
   readNotificationMs: 180 * DAY,
   reminderSentMs: 400 * DAY,
   orphanFormFileMs: 24 * 3600_000,
+  incompleteUploadMs: 7 * DAY,
   automationRunsPer: 200,
 };
 
@@ -249,6 +250,18 @@ async function runRetention(env: { DB: D1Database }, now: number): Promise<void>
     ),
   ];
   await db.batch(stmts).catch(() => {});
+
+  // Abandoned authenticated uploads: chunk rows of a file that never completed
+  // and that no synced `files` record claims (a legitimate upload is announced
+  // by its record before its first chunk, and may resume for as long as that
+  // record exists). Without this, unfinished uploads are permanent storage.
+  await db.batch([
+    db.prepare(`DELETE FROM file_chunks WHERE file_id IN (
+        SELECT f.id FROM files f WHERE f.complete=0 AND f.created_at<?
+          AND NOT EXISTS(SELECT 1 FROM records r WHERE r.id=f.id))`).bind(now - RETENTION.incompleteUploadMs),
+    db.prepare(`DELETE FROM files WHERE complete=0 AND created_at<?
+        AND NOT EXISTS(SELECT 1 FROM records r WHERE r.id=files.id)`).bind(now - RETENTION.incompleteUploadMs),
+  ]).catch(() => {});
 
   // Orphan public-form uploads: 'form-pending' file records abandoned >24h.
   const { results: orphans } = await db

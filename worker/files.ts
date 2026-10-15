@@ -34,6 +34,10 @@ export function servedFileHeaders(mime: string | null | undefined): Record<strin
 
 export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB per file
 export const QUOTA_BYTES = 450 * 1024 * 1024; // 450 MB workspace quota
+/** Bytes that may sit in chunks of uploads that have not completed. Completed
+ * files are quota-checked; without this bound unfinished uploads were free,
+ * unlimited storage (and a single id could take 4096 chunks). */
+export const PENDING_UPLOAD_BYTES = 100 * 1024 * 1024;
 /** Cloudflare D1 rejects a single string/BLOB/row at or above this size. */
 export const D1_MAX_ROW_BYTES = 2_000_000;
 /** Shared chunk contract. 1 MiB is under the D1 row ceiling; 2 MiB is not. */
@@ -120,6 +124,15 @@ files.put('/:id/chunks/:idx', async (c) => {
     if ((await usageBytes(db)) >= QUOTA_BYTES) return c.json({ error: 'storage quota exceeded' }, 507);
     await db.prepare('INSERT OR IGNORE INTO files (id, uploaded_by, created_at, complete) VALUES (?, ?, ?, 0)').bind(id, c.get('user').id, Date.now()).run();
   }
+  // Bound what an unfinished upload may hold: it must still be completable
+  // (<= MAX_FILE_SIZE) and all unfinished uploads together stay under a cap.
+  // Replacing an existing chunk is not growth.
+  const held = await db.prepare(`SELECT COALESCE(SUM(CASE WHEN c.file_id=? THEN LENGTH(c.data) ELSE 0 END),0) AS own,
+      COALESCE(SUM(LENGTH(c.data)),0) AS total
+    FROM file_chunks c JOIN files f ON f.id=c.file_id WHERE f.complete=0 AND NOT (c.file_id=? AND c.idx=?)`)
+    .bind(id, id, idx).first<{ own: number; total: number }>();
+  if ((held?.own ?? 0) + body.byteLength > MAX_FILE_SIZE) return c.json({ error: 'file too large (max 20 MB)' }, 413);
+  if ((held?.total ?? 0) + body.byteLength > PENDING_UPLOAD_BYTES) return c.json({ error: 'too many unfinished uploads' }, 507);
   // The completion check belongs to the same statement as the write: a PUT
   // that read pending state before another request completed must not alter
   // the acknowledged file afterwards.

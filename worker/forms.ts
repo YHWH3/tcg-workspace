@@ -24,6 +24,7 @@ import { cmpOrder, orderBetween, uuid } from '../shared/order';
 import { fnv1a64hex, linkId } from '../shared/linkid';
 import type { SemanticEvent } from '../shared/events';
 import { sha256Hex, randomToken } from './password';
+import { rateLimitHit } from './ratelimit';
 import { completedRecords, executionOptions, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
 import type { ChangesetCtx } from './changesets';
 import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
@@ -382,25 +383,6 @@ interface RecRowLite {
 }
 function recLite(r: { id: string; data: Record<string, unknown>; rev: number }): RecRowLite {
   return { id: r.id, data: r.data, rev: r.rev };
-}
-
-/** Sliding-window counter, atomic against concurrent submits. Returns the
- *  count this request consumed (caller compares to the limit). */
-async function rateLimitHit(env: Bindings, bucket: string, key: string, windowMs: number): Promise<number> {
-  const now = Date.now();
-  const resetAt = now + windowMs;
-  await env.DB.prepare('INSERT INTO rate_limits (bucket, key, count, reset_at) VALUES (?, ?, 0, 0) ON CONFLICT(bucket, key) DO NOTHING').bind(bucket, key).run();
-  const row = await env.DB
-    .prepare(
-      `UPDATE rate_limits
-         SET count = CASE WHEN reset_at <= ? THEN 1 ELSE count + 1 END,
-             reset_at = CASE WHEN reset_at <= ? THEN ? ELSE reset_at END
-       WHERE bucket = ? AND key = ?
-       RETURNING count`,
-    )
-    .bind(now, now, resetAt, bucket, key)
-    .first<{ count: number }>();
-  return row?.count ?? 1;
 }
 
 export const TURNSTILE_TEST_SITEKEY = 'test';
