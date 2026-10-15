@@ -138,6 +138,16 @@ SHA_OUT=$(shasum -a 256 ${SMOKE_TMP}/smoke_file.out | awk '{print $1}')
 check "GET byte-identical (sha256)" "$SHA_OUT" "$SHA_IN"
 check "GET cache header" "$(curl --connect-timeout 5 --max-time 30 -s -D - -o /dev/null -H "Authorization: Bearer $TA" "$BASE/api/files/$FID" | grep -i 'cache-control' | tr -d '\r' | tr '[:upper:]' '[:lower:]')" "cache-control: private, no-store"
 
+# an uploaded HTML document is an opaque download, never a page on the app origin
+HID="smokehtml_$$"
+printf '<!doctype html><script>1</script>' > ${SMOKE_TMP}/smoke_doc.html
+code -X PUT -H "Authorization: Bearer $TA" --data-binary @${SMOKE_TMP}/smoke_doc.html "$BASE/api/files/$HID/chunks/0" >/dev/null
+HSIZE=$(wc -c < ${SMOKE_TMP}/smoke_doc.html | tr -d ' ')
+req POST "/api/files/$HID/complete" "$TA" "{\"mime\":\"text/html\",\"size\":$HSIZE,\"chunks\":1}" >/dev/null
+HHDR=$(curl --connect-timeout 5 --max-time 30 -s -D - -o /dev/null -H "Authorization: Bearer $TA" "$BASE/api/files/$HID" | tr -d '\r' | tr '[:upper:]' '[:lower:]')
+check "stored text/html is served as an opaque download" "$(echo "$HHDR" | grep -c '^content-type: application/octet-stream')" "1"
+check "served files are nosniff" "$(echo "$HHDR" | grep -c '^x-content-type-options: nosniff')" "1"
+
 # usage endpoint reflects the upload
 USED=$(req GET /api/files/usage "$TA" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["used"] >= 2621440, d["limit"])')
 check "usage reflects upload" "$USED" "True 471859200"

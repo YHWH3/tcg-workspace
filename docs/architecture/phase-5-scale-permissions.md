@@ -1,5 +1,16 @@
 # Phase 5 — Search, permissions, guests, history, scale
 
+> **Status 2026-10-15 — proposal, partly superseded.** Implementation has begun
+> in draft PR #7 and was reviewed in [phase-5-design-review.md](phase-5-design-review.md).
+> Corrections to this proposal: (1) `notifications` are a server-only D1 table
+> (migration 0007) read through recipient-scoped REST — they are not a synced
+> collection and are never filtered in `pull`; what needs handling is their
+> *denormalized title/body*. (2) A finite per-user eviction feed is replaced by
+> per-space events with a retention floor plus per-space re-backfill; a global
+> generation with materialized snapshots does not fit the free-plan write quota.
+> (3) FTS5 is available in D1 (verified); rank must not use global bm25.
+
+
 Goal: fast search across everything; access control so collaborators, volunteers and partners can have accounts limited to what is shared with them; more seats; durable history.
 
 **This phase changes the sync model and needs a design review before implementation.** Treat this doc as the proposal to review.
