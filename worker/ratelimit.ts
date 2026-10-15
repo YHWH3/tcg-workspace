@@ -29,9 +29,11 @@ export async function rateLimitHit(env: { DB: D1Database }, bucket: string, key:
 export const LOGIN_ACCOUNT_LIMIT = 10;
 /** Failures tolerated per client address, across accounts. */
 export const LOGIN_CLIENT_LIMIT = 40;
-/** Failures tolerated per account from anywhere — bounds distributed guessing
- *  without letting a single client lock the real owner out for long. */
-export const LOGIN_DISTRIBUTED_LIMIT = 100;
+/** Failures tolerated per account from anywhere in one hour. Bounds distributed
+ *  guessing. Trade-off (accepted, documented in the audit register): a
+ *  sustained attack from many addresses can hold one account in lockout for the
+ *  window; per-client buckets keep any single address from doing so cheaply. */
+export const LOGIN_DISTRIBUTED_LIMIT = 300;
 export const LOGIN_WINDOW_MS = 15 * 60_000;
 const DISTRIBUTED_WINDOW_MS = 60 * 60_000;
 

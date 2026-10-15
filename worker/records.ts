@@ -15,7 +15,7 @@ export interface RecRow {
   updatedAt: number | null;
 }
 
-interface RawRow {
+export interface RawRow {
   id: string;
   collection: string;
   data: string;
@@ -25,11 +25,11 @@ interface RawRow {
   updated_at: number | null;
 }
 
-function toRow(r: RawRow): RecRow {
+export function toRow(r: RawRow): RecRow {
   return { id: r.id, collection: r.collection, data: JSON.parse(r.data) as Record<string, unknown>, fieldTs: JSON.parse(r.field_ts) as Record<string, number>, rev: r.seq, updatedBy: r.updated_by, updatedAt: r.updated_at };
 }
 
-const SELECT = 'id, collection, data, field_ts, seq, updated_by, updated_at';
+export const SELECT = 'id, collection, data, field_ts, seq, updated_by, updated_at';
 
 export async function getRec(env: Env, id: string): Promise<RecRow | null> {
   const row = await env.DB.prepare(`SELECT ${SELECT} FROM records WHERE id = ?`).bind(id).first<RawRow>();
@@ -66,12 +66,52 @@ export async function listDefaultBoardTasks(env: Env): Promise<RecRow[]> {
   return results.map(toRow);
 }
 
+/** Default row ceiling of whole-collection reads. */
+export const COLLECTION_READ_LIMIT = 5000;
+
+/**
+ * Whole-collection read, capped at `limit` rows (default 5,000, no stable
+ * order). Callers that need EXACT answers must not use it — use a targeted
+ * read (`listBy`, `listLinksByKind`, a recursive closure). A capped read is
+ * never silent: it logs a structured `collection_read_truncated` warning with
+ * the collection and ceiling, so the condition is observable in Worker logs
+ * instead of surfacing as wrong results.
+ */
 export async function listCollection(env: Env, collection: string, opts: { includeDeleted?: boolean; limit?: number } = {}): Promise<RecRow[]> {
+  const limit = opts.limit ?? COLLECTION_READ_LIMIT;
   let sql = `SELECT ${SELECT} FROM records WHERE collection = ?`;
   if (!opts.includeDeleted) sql += ` AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`;
   sql += ' LIMIT ?';
-  const { results } = await env.DB.prepare(sql).bind(collection, opts.limit ?? 5000).all<RawRow>();
+  const { results } = await env.DB.prepare(sql).bind(collection, limit + 1).all<RawRow>();
+  if (results.length > limit) {
+    console.warn(JSON.stringify({ message: 'collection_read_truncated', collection, limit }));
+    return results.slice(0, limit).map(toRow);
+  }
   return results.map(toRow);
+}
+
+/**
+ * Every live link of one kind ('blocks' dependencies, 'relation', 'related'),
+ * exact and uncapped. Dependency-cycle checks and relation reads must see ALL
+ * edges of their kind: a whole-collection read silently drops rows past its
+ * ceiling, and a dropped edge defeats cycle detection (a Phase 1 invariant).
+ */
+export async function listLinksByKind(env: Env, kind: 'blocks' | 'relation' | 'related'): Promise<RecRow[]> {
+  const { results } = await env.DB
+    .prepare(`SELECT ${SELECT} FROM records WHERE collection = 'links' AND json_extract(data, '$.kind') = ? AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`)
+    .bind(kind)
+    .all<RawRow>();
+  return results.map(toRow);
+}
+
+/** Links touching one record, via the fromId/toId expression indexes. */
+export async function listLinksTouching(env: Env, id: string): Promise<RecRow[]> {
+  const [from, to] = await env.DB.batch<RawRow>([
+    env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection = 'links' AND json_extract(data, '$.fromId') = ? AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).bind(id),
+    env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection = 'links' AND json_extract(data, '$.toId') = ? AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).bind(id),
+  ]);
+  const seen = new Set<string>();
+  return [...from.results, ...to.results].filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true))).map(toRow);
 }
 
 /**

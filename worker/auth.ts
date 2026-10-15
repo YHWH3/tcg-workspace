@@ -12,6 +12,8 @@ export interface Env {
   TURNSTILE_HOSTNAMES?: string;
   /** Disposable loopback HTTP fixtures only; omitted in deployed config. */
   WORKSPACE_ENV?: string;
+  /** MCP write tool calls per user per 10 minutes (default 300; 0 disables). */
+  MCP_WRITE_LIMIT?: string;
   TURNSTILE_LOCAL_TEST?: string;
   DB: D1Database;
   AI: Ai;

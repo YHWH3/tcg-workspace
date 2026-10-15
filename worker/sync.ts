@@ -9,18 +9,15 @@ import { guardStageWrites } from './approvals';
 import type { SemanticEvent } from '../shared/events';
 import type { ChangesetCtx } from './changesets';
 import {D1BudgetExhausted} from './d1budget';
+import { MAX_FUTURE_SKEW_MS, healTimestamps } from '../shared/clock';
 
 const MAX_CHANGES = 500;
 const MAX_ID_LEN = 64;
 const MAX_ATTEMPTS = 3;
-/**
- * Hybrid-logical-clock drift bound. A client timestamp further ahead of the
- * server than this is clamped to `now + MAX_FUTURE_SKEW_MS` before merging:
- * unbounded timestamps let one wrong device clock (or one hostile write) win
- * every later last-writer-wins merge on a field and poison every client's HLC
- * through `hlc.observe()` on pull.
- */
-export const MAX_FUTURE_SKEW_MS = 60_000;
+// Drift bound for client timestamps lives in shared/clock.ts (also enforced
+// client-side in hlc.observe); re-exported for callers and tests.
+export { MAX_FUTURE_SKEW_MS };
+
 /**
  * Largest serialized `data` a write may produce. D1 rejects any string/row of
  * 2,000,000 bytes or more; a write that large aborts its whole batch, so the
@@ -96,22 +93,13 @@ async function readRows(db: D1Database, ids: string[]): Promise<Map<string, Reco
   return out;
 }
 
-/** Timestamps already stored beyond the drift ceiling (written before it
- * existed) are treated as the ceiling, so a poisoned field becomes writable
- * again and the row is healed the next time it is written. */
-function clampTimestamps(ts: Record<string, number>, ceiling: number): Record<string, number> {
-  let out = ts;
-  for (const [field, value] of Object.entries(ts)) {
-    if (!(value <= ceiling)) {
-      if (out === ts) out = { ...ts };
-      out[field] = ceiling;
-    }
-  }
-  return out;
-}
-
-function applyPatches(plan: Plan, existing: RecordRow | null, ceiling = Date.now() + MAX_FUTURE_SKEW_MS): void {
-  const prev = existing ? { data: JSON.parse(existing.data) as Record<string, unknown>, field_ts: clampTimestamps(JSON.parse(existing.field_ts) as Record<string, number>, ceiling) } : null;
+function applyPatches(plan: Plan, existing: RecordRow | null, now = Date.now()): void {
+  const prev = existing
+    ? {
+        data: JSON.parse(existing.data) as Record<string, unknown>,
+        field_ts: healTimestamps(JSON.parse(existing.field_ts) as Record<string, number>, now, existing.updated_at),
+      }
+    : null;
   let merged = prev ?? { data: {}, field_ts: {} };
   let changed = false;
   for (const p of plan.patches) {
@@ -299,7 +287,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     const floors = new Map<string, number>();
     for (const [id, row] of existing) {
       try {
-        const ts = clampTimestamps(JSON.parse(row.field_ts) as Record<string, number>, ceiling);
+        const ts = healTimestamps(JSON.parse(row.field_ts) as Record<string, number>, now, row.updated_at);
         floors.set(id, Math.max(0, ...Object.values(ts)));
       } catch {
         floors.set(id, 0);
@@ -345,7 +333,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
       plans.delete(plan.id);
       continue;
     }
-    applyPatches(plan, row ?? null, ceiling);
+    applyPatches(plan, row ?? null, now);
     if (plan.changed && exceedsRecordBudget(plan, row ?? null)) {
       reject(plan.id, plan.collection, 'record_too_large');
       plans.delete(plan.id);

@@ -136,3 +136,44 @@ describe('oversized records are refused per item', () => {
     expect((await row('legacy-big'))!.data.deleted).toBe(true);
   });
 });
+
+describe('date index maintenance is bounded by batches, not by record count', () => {
+  it('reindexing every task of a board after a field change fits the per-invocation D1 budget', async () => {
+    const { withD1Budget } = await import('../worker/d1budget');
+    const { maintainDateIndex } = await import('../worker/events');
+    await applyChanges(fx.env, 'alice', [
+      change('plan', 'boards', { name: 'Plan', columns: [{ id: 'todo' }, { id: 'done' }], fields: [{ id: 'due2', name: 'Review by', type: 'date' }] }, 1),
+    ]);
+    // 120 tasks carrying a date in the newly added field.
+    await fx.db.prepare(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<120)
+      INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at)
+      SELECT 'job'||i,'tasks','{"title":"job","boardId":"plan","status":"todo","p_due2":"2031-01-15"}','{}',5000+i,'alice',1 FROM n`).run();
+    const budgeted = withD1Budget(fx.env);
+    await maintainDateIndex(budgeted, [{ id: 'plan', collection: 'boards', created: false, fields: ['fields'], before: {}, after: {} }]);
+    const indexed = (await fx.db.prepare("SELECT COUNT(*) n FROM date_index WHERE field_key='p_due2'").first<{ n: number }>())!.n;
+    expect(indexed).toBe(120);
+  });
+});
+
+describe('legacy poisoned timestamps heal on the next write', () => {
+  it('a field stored with an absurd timestamp accepts an ordinary edit and is repaired', async () => {
+    // Written by an earlier release that did not bound client timestamps.
+    await fx.db.prepare('INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at) VALUES(?,?,?,?,?,?,?)')
+      .bind('legacy', 'tasks', JSON.stringify({ title: 'old', status: 'todo' }), JSON.stringify({ title: 1e300, status: 5 }), 800, 'bob', 1_000).run();
+    const out = await push('carol', [change('legacy', 'tasks', { title: 'fixed' })]);
+    expect(out.status).toBe(200);
+    const stored = await row('legacy');
+    expect(stored!.data.title).toBe('fixed');
+    expect(stored!.ts.title).toBeLessThanOrEqual(Date.now() + MAX_FUTURE_SKEW_MS);
+    expect(Number.isSafeInteger(stored!.ts.title)).toBe(true);
+  });
+
+  it('an untouched poisoned sibling field is healed by the same write', async () => {
+    await fx.db.prepare('INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at) VALUES(?,?,?,?,?,?,?)')
+      .bind('legacy2', 'tasks', JSON.stringify({ title: 'old', description: 'd' }), JSON.stringify({ title: 10, description: 1e300 }), 801, 'bob', 2_000).run();
+    await push('carol', [change('legacy2', 'tasks', { title: 'renamed' })]);
+    const stored = await row('legacy2');
+    expect(stored!.ts.description).toBeLessThanOrEqual(Date.now() + MAX_FUTURE_SKEW_MS);
+    expect(stored!.data.description).toBe('d');
+  });
+});

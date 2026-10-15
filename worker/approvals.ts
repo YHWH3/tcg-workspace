@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import type { Mutation } from '../shared/types';
 import { notify } from './notifications';
 import { mergeRecord } from './merge';
+import { healTimestamps } from '../shared/clock';
 import { requireAuth, type Env, type AuthUser } from './auth';
 import {
   MAX_APPROVAL_NOTE, fnv1a, gateTransition, isDecision,
@@ -78,7 +79,8 @@ export async function guardStageWrites(
   env: { DB: D1Database },
   incoming: Mutation[],
   reject: (id: unknown, collection: unknown, reason: string) => void,
-  existing?: Map<string, { data: string; field_ts?: string }>,
+  existing?: Map<string, { data: string; field_ts?: string; updated_at?: number | null }>,
+  now = Date.now(),
 ): Promise<void> {
   const touchesGate = (ch: Mutation) =>
     ch.collection === 'tasks' && !!ch.patch &&
@@ -87,9 +89,14 @@ export async function guardStageWrites(
   if (!relevant.length) return;
 
   const stored = new Map<string, { data: Record<string, unknown>; field_ts: Record<string, number> }>();
-  const parse = (id: string, raw: { data: string; field_ts?: string }) => {
+  const parse = (id: string, raw: { data: string; field_ts?: string; updated_at?: number | null }) => {
     try {
-      stored.set(id, { data: JSON.parse(raw.data) as Record<string, unknown>, field_ts: raw.field_ts ? (JSON.parse(raw.field_ts) as Record<string, number>) : {} });
+      // Same timestamp healing as the real merge, so the pre-check predicts
+      // exactly which fields of this write will win.
+      stored.set(id, {
+        data: JSON.parse(raw.data) as Record<string, unknown>,
+        field_ts: raw.field_ts ? healTimestamps(JSON.parse(raw.field_ts) as Record<string, number>, now, raw.updated_at) : {},
+      });
     } catch {
       /* unparseable row — treated as absent for gate purposes */
     }

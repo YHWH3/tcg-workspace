@@ -182,3 +182,29 @@ describe('incomplete uploads are bounded and reclaimed', () => {
     expect((await fx.db.prepare("SELECT COUNT(*) n FROM file_chunks WHERE file_id='known'").first<{ n: number }>())!.n).toBe(1);
   });
 });
+
+describe('stored SVG is re-sanitized at serve time', () => {
+  const raw = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><rect width="4" height="4" onload="alert(2)"/></svg>';
+
+  it('bytes stored before every write path sanitized never leave the server raw', async () => {
+    // Simulate a document written by the earlier public-form / remote-import path.
+    await fx.db.prepare("INSERT INTO files(id,mime,size,chunks,uploaded_by,created_at,complete) VALUES('legacysvg','image/svg+xml',?,1,'bob',1,1)").bind(raw.length).run();
+    await fx.db.prepare('INSERT INTO file_chunks(file_id,idx,data) VALUES(?,0,?)').bind('legacysvg', new TextEncoder().encode(raw)).run();
+    const authed = await files.request('http://localhost/legacysvg', { headers: fx.auth('alice') }, fx.env, ctx);
+    expect(authed.status).toBe(200);
+    expect(await authed.text()).not.toMatch(/<script|onload/i);
+    await sharedPageWithFile('legacysvg', 'image/svg+xml', 'image');
+    const pub = await publicApi.request('http://localhost/tok/files/legacysvg', {}, fx.env, ctx);
+    const body = await pub.text();
+    expect(body).not.toMatch(/<script|onload/i);
+    expect(pub.headers.get('content-length')).toBe(String(new TextEncoder().encode(body).length));
+  });
+
+  it('an unsanitizable "svg" is served as an opaque download', async () => {
+    await fx.db.prepare("INSERT INTO files(id,mime,size,chunks,uploaded_by,created_at,complete) VALUES('notsvg','image/svg+xml',20,1,'bob',1,1)").run();
+    await fx.db.prepare('INSERT INTO file_chunks(file_id,idx,data) VALUES(?,0,?)').bind('notsvg', new TextEncoder().encode('<html><script>x</script>')).run();
+    const res = await files.request('http://localhost/notsvg', { headers: fx.auth('alice') }, fx.env, ctx);
+    expect(res.headers.get('content-type')).toBe('application/octet-stream');
+    expect(res.headers.get('content-disposition')).toMatch(/^attachment/);
+  });
+});
