@@ -26,7 +26,9 @@ No merge, deployment or production resource changes.
   owner preservation, privilege ceilings, atomic audit, concurrent duplicate
   request handling, lost-response recovery and reauthorized replay.
 
-The new services are **not yet exposed by application routes**. Migration
+Space administration services are **not yet exposed by application routes**. The
+shared write kernel now invokes authorization when activation is enabled; this
+includes the authenticated sync push route. Migration
 `access_state.enabled` remains **0**; guest creation and permission-aware sync
 are not enabled. This intermediate state preserves the existing Core workspace
 while all enforcement paths and the client protocol are built. It is not a
@@ -50,7 +52,61 @@ identities, membership/session/move epoch changes, transaction rollback on stale
 authority, concurrent owner removal, idempotent requests, lost acknowledgements,
 true parent ownership, hidden relation endpoints, malformed/cyclic ancestry,
 pending public uploads and graph/content revision races. They do not yet prove
-enforcement through existing HTTP/MCP routes or client storage reconciliation.
+complete enforcement through existing HTTP/MCP read routes or client storage
+reconciliation.
+
+## P5-2 shared write enforcement (in progress)
+
+`worker/mutationAccess.ts` resolves the existing and proposed ownership graphs,
+checks actor capabilities and protected fields before approval checks/conflict
+hydration, and writes the authoritative inherited `records.space_id`. Client
+child scope claims cannot grant access. Root scope changes require the pending
+explicit durable move workflow. Commenters can create/edit their own comments;
+they cannot rewrite authors/targets or ordinary records. Automation configuration
+requires destination edit and template read rights. Source labels, changesets and
+execution checkpoints never confer privileges.
+
+Each write transaction fences both the access generation and graph revisions,
+including absence of newly proposed parents. A later membership, parent or
+relation change aborts that batch. Earlier committed batches keep exact journals,
+outbox and execution checkpoints and return a retryable partial result. Conflict
+replies independently recheck current visibility before returning record data.
+
+Initial real-D1 red run: **11 failures / 1 pass** against the unfixed kernel.
+`tests/phase5-writes-d1.test.ts` now exercises the real kernel/HTTP sync route,
+denied actors, disabled identities, protected fields, graph inheritance,
+revocation and parent/reference races, lost responses and 150-row interrupted
+execution/regrant. The permission flag remains off outside disposable tests:
+read routes, protocol 2 and clients are still outstanding.
+
+### P5-SEC-01 — Proposed board approval gate bypass
+
+Reproduction: one atomic write placed a task in `done` before inserting its board
+with a `done` approval gate. Persisted-only preflight/transaction checks saw no
+board yet and committed both records. The regression failed with `changed=2`
+instead of `0`. `applyChanges` now merges proposed board configurations using
+the actual LWW timestamps and passes them into `guardStageWrites`. The same
+regression passes with permission activation **0 and 1**; neither record commits.
+No functional approval assertion was removed.
+
+### P5-REL-01 — Mixed rejection count omitted stale revisions
+
+A non-atomic call with one hidden record, one stale expected revision and one
+valid edit returned only one rejected item count. The new regression reproduced
+`rejected=1` instead of `2`. The kernel now includes stale conflicts in the count
+and preserves both earlier ACL rejections and later batch conflicts. The valid
+edit still commits. Red evidence: `.artifacts/phase5-writes/conflict-red.json`.
+
+Fault-injection adapters for existing atomic/event tests now intercept actual
+record-write batches rather than treating the new read-only authority snapshot
+as a write. The original rollback/lost-response/race assertions remain intact.
+After this adapter correction, the combined security/event/write suites passed
+**81/81**, including all 26 new write assertions. TypeScript passes. The complete
+unit run before the final adapter correction had **773 PASS / 1 FAIL**; the one
+failure was that shifted approval fault-injection point, now passing in the
+81-case rerun. A fresh complete run remains required. Evidence is preserved in
+`.artifacts/phase5-writes/green-final.json` and `unit-results.json`. These are
+uncommitted-source observations, not certification of any later SHA.
 
 The FTS5 runtime probe executes prefix MATCH, ranking, snippets and SQL access
 filtering. It does not implement the production search index or prove ranking
@@ -71,7 +127,7 @@ uncommitted-source checks do not certify a later commit.
 
 | Workstream | Remaining implementation and acceptance |
 |---|---|
-| P5-1 foundation | Fresh-signup ownership, complete inheritance/write integration, ownership transfer, audited role/space updates, API integration |
+| P5-1 foundation | Fresh-signup ownership, remaining protected configuration references, ownership transfer, audited role/space updates, API integration |
 | P5-2 sync/access | Server enforcement on every REST/MCP/file/public/background/history path; protected field validation; durable move jobs; protocol 2 filtered pull/push; snapshots; client gating/eviction/quarantine/regrant; WS/session revocation |
 | P5-3 search | Authoritative dirty/index pipeline, permission-safe ranking/pagination, APIs/MCP, local/online mobile palette, workload/security tests |
 | P5-4 guests/sessions | Bounded invites and seven-seat atomic acceptance; sessions and disabled accounts; space/member management UI; multi-tab/browser integration |

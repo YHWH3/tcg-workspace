@@ -35,6 +35,26 @@ const targetCollections: Readonly<Record<string, string>> = {
 const plainObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const id = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 64;
 
+/** Candidate ancestry seeds. Type/existence/cycle checks remain in resolver.
+ * Invalid values are not sent as database IDs and subsequently fail resolution. */
+export function scopeParentIds(record: ScopeRecord): string[] {
+  const d = record.data;
+  let values: unknown[];
+  switch (record.collection) {
+    case 'pages': values = [d.parentId]; break;
+    case 'tasks': values = [d.boardId ?? DEFAULT_BOARD, d.parentId]; break;
+    case 'blocks': values = [d.pageId]; break;
+    case 'views': case 'forms': values = [d.databaseId]; break;
+    case 'mooditems': values = [d.boardId]; break;
+    case 'comments': case 'activity': values = [d.targetId]; break;
+    case 'files': values = [d.parentId]; break;
+    case 'automations': values = [(plainObject(d.trigger) ? d.trigger.databaseId : undefined) ?? d.databaseId]; break;
+    case 'links': values = [d.fromId, d.toId]; break;
+    default: values = [];
+  }
+  return [...new Set(values.filter(id))];
+}
+
 /** Build once for a coherent, server-loaded graph including proposed mutations.
  * Missing dependencies are a denial, never an implicit move to Core. Loading
  * the graph, checking effective capabilities and fencing writes are the server
