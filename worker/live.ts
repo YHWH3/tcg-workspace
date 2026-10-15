@@ -86,8 +86,11 @@ export class LiveRoom extends DurableObject<Env> {
    * A socket must not outlive the session that authorized it: logout, password
    * change, admin removal and expiry all delete/expire the `sessions` row, and
    * none of those paths holds a reference to the open socket. One indexed
-   * query per sweep finds every socket whose session is gone. A database
-   * failure keeps sockets open (fail-static): the next sweep retries.
+   * query per sweep finds every socket whose session is gone. "Live" is the
+   * same definition HTTP auth uses (`userByToken`): the session row is
+   * unexpired AND its user is not disabled, so disabling an account ends its
+   * sockets even though its session rows remain. A database failure keeps
+   * sockets open (fail-static): the next sweep retries.
    */
   private async endedSessions(): Promise<Set<string>> {
     const sids = new Set<string>();
@@ -99,7 +102,8 @@ export class LiveRoom extends DurableObject<Env> {
     if (!sids.size) return ended;
     try {
       const { results } = await this.env.DB
-        .prepare('SELECT token_hash FROM sessions WHERE expires_at > ? AND token_hash IN (SELECT value FROM json_each(?))')
+        .prepare(`SELECT s.token_hash FROM sessions s JOIN users u ON u.id = s.user_id
+          WHERE s.expires_at > ? AND u.disabled_at IS NULL AND s.token_hash IN (SELECT value FROM json_each(?))`)
         .bind(Date.now(), JSON.stringify([...sids]))
         .all<{ token_hash: string }>();
       const live = new Set(results.map((r) => r.token_hash));

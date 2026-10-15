@@ -296,9 +296,28 @@ Conflicts reported by `git merge-tree --write-tree` between
    Disabling an account must also call `revokeAllGrants`.
 5. **`src/core/files.ts`.** Keep `renderableBlob()` at every object-URL site and
    the draft's cache eviction on reconciliation.
-6. The three unpushed local commits on `grok/phase-5-search-permissions` were
-   left untouched; whoever owns them should push or discard them before PR #7 is
-   rebased.
+6. The three commits that were unpushed when this review was written
+   (`4224d76`, `e45cbae`, `f65183a`) are now PR #7's head; the reconciliation is
+   built on `f65183a` and did not rewrite or push to that branch.
+
+**Applied** on `phase5/on-audit-fixes` (draft PR into
+`grok/phase-5-search-permissions`): items 1–5 as written. Two seams were not on
+this list and surfaced while resolving it; both are pinned by
+`tests/phase5-audit-interplay-d1.test.ts` (each was red before its fix):
+
+- **Timestamp ordering × authorizer.** `authorizeMutations` decides which fields
+  a change "touches" from the stored `field_ts`, while the merge heals far-future
+  timestamps. Healing therefore runs on the shared `existing` rows *before*
+  authorization; otherwise a pre-ceiling poisoned `createdBy`/`spaceId`
+  timestamp is invisible to the authorizer and the merge applies the write
+  (forged identity; a root claiming another space than its server-owned column).
+- **Live sweep × `disabled_at`.** The sweep's notion of a live session is now
+  `userByToken`'s: unexpired *and* user not disabled (§8.4, socket half).
+
+Still open from this list: `revokeAllGrants` on disablement (item 4) — no code
+path sets `users.disabled_at` yet, so there is nothing to attach it to; the
+per-request `disabled_at IS NULL` check in `mcpApiHandler` keeps a disabled
+user's grants inert in the meantime.
 
 ## 8. Additional requirements implied by the audit
 

@@ -109,7 +109,7 @@ try {
   const unitPath=join(directory,'vitest.json'),testFiles=readdirSync(join(cwd,'tests')).filter(f=>f.endsWith('.test.ts')).map(f=>'tests/'+f);
   await stage('unit',['npm','test','--','--reporter=default','--reporter=json',`--outputFile=${unitPath}`],{adapter:()=>validateVitest(readJson(unitPath),testFiles)});
   buildOkay=(await stage('build',['npm','run','build'])).status==='PASS';
-  const d1Files=testFiles.filter(f=>/(?:phase4|audit)-.*-d1\.test\.ts$/.test(f)),d1Path=join(directory,'d1-results.json');
+  const d1Files=testFiles.filter(f=>/(?:phase[45]|audit)-.*-d1\.test\.ts$/.test(f)),d1Path=join(directory,'d1-results.json');
   await stage('d1',['npm','test','--',...d1Files,'--reporter=default','--reporter=json',`--outputFile=${d1Path}`],{adapter:()=>validateVitest(readJson(d1Path),d1Files)});
   await stage('security',['npm','audit','--json'],{adapter:(output,result)=>{const report=JSON.parse(output);json(join(directory,'security-audit.json'),report);const assessment=assessSecurityAudit(report,{auditExitCode:result.exitCode,project:cwd});json(join(directory,'security-decisions.json'),assessment);return {pass:assessment.verdict==='PASS'?1:0,fail:assessment.verdict==='FAIL'?1:0,notRun:0,allMandatoryAssertionsExecuted:true,...(assessment.verdict==='PASS'?{acceptedExitCode:result.exitCode}:{}),securityAssessment:assessment};}});
   if(mode!=='quick') {
