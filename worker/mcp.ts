@@ -14,7 +14,8 @@ import type { AuthUser } from './auth';
 import { importFileFromUrl, RemoteFileError } from './remotefile';
 import { cmpOrder, orderBetween, uuid } from '../shared/order';
 import { blocksToMarkdown, markdownToBlocks, renderMentionText, resolveMentionText, markdownBlockPatch } from '../shared/markdown';
-import { planTemplateInstantiation, type RecSnapshot } from '../shared/templates';
+import { planTemplateInstantiation } from '../shared/templates';
+import { loadTemplateSnapshot } from './templateSnapshot';
 import { coerceFieldValue, fieldsOf, formatFieldValue, isSelectType, optionByName, propKey, type FieldDef } from '../shared/fields';
 import { normalizeItem, cardRef, connectorLinkPlan, DEFAULT_ITEM_SIZE, itemBounds, type MoodItem, type ItemRef } from '../shared/mooditems';
 import { layoutBoard, type CanvasLayoutAlgorithm } from '../shared/canvasLayout';
@@ -2148,12 +2149,6 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
   );
 
-  async function snapshot(env: Env): Promise<RecSnapshot> {
-    const [pages, blocks, boards, tasks, views, links] = await Promise.all([recs(env, 'pages'), recs(env, 'blocks'), recs(env, 'boards'), recs(env, 'tasks'), recs(env, 'views'), recs(env, 'links')]);
-    const map = (rs: Rec[]) => Object.fromEntries(rs.map((r) => [r.id, r.data]));
-    return { pages: map(pages), blocks: map(blocks), boards: map(boards), tasks: map(tasks), views: map(views), links: map(links) };
-  }
-
   reg(
     'create_from_template',
     {
@@ -2168,7 +2163,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       annotations: { idempotentHint: false },
     },
     async ({ templateId, title, parentId, variables, dryRun }) => {
-      const plan = planTemplateInstantiation(await snapshot(ctx.env), { templateId, title, parentId, variables, actorId: ctx.userId }, { id: uuid, now: Date.now() });
+      const plan = planTemplateInstantiation(await loadTemplateSnapshot(ctx.env, templateId, parentId ?? null), { templateId, title, parentId, variables, actorId: ctx.userId }, { id: uuid, now: Date.now() });
       if (!plan) return err('template not found');
       if (dryRun) return txt({ dryRun: true, summary: `instantiate template ${templateId}`, counts: { records: plan.writes.length }, warnings: [], impact: { byCollection: plan.writes.reduce((m: Record<string, number>, w: WriteOp) => ((m[w.collection] = (m[w.collection] ?? 0) + 1), m), {}) } });
       await write(ctx, [...plan.writes, activityOp(ctx.userId, ctx.clientName, 'created', 'page', plan.rootPageId, title ?? 'From template', ctx.cs?.id)]);

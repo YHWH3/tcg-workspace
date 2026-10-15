@@ -87,3 +87,34 @@ describe('record soft delete is reversible', () => {
     expect(await flag('child')).toBe(true);
   });
 });
+
+describe('template instantiation does not depend on workspace size', () => {
+  it('copies the whole template when the workspace holds more than 5,000 blocks, tasks and links', async () => {
+    // Padding first: whole-collection reads (LIMIT 5000, no ORDER BY) return the
+    // oldest rows, so a template authored after them was silently truncated.
+    await fx.db.prepare(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<5200)
+      INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at)
+      SELECT 'padb'||i,'blocks','{"pageId":"padpage","type":"p","text":"x"}','{}',100000+i,'alice',1 FROM n`).run();
+    await fx.db.prepare(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<5200)
+      INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at)
+      SELECT 'padt'||i,'tasks','{"title":"pad","boardId":"padboard","status":"todo"}','{}',200000+i,'alice',1 FROM n`).run();
+    await fx.db.prepare(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<5200)
+      INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at)
+      SELECT 'padl'||i,'links','{"fromId":"padt1","toId":"padt2","kind":"related"}','{}',300000+i,'alice',1 FROM n`).run();
+    await applyChanges(fx.env, 'alice', [
+      { id: 'tpl', collection: 'pages', patch: { title: 'Template', isTemplate: true, order: 'a0' }, ts: 1 },
+      { id: 'tplchild', collection: 'pages', patch: { title: 'Child', parentId: 'tpl', order: 'a0' }, ts: 1 },
+      { id: 'tb1', collection: 'blocks', patch: { pageId: 'tpl', type: 'p', text: 'Intro', order: 'a0' }, ts: 1 },
+      { id: 'tb2', collection: 'blocks', patch: { pageId: 'tpl', type: 'tasks', boardId: 'tboard', order: 'a1' }, ts: 1 },
+      { id: 'tboard', collection: 'boards', patch: { name: 'Template board', columns: [{ id: 'todo' }, { id: 'done' }], fields: [] }, ts: 1 },
+      { id: 'tt1', collection: 'tasks', patch: { title: 'One', boardId: 'tboard', status: 'todo', order: 'a0' }, ts: 1 },
+      { id: 'tt2', collection: 'tasks', patch: { title: 'Two', boardId: 'tboard', status: 'todo', order: 'a1' }, ts: 1 },
+      { id: 'tv', collection: 'views', patch: { databaseId: 'tboard', name: 'Table', type: 'table' }, ts: 1 },
+      { id: 'tl', collection: 'links', patch: { fromId: 'tt1', fromType: 'record', toId: 'tt2', toType: 'record', kind: 'blocks' }, ts: 1 },
+    ]);
+    const out = await call('create_from_template', { templateId: 'tpl', title: 'Copy', dryRun: true });
+    expect(out.isError, JSON.stringify(out)).not.toBe(true);
+    // pages 2 + blocks 2 + board 1 + tasks 2 + view 1 + link 1
+    expect((out.impact as { byCollection: Record<string, number> }).byCollection).toEqual({ pages: 2, blocks: 2, boards: 1, tasks: 2, views: 1, links: 1 });
+  }, 120_000);
+});

@@ -106,6 +106,26 @@ function subtreeIds(pages: RecSnapshot['pages'], rootId: string): string[] {
   return out;
 }
 
+const DASHBOARD_BLOCK_TYPES = new Set(['view', 'metric', 'calendar', 'activity', 'mywork']);
+
+/** Database ids a block pulls into a copy: a `tasks` embed's board, or the
+ * database(s) a dashboard block reads. Shared with the server's targeted
+ * template loader so the snapshot closure and the planner cannot disagree. */
+export function boardRefsOf(b: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId) out.push(b.boardId);
+  if (DASHBOARD_BLOCK_TYPES.has(String(b.type))) {
+    if (typeof b.databaseId === 'string' && b.databaseId) out.push(b.databaseId);
+    if (Array.isArray(b.sources)) {
+      for (const s of b.sources) {
+        const dbId = (s as { databaseId?: unknown })?.databaseId;
+        if (typeof dbId === 'string' && dbId) out.push(dbId);
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Plan a deep copy of the template page subtree. Blocks under `tasks` type
  * spawn a copied board (with its non-deleted tasks) instead of pointing at the
@@ -202,21 +222,6 @@ export function planTemplateInstantiation(
   // copied database's records pull in their own body blocks, which may embed
   // further databases. All board ids are allocated before ANY board patch is
   // written so relation targets between copied databases remap.
-  const DASHBOARD_BLOCK_TYPES = new Set(['view', 'metric', 'calendar', 'activity', 'mywork']);
-  const boardRefsOf = (b: Record<string, unknown>): string[] => {
-    const out: string[] = [];
-    if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId) out.push(b.boardId);
-    if (DASHBOARD_BLOCK_TYPES.has(String(b.type))) {
-      if (typeof b.databaseId === 'string' && b.databaseId) out.push(b.databaseId);
-      if (Array.isArray(b.sources)) {
-        for (const s of b.sources) {
-          const dbId = (s as { databaseId?: unknown })?.databaseId;
-          if (typeof dbId === 'string' && dbId) out.push(dbId);
-        }
-      }
-    }
-    return out;
-  };
   let grew = true;
   while (grew) {
     grew = false;
