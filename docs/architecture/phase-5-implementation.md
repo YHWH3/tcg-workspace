@@ -112,6 +112,15 @@ changes increment a global access generation through D1 triggers. With seven
 seats this bounds reconciliation complexity and avoids a per-user-record eviction
 explosion. Generations are monotonically increasing, never reset on regrant.
 
+Migration 0013 extends the epoch contract to activated record visibility:
+ancestor deletion/restoration, ownership/reference changes and physical removal
+invalidate incremental caches even when `records.space_id` stays unchanged.
+Updates to titles/body alone do not change access generation. Activation changes
+also increment generation, so an epoch cannot be reused across protocol changes.
+These triggers are atomic with the underlying write. With activation off, record
+visibility triggers preserve the existing Core-only behavior. The migration
+does not enable permissions or destructive purging.
+
 `access_state.enabled=0` is the migration default. This is an implementation
 barrier, not a finished feature flag: do not expose guest creation or turn on
 permissions until all read/write paths, client protocol and regression suites
@@ -206,6 +215,16 @@ filters before materializing rows/snippets/counts. The global seq cursor advance
 across invisible gaps to a captured high-water mark; an empty visible page cannot
 stall forever. Concurrent generation changes return `409 access_reset_required`,
 never mixed data. Source deletions remain tombstones for readable scopes.
+
+The incremental implementation uses an indexed scope prefilter for ID/sequence
+candidates, then resolves actual ancestry and both relation endpoints before
+content fetch. A stale denormalized scope cannot grant read access. Each request
+examines at most 500 candidates and advances past invisible candidates as well;
+it can return an empty page with `hasMore=true`. At the end it advances to the
+coherently captured global high-water mark. The client must persist the cursor
+even on an empty page. Unexpected SQL errors remain failures; an epoch-fence
+rollback becomes an explicit 409 reset. Every final page, including an empty
+one, rechecks authority before publication.
 
 Generation mismatch invalidates incremental state. Use an authorized, bounded,
 durable snapshot session tied to user+generation, with a fixed cutoff and frozen

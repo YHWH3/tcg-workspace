@@ -46,5 +46,9 @@
   {
     "name": "0012_phase5_access_foundation.sql",
     "sha256": "207f08fd76bead8b0505e8a42201abb50530e09c4d6a8382a7d36d90685b900d"
+  },
+  {
+    "name": "0013_phase5_visibility_epoch.sql",
+    "sha256": "316488940e081e6240b7253d5956d974d9cd95724e07508865b1810d53d2d309"
   }
 ]

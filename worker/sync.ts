@@ -12,6 +12,7 @@ import {D1BudgetExhausted} from './d1budget';
 import { AccessError } from './access';
 import { authorizeMutations, writeAuthorityFences, type WriteAuthority } from './mutationAccess';
 import { readAuthorizedRecords, RecordAccessError } from './recordAccess';
+import { loadAccessState, pullAuthorized, syncFailure, validateSyncProtocol } from './syncAccess';
 
 const MAX_CHANGES = 500;
 const MAX_ID_LEN = 64;
@@ -108,6 +109,9 @@ function applyPatches(plan: Plan, existing: RecordRow | null): void {
 }
 
 export interface ApplyOptions {
+  /** Set only by the sync router. Rechecked against the same authority snapshot
+   * used to plan writes so a revocation after HTTP validation cannot slip in. */
+  syncProtocol?: { protocol?: unknown; generation?: unknown };
   createOnly?:Set<string>;
   /** Persist audit items in the same transaction as the record and event. */
   journal?: ChangesetCtx;
@@ -254,6 +258,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   // One binding request still loads rows. The authority state is in the same
   // read transaction, not a cached flag or an optional caller-provided grant.
   const snapshot = await readWriteSnapshot(db, [...new Set([...incoming.map(ch => ch.id), ...(opts.expect?.keys() ?? [])])]);
+  if (opts.syncProtocol) validateSyncProtocol(snapshot, opts.syncProtocol.protocol, opts.syncProtocol.generation);
   const existing = snapshot.existing;
   if (opts.serverTs && incoming.length) {
     // Read field_ts floors for stamping before planning.
@@ -587,15 +592,23 @@ export function pokeLive(env: Env, ctx: { waitUntil(p: Promise<unknown>): void }
 
 export const sync = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 sync.use('*', requireAuth);
+sync.onError((error, c) => {
+  const result = syncFailure(error);
+  if (result) return c.json({ error: result.error }, result.status);
+  throw error;
+});
 
 sync.post('/push', async (c) => {
-  const body = await c.req.json<{ changes?: unknown }>().catch(() => null);
+  const body = await c.req.json<{ changes?: unknown; protocol?: unknown; generation?: unknown }>().catch(() => null);
   if (!body || !Array.isArray(body.changes)) return c.json({ error: 'invalid body' }, 400);
   if (body.changes.length > MAX_CHANGES) return c.json({ error: `max ${MAX_CHANGES} changes per request` }, 400);
+  const state = await loadAccessState(c.env.DB);
+  validateSyncProtocol(state, body.protocol, body.generation);
 
   const user = c.get('user');
   const result = await applyChanges(c.env, user.id, body.changes, {
     event: { source: 'client', ctx: c.executionCtx },
+    syncProtocol: { protocol: body.protocol, generation: body.generation },
   });
   if (result.partialError) return c.json({ error: 'write interrupted; retry', committed: result.applied.map(a=>a.id) }, 503);
   if (result.conflict) return c.json({ error: 'conflict, retry' }, 409);
@@ -606,8 +619,11 @@ sync.post('/push', async (c) => {
 });
 
 sync.get('/pull', async (c) => {
+  const state = await loadAccessState(c.env.DB);
+  validateSyncProtocol(state, c.req.query('protocol'), c.req.query('generation'));
   const since = Number(c.req.query('since') ?? '0');
   const limit = Math.min(Math.max(Number(c.req.query('limit') ?? '500') || 500, 1), 500);
+  if (state.enabled) return c.json(await pullAuthorized(c.env.DB, c.get('user').id, state, since, limit));
   const { results } = await c.env.DB
     .prepare('SELECT id, collection, data, field_ts, seq FROM records WHERE seq > ? ORDER BY seq LIMIT ?')
     .bind(Number.isFinite(since) ? since : 0, limit + 1)

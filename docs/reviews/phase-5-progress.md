@@ -123,12 +123,58 @@ Artifacts (ignored): `.artifacts/phase5-foundation/targeted-results.json` and
 `.artifacts/phase5-foundation/performance/phase5-access.json`. Intermediate
 uncommitted-source checks do not certify a later commit.
 
+## P5-2 incremental sync and manifest checkpoint
+
+`worker/syncAccess.ts` and the existing sync router implement the activated
+protocol-2 incremental contract. `/api/access` returns only currently authorized
+space names/roles. Old sync protocols receive 426 after activation; stale
+generations receive 409. Push rechecks the protocol generation inside its actual
+planning snapshot. Candidate pulls select bounded IDs/sequences through the
+space index, then validate authoritative ancestry/relations before fetching
+content. Empty pages still advance and perform a final authority fence.
+
+Red run against the legacy router: **8 FAIL / 1 PASS**. The expanded suite now
+passes **15/15**, including malformed cursors, visible/invisible pages, legacy
+compatibility, manifest isolation and revocation during graph/content reads.
+An additional empty-page race reproduced an unhandled SQLite fence rollback;
+it now returns the explicit reset response. No reset/error is reported as a
+successful empty page.
+
+### P5-SEC-02 — Visibility changes did not invalidate cached descendants
+
+Ancestor deletion/restoration and endpoint reassignment previously left access
+generation unchanged. A cached child/link could therefore outlive the access
+change even when new pulls correctly filtered it. Both regressions failed
+before migration 0013. Transactional visibility/activation triggers now advance
+generation; ordinary title updates do not. These triggers remain inactive for
+legacy record updates while permission activation is off. No record payload is
+rewritten and no purge capability is enabled.
+
+Expanded actual-D1 foundation/write/sync run: **71/71 PASS** before adding the
+workload case. The complete sync workload suite then passed **15/15**. Artifacts:
+`.artifacts/phase5-writes/protocol-targeted.json`, `sync-workload.json`,
+`sync-red.json`, `sync-race-red.json`, `visibility-red.json`.
+
+Local mixed-space 1000-record workload: **501 authorized results, 11 pages,
+7 D1 binding calls per page, 14 statements in batches per page, 0 rows written**.
+Observed page times approximately **31–43 ms**. Batch rows read range 57–1485;
+the additional direct indexed space-ID discovery is included in binding calls
+but excluded from that row metric, as the machine artifact explicitly labels.
+Fixture setup is excluded. These are local Miniflare measurements, not deployed
+latency or production billing. Machine evidence is generated at
+`performance/phase5-sync.json` under `CERT_ARTIFACT_DIR`.
+
+**Still incomplete:** durable snapshot sessions, client gating/atomic cache
+replacement/eviction/quarantine/regrant, WS/session revocation and the remaining
+REST/MCP/file/public/background read surfaces. Activation remains **0**. The
+new incremental endpoint alone is not a complete permissions implementation.
+
 ## Required work still outstanding
 
 | Workstream | Remaining implementation and acceptance |
 |---|---|
 | P5-1 foundation | Fresh-signup ownership, remaining protected configuration references, ownership transfer, audited role/space updates, API integration |
-| P5-2 sync/access | Server enforcement on every REST/MCP/file/public/background/history path; protected field validation; durable move jobs; protocol 2 filtered pull/push; snapshots; client gating/eviction/quarantine/regrant; WS/session revocation |
+| P5-2 sync/access | Remaining REST/MCP/file/public/background/history enforcement; complete protected field validation; durable move jobs; snapshots; client gating/eviction/quarantine/regrant; WS/session revocation |
 | P5-3 search | Authoritative dirty/index pipeline, permission-safe ranking/pagination, APIs/MCP, local/online mobile palette, workload/security tests |
 | P5-4 guests/sessions | Bounded invites and seven-seat atomic acceptance; sessions and disabled accounts; space/member management UI; multi-tab/browser integration |
 | P5-5 history/scale | Atomic history, revision-safe restore/API/UI, usage monitoring, bounded safe caches, retention policy controls |

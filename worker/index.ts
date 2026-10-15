@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
 import { auth, me, userByToken } from './auth';
 import { sync } from './sync';
+import { accessApi } from './syncAccess';
 import { admin } from './admin';
 import { files } from './files';
 import { shares } from './shares';
@@ -58,6 +59,7 @@ app.get('/api/live', async (c) => {
 app.route('/api/auth', auth);
 app.route('/api/me', me);
 app.route('/api/sync', sync);
+app.route('/api/access', accessApi);
 app.route('/api/files', files);
 app.route('/api/shares', shares);
 app.route('/api/public', publicApi);

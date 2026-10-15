@@ -178,7 +178,8 @@ describe('Phase 5 actual applyChanges and sync write enforcement', () => {
   });
 
   it('enforces the same restrictions on the real authenticated sync route', async () => {
-    const response = await sync.request('http://localhost/push', { method: 'POST', headers: { authorization: `Bearer ${token('viewer')}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ changes: [change('record', 'tasks', { title: 'HTTP attack' })] }) }, env, ctx);
+    const generation = await db.prepare('SELECT generation FROM access_state WHERE id=1').first('generation');
+    const response = await sync.request('http://localhost/push', { method: 'POST', headers: { authorization: `Bearer ${token('viewer')}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ protocol: 2, generation, changes: [change('record', 'tasks', { title: 'HTTP attack' })] }) }, env, ctx);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ rejected: 1, rejectedItems: [expect.objectContaining({ id: 'record' })] });
     expect((await data('record')).title).toBe('Restricted Secret');
