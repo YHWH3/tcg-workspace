@@ -65,20 +65,23 @@ export function planDeleteImpact(
     counts.records = type === 'record' ? 1 + descendants.length : 0;
     counts.blocks = blocks.length;
     counts.tasks = embeddedTasks.length;
+    // Attachments are hidden with their parent and KEPT: byte reclamation is
+    // irreversible, so a recoverable delete never takes it. They are counted
+    // for the preview but are not in `ids` (nothing is soft-deleted for them).
     counts.files = files.length;
     counts.shares = snap.shares;
     counts.backlinks = snap.backlinks;
     ids.pages = allPages.map((p) => p.id);
     ids.blocks = blocks.map((b) => b.id);
     ids.tasks = embeddedTasks.map((t) => t.id);
-    ids.files = files.map((f) => f.id);
+    if (files.length) warnings.push(`${files.length} attachment(s) are hidden with the ${type} and kept — restoring brings them back`);
     if (descendants.length) warnings.push(`${descendants.length} nested ${type === 'page' ? 'page(s)' : 'record(s)'} will also be deleted`);
     if (snap.shares) warnings.push(`${snap.shares} public share link(s) will stop working`);
     if (snap.backlinks) warnings.push(`${snap.backlinks} backlink(s) will dangle`);
     // Boards embedded on the page are NOT deleted (blocks only).
     const boardBlocks = blocks.filter((b) => b.data.type === 'tasks' && b.data.boardId);
     if (boardBlocks.length) warnings.push('Embedded boards are removed from the page but the boards themselves are kept');
-    return { summary: `Delete ${type} ${id}: ${counts.pages + counts.records} page/record(s), ${counts.blocks} block(s), ${counts.tasks} task(s), ${counts.files} file(s)`, counts, warnings, ids };
+    return { summary: `Delete ${type} ${id}: ${counts.pages + counts.records} page/record(s), ${counts.blocks} block(s), ${counts.tasks} task(s); ${counts.files} attachment(s) hidden and kept`, counts, warnings, ids };
   }
 
   if (type === 'board') {
@@ -98,10 +101,15 @@ export function planDeleteImpact(
     counts.files = files.length;
     ids.mooditems = items.map((m) => m.id);
     ids.comments = comments.map((cm) => cm.id);
-    ids.files = files.map((f) => f.id);
     if (items.length) warnings.push(`${items.length} mood-board item(s) reference this task`);
-    return { summary: `Delete task ${id}: ${comments.length} comment(s), ${files.length} attachment(s), ${items.length} mood item ref(s)`, counts, warnings, ids };
+    if (files.length) warnings.push(`${files.length} attachment(s) are hidden with the task and kept — restoring brings them back`);
+    return { summary: `Delete task ${id}: ${comments.length} comment(s), ${items.length} mood item ref(s); ${files.length} attachment(s) hidden and kept`, counts, warnings, ids };
   }
 
+  if (type === 'file') {
+    // Migration 0011 reclaims attachment bytes in the same transaction as the
+    // tombstone: restore/undo can bring the record back but never the bytes.
+    warnings.push('Attachment bytes are permanently reclaimed; restore_item/undo_change cannot bring them back');
+  }
   return { summary: `Delete ${type} ${id}`, counts, warnings, ids };
 }
