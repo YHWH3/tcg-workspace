@@ -80,6 +80,17 @@ it('does not let a new canonical record take an existing attachment thumbnail id
   expect(result.changed).toBe(0); expect(result.rejected).toBe(1);
   expect(await data('photot')).toBeNull();
 });
+it('does not release a thumbnail identity based on a pointer clear in an uncommitted later batch', async () => {
+  await put('photo', 'files', { parentType: 'task', parentId: 'record', thumbId: 'photot' });
+  const raced = interceptWriteBatches(async index => { if (index === 2) throw new Error('interrupted before pointer release'); });
+  const result = await applyChanges({ ...env, DB: raced }, 'editor', [
+    change('photot', 'pages', { title: 'Premature claim', spaceId: 'private' }),
+    ...Array.from({ length: 100 }, (_, i) => change(`filler-${i}`, 'pages', { title: `Filler ${i}`, spaceId: 'private' })),
+    change('photo', 'files', { thumbId: null }),
+  ]);
+  expect(result.partialError).toBeTruthy(); expect(result.rejected).toBe(1);
+  expect(await data('photot')).toBeNull(); expect((await data('photo')).thumbId).toBe('photot');
+});
 it('fences a concurrent thumbnail-ID claim while setting the owned pointer', async () => {
   await put('photo', 'files', { parentType: 'task', parentId: 'record' });
   let hit = false;

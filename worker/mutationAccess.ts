@@ -140,7 +140,10 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
       reject(id, record.collection, 'reference_unavailable');
     }
     const thumbnailOwner = thumbnailParentId(id);
-    const main = thumbnailOwner ? (candidates.get(thumbnailOwner) ?? graph.get(thumbnailOwner)) : undefined;
+    // Current durable ownership wins over a proposed pointer clear: the clear
+    // may belong to a later bounded batch that never commits. A caller can
+    // release the pointer first and claim the ID in a subsequent operation.
+    const main = thumbnailOwner ? (graph.get(thumbnailOwner) ?? candidates.get(thumbnailOwner)) : undefined;
     if (!old && main?.collection === 'files' && main.data.thumbId === id) reject(id, record.collection, 'reference_unavailable');
     if (record.collection === 'comments') {
       if (old ? !canEditComment(access, String(initial.authorId ?? '')) : !canComment(access)) reject(id, record.collection, 'read_only');

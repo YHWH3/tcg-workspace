@@ -564,6 +564,23 @@ All filenames in this subsection without a directory are under
 browser run are required next; none of these results constitute full Phase 5
 certification or permission activation clearance.
 
+Final review reproduced one further P5-SEC-09 ordering case: a proposed pointer
+clear in a later batch could release an auxiliary identity before that clear
+committed. A 102-operation actual-D1 test interrupted the second batch and
+failed on the old implementation (`thumb-release-red.json`). Reservation now
+uses current durable ownership before proposed state. The caller must commit a
+pointer release before claiming the ID in a separate operation. The same test
+and six related cases pass (`thumb-release-green.json`); TypeScript passes.
+
+The intermediate clean commit `e45cbae43525698b2a44421196e48ebd6787b9ce` passed
+the existing quick command: **13/13 gates, 896 unit, 184 Phase 4 D1, 58 harness,
+16 migration hashes, build/typecheck and zero npm vulnerabilities**, exit 0.
+Artifact: `.artifacts/certification/e45cbae43525698b2a44421196e48ebd6787b9ce-2026-10-15T12-24-18-442Z-quick/`.
+Its newly started complete run was deliberately interrupted to implement the
+ordering regression; its FAIL/incomplete/source-change evidence remains in the
+`12-32-14-195Z-complete` sibling directory. It cannot certify the correction.
+The complete command must run against the following committed source.
+
 ## Required work still outstanding
 
 | Workstream | Remaining implementation and acceptance |
