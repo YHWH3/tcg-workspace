@@ -14,6 +14,24 @@ beforeEach(async () => {
 afterEach(async () => { await db.delete(); vi.unstubAllGlobals(); });
 
 describe('Phase 5 interrupted media and late response guards', () => {
+  it.each([1, 2] as const)('queues truthful thumbnail deletion metadata for protocol %s', async protocol => {
+    // fake-indexeddb uses setImmediate to settle real IDB transactions. Keep
+    // that queue live while controlling only the sync debounce timers.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      access.accessClientStore.set(s => ({ ...s, status: 'offline', manifest: protocol === 1 ? { protocol, userId: state.userId } : {
+        protocol, userId: state.userId, workspaceRole: 'member', generation: 1,
+        spaces: [{ id: 'space-core', name: 'Core', role: 'editor', exportPolicy: 'members' }],
+      } }));
+      await db.files.update('file', { thumbId: 'filet' });
+      for (const id of ['file', 'filet']) await db.blobs.put({ id, blob: new Blob(['pending camera bytes']), state: 'pending', uploadedChunks: 0 });
+      await media.deleteFile('file');
+      expect((await db.outbox.toArray()).map(row => row.id)).toEqual(protocol === 1 ? ['file', 'filet'] : ['file']);
+      expect((await db.files.get('file'))?.deleted).toBe(true); expect(await db.blobs.count()).toBe(0);
+      const { syncStore } = await import('../src/core/sync/engine');
+      await vi.waitFor(() => expect(syncStore.get().pending).toBe(protocol === 1 ? 2 : 1));
+    } finally { vi.clearAllTimers(); vi.useRealTimers(); }
+  });
   it('caches an existing deterministic thumbnail through its main attachment metadata', async () => {
     await db.files.update('file', { thumbId: 'filet' });
     expect(await media.cacheDownloadedFile('filet', new Blob(['thumbnail']), media.captureMediaAccess(), () => true)).toBe(true);

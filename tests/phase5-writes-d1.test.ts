@@ -63,6 +63,51 @@ beforeEach(async () => {
 });
 afterEach(async () => { await mf?.dispose(); });
 
+it.each(['foreign', 'ownt'])('refuses a thumbnail pointer that could poison another canonical file (%s)', async thumbId => {
+  await db.prepare("INSERT INTO space_members(space_id,user_id,role) VALUES('space-core','outsider','editor')").run();
+  await put('core-board', 'boards', { name: 'Own board' }, 'space-core');
+  await put('core-task', 'tasks', { boardId: 'core-board', title: 'Own record' }, 'space-core');
+  await put('own', 'files', { parentType: 'task', parentId: 'core-task' }, 'space-core');
+  await put(thumbId, 'files', { parentType: 'task', parentId: 'record' });
+  const result = await applyChanges(env, 'outsider', [change('own', 'files', { thumbId })]);
+  expect(result.changed).toBe(0); expect(result.rejected).toBe(1);
+  expect((await data('own')).thumbId).toBeUndefined();
+  expect(await db.prepare('SELECT COUNT(*) n FROM file_deletions WHERE id=?').bind(thumbId).first('n')).toBe(0);
+});
+it('does not let a new canonical record take an existing attachment thumbnail identity', async () => {
+  await put('photo', 'files', { parentType: 'task', parentId: 'record', thumbId: 'photot' });
+  const result = await applyChanges(env, 'editor', [change('photot', 'pages', { title: 'Collision', spaceId: 'private' })]);
+  expect(result.changed).toBe(0); expect(result.rejected).toBe(1);
+  expect(await data('photot')).toBeNull();
+});
+it('fences a concurrent thumbnail-ID claim while setting the owned pointer', async () => {
+  await put('photo', 'files', { parentType: 'task', parentId: 'record' });
+  let hit = false;
+  const raced = interceptWriteBatches(async () => { if (!hit) { hit = true; await put('photot', 'pages', { title: 'Concurrent claim' }, 'other'); } });
+  const result = await applyChanges({ ...env, DB: raced }, 'editor', [change('photo', 'files', { thumbId: 'photot' })]);
+  expect(hit).toBe(true); expect(result.partialError).toBeTruthy(); expect(result.changed).toBe(0);
+  expect((await data('photo')).thumbId).toBeUndefined();
+});
+it('invalidates cached auxiliary bytes when thumbnail ownership changes without a parent move', async () => {
+  await put('photo', 'files', { parentType: 'task', parentId: 'record', thumbId: 'photot' });
+  const before = await db.prepare('SELECT generation FROM access_state WHERE id=1').first('generation');
+  await db.prepare("UPDATE records SET data=json_set(data,'$.thumbId',NULL) WHERE id='photo'").run();
+  expect(await db.prepare('SELECT generation FROM access_state WHERE id=1').first('generation')).toBe(Number(before) + 1);
+});
+it('rejects deletion of legacy malformed thumbnail metadata before creating foreign cleanup intent', async () => {
+  await db.prepare("INSERT INTO space_members(space_id,user_id,role) VALUES('space-core','outsider','editor')").run();
+  await put('core-board', 'boards', { name: 'Own board' }, 'space-core');
+  await put('core-task', 'tasks', { boardId: 'core-board', title: 'Own record' }, 'space-core');
+  await put('foreign', 'files', { parentType: 'task', parentId: 'record' });
+  await put('own', 'files', { parentType: 'task', parentId: 'core-task', thumbId: 'foreign' }, 'space-core');
+  const result = await applyChanges(env, 'outsider', [change('own', 'files', { deleted: true })]);
+  expect(result.changed).toBe(0); expect(result.rejected).toBe(1);
+  expect(await db.prepare("SELECT COUNT(*) n FROM file_deletions WHERE id='foreign'").first('n')).toBe(0);
+  // A permitted repair can clear the invalid pointer, followed by normal delete.
+  expect((await applyChanges(env, 'outsider', [change('own', 'files', { thumbId: null })])).changed).toBe(1);
+  expect((await applyChanges(env, 'outsider', [change('own', 'files', { deleted: true })])).changed).toBe(1);
+});
+
 describe('Phase 5 actual applyChanges and sync write enforcement', () => {
   it('does not reject an independent own-comment edit because its existing target had a denied title edit', async () => {
     const result = await applyChanges(env, 'commenter', [change('record', 'tasks', { title: 'Denied title' }), change('own-comment', 'comments', { body: 'Allowed comment' })]);

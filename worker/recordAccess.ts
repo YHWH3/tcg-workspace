@@ -31,6 +31,7 @@ const scopeProjection = (alias: string) => `json_object(
   'targetType',json_extract(${alias}.data,'$.targetType'),
   'targetId',json_extract(${alias}.data,'$.targetId'),
   'parentType',json_extract(${alias}.data,'$.parentType'),
+  'thumbId',json_extract(${alias}.data,'$.thumbId'),
   'fromType',json_extract(${alias}.data,'$.fromType'),
   'fromId',json_extract(${alias}.data,'$.fromId'),
   'toType',json_extract(${alias}.data,'$.toType'),

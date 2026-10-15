@@ -54,5 +54,13 @@
   {
     "name": "0014_phase5_sync_snapshots.sql",
     "sha256": "5e84a04b3160ad4f5599f8302105f35380eba3535dd66800bebd03add1baeac3"
+  },
+  {
+    "name": "0015_phase5_sessions.sql",
+    "sha256": "114025e574412ee93928981e62852d9a68b284d14594e56921f8f2635b9babb8"
+  },
+  {
+    "name": "0016_phase5_thumbnail_visibility.sql",
+    "sha256": "678ea3737434f2cf7ccebc2883f7e9c642fa10c38a7ef4b92688ce42d5f0fb9a"
   }
 ]

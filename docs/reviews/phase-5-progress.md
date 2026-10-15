@@ -507,7 +507,11 @@ Executed before this logical commit:
   uploads, guessed-ID rejection, actual IndexedDB caching and revocation
   eviction across Chromium/Firefox/WebKit. Final committed-source rerun remains
   necessary and will be recorded separately.
-- TypeScript, runner syntax and whitespace checks PASS. Browser failure paths
+- Runner syntax and whitespace checks passed. The first shell sequence failed
+  to propagate TypeScript's nonzero exit status for two test-context stubs;
+  `files-commit-typecheck.log` preserves those errors. The subsequent correction
+  uses Hono's actual request-context type and standalone typecheck passes.
+  Browser failure paths
   now abort dependent journeys for that engine and preserve session screenshots
   and traces before browser closure. Independent engines still execute.
 
@@ -518,6 +522,47 @@ total. Shared-reference/template capability handling, public links/forms,
 remote import, other server read surfaces and scoped live remain unfinished.
 Activation stays off outside disposable fixtures. This is not full Phase 5
 certification.
+
+### P5-SEC-09 — Foreign thumbnail cleanup intent and identity collision
+
+Four actual-D1 tests failed before the correction (`thumb-write-red.json`): a
+file could name another canonical file as its thumbnail, including an exact
+`<main>t` collision; a new record could take an active auxiliary identity; and
+deleting malformed legacy metadata could enqueue another file's cleanup intent.
+The central mutation authorization now validates the deterministic ownership
+contract, rejects canonical collisions, reserves active auxiliary IDs and fences
+both present and absent dependencies in the record/journal/outbox transaction.
+Graph projections include the necessary thumbnail reference, never file bytes.
+A concurrent-claim regression verifies rollback. Legacy malformed pointers can
+be cleared by an authorized editor before deletion; they cannot poison another
+file. These protections apply only under the still-disabled Phase 5 activation.
+
+A separate red test (`thumb-epoch-red.json`) confirmed that changing `thumbId`
+did not invalidate cached auxiliary bytes. Additive migration 0016 now advances
+the active access generation for such changes. Previous migration files remain
+unchanged; 0015 and 0016 hashes are registered in the certification manifest.
+
+Protocol 2 client/server deletion avoids creating an orphan synced thumbnail
+tombstone when the canonical main file already drives durable binary cleanup.
+Actual separate file rows still use canonical mutation authorization. Protocol
+1's established deletion queue is preserved. Client tests execute both paths.
+
+Surrounding actual-D1 write/file/review/integrity and client media/cache run:
+**109/109 PASS**, exit 0, `thumb-ownership-green.json`. Standalone TypeScript
+passes. The full unit run on intermediate commit `4224d76` recorded **887 PASS /
+1 FAIL**, exit 1, in `.artifacts/phase5-files-committed/unit-results.json`.
+The failure was C18's old `.run()`-only fault injector missing the new batch
+write. It now injects before the actual D1 completion batch, asserts the race
+executed and retains the required HTTP 409/incomplete-file checks.
+
+Two intermediate tests stalled because broad fake timers froze IndexedDB's
+`setImmediate` queue; only those owned Vitest processes were interrupted, exit
+130. `thumb-harness-interrupted.json` records incomplete execution as FAIL.
+Narrowing fake timers preserves the real IDB queue; media checks then pass.
+All filenames in this subsection without a directory are under
+`.artifacts/phase5-cache-checkpoint/`. A fresh committed-source quick run and
+browser run are required next; none of these results constitute full Phase 5
+certification or permission activation clearance.
 
 ## Required work still outstanding
 

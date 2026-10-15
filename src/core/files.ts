@@ -234,7 +234,10 @@ export async function deleteFile(fileId: string): Promise<void> {
   const meta = await db.files.get(fileId);
   await mutate('files', fileId, { deleted: true });
   const ids = [fileId, meta?.thumbId as string | undefined].filter(Boolean) as string[];
-  if (meta?.thumbId) await mutate('files', String(meta.thumbId), { deleted: true });
+  // In protocol 2 a thumbnail without its own canonical row inherits cleanup
+  // from the main tombstone. Do not create an orphan metadata tombstone that
+  // the server must reject. Preserve the legacy protocol's historical queue.
+  if (meta?.thumbId && (accessClientStore.get().manifest?.protocol !== 2 || await db.files.get(String(meta.thumbId)))) await mutate('files', String(meta.thumbId), { deleted: true });
   await db.blobs.bulkDelete(ids);
 }
 

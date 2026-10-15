@@ -42,9 +42,10 @@ afterEach(async () => { await runtime.dispose(); });
 const call = (actor: string, path: string, method = 'GET', body?: BodyInit, bindings = env) => files.request(`http://localhost${path}`, {
   method, headers: { Authorization: `Bearer fixture-${actor}` }, ...(body ? { body } : {}),
 }, bindings);
+const requestContext: NonNullable<Parameters<typeof files.request>[3]> = { waitUntil() {}, passThroughOnException() {}, props: {} };
 
 it('allows the editor to delete canonical bytes through the normal mutation path', async () => {
-  const response = await files.request('http://localhost/audio', { method: 'DELETE', headers: { Authorization: 'Bearer fixture-editor' } }, env, { waitUntil() {}, passThroughOnException() {}, props: {} } as ExecutionContext);
+  const response = await files.request('http://localhost/audio', { method: 'DELETE', headers: { Authorization: 'Bearer fixture-editor' } }, env, requestContext);
   expect(await response.text()).toContain('"ok":true'); expect(response.status).toBe(200);
   expect(await db.prepare("SELECT COUNT(*) n FROM file_chunks WHERE file_id='audio'").first('n')).toBe(0);
 });
@@ -55,9 +56,7 @@ it('does not commit a metadata deletion after its authenticated session is revok
     if (!hit && sql.some(s => /INSERT INTO records\(/.test(s))) { hit = true; await target.prepare("DELETE FROM sessions WHERE user_id='editor'").run(); }
     return target.batch(statements);
   });
-  const response = await files.request('http://localhost/audio', { method: 'DELETE', headers: { Authorization: 'Bearer fixture-editor' } }, { ...env, DB: raced }, {
-    waitUntil() {}, passThroughOnException() {}, props: {},
-  } as ExecutionContext);
+  const response = await files.request('http://localhost/audio', { method: 'DELETE', headers: { Authorization: 'Bearer fixture-editor' } }, { ...env, DB: raced }, requestContext);
   expect(hit).toBe(true); expect(response.status).toBe(503);
   expect(await db.prepare("SELECT json_extract(data,'$.deleted') FROM records WHERE id='audio'").first("json_extract(data,'$.deleted')")).toBeNull();
   expect(await db.prepare("SELECT COUNT(*) n FROM file_chunks WHERE file_id='audio'").first('n')).toBe(1);
