@@ -103,5 +103,10 @@ export function planDeleteImpact(
     return { summary: `Delete task ${id}: ${comments.length} comment(s), ${files.length} attachment(s), ${items.length} mood item ref(s)`, counts, warnings, ids };
   }
 
+  if (type === 'file') {
+    // Migration 0011 reclaims attachment bytes in the same transaction as the
+    // tombstone: restore/undo can bring the record back but never the bytes.
+    warnings.push('Attachment bytes are permanently reclaimed; restore_item/undo_change cannot bring them back');
+  }
   return { summary: `Delete ${type} ${id}`, counts, warnings, ids };
 }

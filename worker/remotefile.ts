@@ -3,6 +3,7 @@ import { MAX_FILE_SIZE, QUOTA_BYTES, fileChunkSlices } from './files';
 import { uuid } from '../shared/order';
 import { kindOf } from '../shared/filekinds';
 import { applyChanges } from './sync';
+import { sanitizeSvg } from '../shared/svgSanitize';
 
 const ALLOWED = /^(image|video|audio)\/|^application\/pdf$/;
 
@@ -61,11 +62,18 @@ export async function importFileFromUrl(
     }
     parts.push(value);
   }
-  const bytes = new Uint8Array(total);
+  let bytes = new Uint8Array(total);
   let off = 0;
   for (const part of parts) {
     bytes.set(part, off);
     off += part.byteLength;
+  }
+  // SVG is active markup: a remote document is held to the same sanitizer as a
+  // client upload and only the canonical output is stored.
+  if (mime === 'image/svg+xml') {
+    const svg = sanitizeSvg(new TextDecoder().decode(bytes));
+    if (!svg.ok) throw new RemoteFileError(400, `svg failed sanitization: ${svg.reasons.join(', ')}`);
+    bytes = new TextEncoder().encode(svg.svg);
   }
   if ((await usageBytes(env.DB)) + bytes.length > QUOTA_BYTES) throw new RemoteFileError(507, 'storage quota exceeded');
 

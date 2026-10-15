@@ -13,6 +13,25 @@ export function svgHeaders(mime: string | null | undefined): Record<string, stri
   return mime === 'image/svg+xml' ? { 'Content-Type': 'image/svg+xml', ...SVG_HEADERS } : {};
 }
 
+/** Types a browser may render inline without being able to script the page:
+ * raster images, audio/video and PDF (rendered by an isolated viewer). */
+const INLINE_SAFE_TYPE = /^(image\/(png|jpe?g|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon|heic|heif|tiff)|audio\/[a-z0-9.+-]+|video\/[a-z0-9.+-]+|application\/pdf)$/;
+
+/**
+ * The ONLY place a stored file's `Content-Type` is decided. The uploader
+ * supplies the MIME string at `complete`, so it is untrusted: serving
+ * `text/html` (or xhtml/xml/js) from the application origin would execute an
+ * attachment as a page — directly through the unauthenticated share routes, or
+ * through a `blob:` URL (which inherits this origin) in the in-app preview.
+ * Anything outside the inline-safe allowlist is served as an opaque download.
+ */
+export function servedFileHeaders(mime: string | null | undefined): Record<string, string> {
+  const type = String(mime ?? '').split(';')[0].trim().toLowerCase();
+  if (type === 'image/svg+xml') return svgHeaders(type);
+  if (INLINE_SAFE_TYPE.test(type)) return { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff' };
+  return { 'Content-Type': 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'attachment' };
+}
+
 export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB per file
 export const QUOTA_BYTES = 450 * 1024 * 1024; // 450 MB workspace quota
 /** Cloudflare D1 rejects a single string/BLOB/row at or above this size. */
@@ -211,10 +230,12 @@ files.get('/:id', async (c) => {
   const out = concatRows(results);
   return new Response(out, {
     headers: {
-      'Content-Type': meta.mime ?? 'application/octet-stream',
       'Content-Length': String(out.byteLength),
-      'Cache-Control': 'private, max-age=31536000, immutable',
-      ...svgHeaders(meta.mime),
+      // Authorization is per request: never let an HTTP cache answer for the
+      // server (revocation, deletion, account switch). The client keeps its
+      // own blob cache in IndexedDB.
+      'Cache-Control': 'private, no-store',
+      ...servedFileHeaders(meta.mime),
     },
   });
 });

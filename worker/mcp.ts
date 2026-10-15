@@ -2375,7 +2375,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'delete_item',
     {
-      description: 'Archive a generic records database in place; soft-delete other items (page, task, board, moodboard, mooditem, comment, file, block). Requires expectedRev. Call with dryRun:true first and show the user the impact before deleting. Recoverable via restore_item / undo_change.',
+      description: 'Archive a generic records database in place; soft-delete other items (page, task, board, moodboard, mooditem, comment, file, block). Requires expectedRev. Call with dryRun:true first and show the user the impact before deleting. Recoverable via restore_item / undo_change — except type "file", which permanently reclaims the attachment bytes.',
       inputSchema: z.object({
         type: deleteTypes,
         id: z.string(),
@@ -2471,23 +2471,29 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (a.dryRun) return txt({ dryRun: true, summary: impact.summary, counts: impact.counts, warnings: impact.warnings, impact: { ids: impact.ids } });
 
       const expect = new Map([[id, a.expectedRev]]);
+      // Every row this delete hides is marked `deletedVia: <root id>` so that
+      // restore_item brings back exactly what THIS delete took down (and not
+      // something deleted independently earlier). Attachment records and bytes
+      // are NOT touched: a hidden parent hides its attachments, and byte
+      // reclamation (migration 0011) is irreversible — it belongs to explicit
+      // attachment deletion, not to a recoverable soft delete.
+      const cascade = { deleted: true, deletedVia: id };
       const ops: WriteOp[] = [{ collection, id, patch: { deleted: true } }];
-      for (const pid of descendantIds) ops.push({ collection: 'pages', id: pid, patch: { deleted: true } });
-      for (const b of impact.ids.blocks ?? []) ops.push({ collection: 'blocks', id: b, patch: { deleted: true } });
-      for (const f of impact.ids.files ?? []) ops.push({ collection: 'files', id: f, patch: { deleted: true } });
+      for (const pid of descendantIds) ops.push({ collection: 'pages', id: pid, patch: cascade });
+      for (const b of impact.ids.blocks ?? []) ops.push({ collection: 'blocks', id: b, patch: cascade });
       if (impType === 'page') {
-        for (const t of impact.ids.tasks ?? []) ops.push({ collection: 'tasks', id: t, patch: { deleted: true } });
+        for (const t of impact.ids.tasks ?? []) ops.push({ collection: 'tasks', id: t, patch: cascade });
         await ctx.env.DB.prepare('DELETE FROM shares WHERE page_id = ?').bind(id).run();
       }
       if (impType === 'board') {
         const action = a.taskAction ?? 'move_to_default';
         for (const t of boardTasks) {
-          ops.push({ collection: 'tasks', id: t.id, patch: action === 'delete' ? { deleted: true } : { boardId: null, status: 'todo' } });
+          ops.push({ collection: 'tasks', id: t.id, patch: action === 'delete' ? cascade : { boardId: null, status: 'todo' } });
         }
       }
       if (impType === 'task') {
-        for (const cm of impact.ids.comments ?? []) ops.push({ collection: 'comments', id: cm, patch: { deleted: true } });
-        for (const sid of subRecordIds) ops.push({ collection: 'tasks', id: sid, patch: { deleted: true, deletedVia: id } });
+        for (const cm of impact.ids.comments ?? []) ops.push({ collection: 'comments', id: cm, patch: cascade });
+        for (const sid of subRecordIds) ops.push({ collection: 'tasks', id: sid, patch: cascade });
       }
       ops.push(activityOp(ctx.userId, ctx.clientName, 'deleted', type, id, String(r.data.title ?? r.data.name ?? type), ctx.cs?.id));
       await write(ctx, ops, { expect });
@@ -2509,11 +2515,28 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (!r) return err(`${type} not found`);
       const expect = a.expectedRev !== undefined ? new Map([[id, a.expectedRev]]) : undefined;
       const ops: WriteOp[] = [{ collection, id, patch: { deleted: false, ...(type==='board'&&r.data.kind==='records'?{archived:false}:{}) } }];
-      if (collection === 'tasks') {
-        for (const d of (await listBy(ctx.env, 'tasks', 'deletedVia', id, { includeDeleted: true }))) ops.push({ collection: 'tasks', id: d.id, patch: { deleted: false, deletedVia: null } });
+      // Bring back exactly what this item's deletion took down (deletedVia).
+      const revive = (rows: RecRow[], via: string, into: Collection) => {
+        for (const d of rows) if (d.data.deletedVia === via && d.data.deleted === true) ops.push({ collection: into, id: d.id, patch: { deleted: false, deletedVia: null } });
+      };
+      revive(await listBy(ctx.env, 'tasks', 'deletedVia', id, { includeDeleted: true }), id, 'tasks');
+      if (collection === 'tasks') revive(await listBy(ctx.env, 'comments', 'targetId', id, { includeDeleted: true }), id, 'comments');
+      if (collection === 'pages') {
+        // The deleted subtree: child pages by parentId, and every page's blocks by pageId.
+        const queue = [id];
+        const seen = new Set<string>();
+        while (queue.length) {
+          const cur = queue.shift()!;
+          if (seen.has(cur)) continue;
+          seen.add(cur);
+          revive(await listBy(ctx.env, 'blocks', 'pageId', cur, { includeDeleted: true }), id, 'blocks');
+          const kids = await listBy(ctx.env, 'pages', 'parentId', cur, { includeDeleted: true });
+          revive(kids, id, 'pages');
+          for (const k of kids) queue.push(k.id);
+        }
       }
       await write(ctx, ops, { expect });
-      return txt({ type, id, restored: true, ...(a.expectedRev === undefined ? { unchecked: [id] } : {}) });
+      return txt({ type, id, restored: true, restoredWith: ops.length - 1, ...(a.expectedRev === undefined ? { unchecked: [id] } : {}) });
     },
   );
 

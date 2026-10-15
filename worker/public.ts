@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from './auth';
-import { ID_RE, concatRows, svgHeaders, type FileRow } from './files';
+import { ID_RE, concatRows, servedFileHeaders, type FileRow } from './files';
 import {
   allowedCanvasFiles,
   allowedFileIds,
@@ -223,11 +223,10 @@ publicApi.get('/:token/files/:fileId', async (c) => {
   const out = concatRows(results);
   return new Response(out, {
     headers: {
-      'Content-Type': meta.mime ?? 'application/octet-stream',
       'Content-Length': String(out.byteLength),
       // Token-scoped media must respect revocation/deletion — never immutable.
       'Cache-Control': 'no-store',
-      ...svgHeaders(meta.mime),
+      ...servedFileHeaders(meta.mime),
     },
   });
 });
@@ -347,10 +346,9 @@ publicApi.get('/canvas/:token/files/:fileId', async (c) => {
   const out = concatRows(results);
   return new Response(out, {
     headers: {
-      'Content-Type': meta.mime ?? 'application/octet-stream',
       'Content-Length': String(out.byteLength),
       'Cache-Control': 'no-store',
-      ...svgHeaders(meta.mime),
+      ...servedFileHeaders(meta.mime),
     },
   });
 });
