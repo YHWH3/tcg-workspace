@@ -129,19 +129,20 @@ export async function userByToken(db: D1Database, token: string): Promise<AuthUs
   const tokenHash = await sha256Hex(token);
   const row = await db
     .prepare(
-      `SELECT s.token_hash, s.expires_at, u.id, u.username, u.name, u.role, u.color
-       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`,
+      `SELECT s.token_hash, s.expires_at, s.last_seen_at, u.id, u.username, u.name, u.role, u.color
+       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND u.disabled_at IS NULL`,
     )
     .bind(tokenHash)
-    .first<{ token_hash: string; expires_at: number; id: string; username: string; name: string; role: 'admin' | 'member'; color: string }>();
+    .first<{ token_hash: string; expires_at: number; last_seen_at: number | null; id: string; username: string; name: string; role: 'admin' | 'member'; color: string }>();
   if (!row) return null;
   const now = Date.now();
-  if (row.expires_at < now) {
+  if (row.expires_at <= now) {
     await db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
     return null;
   }
-  if (row.expires_at - now < SESSION_RENEW_MS) {
-    await db.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').bind(now + SESSION_TTL_MS, tokenHash).run();
+  if (row.expires_at - now < SESSION_RENEW_MS || (row.last_seen_at ?? 0) < now - 5 * 60_000) {
+    await db.prepare('UPDATE sessions SET expires_at=?,last_seen_at=? WHERE token_hash=?')
+      .bind(row.expires_at - now < SESSION_RENEW_MS ? now + SESSION_TTL_MS : row.expires_at, now, tokenHash).run();
   }
   return { id: row.id, username: row.username, name: row.name, role: row.role, color: row.color, tokenHash };
 }
@@ -165,14 +166,18 @@ function publicUser(u: { id: string; username: string; name: string; role: 'admi
   return { id: u.id, username: u.username, name: u.name, role: u.role, color: u.color };
 }
 
-async function createSession(db: D1Database, userId: string): Promise<string> {
+function deviceLabel(value: string | undefined): string {
+  return (value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 160) || 'Unknown device';
+}
+async function createSession(db: D1Database, userId: string, device: string): Promise<string | null> {
   const token = randomToken();
   const now = Date.now();
-  await db
-    .prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
-    .bind(await sha256Hex(token), userId, now + SESSION_TTL_MS, now)
+  const created = await db
+    .prepare(`INSERT INTO sessions (token_hash,user_id,expires_at,created_at,id,device_label,last_seen_at)
+      SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at IS NULL)`)
+    .bind(await sha256Hex(token), userId, now + SESSION_TTL_MS, now, crypto.randomUUID(), device, now, userId)
     .run();
-  return token;
+  return created.meta.changes === 1 ? token : null;
 }
 
 async function userCount(db: D1Database): Promise<number> {
@@ -244,8 +249,8 @@ auth.post('/signup', async (c) => {
   } else {
     statements.push(db.prepare('UPDATE invites SET used_by=?,used_at=? WHERE code=? AND used_by IS NULL').bind(id, now, code));
   }
-  statements.push(db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)')
-    .bind(tokenHash, id, now + SESSION_TTL_MS, now));
+  statements.push(db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,created_at,id,device_label,last_seen_at) VALUES(?,?,?,?,?,?,?)')
+    .bind(tokenHash, id, now + SESSION_TTL_MS, now, crypto.randomUUID(), deviceLabel(c.req.header('user-agent')), now));
   try {
     await db.batch(statements);
   } catch (error) {
@@ -268,13 +273,14 @@ auth.post('/login', async (c) => {
   const body = await c.req.json<{ username?: string; password?: string }>().catch(() => null);
   if (!body?.username || !body.password) return c.json({ error: 'invalid body' }, 400);
   const row = await c.env.DB
-    .prepare('SELECT id, username, name, role, color, password_hash, salt FROM users WHERE username = ?')
+    .prepare('SELECT id, username, name, role, color, password_hash, salt FROM users WHERE username = ? AND disabled_at IS NULL')
     .bind(body.username.trim().toLowerCase())
     .first<{ id: string; username: string; name: string; role: 'admin' | 'member'; color: string; password_hash: string; salt: string }>();
   if (!row || !(await verifyPassword(body.password, row.salt, row.password_hash))) {
     return c.json({ error: 'Invalid username or password' }, 401);
   }
-  const token = await createSession(c.env.DB, row.id);
+  const token = await createSession(c.env.DB, row.id, deviceLabel(c.req.header('user-agent')));
+  if (!token) return c.json({ error: 'Invalid username or password' }, 401);
   return c.json({ token, user: publicUser(row) });
 });
 
@@ -282,6 +288,63 @@ auth.post('/logout', requireAuth, async (c) => {
   await c.env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(c.get('user').tokenHash).run();
   return c.json({ ok: true });
 });
+
+export const sessionsApi = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
+sessionsApi.use('*', requireAuth);
+sessionsApi.get('/', async c => {
+  const user = c.get('user'), raw = c.req.query('cursor');
+  let after: [number, string] | null = null;
+  if (raw !== undefined) {
+    try {
+      const decoded: unknown = JSON.parse(raw);
+      if (!Array.isArray(decoded) || decoded.length !== 2 || !Number.isSafeInteger(decoded[0]) || decoded[0] < 0
+          || typeof decoded[1] !== 'string' || !/^[a-zA-Z0-9-]{16,64}$/.test(decoded[1])) throw new Error('cursor');
+      after = decoded as [number, string];
+    } catch { return c.json({ error: 'invalid_cursor' }, 400); }
+  }
+  const { results } = await c.env.DB.prepare(`SELECT id,device_label,created_at,last_seen_at,expires_at,
+    CASE WHEN token_hash=? THEN 1 ELSE 0 END is_current FROM sessions
+    WHERE user_id=? AND expires_at>? ${after ? 'AND (created_at < ? OR (created_at=? AND id < ?))' : ''}
+    ORDER BY created_at DESC,id DESC LIMIT 51`)
+    .bind(user.tokenHash, user.id, Date.now(), ...(after ? [after[0], after[0], after[1]] : []))
+    .all<{ id: string; device_label: string; created_at: number; last_seen_at: number | null; expires_at: number; is_current: number }>();
+  const page = results.slice(0, 50), last = page.at(-1);
+  return c.json({ sessions: page.map(row => ({ id: row.id, device: row.device_label, current: row.is_current === 1,
+    createdAt: row.created_at, lastSeenAt: row.last_seen_at ?? row.created_at, expiresAt: row.expires_at })),
+    nextCursor: results.length > 50 && last ? JSON.stringify([last.created_at, last.id]) : null });
+});
+
+/** Ownership is constrained in the DELETE itself, not just a preflight lookup.
+ * The session/disabled check, deletion and access audit share one transaction. */
+async function revokeSessions(c: Ctx, others: boolean) {
+  const user = c.get('user'), id = others ? null : c.req.param('id');
+  if (!others && (!id || !/^[a-zA-Z0-9-]{16,64}$/.test(id))) return c.json({ error: 'not found' }, 404);
+  const db = c.env.DB, now = Date.now();
+  let result: D1Result[];
+  try {
+    result = await db.batch([
+      db.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
+        WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL)
+        THEN 1 ELSE json_extract('{','$') END`).bind(user.tokenHash, user.id, now),
+      db.prepare(`DELETE FROM sessions WHERE user_id=? AND ${others ? 'token_hash != ?' : 'id=?'}`)
+        .bind(user.id, others ? user.tokenHash : id),
+      db.prepare(`INSERT INTO access_audit(id,actor_id,action,after_json,generation,created_at)
+        SELECT ?,?,?,?,generation,? FROM access_state WHERE id=1 AND changes()>0`)
+        .bind(crypto.randomUUID(), user.id, others ? 'revoke_other_sessions' : 'revoke_session', JSON.stringify(others ? { scope: 'others' } : { sessionId: id }), now),
+    ]);
+  } catch (error) {
+    if (!await db.prepare(`SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
+      WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL`).bind(user.tokenHash, user.id, Date.now()).first()) {
+      return c.json({ error: 'unauthenticated' }, 401);
+    }
+    throw error;
+  }
+  const revoked = result[1].meta.changes;
+  if (!others && !revoked) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true, revoked });
+}
+sessionsApi.delete('/others', c => revokeSessions(c, true));
+sessionsApi.delete('/:id', c => revokeSessions(c, false));
 
 export const me = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 me.use('*', requireAuth);

@@ -4158,7 +4158,7 @@ export const mcpApiHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const props = (ctx.props ?? {}) as { userId?: string; clientName?: string };
     if (!props.userId) return unauthorized();
-    const user = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(props.userId).first<{ id: string }>();
+    const user = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND disabled_at IS NULL').bind(props.userId).first<{ id: string }>();
     if (!user) return unauthorized();
     request = await normalizePromptGetRequest(request);
     return createMcpHandler(

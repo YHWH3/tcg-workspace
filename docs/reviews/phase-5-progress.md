@@ -404,6 +404,55 @@ Built Worker `scripts/smoke.sh` ran automatically on fresh disposable D1,
 fingerprint and SQL proof of the new Core owner/audit. No production resources
 were accessed.
 
+## Session controls and disabled principals — implementation checkpoint
+
+Migration 0015 adds opaque session IDs and bounded device/last-seen metadata;
+credential hashes and expiry remain intact. Session list is owner-only,
+paginated at 50. Single/current/all-other session revocation uses an atomic
+credential/disabled-state fence, SQL ownership restriction and access audit.
+Foreign IDs and missing IDs both return 404. UI in Settings supports current
+identification, refresh/pagination, two-step signout/cancel and retained-work
+explanation. Current-device logout preserves local data. No tokens, hashes or
+IP addresses are returned in the list.
+
+Disabled accounts now fail password login, session authentication, OAuth consent
+and MCP requests; installed OAuth grants cannot bypass current disabled state.
+**P5-SEC-06:** four further client auth races were reproduced: late startup
+success/401, signout and profile updates could overwrite/clear an account that
+another tab had already replaced. The four tests failed first and now pass;
+responses verify captured uid/token before touching local identity. The earlier
+P5-SEC-04 sync catch guard is preserved.
+
+Executed evidence on the session worktree (before its logical commit):
+
+- Initial new session tests: 0 PASS / 6 FAIL, including missing endpoints/schema;
+  `sessions-red.json`. Session+signup implementation run: 13/13 PASS.
+- Final session/signup/client/OAuth/account-switch checks: **29/29 PASS**,
+  including legacy-session migration preserving credential hashes and expiry;
+  `sessions-final-targeted.json`.
+- Session/auth/access/sync surrounding D1 run: **76/76 PASS**;
+  `sessions-surrounding-green.json`. Includes revoked-caller race: target session
+  and audit remain unchanged when the caller loses its credential before commit.
+- Client auth/engine/media/account-switch: **33/33 PASS**;
+  `auth-client-green.json`; red evidence in `auth-client-red.json`.
+- Built Worker/browser: **27/27 PASS**, nine journeys in each engine, including
+  cancel/remote signout/current signout and 320/768/1024 session-form reflow;
+  `.artifacts/phase5-sessions-browser2/results.json`, fingerprint
+  `1c3694ae7fda65f84983a96f03f730cb5bcc83fb65af1f4057cd46dc59391298`.
+  The first run caught an ambiguous login selector (tab and submit both Sign in);
+  the corrected assertion targets the form submit and preserves the same behavior.
+- Built Worker base MCP: **94/94 PASS**, exit 0, complete mandatory markers,
+  `.artifacts/phase5-sessions-mcp2/results.json`. Three mandatory disabled-user
+  checks were added to the existing manifest. The first MCP run failed closed
+  with a fetch transport error before those checks; its failure report remains
+  in `phase5-sessions-mcp/`. A fresh isolated run passed without relaxing tests.
+
+JSON/log paths without a directory above are in
+`.artifacts/phase5-cache-checkpoint/`. These are integration checkpoints, not
+complete Phase 5 certification. Server scoped live/session revalidation, guest
+invitations, full role/admin protections and all remaining read surfaces are
+still required before activation. Physical devices/manual AT remain NOT RUN.
+
 ## Required work still outstanding
 
 | Workstream | Remaining implementation and acceptance |
@@ -411,7 +460,7 @@ were accessed.
 | P5-1 foundation | Remaining protected configuration references, ownership transfer, audited role/space updates, API integration |
 | P5-2 sync/access | Remaining REST/MCP/file/public/background/history enforcement; complete protected field validation; durable move jobs; snapshot maintenance; remaining client role states and wider adversarial/cache coverage; scoped WS/session revocation |
 | P5-3 search | Authoritative dirty/index pipeline, permission-safe ranking/pagination, APIs/MCP, local/online mobile palette, workload/security tests |
-| P5-4 guests/sessions | Bounded invites and seven-seat atomic acceptance; sessions and disabled accounts; space/member management UI; multi-tab/browser integration |
+| P5-4 guests/sessions | Scoped guest invites; remaining session/live enforcement; space/member management UI and complete guest/role browser integration |
 | P5-5 history/scale | Atomic history, revision-safe restore/API/UI, usage monitoring, bounded safe caches, retention policy controls |
 | P5-6 certification | Extend existing orchestrator to certify:phase5; all new mandatory actual-D1/API/storage/browser/adversarial gates; complete old regression; raw audit; final committed SHA/fingerprint; final diff review; pushed stacked PR |
 

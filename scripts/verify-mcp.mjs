@@ -424,6 +424,20 @@ const secondToken = accessToken; // token is bound to USER; delete USER and rest
 const { execFileSync } = await import('node:child_process');
 const d1Args = ['wrangler', 'd1', 'execute', 'workspace-db', '--local', '--config', configPath, '--persist-to', statePath];
 const d1 = (args) => execFileSync('npx', [...d1Args, ...args], { cwd: process.cwd() }).toString();
+// A disabled principal must be refused at REST, consent and every MCP request,
+// even if its issued OAuth grant still exists. These are disposable users only.
+try {
+  d1(['--command', `UPDATE users SET disabled_at=1 WHERE username='${USER}'`]);
+  const disabledMcp = await api('/mcp', { method: 'POST', token: accessToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
+  check('disabled user OAuth token rejected', disabledMcp.status === 401, `status=${disabledMcp.status}`);
+  const disabledLogin = await api('/api/auth/login', { method: 'POST', body: { username: USER, password: PASS } });
+  check('disabled user password login rejected', disabledLogin.status === 401, `status=${disabledLogin.status}`);
+  const disabledDance = await authorize();
+  const disabledHandle = disabledDance.html.match(/name="handle" value="([^"]+)"/)?.[1];
+  const disabledPath = `/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: 'http://localhost:8123/cb', state: disabledDance.state, code_challenge: b64url(crypto.createHash('sha256').update(disabledDance.verifier).digest()), code_challenge_method: 'S256', resource, scope: 'mcp' })}`;
+  const disabledConsent = await api(disabledPath, { method: 'POST', cookie: disabledDance.cookie, form: { handle: disabledHandle, username: USER, password: PASS, decision: 'allow' } });
+  check('disabled user OAuth consent rejected', disabledConsent.status === 401 && !disabledConsent.headers.get('location'), `status=${disabledConsent.status}`);
+} finally { d1(['--command', `UPDATE users SET disabled_at=NULL WHERE username='${USER}'`]); }
 const rowJson = d1(['--json', '--command', `SELECT * FROM users WHERE username='${USER}'`]);
 const rows = JSON.parse(rowJson);
 const row = Array.isArray(rows) ? rows[0]?.results?.[0] : rows.results?.[0];

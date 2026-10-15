@@ -136,7 +136,7 @@ export function registerAuthorize(app: Hono<{ Bindings: Env; Variables: { user: 
       }
       const username = String(form?.get('username') ?? '').trim();
       const password = String(form?.get('password') ?? '');
-      const user = await c.env.DB.prepare('SELECT id, username, password_hash, salt, name FROM users WHERE username = ?').bind(username).first<{ id: string; name: string; password_hash: string; salt: string }>();
+      const user = await c.env.DB.prepare('SELECT id, username, password_hash, salt, name FROM users WHERE username = ? AND disabled_at IS NULL').bind(username).first<{ id: string; name: string; password_hash: string; salt: string }>();
       const ok = user ? await verifyPassword(password, user.salt, user.password_hash) : false;
       // Re-derive the client facts from the query (the form posts to the same
       // URL) so an error re-render shows accurate, unspoofable details.

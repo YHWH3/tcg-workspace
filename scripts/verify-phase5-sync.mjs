@@ -14,6 +14,7 @@ import { startFixture, bootstrap, push, eventually } from './phase4-fixture.mjs'
 
 const engines = { chromium, firefox, webkit }, selected = process.argv.find(a => a.startsWith('--only='))?.slice(7);
 const names = ['legacy Core startup remains functional', 'startup gates cached views until current access is checked', 'offline edit survives browser close and is quarantined after revocation', 'regrant restores canonical content without replaying held work', 'another tab reconciles revocation before cached content reuse', 'access failure gates content and keyboard retry recovers', 'held-work review is redacted and explicit discard preserves D1', 'account replacement locks the old tab without clearing the new token'];
+names.push('session controls confirm remote revocation and current-device signout');
 const reporter = createCertificationReporter('verify-phase5-sync', (selected ? [selected] : Object.keys(engines)).flatMap(engine => names.map(name => `${engine}/${name}`)));
 if (selected && !engines[selected]) throw new Error('Unknown mandatory browser engine');
 const output = process.env.CERT_ARTIFACT_DIR ?? mkdtempSync(join(tmpdir(), 'tcg-phase5-sync-')); mkdirSync(output, { recursive: true });
@@ -134,6 +135,35 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
       await other.evaluate(admin => { localStorage.setItem('ws_uid', admin.user.id); localStorage.setItem('ws_token', admin.token); localStorage.setItem('ws_user', JSON.stringify(admin.user)); }, admin);
       await page.getByRole('heading', { name: 'Access check required' }).waitFor(); assert.ok(!(await page.locator('body').innerText()).includes(originalTitle));
       assert.equal(await page.evaluate(() => localStorage.getItem('ws_token')), admin.token); await other.close();
+    });
+    await check(names[8], async () => {
+      const browser = await browserType.launch({ headless: true }); await reporter.trackBrowser(browser, engine);
+      try {
+        const response = await fetch(`${fixture.base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'password123' }) });
+        assert.equal(response.status, 200); const secondUser = await response.json();
+        const open = async user => {
+          const c = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+          await c.addInitScript(user => { localStorage.setItem('ws_token', user.token); localStorage.setItem('ws_uid', user.user.id); localStorage.setItem('ws_user', JSON.stringify(user.user)); }, user);
+          const p = await c.newPage(); p.setDefaultTimeout(20_000); return p;
+        };
+        const primary = await open(admin), secondary = await open(secondUser);
+        await secondary.goto(`${fixture.base}/pages/${coreId}`); await secondary.getByPlaceholder('Untitled', { exact: true }).waitFor();
+        await primary.goto(`${fixture.base}/settings`);
+        const section = primary.getByRole('heading', { name: 'Signed-in devices', exact: true }).locator('..');
+        await section.getByRole('list', { name: 'Signed-in devices' }).waitFor();
+        await section.getByRole('button', { name: 'Sign out other devices', exact: true }).click();
+        const dialog = primary.getByRole('dialog'); await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+        assert.equal((await fetch(`${fixture.base}/api/me`, { headers: { Authorization: `Bearer ${secondUser.token}` } })).status, 200);
+        await section.getByRole('button', { name: 'Sign out other devices', exact: true }).focus(); await primary.keyboard.press('Enter');
+        await dialog.getByRole('button', { name: 'Confirm sign out', exact: true }).click();
+        await eventually(async () => (await fetch(`${fixture.base}/api/me`, { headers: { Authorization: `Bearer ${secondUser.token}` } })).status === 401);
+        assert.equal((await fetch(`${fixture.base}/api/me`, { headers: { Authorization: `Bearer ${admin.token}` } })).status, 200);
+        await secondary.reload(); await secondary.locator('form').getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+        for (const width of [320, 768, 1024]) { await primary.setViewportSize({ width, height: 900 }); assert.ok(await primary.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2)); }
+        await section.getByRole('button', { name: 'Sign out this device', exact: true }).click();
+        await dialog.getByRole('button', { name: 'Confirm sign out', exact: true }).click();
+        await primary.locator('form').getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+      } finally { await browser.close(); }
     });
     writeFileSync(join(directory, 'source-state.json'), JSON.stringify({ sourceSha, sourceFingerprint, fixture: fixture.fixtureId, local: true, permissionActivation: 'disposable fixture only' }, null, 2));
   } catch (error) { reporter.record(engine, 'none', 'fixture or engine initialization', 'FAIL', error); }

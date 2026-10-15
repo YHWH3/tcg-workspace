@@ -339,13 +339,29 @@ Retention/export of inaccessible pending payloads is an unresolved owner privacy
 policy: those recovery/export controls stay disabled, with a clear explanation.
 Do not silently classify retained edits as synced or discard them on logout.
 
-Sessions gain opaque `id`, user-agent/device label, last_seen_at (bounded update
-frequency), created/expires times. No token/hash in the session-list response.
-`GET /api/sessions`, `DELETE /api/sessions/:id`, `DELETE /api/sessions/others`;
-only session owner can revoke. Existing hashes/TTLs remain valid. OAuth grants
-remain separate and existing refresh/revoke tests remain mandatory. Revoked WS
-credentials cannot continue presence/read delivery; alarms and access mutations
-close stale connections. Multi-tab logout propagates immediately when connected.
+Migration `0015_phase5_sessions.sql` adds opaque session `id`, a bounded
+user-agent/device label and `last_seen_at` without rewriting existing hashes,
+account IDs or expiry. Legacy metadata is backfilled and an insert trigger keeps
+older session creators compatible. New sessions receive a random opaque ID;
+user-agent text is untrusted presentation metadata, never an authorization fact.
+Last-seen writes are bounded to once per five minutes (or TTL renewal).
+
+`GET /api/sessions` returns only the requesting account's unexpired sessions,
+50 per page with `(created_at,id)` continuation. Responses expose no credential
+hash/token. `DELETE /api/sessions/:id` and `DELETE /api/sessions/others` constrain
+ownership in SQL and fence the active calling credential/disabled state in the
+same batch as deletion and audit. Repeating all-others is safe; missing/foreign
+IDs both return 404. Current-device signout keeps local pending work. Settings
+provides paginated device review, refresh, confirmation/cancel and keyboard/mobile
+controls. OAuth grants remain a separate section.
+
+Disabled principals are refused by password login, session authentication, OAuth
+consent and every MCP request. Client startup/logout/profile responses verify the
+captured identity/token before changing local credentials. Existing OAuth/PKCE
+regressions remain mandatory. Server enforcement for already-open WebSockets is
+still pending: messages/alarms/pokes must revalidate credentials and close stale
+connections before scoped live presence can be enabled. No disconnected-device
+wipe or immediate offline revocation is promised.
 
 ## 9. Search and leakage controls
 

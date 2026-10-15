@@ -16,6 +16,7 @@ import { toast } from './files';
 import { useStore } from './store';
 import { AdaptiveDialog, Avatar, Button, Field, Input, Spinner } from './ui';
 import { cn } from './utils';
+import { Sessions } from './Sessions';
 
 interface InviteRow {
   code: string;
@@ -47,6 +48,7 @@ export function SettingsPage() {
         <NotificationsSection />
         <LocalDataSection user={user} />
         <PasswordSection />
+        <Section title="Signed-in devices"><Sessions /></Section>
         {user?.role === 'admin' && <AdminSection />}
       </div>
     </div>
