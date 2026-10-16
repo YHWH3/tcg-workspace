@@ -1,6 +1,7 @@
 import { canRead } from '../shared/access';
 import { scopeResolver, ScopeError, type RecordScope, type ScopeRecord } from '../shared/recordScope';
 import { accessFence, loadAccessContext, MAX_ACCESS_SPACES, spaceAccess, type AccessContext } from './access';
+import { capabilityFence, LEVEL_READ } from './capability';
 
 export const MAX_SCOPE_GRAPH_RECORDS = 5000;
 const MAX_RECORD_IDS = 500;
@@ -117,9 +118,13 @@ export async function readAuthorizedRecords(db: D1Database, userId: string, ids:
   // references between graph and content reads without changing origin space;
   // compare its revision as well as fencing permission generation.
   let content: D1Result;
+  // The caller must still be able to read every space the decision resolved through.
+  const readNeeds = new Map<string, number>();
+  for (const record of allowed.values()) for (const space of record.scope.readSpaceIds) readNeeds.set(space, LEVEL_READ);
   try {
-    [, content] = await db.batch([
+    [, , content] = await db.batch([
       accessFence(db, context),
+      capabilityFence(db, { userId, needs: readNeeds, workspaceRole: context.principal!.workspaceRole, enabled: context.enabled }),
       db.prepare('SELECT id,collection,data,space_id,seq,field_ts FROM records WHERE id IN (SELECT value FROM json_each(?))')
         .bind(JSON.stringify([...allowed.keys()])),
     ]);

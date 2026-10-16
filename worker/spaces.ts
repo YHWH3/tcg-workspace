@@ -6,6 +6,7 @@ import {
 } from '../shared/access';
 import { stableJson } from '../shared/stablejson';
 import { accessFence, loadAccessContext, spaceAccess, type AccessContext } from './access';
+import { capabilityFence, minLevel } from './capability';
 import { sha256Hex } from './password';
 
 export class SpaceMutationError extends Error {
@@ -49,6 +50,7 @@ export async function createSpace(db: D1Database, userId: string, input: { name:
   try {
     await db.batch([
       accessFence(db, context),
+      capabilityFence(db, { userId, needs: new Map(), workspaceRole: context.principal!.workspaceRole, enabled: context.enabled }),
       db.prepare('INSERT INTO spaces(id,name,default_access,export_policy,created_by,created_at) VALUES(?,?,?,?,?,?)')
         .bind(spaceId, name, defaultAccess, 'disabled', userId, now),
       db.prepare("INSERT INTO space_members(space_id,user_id,role,access,updated_at) VALUES(?,?,'owner','allow',?)").bind(spaceId, userId, now),
@@ -105,6 +107,8 @@ export async function setSpaceMember(db: D1Database, userId: string, input: { sp
   try {
     await db.batch([
       accessFence(db, context),
+      // The actor must still be able to manage this space's members at commit time.
+      capabilityFence(db, { userId, needs: new Map([[input.spaceId, minLevel(context.principal, canManageMembers)]]), workspaceRole: context.principal!.workspaceRole, enabled: context.enabled }),
       input.membership === null
         ? db.prepare('DELETE FROM space_members WHERE space_id=? AND user_id=?').bind(input.spaceId, input.targetUserId)
         : db.prepare(`INSERT INTO space_members(space_id,user_id,role,access,updated_at) VALUES(?,?,?,?,?)

@@ -296,7 +296,7 @@ describe('bounded authoritative record graph reads in actual D1', () => {
     const started = performance.now();
     const allowed = await readAuthorizedRecords(observed, 'alice', ids);
     const ms = Number((performance.now() - started).toFixed(2));
-    expect(allowed.records.size).toBe(500); expect(batchCount).toBe(3); expect(statements).toBe(7);
+    expect(allowed.records.size).toBe(500); expect(batchCount).toBe(3); expect(statements).toBe(8);
     expect(rowsRead).toBeLessThan(10_000); expect(rowsWritten).toBe(0);
     const directory = process.env.CERT_ARTIFACT_DIR
       ? join(process.env.CERT_ARTIFACT_DIR, 'performance') : mkdtempSync(join(tmpdir(), 'tcg-phase5-access-'));
