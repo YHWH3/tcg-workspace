@@ -29,6 +29,12 @@ export { MAX_FUTURE_SKEW_MS };
  * limit is enforced per item with headroom for `field_ts` and row metadata.
  */
 export const MAX_RECORD_BYTES = 1_000_000;
+/**
+ * The only place `records.seq` is allocated. Never regresses: a hard delete of the
+ * current maximum (abandoned public uploads) raises `seq_floor`, so the next write
+ * cannot reuse a value a client's cursor already passed (migration 0017).
+ */
+export const NEXT_SEQ = '(MAX((SELECT COALESCE(MAX(seq),0) FROM records),(SELECT floor FROM seq_floor WHERE id=1))+1)';
 /** expectedRev ids must fit in ONE atomic batch. */
 export const MAX_EXPECTED = 100;
 
@@ -498,20 +504,20 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
   const isAtomic = opts.atomic === true || (opts.atomic !== false && expected.size > 0);
   const eventIds: string[] = [];
   const refusedOnRetry: RejectedItem[] = [];
-  const stmtFor = (p: Plan) => authority ? db.prepare(`INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at,space_id)
-      VALUES(?,?,?,?,(SELECT COALESCE(MAX(seq),0)+1 FROM records),?,?,?)
+  const stmtFor = (p: Plan) => authority ? db.prepare(`INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at,space_id,peer_space_id)
+      VALUES(?,?,?,?,${NEXT_SEQ},?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET data=excluded.data,field_ts=excluded.field_ts,
-        seq=(SELECT COALESCE(MAX(seq),0)+1 FROM records),updated_by=excluded.updated_by,updated_at=excluded.updated_at,space_id=excluded.space_id
+        seq=${NEXT_SEQ},updated_by=excluded.updated_by,updated_at=excluded.updated_at,space_id=excluded.space_id,peer_space_id=excluded.peer_space_id
       WHERE records.seq=? RETURNING seq`)
-      .bind(p.id,p.collection,JSON.stringify(p.data),JSON.stringify(p.field_ts),userId,now,authority.spaces.get(p.id)!,p.baseSeq) :
+      .bind(p.id,p.collection,JSON.stringify(p.data),JSON.stringify(p.field_ts),userId,now,authority.spaces.get(p.id)!,authority.peers.get(p.id) ?? null,p.baseSeq) :
     db
       .prepare(
         `INSERT INTO records (id, collection, data, field_ts, seq, updated_by, updated_at)
-         VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM records), ?, ?)
+         VALUES (?, ?, ?, ?, ${NEXT_SEQ}, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            data = excluded.data,
            field_ts = excluded.field_ts,
-           seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM records),
+           seq = ${NEXT_SEQ},
            updated_by = excluded.updated_by,
            updated_at = excluded.updated_at
          WHERE records.seq = ? RETURNING seq`,

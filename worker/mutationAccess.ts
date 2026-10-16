@@ -14,6 +14,9 @@ export interface AccessRejection { id: string; collection: string; reason: strin
 export interface WriteAuthority {
   context: AccessContext;
   spaces: ReadonlyMap<string, string>;
+  /** The other readable space of a cross-space relation (null elsewhere): the join key
+   * that lets a regranted peer space find links whose own revision never changed. */
+  peers: ReadonlyMap<string, string | null>;
   /** Updated only with our own committed revisions after each bounded batch. */
   dependencies: Map<string, number>;
   /** Highest capability level this plan relied on, per space (see capability.ts).
@@ -211,7 +214,8 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
   }
   for (const id of expected?.keys() ?? []) for (const space of (oldScopes.get(id) ?? scopes.get(id))?.readSpaceIds ?? []) need(needs, space, LEVEL_READ);
   return {
-    authority: { context, spaces: new Map([...scopes].filter(([id]) => !denied.has(id)).map(([id, scope]) => [id, scope.spaceId])), dependencies, needs, ...(session ? { session } : {}) },
+    authority: { context, spaces: new Map([...scopes].filter(([id]) => !denied.has(id)).map(([id, scope]) => [id, scope.spaceId])),
+      peers: new Map([...scopes].filter(([id]) => !denied.has(id)).map(([id, scope]) => [id, scope.readSpaceIds.find(space => space !== scope.spaceId) ?? null])), dependencies, needs, ...(session ? { session } : {}) },
     changes: changes.filter(ch => !denied.has(ch.id)), rejected: [...denied.values()], blockedExpectation,
   };
 }

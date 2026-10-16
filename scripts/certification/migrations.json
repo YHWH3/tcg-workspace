@@ -62,5 +62,9 @@
   {
     "name": "0016_phase5_thumbnail_visibility.sql",
     "sha256": "678ea3737434f2cf7ccebc2883f7e9c642fa10c38a7ef4b92688ce42d5f0fb9a"
+  },
+  {
+    "name": "0017_phase5_space_feeds.sql",
+    "sha256": "708318d5eabbc31eb5a0b5f2c5428cb5f83479f6e885a8b6840da8c181ab48f1"
   }
 ]
