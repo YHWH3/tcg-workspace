@@ -95,7 +95,7 @@ Information-leak/stale-authority checklist, each with its owner in the design:
 ## 4. Recommended reconciliation protocol ("per-space feeds")
 
 > **Amended.** The owner adopted this direction on 2026-10-16. A security and
-> concurrency review of this section found sixteen flaws or gaps (FD-01…FD-16:
+> concurrency review of this section found twenty flaws or gaps (FD-01…FD-20:
 > join semantics, cross-space links, check-then-read, eviction ordering, ancestor
 > visibility, the kernel's use of the generation token, the missing move, …). The
 > normative specification is

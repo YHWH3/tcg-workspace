@@ -95,6 +95,10 @@ mandatory proof (§4).
 | FD-14 | **High** | **There is no move.** `explicit_move_required` has no executor in the draft, so events, `peer_space_id` and descendant re-stamping are unreachable and cross-space behavior is untestable. | Specify and implement the move (§3.6): closure rewrite, distinct seq allocation, events by trigger, incident-link recomputation, atomic and bounded. |
 | FD-15 | Low | **Push and the etag.** Authorization is by current server state; a stale etag must not become an authorization input or a stuck outbox. | Push never fails on etag; its reply carries `accessEtag` and the client reconciles on difference. |
 | FD-16 | Low | **Activation flip between plan and commit is unfenced on the disabled path** (unchanged from today). | Documented limit: activation is a maintenance-window migration. The enabled flag is part of the capability fence on the enabled path. |
+| FD-17 | **Med–High** | **Sequence regression after a hard delete.** `records.seq` is allocated as `MAX(seq)+1` (only in `flushPlans`). The two hard deletes of record rows — abandoned public-upload cleanup (`forms.ts`) and the 24 h orphan sweep (`reminders.ts`) — can remove the current maximum, so the next write reuses a value a client's cursor already passed and is never delivered. Pull cursors jump to the high-water mark, which includes rows no client ever receives (service-only pending uploads), so the exposure is real in an idle workspace; it pre-exists in the legacy pull whenever the removed row was delivered. | `seq_floor` (one row) raised by an `AFTER DELETE ON records` trigger; allocation is `MAX(max(seq), floor) + 1`; high-water reads include the floor. |
+| FD-18 | Medium | **Event identity and tie groups.** One write emits events for both a link's old home and old peer with the same `rev`, so `seq` alone cannot be the key; and an equal-`seq` group (record row + up to two events) can exceed two items. | `space_events` is keyed `(space_id, seq)`; the pager drops a trailing equal-`seq` group of any size and rejects `limit < 8`. |
+| FD-19 | Medium | **Migration tooling constraints.** SQLite forbids `WITH` inside a trigger body; the actual-D1 test fixtures split migrations at the first `END;` and strip `--` comments even inside string literals; `wrangler d1 migrations apply` splits differently again. | Migration 0017 uses plain trigger bodies and no `--` inside literals, and is applied through both the fixture splitter and `wrangler d1 migrations apply` by mandatory tests. |
+| FD-20 | Medium | **Downgrade guard.** The literal `2` is hard-coded in five client and three server modules (`accessClient`, `files`, `accessCache`, `reconcileAccess`, `engine`; `sync`, `syncAccess`, `syncSnapshot`). A partial update would reject a v3 manifest or treat it as ungated legacy. | One shared `PERMISSION_PROTOCOL` constant; a test proves that a stored v3 manifest plus a protocol-1 response is refused and that every site speaks 3. |
 
 Findings that did **not** need a change: the capability decisions
 (`effectiveSpaceRole`, deny precedence, guest limits), child-scope derivation from the
@@ -144,9 +148,10 @@ caller's current level ≥ 1; and the matching `space_events` statements.
 2. `cursor` or any `after` above the high-water mark → `409 cursor_ahead`.
 3. Any requested space with cursor < `events_floor` → `409 rebackfill_required {spaces}`.
 4. Merge records and events by `seq` (events before records on equal `seq`; a record found
-   through both its home and peer statement appears once); take `limit`; if the last two
-   `seq` are equal drop the trailing equal-`seq` group (≤ 2 items). `hasMore` is true iff the
-   merged candidate list exceeded `limit`.
+   through both its home and peer statement appears once); take `limit`; if the last
+   included item and the next candidate share a `seq`, drop the trailing equal-`seq` group
+   (any size). `limit` must be at least 8 (`400` otherwise) so a page can never be one group.
+   `hasMore` is true iff the merged candidate list exceeded `limit`.
 5. Resolve record candidates through the kernel (`readAuthorizedRecords`,
    `includeDeleted`, `includeAncestorDeleted`): graph + current context + capability-fenced
    content read. A race inside it → `409 access_changed_retry`.
@@ -161,9 +166,9 @@ A backfill is `joining: [{space, after: 0}]` repeated until the space's `after` 
 
 ### 3.4 Events
 
-`space_events(seq PRIMARY KEY, space_id, record_id, kind CHECK(kind='evict'), created_at)`,
+`space_events(space_id, seq, record_id, kind CHECK(kind='evict'), created_at, PRIMARY KEY(space_id, seq))`,
 `spaces.events_floor`. `seq` is the moved row's new `records.seq` (the same counter domain),
-which doubles as `rev`. Written by SQL triggers in the same statement as the cause:
+which doubles as `rev`; allocation never regresses (`seq_floor`, FD-17). Written by SQL triggers in the same statement as the cause:
 `records.space_id` changes (old space), and a link's `fromId/toId/fromType/toType` change
 (old home and old peer). Retention: rows older than 30 days are deleted in bounded batches
 and `events_floor` is raised from the same set. Client rule: delete the local row iff its
@@ -218,9 +223,13 @@ Existing migrations are hash-locked by certification, so nothing is rewritten. 0
 the generation triggers (`p5_space_*`, `p5_member_*`, `p5_user_*`, `p5_session_delete`,
 `p5_record_scope`, `p5_record_visibility`, `p5_record_delete_visibility`,
 `p5_access_activation`, `p5_file_aux_visibility`) and `sync_snapshot_items` /
-`sync_snapshots`; adds `space_events`, `spaces.events_floor`, `records.peer_space_id` with
-its partial index, and the two event triggers. `access_state.generation` remains as an
-inert column (audit rows still copy it).
+`sync_snapshots`; adds `space_events`, `spaces.events_floor`, `seq_floor` with its
+`AFTER DELETE` trigger, `records.peer_space_id` with its partial index, and the two event
+triggers. `access_state.generation` remains as an inert column (audit rows still copy it).
+The trigger drop happens only after every consumer of the generation has been converted to
+the capability fence (so no fail-closed check ever degrades to a trivially true
+comparison), and 0017 is applied by tests through both the vitest fixture splitter and
+`wrangler d1 migrations apply` (FD-19).
 
 ## 4. Proof obligations → mandatory tests
 
@@ -235,7 +244,10 @@ inert column (audit rows still copy it).
 | Interrupted backfill: crash between pages and during activation leaves no partial state | `phase5-spacefeed-client.test.ts`; browser journey |
 | Concurrent edits while backfilling and paging (no missed or duplicated row) | `phase5-feeds-d1.test.ts` (interleaving + seeded random schedule) |
 | Authorization change during a write (revoke, downgrade, disable, move, parent change) | `phase5-writes-d1.test.ts`, `phase5-files-d1.test.ts`, `phase5-moves-d1.test.ts` |
-| D1 reads/writes; ordinary logout/delete write no snapshot rows | `phase5-cost-d1.test.ts` (writes evidence JSON) |
+| Sequence never regresses after a hard delete of the maximum row (FD-17) | `phase5-feeds-d1.test.ts` |
+| Protocol downgrade refused; one protocol constant (FD-20) | `phase5-spacefeed-client.test.ts`, `phase5-feeds-d1.test.ts` |
+| Migration 0017 on the fixture splitter and `wrangler d1 migrations apply` (FD-19) | `phase5-migration-d1.test.ts`, certification `migrations` + every fixture |
+| D1 reads/writes; ordinary logout/delete write no snapshot rows; independent of N | `phase5-cost-d1.test.ts` (writes evidence JSON) |
 | Browser journeys with permissions enabled (3 engines) | `scripts/verify-phase5-sync.mjs` (fixed, mandatory suite `phase5-sync`) |
 
 ## 5. D1 budget model
