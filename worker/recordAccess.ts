@@ -1,7 +1,7 @@
 import { canRead } from '../shared/access';
 import { scopeResolver, ScopeError, type RecordScope, type ScopeRecord } from '../shared/recordScope';
-import { accessFence, loadAccessContext, MAX_ACCESS_SPACES, spaceAccess, type AccessContext } from './access';
-import { capabilityFence, LEVEL_READ } from './capability';
+import { loadAccessContext, MAX_ACCESS_SPACES, spaceAccess, type AccessContext } from './access';
+import { capabilityFence, capabilityViolated, LEVEL_READ } from './capability';
 
 export const MAX_SCOPE_GRAPH_RECORDS = 5000;
 const MAX_RECORD_IDS = 500;
@@ -11,7 +11,6 @@ interface RawStoredRow extends RawScopeRow { field_ts: string }
 export interface ScopeGraphRecord extends ScopeRecord { rev: number }
 export interface ScopedStoredRecord extends ScopeGraphRecord { fieldTs: Record<string, number> }
 export interface ScopeGraph {
-  generation: number;
   records: ReadonlyMap<string, ScopeGraphRecord>;
 }
 export class RecordAccessError extends Error {
@@ -67,24 +66,24 @@ function validateIds(ids: readonly string[]) {
   }
 }
 
-/** A coherent graph+epoch read, one binding batch and two SQL statements.
- * Graph JSON contains only ownership fields, never titles/bodies/claim hashes.
- * New mutation planners
- * can load additional destination/parent seeds before overlaying their plans. */
+/** One ownership-graph read: one binding call, one SQL statement. The JSON contains
+ * only ownership fields, never titles/bodies/claim hashes. It is not a grant and
+ * carries no consistency token of its own: every caller re-reads authority and
+ * fences the final content/write batch with the caller's capability and the
+ * revisions it relied on (a concurrent move or reference change bumps `seq`).
+ * New mutation planners can load additional destination/parent seeds before
+ * overlaying their plans. */
 export async function loadScopeGraph(db: D1Database, ids: readonly string[]): Promise<ScopeGraph> {
   validateIds(ids);
-  const [graph, state] = await db.batch([
+  const [graph] = await db.batch([
     db.prepare(graphSql).bind(JSON.stringify([...new Set(ids)]), MAX_SCOPE_GRAPH_RECORDS + 1),
-    db.prepare('SELECT generation FROM access_state WHERE id=1'),
   ]);
-  const generation = (state.results[0] as { generation: number } | undefined)?.generation;
-  if (!generation || !Number.isSafeInteger(generation)) throw new RecordAccessError('access_reset_required');
   if (graph.results.length > MAX_SCOPE_GRAPH_RECORDS) throw new RecordAccessError('scope_graph_budget');
   const records = new Map<string, ScopeGraphRecord>();
   for (const r of graph.results as unknown as RawScopeRow[]) {
     records.set(r.id, { id: r.id, collection: r.collection, data: JSON.parse(r.data), rootSpaceId: r.space_id, rev: r.seq });
   }
-  return { generation, records };
+  return { records };
 }
 
 export interface AuthorizedRecords {
@@ -105,7 +104,6 @@ export async function readAuthorizedRecords(db: D1Database, userId: string, ids:
   const spaceIds = [...new Set([...scopes.values()].flatMap(scope => [...scope.readSpaceIds]))];
   if (spaceIds.length > MAX_ACCESS_SPACES) throw new RecordAccessError('scope_graph_budget');
   const context = await loadAccessContext(db, userId, spaceIds);
-  if (graph.generation !== context.generation) throw new RecordAccessError('access_reset_required');
   const allowed = new Map<string, ScopeGraphRecord & { scope: RecordScope }>();
   for (const [id, scope] of scopes) {
     const record = graph.records.get(id);
@@ -116,21 +114,21 @@ export async function readAuthorizedRecords(db: D1Database, userId: string, ids:
   if (!allowed.size) return { context, records };
   // Fetch content only after authority is known. A record may have changed its
   // references between graph and content reads without changing origin space;
-  // compare its revision as well as fencing permission generation.
+  // compare its revision as well as fencing the caller's capability.
   let content: D1Result;
-  // The caller must still be able to read every space the decision resolved through.
+  // The caller must still be able to read every space the decision resolved through
+  // when the bytes are read; a revocation after the context read aborts the batch.
   const readNeeds = new Map<string, number>();
   for (const record of allowed.values()) for (const space of record.scope.readSpaceIds) readNeeds.set(space, LEVEL_READ);
+  const fence = { userId, needs: readNeeds, workspaceRole: context.principal!.workspaceRole, enabled: context.enabled };
   try {
-    [, , content] = await db.batch([
-      accessFence(db, context),
-      capabilityFence(db, { userId, needs: readNeeds, workspaceRole: context.principal!.workspaceRole, enabled: context.enabled }),
+    [, content] = await db.batch([
+      capabilityFence(db, fence),
       db.prepare('SELECT id,collection,data,space_id,seq,field_ts FROM records WHERE id IN (SELECT value FROM json_each(?))')
         .bind(JSON.stringify([...allowed.keys()])),
     ]);
   } catch (error) {
-    const current = await loadAccessContext(db, userId, []);
-    if (current.generation !== context.generation || current.enabled !== context.enabled) throw new RecordAccessError('access_reset_required');
+    if (await capabilityViolated(db, fence)) throw new RecordAccessError('access_reset_required');
     throw error;
   }
   if (content.results.length !== allowed.size) throw new RecordAccessError('access_reset_required');

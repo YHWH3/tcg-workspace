@@ -146,6 +146,9 @@ function exceedsRecordBudget(plan: Plan, existing: RecordRow | null): boolean {
 }
 
 export interface ApplyOptions {
+  /** Request-bound writes (client push, authenticated routes): the credential that
+   * authenticated the request is fenced into the commit batch. */
+  session?: { tokenHash: string };
   /** Set only by the sync router. Rechecked against the same authority snapshot
    * used to plan writes so a revocation after HTTP validation cannot slip in. */
   syncProtocol?: { protocol?: unknown; generation?: unknown };
@@ -337,7 +340,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   let authority: WriteAuthority | undefined;
   if (snapshot.enabled === 1) {
     try {
-      const authorization = await authorizeMutations(db, userId, incoming, existing, opts.expect, snapshot.generation);
+      const authorization = await authorizeMutations(db, userId, incoming, existing, opts.expect, opts.session?.tokenHash);
       authority = authorization.authority;
       for (const item of authorization.rejected) reject(item.id, item.collection, item.reason);
       incoming = authorization.changes;
@@ -682,6 +685,7 @@ sync.post('/push', async (c) => {
   const user = c.get('user');
   const result = await applyChanges(c.env, user.id, body.changes, {
     event: { source: 'client', ctx: c.executionCtx },
+    session: { tokenHash: user.tokenHash },
     syncProtocol: { protocol: body.protocol, generation: body.generation },
   });
   if (result.partialError) return c.json({ error: 'write interrupted; retry', committed: result.applied.map(a=>a.id) }, 503);

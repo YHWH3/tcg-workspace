@@ -309,7 +309,7 @@ files.delete('/:id', async (c) => {
     const data=JSON.parse(row.data) as {thumbId?:string};
     const changes=[{id,collection:'files',patch:{deleted:true},ts:0}];
     if(data.thumbId && (!authority || await c.env.DB.prepare("SELECT 1 FROM records WHERE id=? AND collection='files'").bind(data.thumbId).first())) changes.push({id:data.thumbId,collection:'files',patch:{deleted:true},ts:0});
-    const result=await applyChanges(c.env,c.get('user').id,changes,{serverTs:true,event:{source:'client',ctx:c.executionCtx}});
+    const result=await applyChanges(c.env,c.get('user').id,changes,{serverTs:true,event:{source:'client',ctx:c.executionCtx},session:{tokenHash:c.get('user').tokenHash}});
     if(result.partialError||result.rejected) return c.json({error:'cleanup interrupted; retry'},503);
   } else {
     // Legacy/incomplete uploads have no synced metadata. Only their uploader

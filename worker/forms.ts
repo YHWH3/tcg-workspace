@@ -620,6 +620,7 @@ formsApi.post('/', async (c) => {
   const written=await applyChanges(c.env, user.id, [{ id, collection: 'forms', patch, ts: Date.now() }], {
     serverTs: true,
     event: { source: 'client', ctx: c.executionCtx },
+    session: { tokenHash: user.tokenHash },
   });
   if(written.partialError||written.conflicts?.length||written.rejected) return c.json({error:'form_write_interrupted',retryable:true},503);
   pokeLive(c.env, c.executionCtx);

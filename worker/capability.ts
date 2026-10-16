@@ -62,19 +62,26 @@ export interface CapabilityFenceInput {
   workspaceRole: WorkspaceRole;
   /** The activation flag the plan was made under (both directions abort). */
   enabled: boolean;
+  /** Request-bound writes: the credential (sessions.token_hash) that authenticated the
+   * request must still be valid at commit. Logout, password change and admin removal
+   * of THIS session abort its own in-flight write; they never touch anyone else's. */
+  session?: string | null;
 }
 
 /** Include in the SAME batch as the protected statements. Fails (SQLite error) iff
  * the activation flag changed, the principal was disabled or changed workspace
- * role, or the caller's current level on any named space fell below the level the
- * plan relied on. Another user's access, sessions and record changes never trip it. */
+ * role, the request's own session ended, or the caller's current level on any named
+ * space fell below the level the plan relied on. Another user's access, sessions and record changes never trip it. */
 export function capabilityFence(db: D1Database, input: CapabilityFenceInput): D1PreparedStatement {
+  const session = input.session ?? null;
   return db.prepare(`SELECT CASE WHEN
       (SELECT enabled FROM access_state WHERE id=1) = ?
       AND EXISTS(SELECT 1 FROM users u WHERE u.id = ? AND u.disabled_at IS NULL AND COALESCE(u.workspace_role,u.role) = ?)
+      AND (? IS NULL OR EXISTS(SELECT 1 FROM sessions x WHERE x.token_hash = ? AND x.user_id = ? AND x.expires_at > ?))
       AND NOT EXISTS(SELECT 1 FROM json_each(?) n WHERE ${levelSql('?', 'n.key')} < n.value)
     THEN 1 ELSE json_extract('{','$') END`)
-    .bind(input.enabled ? 1 : 0, input.userId, input.workspaceRole, JSON.stringify(Object.fromEntries(input.needs)), input.userId);
+    .bind(input.enabled ? 1 : 0, input.userId, input.workspaceRole, session, session, input.userId, Date.now(),
+      JSON.stringify(Object.fromEntries(input.needs)), input.userId);
 }
 
 /** True when the fence for `input` would fail right now (used to translate a batch

@@ -235,17 +235,32 @@ describe('bounded authoritative record graph reads in actual D1', () => {
     expect((await readAuthorizedRecords(db, 'alice', ['a', 'b', 'bad'])).records.size).toBe(0);
   });
 
-  it('rejects a graph/authorization generation race instead of authorizing a stale graph', async () => {
+  it('never authorizes a stale graph: revocation before the context read denies, after it aborts the content read', async () => {
     await fixture(); await member('private', 'alice', 'viewer');
+    // Revoked between the graph read (batch 1) and the authority read (batch 2): the
+    // authority read sees the revocation, so nothing is authorized.
     let batches = 0;
-    const racing = new Proxy(db, { get(target, key) {
+    const beforeContext = new Proxy(db, { get(target, key) {
       if (key === 'batch') return async (statements: D1PreparedStatement[]) => {
         if (++batches === 2) await member('private', 'alice', 'viewer', 'deny');
         return target.batch(statements);
       };
       const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
     } });
-    await expect(readAuthorizedRecords(racing, 'alice', ['secret', 'body'])).rejects.toThrow('access_reset_required');
+    expect((await readAuthorizedRecords(beforeContext, 'alice', ['secret', 'body'])).records.size).toBe(0);
+    // Regranted, then revoked between the authority read (batch 2) and the content read
+    // (batch 3): the caller's capability fence aborts the batch that would return bytes.
+    await member('private', 'alice', 'viewer');
+    expect((await readAuthorizedRecords(db, 'alice', ['secret', 'body'])).records.size).toBe(2);
+    batches = 0;
+    const beforeContent = new Proxy(db, { get(target, key) {
+      if (key === 'batch') return async (statements: D1PreparedStatement[]) => {
+        if (++batches === 3) await member('private', 'alice', 'viewer', 'deny');
+        return target.batch(statements);
+      };
+      const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    await expect(readAuthorizedRecords(beforeContent, 'alice', ['secret', 'body'])).rejects.toThrow('access_reset_required');
     expect((await readAuthorizedRecords(db, 'alice', ['secret', 'body'])).records.size).toBe(0);
   });
 
@@ -296,7 +311,7 @@ describe('bounded authoritative record graph reads in actual D1', () => {
     const started = performance.now();
     const allowed = await readAuthorizedRecords(observed, 'alice', ids);
     const ms = Number((performance.now() - started).toFixed(2));
-    expect(allowed.records.size).toBe(500); expect(batchCount).toBe(3); expect(statements).toBe(8);
+    expect(allowed.records.size).toBe(500); expect(batchCount).toBe(3); expect(statements).toBe(6);
     expect(rowsRead).toBeLessThan(10_000); expect(rowsWritten).toBe(0);
     const directory = process.env.CERT_ARTIFACT_DIR
       ? join(process.env.CERT_ARTIFACT_DIR, 'performance') : mkdtempSync(join(tmpdir(), 'tcg-phase5-access-'));

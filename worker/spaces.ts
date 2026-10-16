@@ -5,8 +5,8 @@ import {
   isSpaceRole, isWorkspaceRole, type SpaceMembership,
 } from '../shared/access';
 import { stableJson } from '../shared/stablejson';
-import { accessFence, loadAccessContext, spaceAccess, type AccessContext } from './access';
-import { capabilityFence, minLevel } from './capability';
+import { loadAccessContext, spaceAccess, type AccessContext } from './access';
+import { capabilityFence, capabilityViolated, minLevel, type CapabilityFenceInput } from './capability';
 import { sha256Hex } from './password';
 
 export class SpaceMutationError extends Error {
@@ -26,9 +26,12 @@ function replay(row: AuditRow, hash: string): SpaceMutationResult {
   if (row.args_hash !== hash) throw new SpaceMutationError('request_id_reused', 409);
   return { spaceId: row.space_id, generation: row.generation, replayed: true };
 }
-async function assertFreshOrRethrow(db: D1Database, context: AccessContext, error: unknown): Promise<never> {
-  const current = await db.prepare('SELECT generation,enabled FROM access_state WHERE id=1').first<{ generation: number; enabled: number }>();
-  if (current?.generation !== context.generation || current.enabled !== Number(context.enabled)) throw new SpaceMutationError('access_changed_retry', 409);
+const actorFence = (context: AccessContext, needs: Map<string, number>): CapabilityFenceInput => ({
+  userId: context.userId, needs, workspaceRole: context.principal!.workspaceRole, enabled: context.enabled });
+/** A rolled-back batch is a recoverable "your authority changed" only when the ACTOR's own
+ * capability changed; any other failure keeps its original error. */
+async function assertFreshOrRethrow(db: D1Database, fence: CapabilityFenceInput, error: unknown): Promise<never> {
+  if (await capabilityViolated(db, fence)) throw new SpaceMutationError('access_changed_retry', 409);
   throw error;
 }
 
@@ -49,8 +52,7 @@ export async function createSpace(db: D1Database, userId: string, input: { name:
   const spaceId = crypto.randomUUID(), now = Date.now();
   try {
     await db.batch([
-      accessFence(db, context),
-      capabilityFence(db, { userId, needs: new Map(), workspaceRole: context.principal!.workspaceRole, enabled: context.enabled }),
+      capabilityFence(db, actorFence(context, new Map())),
       db.prepare('INSERT INTO spaces(id,name,default_access,export_policy,created_by,created_at) VALUES(?,?,?,?,?,?)')
         .bind(spaceId, name, defaultAccess, 'disabled', userId, now),
       db.prepare("INSERT INTO space_members(space_id,user_id,role,access,updated_at) VALUES(?,?,'owner','allow',?)").bind(spaceId, userId, now),
@@ -67,7 +69,7 @@ export async function createSpace(db: D1Database, userId: string, input: { name:
       if (!canManageMembers(spaceAccess(current, committed.space_id))) throw new SpaceMutationError('forbidden', 403);
       return replay(committed, hash);
     }
-    return assertFreshOrRethrow(db, context, error);
+    return assertFreshOrRethrow(db, actorFence(context, new Map()), error);
   }
   const committed = await priorStatement(db, userId, input.requestId).first<AuditRow>();
   if (!committed) throw new Error('space creation audit missing');
@@ -106,9 +108,8 @@ export async function setSpaceMember(db: D1Database, userId: string, input: { sp
   const now = Date.now();
   try {
     await db.batch([
-      accessFence(db, context),
       // The actor must still be able to manage this space's members at commit time.
-      capabilityFence(db, { userId, needs: new Map([[input.spaceId, minLevel(context.principal, canManageMembers)]]), workspaceRole: context.principal!.workspaceRole, enabled: context.enabled }),
+      capabilityFence(db, actorFence(context, new Map([[input.spaceId, minLevel(context.principal, canManageMembers)]]))),
       input.membership === null
         ? db.prepare('DELETE FROM space_members WHERE space_id=? AND user_id=?').bind(input.spaceId, input.targetUserId)
         : db.prepare(`INSERT INTO space_members(space_id,user_id,role,access,updated_at) VALUES(?,?,?,?,?)
@@ -127,7 +128,7 @@ export async function setSpaceMember(db: D1Database, userId: string, input: { sp
       if (!canManageMembers(spaceAccess(await loadAccessContext(db, userId, [input.spaceId]), input.spaceId))) throw new SpaceMutationError('forbidden', 403);
       return replay(committed, hash);
     }
-    return assertFreshOrRethrow(db, context, error);
+    return assertFreshOrRethrow(db, actorFence(context, new Map([[input.spaceId, minLevel(context.principal, canManageMembers)]])), error);
   }
   const committed = await priorStatement(db, userId, input.requestId).first<AuditRow>();
   if (!committed) throw new Error('membership audit missing');
