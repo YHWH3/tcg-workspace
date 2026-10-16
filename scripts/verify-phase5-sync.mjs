@@ -24,6 +24,19 @@ reporter.setMetadata('sourceFingerprint', sourceFingerprint);
 reporter.setMetadata('workingTreeDirty', Boolean(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim()));
 reporter.setMetadata('responsiveWidths', [320, 390, 768, 1024, 1440]);
 const quote = value => "'" + String(value).replaceAll("'", "''") + "'";
+// An input can be visible and still empty while IndexedDB hydrates it (WebKit
+// loses that race often). Assert the settled value, report the last one seen.
+const expectValue = async (locator, expected) => {
+  let last;
+  try { await eventually(async () => (last = await locator.inputValue()) === expected, { timeout: 15_000 }); }
+  catch { assert.equal(last, expected); }
+};
+// reporter.trackBrowser() already starts tracing on every context it creates when
+// CERT_ARTIFACT_DIR is set (the certification harness always sets it).
+const traceUnlessReported = context => process.env.CERT_ARTIFACT_DIR ? Promise.resolve() : context.tracing.start({ screenshots: true, snapshots: true });
+// A gated route can outlive its request (unroute, navigation, page close). That
+// rejection must never escape as an unhandled rejection that aborts the runner.
+const settle = async fn => { try { await fn(); } catch { /* route already handled or page closed */ } };
 let built = process.argv.includes('--skip-build');
 for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !selected || name === selected)) {
   let fixture, context;
@@ -77,7 +90,7 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
       try {
         const c = await legacy.newContext(); await c.addInitScript(admin => { localStorage.setItem('ws_token', admin.token); localStorage.setItem('ws_uid', admin.user.id); localStorage.setItem('ws_user', JSON.stringify(admin.user)); }, admin);
         const p = await c.newPage(); await p.goto(`${fixture.base}/pages/${coreId}`);
-        await p.getByPlaceholder('Untitled', { exact: true }).waitFor(); assert.equal(await p.getByPlaceholder('Untitled', { exact: true }).inputValue(), `${engine} Core reference`);
+        await p.getByPlaceholder('Untitled', { exact: true }).waitFor(); await expectValue(p.getByPlaceholder('Untitled', { exact: true }), `${engine} Core reference`);
       } finally { await legacy.close(); }
     });
     await sql('UPDATE access_state SET enabled=1 WHERE id=1');
@@ -89,11 +102,11 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
     await check(names[1], async () => {
       page = await start(bob);
       let release; const gate = new Promise(resolve => { release = resolve; });
-      await context.route('**/api/access', async route => { await gate; await route.continue(); });
+      await context.route('**/api/access', async route => { await gate; await settle(() => route.continue()); });
       await page.goto(`${fixture.base}/pages/${pageId}`);
       await page.getByRole('heading', { name: 'Checking access' }).waitFor(); assert.ok(!(await page.locator('body').innerText()).includes(originalTitle));
       release(); await context.unroute('**/api/access');
-      await page.getByPlaceholder('Untitled', { exact: true }).waitFor(); assert.equal(await page.getByPlaceholder('Untitled', { exact: true }).inputValue(), originalTitle);
+      await page.getByPlaceholder('Untitled', { exact: true }).waitFor(); await expectValue(page.getByPlaceholder('Untitled', { exact: true }), originalTitle);
       await page.getByRole('img', { name: caption, exact: true }).waitFor();
       await eventually(async () => (await readAccountStore(page, 'blobs')).some(row => row.id === thumbId));
       const rows = await readAccountStore(page, 'pages'); assert.equal(rows.some(r => r.id === coreId), false); assert.equal(rows.some(r => r.id === pageId), true);
@@ -116,7 +129,7 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
     await check(names[3], async () => {
       await sql(`UPDATE space_members SET access='allow' WHERE space_id=${quote(space)} AND user_id=${quote(bob.user.id)}`);
       await page.reload(); await page.getByPlaceholder('Untitled', { exact: true }).waitFor();
-      assert.equal(await page.getByPlaceholder('Untitled', { exact: true }).inputValue(), originalTitle);
+      await expectValue(page.getByPlaceholder('Untitled', { exact: true }), originalTitle);
       await page.getByRole('img', { name: caption, exact: true }).waitFor();
       assert.ok((await readAccountStore(page, 'accessQuarantine')).length > 0);
       for (const width of [320, 390, 768, 1024, 1440]) { await page.setViewportSize({ width, height: 1000 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2)); }
@@ -132,7 +145,7 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
       await page.reload(); await page.getByPlaceholder('Untitled', { exact: true }).waitFor();
     });
     await check(names[5], async () => {
-      await context.route('**/api/access', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'processing_budget' }) }));
+      await context.route('**/api/access', route => settle(() => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'processing_budget' }) })));
       await page.reload(); await page.getByRole('heading', { name: 'Access check required' }).waitFor();
       assert.ok(!(await page.locator('body').innerText()).includes(originalTitle));
       await context.unroute('**/api/access'); await page.getByRole('button', { name: 'Retry access check' }).focus(); await page.keyboard.press('Enter');
@@ -162,7 +175,7 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
         assert.equal(response.status, 200); const secondUser = await response.json();
         const open = async user => {
           const c = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
-          sessionContexts.push(c); await c.tracing.start({ screenshots: true, snapshots: true });
+          sessionContexts.push(c); await traceUnlessReported(c);
           await c.addInitScript(user => { localStorage.setItem('ws_token', user.token); localStorage.setItem('ws_uid', user.user.id); localStorage.setItem('ws_user', JSON.stringify(user.user)); }, user);
           const p = await c.newPage(); p.setDefaultTimeout(20_000); return p;
         };
