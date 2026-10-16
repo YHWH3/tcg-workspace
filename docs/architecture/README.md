@@ -14,6 +14,7 @@ These documents are the build spec for evolving the existing Workspace app into 
 | [phase-3-tcg-pack.md](phase-3-tcg-pack.md) | TCG databases/templates pack, dashboard blocks, field mode, project review | Architecture + interfaces |
 | [phase-4-rhythm.md](phase-4-rhythm.md) | Server event pipeline, notifications, reminders, recurrence, public forms, approvals, automations | Architecture + interfaces |
 | [phase-5-scale-permissions.md](phase-5-scale-permissions.md) | Server search, permissions/spaces + filtered sync, guests, seats, audit history | Architecture; **needs design review before build** |
+| [phase-5-per-space-feeds.md](phase-5-per-space-feeds.md) | Per-space reconciliation protocol v3 (replaces the generation + snapshot protocol): baseline evidence, security/concurrency review, specification, proof obligations | **Normative**; activation stays off |
 | [phase-6-ai.md](phase-6-ai.md) | AI-assisted workflows through MCP prompts, digests, semantic search | Architecture |
 
 Before starting any phase: read `AGENTS.md` (repo root), this file, and the phase doc. Re-detail phases 2–6 into the Phase 0/1 level (exact schemas, files, tests) immediately before building them, against the code as it then exists.

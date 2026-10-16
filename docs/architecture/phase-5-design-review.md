@@ -94,6 +94,15 @@ Information-leak/stale-authority checklist, each with its owner in the design:
 
 ## 4. Recommended reconciliation protocol ("per-space feeds")
 
+> **Amended.** The owner adopted this direction on 2026-10-16. A security and
+> concurrency review of this section found sixteen flaws or gaps (FD-01…FD-16:
+> join semantics, cross-space links, check-then-read, eviction ordering, ancestor
+> visibility, the kernel's use of the generation token, the missing move, …). The
+> normative specification is
+> [`phase-5-per-space-feeds.md`](phase-5-per-space-feeds.md); where it differs from
+> the text below (per-space cursors instead of a `cutoff`, no `spaceEpoch`,
+> `peer_space_id`, `rev`-ordered evictions), that document governs.
+
 The authorization kernel stays. The change is **how a client learns that its
 readable set changed, and how writes are fenced**. Goals: no write
 amplification proportional to record count; a revocation event costs O(rows the
