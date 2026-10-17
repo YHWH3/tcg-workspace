@@ -6,7 +6,8 @@ import type { Env } from './auth';
 import { randomToken } from './password';
 import { rateLimitHit } from './ratelimit';
 import { applyChanges, pokeLive, MAX_EXPECTED, type ConflictInfo } from './sync';
-import { getRec, getRecs, listBy, listCollection, listDefaultBoardTasks, listLinksByKind, listLinksTouching, casUpdate, type RecRow } from './records';
+import { getRec, getRecs, listBy, listCollection, listDefaultBoardTasks, listLinksByKind, listLinksTouching, listLinksFor, listRootPages, casUpdate, SELECT, toRow, type RawRow, type RecRow } from './records';
+import { gateRows } from './readAccess';
 import { argsHash } from '../shared/stablejson';
 import { withIdempotency } from './idempotency';
 import { beginChangeset, commitChangeset, undoChangeset, type ChangesetCtx } from './changesets';
@@ -200,8 +201,13 @@ async function refilterReplay(c: Ctx, text: string): Promise<string> {
   return JSON.stringify({ replayed: true, restricted: true, ...(typeof changesetId === 'string' ? { changesetId } : {}) });
 }
 
-async function mentionResolvers(c: Ctx) {
+/** Resolvers for RENDERING `texts`: the titles of exactly the pages/records/users their
+ * tokens name are loaded first (bounded by the tokens, permission-filtered). */
+async function mentionResolvers(c: Ctx, texts: unknown[] = []) {
   await fillCaches(c);
+  const ids = new Set<string>();
+  for (const text of texts) for (const m of String(text ?? '').matchAll(/@\[(?:page|rec):([^\]]+)\]/g)) ids.add(m[1]);
+  await loadTitleIds(c, [...ids]);
   return {
     resolveUser: resolverFor(c, 'user'),
     resolvePage: resolverFor(c, 'page'),
@@ -235,6 +241,10 @@ interface Ctx {
   cs: ChangesetCtx | null;
   /** tool name while a write tool runs (undo uses it for summaries) */
   toolName: string;
+  /** Title keys / ids already looked up in this request (the title maps are filled lazily
+   * by bounded, permission-filtered queries — never by reading whole collections). */
+  titleKeys?: Set<string>;
+  titleIds?: Set<string>;
 }
 
 type Resolution = { id: string } | { ambiguous: { id: string; title?: string; name?: string }[] } | { missing: true };
@@ -311,6 +321,7 @@ function decorate(res: ToolResult, ctx: Ctx, changesetId: string | null): ToolRe
 
 /** Append blocks parsed from markdown under a page; returns the write ops (not yet applied). */
 async function blockOps(c: Ctx, pageId: string, markdown: string, existing: Rec[], afterBlockId?: string): Promise<WriteOp[]> {
+  await prefetchMarkdown(c, [markdown]);
   const mdBlocks = markdownToBlocks(markdown, {
     resolveUser: resolverFor(c, 'user'),
     resolvePage: resolverFor(c, 'page'),
@@ -362,25 +373,82 @@ async function fillCaches(c: Ctx): Promise<void> {
     if (list) { if (!list.includes(id)) list.push(id); }
     else m.set(k, [id]);
   };
+  // The people directory is small (seat-capped); page and record titles are loaded on
+  // demand by loadTitleKeys / loadTitleIds for exactly the keys and ids a call needs.
   for (const u of await users(c.env)) {
     pushKey(c.userByKey, u.username.toLowerCase(), u.id);
     pushKey(c.userByKey, u.name.toLowerCase(), u.id);
     pushKey(c.userByKey, u.id, u.id);
     c.userNameById.set(u.id, u.name);
   }
-  for (const p of live(await recs(c.env, 'pages'))) {
-    c.pageTitleById.set(p.id, String(p.data.title ?? 'Untitled'));
-    pushKey(c.pageIdByTitle, String(p.data.title ?? 'Untitled').toLowerCase(), p.id);
+}
+
+const MAX_TITLE_LOOKUP = 200;
+/** A lower-cased title key as a GLOB pattern over SQLite's ASCII-only lower(): non-ASCII
+ * characters match any one character and the exact (Unicode) comparison happens in JS. */
+const titleGlob = (key: string) => [...key].map((ch) => (ch === '*' || ch === '?' || ch === '[' ? `[${ch}]` : ch.charCodeAt(0) > 127 ? '?' : ch)).join('');
+
+function addTitle(c: Ctx, kind: 'page' | 'record', id: string, title: string) {
+  const byId = kind === 'page' ? c.pageTitleById : c.recordTitleById, byTitle = kind === 'page' ? c.pageIdByTitle : c.recordIdByTitle;
+  byId.set(id, title);
+  const key = title.toLowerCase(), list = byTitle.get(key);
+  if (list) { if (!list.includes(id)) list.push(id); } else byTitle.set(key, [id]);
+}
+
+/** Live pages, and live records outside deleted databases, whose title (case-insensitive)
+ * is one of `keys`: one binding call plus the read gate on the matches only. Every key is
+ * marked as looked up, so a key with no readable match resolves as missing. */
+async function loadTitleKeys(c: Ctx, rawKeys: string[]): Promise<void> {
+  c.titleKeys ??= new Set();
+  const keys = [...new Set(rawKeys.map((k) => k.trim().toLowerCase()))].filter((k) => k && !c.titleKeys!.has(k)).slice(0, MAX_TITLE_LOOKUP);
+  if (!keys.length) return;
+  for (const k of keys) c.titleKeys.add(k);
+  const globs = JSON.stringify(keys.map(titleGlob));
+  const scoped = c.env.READ_GATE ? await c.env.READ_GATE.enabled() : false;
+  const space = (alias: string) => (scoped ? ` AND ${alias}.space_id IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1)` : '');
+  const match = (alias: string) => `EXISTS(SELECT 1 FROM json_each(?) k WHERE lower(CAST(COALESCE(json_extract(${alias}.data,'$.title'),'Untitled') AS TEXT)) GLOB k.value)`;
+  const cols = SELECT.split(',').map((col) => `r.${col.trim()}`).join(', ');
+  const [pages, tasks] = await c.env.DB.batch<RawRow>([
+    c.env.DB.prepare(`SELECT ${cols} FROM records r WHERE r.collection='pages' AND COALESCE(json_extract(r.data,'$.deleted'),0)!=1 AND ${match('r')}${space('r')} LIMIT 1000`)
+      .bind(...[globs, ...(scoped ? [c.userId] : [])]),
+    c.env.DB.prepare(`SELECT ${cols} FROM records r LEFT JOIN records b ON b.id=json_extract(r.data,'$.boardId') AND b.collection='boards'
+        WHERE r.collection='tasks' AND COALESCE(json_extract(r.data,'$.deleted'),0)!=1 AND COALESCE(json_extract(b.data,'$.deleted'),0)!=1 AND ${match('r')}${space('r')} LIMIT 1000`)
+      .bind(...[globs, ...(scoped ? [c.userId] : [])]),
+  ]);
+  const wanted = new Set(keys);
+  const exact = (rows: RawRow[]) => rows.map(toRow).filter((r) => wanted.has(String(r.data.title ?? 'Untitled').toLowerCase()));
+  for (const r of await gateRows(c.env, exact(pages.results))) addTitle(c, 'page', r.id, String(r.data.title ?? 'Untitled'));
+  for (const r of await gateRows(c.env, exact(tasks.results))) addTitle(c, 'record', r.id, String(r.data.title ?? 'Untitled'));
+}
+
+/** Titles of exactly these page/record ids (live; records outside deleted databases). */
+async function loadTitleIds(c: Ctx, rawIds: string[]): Promise<void> {
+  c.titleIds ??= new Set();
+  const ids = [...new Set(rawIds)].filter((id) => id && id.length <= 64 && !c.titleIds!.has(id)).slice(0, 500);
+  if (!ids.length) return;
+  for (const id of ids) c.titleIds.add(id);
+  const found = await getRecs(c.env, ids);
+  const boards = await getRecs(c.env, [...new Set([...found.values()].filter((r) => r.collection === 'tasks').map((r) => String(r.data.boardId)))]);
+  for (const r of found.values()) {
+    if (r.data.deleted) continue;
+    if (r.collection === 'pages') addTitle(c, 'page', r.id, String(r.data.title ?? 'Untitled'));
+    else if (r.collection === 'tasks' && !boards.get(String(r.data.boardId))?.data.deleted) addTitle(c, 'record', r.id, String(r.data.title ?? 'Untitled'));
   }
-  // Phase 0–4 permissions expose this workspace to authenticated members.
-  // Never hydrate deleted records or records in deleted databases.
-  const boards=new Map((await recs(c.env,'boards')).map(b=>[b.id,b]));
-  for(const r of live(await recs(c.env,'tasks'))) {
-    if(boards.get(String(r.data.boardId))?.data.deleted) continue;
-    const title=String(r.data.title??'Untitled');
-    c.recordTitleById.set(r.id,title);
-    pushKey(c.recordIdByTitle,title.toLowerCase(),r.id);
-  }
+}
+
+/** Before PARSING markdown/mention text, look up exactly the [[titles]] and explicit
+ * rec: ids it names. A first pass with recording resolvers collects them; parsing is pure. */
+async function prefetchMarkdown(c: Ctx, texts: (string | undefined | null)[]): Promise<void> {
+  await fillCaches(c);
+  const keys = new Set<string>(), ids = new Set<string>();
+  const collect = (key: string) => {
+    const k = key.trim();
+    if (/^rec:/i.test(k)) ids.add(k.slice(4)); else keys.add(k);
+    return undefined;
+  };
+  for (const text of texts) if (text) markdownToBlocks(text, { resolvePage: collect, resolveRecord: collect, resolveUser: () => undefined });
+  await loadTitleKeys(c, [...keys]);
+  await loadTitleIds(c, [...ids]);
 }
 
 /* ---------- board helpers ---------- */
@@ -639,11 +707,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
     async ({ id }) => {
       const [type, rawId] = id.split(':', 2);
-      const resolvers = await mentionResolvers(ctx);
       if (type === 'page') {
         const p = await rec(ctx.env, 'pages', rawId);
         if (!p || p.data.deleted) return err('page not found');
         const blocks = (await listBy(ctx.env, 'blocks', 'pageId', rawId)).map(toRec).sort(byOrder);
+        const resolvers = await mentionResolvers(ctx, blocks.map((b) => b.data.text));
         return txt({
           id,
           title: titleOf(p, 'Untitled'),
@@ -673,14 +741,21 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (type === 'board') {
         const b = await rec(ctx.env, 'boards', rawId);
         if (!b || b.data.deleted) return err('board not found');
-        const tasks = live(await recs(ctx.env, 'tasks')).filter((t) => String(t.data.boardId ?? 'board-default') === rawId);
-        const lines = boardColumns(b).map((col) => `- ${col.name}: ${tasks.filter((t) => columnIdFor(b, t.data.status) === col.id).length} tasks`);
+        // Counts only: every live task of a board inherits the board's scope, which the gate
+        // already allowed above, so the count is one aggregate instead of reading the rows.
+        const { results: byStatus } = await ctx.env.DB.prepare(`SELECT json_extract(data,'$.status') AS status, COUNT(*) AS n FROM records
+            WHERE collection='tasks' AND COALESCE(json_extract(data,'$.deleted'),0)!=1
+              AND (json_extract(data,'$.boardId') = ? OR (? = 'board-default' AND json_extract(data,'$.boardId') IS NULL)) GROUP BY status`)
+          .bind(rawId, rawId).all<{ status: unknown; n: number }>();
+        const perColumn = new Map<string, number>();
+        for (const row of byStatus) { const col = columnIdFor(b, row.status); perColumn.set(col, (perColumn.get(col) ?? 0) + row.n); }
+        const lines = boardColumns(b).map((col) => `- ${col.name}: ${perColumn.get(col.id) ?? 0} tasks`);
         return txt({ id, title: titleOf(b, 'Board'), rev: b.rev, text: `Columns:\n${lines.join('\n')}`, url: boardUrl(ctx, rawId), metadata: { type: 'board' } });
       }
       if (type === 'moodboard') {
         const m = await rec(ctx.env, 'moodboards', rawId);
         if (!m || m.data.deleted) return err('mood board not found');
-        const items = live(await recs(ctx.env, 'mooditems')).filter((i) => String(i.data.boardId) === rawId);
+        const items = live((await listBy(ctx.env, 'mooditems', 'boardId', rawId)).map(toRec));
         const lines = items.map((i) => `- ${i.data.type}: ${i.data.text ?? i.data.color ?? i.data.fileId ?? ''}`);
         return txt({ id, title: titleOf(m, 'Mood board'), rev: m.rev, text: `Items:\n${lines.join('\n')}`, url: moodUrl(ctx, rawId), metadata: { type: 'moodboard' } });
       }
@@ -698,15 +773,21 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const [us, pages, boards, moods, items, viewRowsAll] = await Promise.all([
+      const [us, pages, boards, moods, viewRowsAll] = await Promise.all([
         users(ctx.env),
         recs(ctx.env, 'pages'),
         recs(ctx.env, 'boards'),
         recs(ctx.env, 'moodboards'),
-        recs(ctx.env, 'mooditems'),
         recs(ctx.env, 'views'),
       ]);
       const viewRows = live(viewRowsAll);
+      // Mood items inherit their board's scope: count them for the readable boards only,
+      // in SQL, instead of materializing (and gating) every item of the workspace.
+      const readableMoods = live(moods).map((m) => m.id);
+      const { results: itemCounts } = readableMoods.length ? await ctx.env.DB.prepare(`SELECT json_extract(data,'$.boardId') AS board, COUNT(*) AS n FROM records
+          WHERE collection='mooditems' AND COALESCE(json_extract(data,'$.deleted'),0)!=1 AND json_extract(data,'$.boardId') IN (SELECT value FROM json_each(?)) GROUP BY board`)
+        .bind(JSON.stringify(readableMoods)).all<{ board: string; n: number }>() : { results: [] as { board: string; n: number }[] };
+      const itemCount = new Map(itemCounts.map((r) => [r.board, r.n]));
       return txt({
         people: us.map((u) => ({ id: u.id, username: u.username, name: u.name })),
         pages: live(pages)
@@ -726,17 +807,33 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         viewsByBoard: Object.fromEntries(
           live(boards).map((b) => [b.id, viewRows.filter((v) => String(v.data.databaseId) === b.id).map((v) => ({ id: v.id, name: v.data.name, type: v.data.type, rev: v.rev }))]),
         ),
-        moodboards: live(moods).map((m) => ({ id: m.id, title: m.data.title, rev: m.rev, itemCount: live(items).filter((i) => String(i.data.boardId) === m.id).length })),
+        moodboards: live(moods).map((m) => ({ id: m.id, title: m.data.title, rev: m.rev, itemCount: itemCount.get(m.id) ?? 0 })),
       });
     },
   );
 
+  /** Readable blocks of OTHER pages that mention `pageId`, newest first, at most 20: scanned
+   * in bounded windows (§3 instr scan) and gated window by window, so a page mentioned
+   * everywhere costs the same as one mentioned once. */
+  const backlinkScan = async (pageId: string): Promise<Rec[]> => {
+    const token = `@[page:${pageId}]`, found: Rec[] = [];
+    for (let offset = 0; offset < 500 && found.length < 20; offset += 100) {
+      const { results } = await ctx.env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection = 'blocks' AND instr(data, ?) > 0 AND COALESCE(json_extract(data, '$.deleted'), 0) != 1 ORDER BY seq DESC LIMIT 100 OFFSET ?`)
+        .bind(token, offset).all<RawRow>();
+      const shown = (await gateRows(ctx.env, results.map(toRow))).map(toRec).filter((b) => b.data.pageId !== pageId && String(b.data.text ?? '').includes(token));
+      found.push(...shown);
+      if (results.length < 100) break;
+    }
+    return found.slice(0, 20);
+  };
+
   /** Links touching an item (relations/related/blocks) + @[page|rec] mention backlinks summary. */
   const linkedFor = async (id: string) => {
     const touching = await listLinksTouching(ctx.env, id);
+    const others = await getRecs(ctx.env, touching.slice(0, 50).map((l) => (String(l.data.fromId) === id ? String(l.data.toId) : String(l.data.fromId))));
     const titleOfRec = async (rid: string) => {
-      const t = await getRec(ctx.env, rid);
-      return t ? String(t.data.title ?? t.data.name ?? rid) : ctx.pageTitleById.get(rid) ?? rid;
+      const t = others.get(rid);
+      return t ? String(t.data.title ?? t.data.name ?? rid) : rid;
     };
     const out = [];
     for (const l of touching.slice(0, 50)) {
@@ -758,18 +855,18 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async ({ pageId }) => {
       const p = await rec(ctx.env, 'pages', pageId);
       if (!p || p.data.deleted) return err('page not found');
-      const resolvers = await mentionResolvers(ctx);
       const [blockRows, childRows, backlinkRows] = await Promise.all([
         listBy(ctx.env, 'blocks', 'pageId', pageId),
         listBy(ctx.env, 'pages', 'parentId', pageId),
-        // §3: backlink scan via instr() on the data column (blocks only).
-        ctx.env.DB.prepare(`SELECT ${'id, collection, data, field_ts, seq, updated_by, updated_at'} FROM records WHERE collection = 'blocks' AND instr(data, ?) > 0 AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).bind(`@[page:${pageId}]`).all<{ id: string; collection: string; data: string; field_ts: string; seq: number; updated_by: string | null; updated_at: number | null }>(),
+        backlinkScan(pageId),
       ]);
       const blocks = blockRows.map(toRec).sort(byOrder);
       const children = childRows.map(toRec).sort(byOrder);
       const pageName = ctx.pageTitleById;
-      const backlinks = (await ctx.env.READ_GATE!.filter(backlinkRows.results
-        .map((r) => toRec({ id: r.id, collection: r.collection, data: JSON.parse(r.data), fieldTs: JSON.parse(r.field_ts), rev: r.seq, updatedBy: r.updated_by, updatedAt: r.updated_at }))))
+      const mentioning = backlinkRows;
+      const resolvers = await mentionResolvers(ctx, [...blocks.map((b) => b.data.text), ...mentioning.map((b) => b.data.text)]);
+      await loadTitleIds(ctx, mentioning.map((b) => String(b.data.pageId)));
+      const backlinks = mentioning
         .filter((b) => b.data.pageId !== pageId && String(b.data.text ?? '').includes(`@[page:${pageId}]`))
         .slice(0, 20)
         .map((b) => ({
@@ -823,7 +920,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       await fillCaches(ctx);
       const ops: WriteOp[] = [];
       let blockCount = 0;
-      const allPages = live(await recs(ctx.env, 'pages'));
+      // Only the destination's siblings matter for ordering (new pages are appended below).
+      const allPages = live((args.parentId ? await listBy(ctx.env, 'pages', 'parentId', args.parentId) : await listRootPages(ctx.env)).map(toRec));
       const allBlocks: Rec[] = []; // new pages have no existing blocks
 
       const build = async (node: ChildNode, parentId: string | null): Promise<string> => {
@@ -904,6 +1002,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
 
       const existing = live((await listBy(ctx.env, 'blocks', 'pageId', a.pageId)).map(toRec));
       const splitReplaces: string[] = [];
+      await prefetchMarkdown(ctx, (a.replaceBlocks ?? []).map((r) => r.markdown));
       for (const r of a.replaceBlocks ?? []) {
         const src = existing.find((b) => b.id === r.blockId);
         if (!src) return err(`block ${r.blockId} not found`);
@@ -1496,7 +1595,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const { moodboardId, items } = a;
       const mb = await rec(ctx.env, 'moodboards', moodboardId);
       if (!mb || mb.data.deleted) return err('mood board not found');
-      const existing = live(await recs(ctx.env, 'mooditems')).filter((i) => String(i.data.boardId) === moodboardId);
+      const existing = live((await listBy(ctx.env, 'mooditems', 'boardId', moodboardId)).map(toRec));
       const ops = await moodItemOps(moodboardId, items, existing);
       if (a.dryRun) return txt({ dryRun: true, summary: `add_mood_items in ${moodboardId}`, counts: { create: ops.filter((o) => o.collection === 'mooditems').length }, warnings: [], impact: { types: items.map((i) => i.type) } });
       await write(ctx, ops);
@@ -2214,7 +2313,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const pages = live(await recs(ctx.env, 'pages')).filter((p) => p.data.isTemplate);
+      const pages = live((await listBy(ctx.env, 'pages', 'isTemplate', true)).map(toRec)).filter((p) => p.data.isTemplate);
       return txt({ templates: pages.map((p) => ({ id: p.id, title: titleOf(p, 'Untitled'), icon: p.data.icon, rev: p.rev, url: pageUrl(ctx, p.id) })) });
     },
   );
@@ -2344,7 +2443,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
 
       // Overview page + sub-pages
       const rootId = uuid();
-      const allPages = live(await recs(ctx.env, 'pages')).filter((p) => !p.data.parentId).sort(byOrder);
+      const allPages = live((await listRootPages(ctx.env)).map(toRec)).sort(byOrder);
       const rootOrder = orderBetween(allPages.length ? String(allPages[allPages.length - 1].data.order ?? '') || null : null, null);
       ops.push({
         collection: 'pages',
@@ -2404,9 +2503,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
     async ({ limit }) => {
       await fillCaches(ctx);
-      const all = live(await recs(ctx.env, 'activity'))
-        .sort((a, b) => Number(b.data.createdAt ?? 0) - Number(a.data.createdAt ?? 0))
-        .slice(0, Math.min(limit ?? 50, 200));
+      // Newest first, bounded: read a window of the newest rows, then the gate.
+      const want = Math.min(limit ?? 50, 200);
+      const { results: recent } = await ctx.env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection='activity' AND COALESCE(json_extract(data,'$.deleted'),0)!=1
+          ORDER BY CAST(json_extract(data,'$.createdAt') AS REAL) DESC LIMIT ?`).bind(Math.min(want * 4, 800)).all<RawRow>();
+      const all = (await gateRows(ctx.env, recent.map(toRow))).map(toRec).slice(0, want);
       return txt({
         activity: all.map((a) => ({
           actor: ctx.userNameById.get(String(a.data.actorId ?? '')) ?? null,
@@ -2602,7 +2703,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
     async (a) => {
       await fillCaches(ctx);
-      const sibs = live(a.parentId ? (await listBy(ctx.env, 'pages', 'parentId', a.parentId)).map(toRec) : live(await recs(ctx.env, 'pages')).filter((p) => !p.data.parentId));
+      const sibs = live(a.parentId ? (await listBy(ctx.env, 'pages', 'parentId', a.parentId)).map(toRec) : live((await listRootPages(ctx.env)).map(toRec)));
       const found = sibs.find((p) => String(p.data.title ?? '').toLowerCase() === a.title.toLowerCase());
       if (found) return txt({ id: found.id, title: titleOf(found, 'Untitled'), rev: found.rev, url: pageUrl(ctx, found.id), existed: true });
       const id = uuid();
@@ -3322,7 +3423,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
               if (pr) toId = pr.id;
             }
             if (!toId && f.relation?.target === 'pages') {
-              const pg = (await getRec(ctx.env, ref)) ?? live(await recs(ctx.env, 'pages')).find((p) => String(p.data.title ?? '').toLowerCase() === ref.toLowerCase());
+              await loadTitleKeys(ctx, [ref]);
+              const byTitle = ctx.pageIdByTitle.get(ref.toLowerCase())?.[0];
+              const pg = (await getRec(ctx.env, ref)) ?? (byTitle ? await getRec(ctx.env, byTitle) : null);
               if (pg) { toId = pg.id; toType = 'page'; }
             }
             if (!toId) { ctx.warnings.push(`relation "${fname}": "${ref}" not found — skipped`); continue; }
@@ -3458,7 +3561,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
             if (tr) other = tr.id;
           }
           if (!other && targetDb === 'pages') {
-            const pg = live(await recs(ctx.env, 'pages')).find((p) => p.id === ref || String(p.data.title ?? '').toLowerCase() === ref.toLowerCase());
+            await loadTitleKeys(ctx, [ref]);
+            const direct = await getRec(ctx.env, ref);
+            const pg = direct?.collection === 'pages' && !direct.data.deleted ? direct : (ctx.pageIdByTitle.get(ref.toLowerCase())?.[0] ? { id: ctx.pageIdByTitle.get(ref.toLowerCase())![0] } : null);
             if (pg) other = pg.id;
           }
           if (!other) { ctx.warnings.push(`relation "${r.fname}": "${ref}" not found — skipped`); continue; }
@@ -3613,7 +3718,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const bundle = bundledTemplate(a.bundled);
       if (!bundle) return err(`unknown bundled template '${a.bundled}' — have: ${Object.keys(BUNDLED).join(', ')}`);
       const existing = await existingBoards();
-      const marker = live(await recs(ctx.env, 'pages')).find((p) => p.data.templateKey === a.bundled);
+      const marker = live((await listBy(ctx.env, 'pages', 'templateKey', a.bundled)).map(toRec)).find((p) => p.data.templateKey === a.bundled);
       if (a.dryRun) return txt({ dryRun: true, bundled: a.bundled, alreadyInstalled: !!marker, ...planInstallPreview(bundle, existing) });
       if (a.parentId) {
         const pp = await rec(ctx.env, 'pages', a.parentId);
@@ -3875,7 +3980,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const { applyView } = await import('../shared/views');
       const fmap = new Map(fieldsOf(board.data).map((f) => [f.id, f]));
       await fillCaches(ctx);
-      const relLinks = (await listLinksByKind(ctx.env, 'relation')).filter((l) => l.data.fieldId);
+      // Relations of THIS database's rows only (a filter on a relation field needs all rows).
+      const relLinks = (await listLinksFor(ctx.env, rows.map((r) => r.id), 'relation')).filter((l) => l.data.fieldId);
+      await loadTitleIds(ctx, relLinks.map((l) => String(l.data.toId)));
       const relationTitles = (recordId: string, fieldId: string) => {
         const toIds = relLinks.filter((l) => l.data.fieldId === fieldId && String(l.data.fromId) === recordId).map((l) => String(l.data.toId));
         return toIds.map((id) => ctx.pageTitleById.get(id) ?? id);
@@ -3889,8 +3996,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const applied = applyView(rows.map((r) => ({ ...r.data, id: r.id })), view, { meId: ctx.userId, fieldsById: fmap, relationTitles, columnsById: new Map(boardColumns(board).map((c, i) => [c.id, i])) });
       const page = applied.rows.slice(startIdx, startIdx + limit);
       const include = new Set(a.include ?? ['fields']);
-      const allTasks = live(await recs(ctx.env, 'tasks'));
-      const depEdges = (await listLinksByKind(ctx.env, 'blocks')).map((l) => [String(l.data.fromId), String(l.data.toId)] as [string, string]);
+      // Sub-records share their parent's database; dependencies are read for the shown rows.
+      const allTasks = rows;
+      const depEdges = include.has('deps') ? (await listLinksFor(ctx.env, page.map((d) => String(d.id ?? '')), 'blocks')).map((l) => [String(l.data.fromId), String(l.data.toId)] as [string, string]) : [];
       const out = page.map((data) => {
         const id = String(data.id ?? '');
         const rec: Record<string, unknown> = { id, rev: undefined, title: data.title, status: data.status, archived: data.archived === true, url: recordUrl(a.databaseId, id) };
@@ -3932,7 +4040,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const board = await rec(ctx.env, 'boards', dbId);
       const fields: Record<string, unknown> = {};
       const relations: Record<string, { id: string; title: string }[]> = {};
-      const relLinks = (await listLinksByKind(ctx.env, 'relation')).filter((l) => l.data.fieldId);
+      const touching = await listLinksFor(ctx.env, [recordId]);
+      const relLinks = touching.filter((l) => l.data.kind === 'relation' && l.data.fieldId);
+      await loadTitleIds(ctx, touching.flatMap((l) => [String(l.data.fromId), String(l.data.toId)]));
       const linkedIds = new Set<string>();
       for (const f of fieldsOf(board?.data)) {
         if (f.type === 'relation') {
@@ -3948,14 +4058,17 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           fields[f.name] = r.data[propKey(f.id)];
         }
       }
-      const allTasks = live(await recs(ctx.env, 'tasks'));
-      const children = allTasks.filter((t) => String(t.data.parentId ?? '') === recordId);
-      const parent = r.data.parentId ? allTasks.find((t) => t.id === r.data.parentId) : null;
-      const depLinks = await listLinksByKind(ctx.env, 'blocks');
+      // Parent and children by their own indexes (never the whole database).
+      const children = live((await listBy(ctx.env, 'tasks', 'parentId', recordId)).map(toRec));
+      const parentRow = r.data.parentId ? await rec(ctx.env, 'tasks', String(r.data.parentId)) : null;
+      const parent = parentRow && !parentRow.data.deleted ? parentRow : null;
+      const allTasks = [...children, ...(parent ? [parent] : [])];
+      const depLinks = touching.filter((l) => l.data.kind === 'blocks');
       const bodyBlocks = live((await listBy(ctx.env, 'blocks', 'pageId', recordId)).map(toRec)).sort(byOrder);
-      const titleOfRec = (id: string) => String(allTasks.find((t) => t.id === id)?.data.title ?? ctx.pageTitleById.get(id) ?? id);
+      const otherTitles = await getRecs(ctx.env, touching.flatMap((l) => [String(l.data.fromId), String(l.data.toId)]).filter((id) => id !== recordId));
+      const titleOfRec = (id: string) => String(allTasks.find((t) => t.id === id)?.data.title ?? otherTitles.get(id)?.data.title ?? ctx.pageTitleById.get(id) ?? id);
       const comments = (await listBy(ctx.env, 'comments', 'targetId', recordId)).filter((c) => c.data.targetType === 'task' || c.data.targetType === 'record');
-      const relRelated = (await listLinksTouching(ctx.env, recordId)).filter((l) => l.data.kind === 'related');
+      const relRelated = touching.filter((l) => l.data.kind === 'related');
       return txt({
         record: {
           id: r.id, rev: r.rev, url: recordUrl(dbId, r.id), databaseId: dbId, title: r.data.title, stage: r.data.status,
@@ -3966,7 +4079,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           blockedBy: depLinks.filter((l) => String(l.data.toId) === recordId).map((l) => ({ id: String(l.data.fromId), title: titleOfRec(String(l.data.fromId)) })),
           blocking: depLinks.filter((l) => String(l.data.fromId) === recordId).map((l) => ({ id: String(l.data.toId), title: titleOfRec(String(l.data.toId)) })),
           related: relRelated.map((l) => ({ linkId: l.id, other: String(l.data.fromId) === recordId ? String(l.data.toId) : String(l.data.fromId), title: titleOfRec(String(l.data.fromId) === recordId ? String(l.data.toId) : String(l.data.fromId)) })),
-          body: blocksToMarkdown(bodyBlocks.map(b=>b.data), await mentionResolvers(ctx)),
+          body: blocksToMarkdown(bodyBlocks.map(b=>b.data), await mentionResolvers(ctx, bodyBlocks.map((b) => b.data.text))),
           bodyBlocks: bodyBlocks.map((b) => ({ id: b.id, type: b.data.type ?? 'p', text: b.data.text ?? '', rev: b.rev })),
           comments: comments.length,
           updatedBy: r.updatedBy, updatedAt: r.updatedAt,
@@ -4000,6 +4113,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const ops: WriteOp[] = [];
       const expect = new Map<string, number>();
       const existing = live((await listBy(ctx.env, 'blocks', 'pageId', a.recordId)).map(toRec));
+      await prefetchMarkdown(ctx, (a.replaceBlocks ?? []).map((rr) => rr.markdown));
       for (const rr of a.replaceBlocks ?? []) {
         const src = existing.find((b) => b.id === rr.blockId);
         if (!src) return err(`block ${rr.blockId} not found`);

@@ -167,3 +167,21 @@ export async function casUpdate(
   }
   return { conflict: true };
 }
+
+/** Live links touching any of `ids` (optionally one kind), in one binding call — the
+ * targeted alternative to a whole-kind scan for per-record reads. Gated like the rest. */
+export async function listLinksFor(env: Env, ids: string[], kind?: 'blocks' | 'relation' | 'related'): Promise<RecRow[]> {
+  if (!ids.length) return [];
+  const { results } = await env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection = 'links'
+      AND (json_extract(data, '$.fromId') IN (SELECT value FROM json_each(?)) OR json_extract(data, '$.toId') IN (SELECT value FROM json_each(?)))
+      AND COALESCE(json_extract(data, '$.deleted'), 0) != 1${kind ? " AND json_extract(data, '$.kind') = ?" : ''}`)
+    .bind(...[JSON.stringify(ids), JSON.stringify(ids), ...(kind ? [kind] : [])]).all<RawRow>();
+  return gateRows(env, results.map(toRow));
+}
+
+/** Live root pages (no parent), for sibling ordering and root title lookups. */
+export async function listRootPages(env: Env): Promise<RecRow[]> {
+  const { results } = await env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection = 'pages'
+      AND (json_extract(data, '$.parentId') IS NULL OR json_extract(data, '$.parentId') = '') AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).all<RawRow>();
+  return gateRows(env, results.map(toRow));
+}

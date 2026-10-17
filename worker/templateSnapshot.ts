@@ -53,9 +53,11 @@ export async function loadTemplateSnapshot(env: Pick<Env, 'DB' | 'READ_GATE'>, t
         UNION
         SELECT r.id FROM records r JOIN sub ON json_extract(r.data,'$.parentId')=sub.id WHERE r.collection='pages')
       SELECT id, data FROM records WHERE id IN (SELECT id FROM sub)`).bind(templateId),
+    // Only the LAST siblings by order matter (the copy is placed after them; cmpOrder is a
+    // plain string comparison, like SQLite's). Twenty leave room for unreadable ones.
     parentId === null
-      ? db.prepare(`SELECT id, data FROM records WHERE collection='pages' AND json_extract(data,'$.parentId') IS NULL AND COALESCE(json_extract(data,'$.deleted'),0)=0`)
-      : db.prepare(`SELECT id, data FROM records WHERE collection='pages' AND json_extract(data,'$.parentId')=? AND COALESCE(json_extract(data,'$.deleted'),0)=0`).bind(parentId),
+      ? db.prepare(`SELECT id, data FROM records WHERE collection='pages' AND json_extract(data,'$.parentId') IS NULL AND COALESCE(json_extract(data,'$.deleted'),0)=0 ORDER BY CAST(json_extract(data,'$.order') AS TEXT) DESC LIMIT 20`)
+      : db.prepare(`SELECT id, data FROM records WHERE collection='pages' AND json_extract(data,'$.parentId')=? AND COALESCE(json_extract(data,'$.deleted'),0)=0 ORDER BY CAST(json_extract(data,'$.order') AS TEXT) DESC LIMIT 20`).bind(parentId),
   ]);
   const pageIds = take(subtree.results, snap.pages);
   take(siblings.results, snap.pages);
