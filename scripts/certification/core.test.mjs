@@ -8,6 +8,32 @@ import { runCommand, validateReport, validateVitest, validateSmoke, decision, fr
 const dir=mkdtempSync(join(tmpdir(),'tcg-cert-harness-'));
 const child=(code,options={})=>runCommand([process.execPath,'-e',code],{timeoutMs:5000,logPath:join(dir,Math.random()+'.log'),...options});
 const report=()=>({schemaVersion:1,runner:'fixture',sourceSha:'sha',mandatoryAssertionsExecuted:true,results:[{engine:'chromium',viewport:'compact',test:'assertion',status:'PASS',error:null}],summary:{pass:1,fail:0}});
+test('local API read retries a transport reset but returns the actual authorization response',async()=>{
+  const {fetchFixtureApi}=await import('./core.mjs');let calls=0;
+  const response=await fetchFixtureApi('http://127.0.0.1:8788/api/me',{},async()=>{
+    if(++calls===1)throw new TypeError('fetch failed',{cause:{code:'ECONNRESET'}});
+    return new Response('denied',{status:401});
+  });
+  assert.equal(calls,2);assert.equal(response.status,401);
+});
+test('local API writes and HTTP failures are never retried',async()=>{
+  const {fetchFixtureApi}=await import('./core.mjs');let calls=0;
+  await assert.rejects(fetchFixtureApi('http://localhost:8788/token',{method:'POST'},async()=>{calls++;throw new Error('reset');}),/1 attempt/);
+  assert.equal(calls,1);calls=0;
+  const response=await fetchFixtureApi('http://localhost:8788/api/me',{},async()=>{calls++;return new Response('failure',{status:500});});
+  assert.equal(calls,1);assert.equal(response.status,500);
+});
+test('repeated local API transport failure stays failed with safe cause diagnostics',async()=>{
+  const {fetchFixtureApi}=await import('./core.mjs');let calls=0;
+  await assert.rejects(fetchFixtureApi('http://localhost:8788/api/me?token=not-for-logs',{},async()=>{calls++;throw new TypeError('fetch failed',{cause:{code:'UND_ERR_SOCKET'}});}),error=>{
+    assert.match(error.message,/GET \/api\/me.*2 attempts.*UND_ERR_SOCKET/);assert.doesNotMatch(error.message,/not-for-logs/);return true;
+  });assert.equal(calls,2);
+});
+test('local API retry cannot request a remote or credentialed origin',async()=>{
+  const {fetchFixtureApi}=await import('./core.mjs');let calls=0;
+  for(const url of ['https://example.com/api/me','http://secret@localhost:8788/api/me'])await assert.rejects(fetchFixtureApi(url,{},async()=>{calls++;return new Response();}));
+  assert.equal(calls,0);
+});
 test('certification prefers IPv4 in owned Node children without changing existing options or TLS',async()=>{
   const dns=await import('node:dns');const before=dns.getDefaultResultOrder();
   try {

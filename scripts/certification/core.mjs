@@ -18,6 +18,22 @@ export function configureCertificationNetwork(env=process.env) {
   return {dnsResultOrder:getDefaultResultOrder(),scope:'certification and owned Node children'};
 }
 
+/** Local fixture reads can race a closed keep-alive socket after Wrangler CLI
+ * fixture updates. Retry one transport failure only for GET/HEAD. Never retry a
+ * write or an HTTP error, and never hide a repeatedly unavailable server. */
+export async function fetchFixtureApi(url,init={},fetchImpl=fetch) {
+  const target=new URL(url);
+  if(target.username||target.password)throw new Error('Fixture API URL must not contain credentials');
+  localOrigin(target.origin);
+  const method=(init.method??'GET').toUpperCase(),attempts=['GET','HEAD'].includes(method)?2:1;
+  for(let attempt=1;attempt<=attempts;attempt++) {
+    try{return await fetchImpl(url,init);}catch(error){
+      if(attempt===attempts)throw new Error(`Fixture API ${method} ${target.pathname} transport failed after ${attempt} attempt${attempt===1?'':'s'} (${error?.cause?.code??error?.code??error?.name??'unknown'})`,{cause:error});
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+  }
+}
+
 /** A temporary assertion, tied to this process; never changes power settings.
  * macOS may still suspend on explicit lid closure. Such interrupted runs fail. */
 export function preventIdleSleep({os=platform(),available=existsSync('/usr/bin/caffeinate'),spawnProcess=spawn,ownerPid=process.pid}={}) {

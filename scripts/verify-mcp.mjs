@@ -6,6 +6,7 @@ import {verifyOAuthSecurity} from './phase4-oauth-security.mjs';
 // Usage: node scripts/verify-mcp.mjs [base]   default http://localhost:8788
 import { createCertificationReporter, localOrigin } from './certification-report.mjs';
 import { assertionManifests } from './certification-manifests.mjs';
+import { fetchFixtureApi } from './certification/core.mjs';
 const certification = createCertificationReporter('verify-mcp', assertionManifests['verify-mcp']);
 import { chromium } from 'playwright';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -71,7 +72,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (cookie) headers.Cookie = cookie;
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  const res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
+  const res = await fetchFixtureApi(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
   if (raw) return res;
   const text = await res.text();
   let data = null;

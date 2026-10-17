@@ -93,6 +93,16 @@ regression was red before the helper existed and green afterward. No application
 assertion or production network configuration was changed. The subsequent complete
 run on the committed correction remains required; isolated reruns do not certify it.
 
+The next complete run at `22176fd` passed audit and project creation but base MCP
+lost a loopback HTTP connection after 92 successful checks, before its last two
+session-expiry assertions. The incomplete result remains FAIL and the run was
+stopped before spending time on later browser gates. Base MCP now retries one
+GET/HEAD transport exception; POSTs and HTTP error responses are never retried.
+Repeated failure remains blocking and reports the method, path and safe transport
+cause code without URL query values. Four red/green harness regressions cover the
+real 401 response, write/error non-retry, repeated failure and local-only targets.
+All OAuth/session assertions are unchanged. The final complete rerun is required.
+
 `phase5-cost-d1.test.ts` exercises 500- and 1,000-record fixtures, counting all
 observed result metadata, individual statements and batched statements. The measured
 operations exclude fixture setup. Feed numbers are for `pullFeed`; they do not include
