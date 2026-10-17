@@ -1,5 +1,8 @@
 # Phase 5 implementation ledger
 
+> **Superseded in part.** The snapshot/generation workstreams recorded here were retired by migration 0018 and replaced by per-space feeds — see [phase-5-per-space-feeds.md](../architecture/phase-5-per-space-feeds.md). The ledger below is the history of the draft, not the current design.
+
+
 Status: **PARTIAL — implementation and certification in progress**.
 Baseline: `977475f0cac54bf05f0e5e513785c4933e0e9d73`.
 Branch: `grok/phase-5-search-permissions` in the original Desktop checkout.

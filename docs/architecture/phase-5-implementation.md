@@ -1,5 +1,8 @@
 # Phase 5 implementation and security review
 
+> **Superseded in part.** The reconciliation protocol in this document (global access generation, materialized snapshots, protocol 2) was replaced by per-space feeds (protocol 3) — see [phase-5-per-space-feeds.md](phase-5-per-space-feeds.md). Everything about the authorization kernel, write enforcement, file capabilities and the client cache's account binding still applies.
+
+
 Status: design reviewed against Phase 4; implementation in progress. This is not
 a certification report. Baseline: `977475f0cac54bf05f0e5e513785c4933e0e9d73`.
 The branch is `grok/phase-5-search-permissions`. Phase 4 is already merged into

@@ -8,6 +8,7 @@ import { sha256Hex } from '../worker/password';
 import type { Env } from '../worker/auth';
 import type { Mutation } from '../shared/types';
 import { interceptRecordWrites } from './d1WriteBoundary';
+import { loadManifest, pullFeed } from '../worker/spaceFeed';
 
 vi.mock('../worker/events', async original => ({ ...await original<typeof import('../worker/events')>(), scheduleOutbox: vi.fn() }));
 let mf: Miniflare, db: D1Database, env: Env;
@@ -99,11 +100,18 @@ it('fences a concurrent thumbnail-ID claim while setting the owned pointer', asy
   expect(hit).toBe(true); expect(result.partialError).toBeTruthy(); expect(result.changed).toBe(0);
   expect((await data('photo')).thumbId).toBeUndefined();
 });
-it('invalidates cached auxiliary bytes when thumbnail ownership changes without a parent move', async () => {
+it('delivers a thumbnail pointer change to readers as an ordinary revision, so their cache can drop the auxiliary bytes (the rule itself is a client rule)', async () => {
   await put('photo', 'files', { parentType: 'task', parentId: 'record', thumbId: 'photot' });
-  const before = await db.prepare('SELECT generation FROM access_state WHERE id=1').first('generation');
-  await db.prepare("UPDATE records SET data=json_set(data,'$.thumbId',NULL) WHERE id='photo'").run();
-  expect(await db.prepare('SELECT generation FROM access_state WHERE id=1').first('generation')).toBe(Number(before) + 1);
+  const revision = Number(await db.prepare("SELECT seq FROM records WHERE id='photo'").first('seq'));
+  const feed = async () => {
+    const etag = (await loadManifest(db, 'editor')).manifest.etag;
+    const outcome = await pullFeed(db, 'editor', { protocol: 3, etag, cursor: revision, joining: [], limit: 500 });
+    return (outcome as { body: { records: { id: string; seq: number; data: { thumbId?: string | null } }[] } }).body.records.filter(r => r.id === 'photo');
+  };
+  expect(await feed()).toEqual([]); // nothing newer yet
+  await db.prepare("UPDATE records SET data=json_set(data,'$.thumbId',NULL), seq=? WHERE id='photo'").bind(revision + 1).run();
+  const delivered = await feed();
+  expect(delivered).toHaveLength(1); expect(delivered[0].seq).toBe(revision + 1); expect(delivered[0].data.thumbId ?? null).toBeNull();
 });
 it('rejects deletion of legacy malformed thumbnail metadata before creating foreign cleanup intent', async () => {
   await db.prepare("INSERT INTO space_members(space_id,user_id,role) VALUES('space-core','outsider','editor')").run();
@@ -252,8 +260,7 @@ describe('Phase 5 actual applyChanges and sync write enforcement', () => {
   });
 
   it('enforces the same restrictions on the real authenticated sync route', async () => {
-    const generation = await db.prepare('SELECT generation FROM access_state WHERE id=1').first('generation');
-    const response = await sync.request('http://localhost/push', { method: 'POST', headers: { authorization: `Bearer ${token('viewer')}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ protocol: 2, generation, changes: [change('record', 'tasks', { title: 'HTTP attack' })] }) }, env, ctx);
+    const response = await sync.request('http://localhost/push', { method: 'POST', headers: { authorization: `Bearer ${token('viewer')}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ protocol: 3, changes: [change('record', 'tasks', { title: 'HTTP attack' })] }) }, env, ctx);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ rejected: 1, rejectedItems: [expect.objectContaining({ id: 'record' })] });
     expect((await data('record')).title).toBe('Restricted Secret');

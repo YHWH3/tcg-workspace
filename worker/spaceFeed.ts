@@ -16,7 +16,7 @@ import { MAX_ACCESS_SPACES } from './access';
 import { levelRole, levelSql } from './capability';
 import { sha256Hex } from './password';
 import { readAuthorizedRecords, RecordAccessError } from './recordAccess';
-import { SyncProtocolError } from './syncAccess';
+import { SyncProtocolError } from './syncState';
 
 /** Per-statement fetch bound. Any request limit ≤ 500 is served exactly: a row among the
  * first `limit` of the true stream is among the first 501 of its own statement. */

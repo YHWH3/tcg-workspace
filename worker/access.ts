@@ -1,5 +1,6 @@
-/** Phase 5 server authority loader. This foundation is not yet wired into
- * routes: activation stays off until every read/write surface is integrated. */
+/** Phase 5 server authority loader. Activation stays off until every read/write
+ * surface is integrated. There is no global consistency token: concurrent change is
+ * caught by the caller's capability fence (capability.ts) and by record revisions. */
 import {
   canRead, isSpaceRole, isWorkspaceRole,
   type AccessSpace, type SpaceAccess, type SpaceMembership, type WorkspacePrincipal,
@@ -11,7 +12,6 @@ export const MAX_ACCESS_SPACES = 500;
 export interface AccessContext {
   readonly userId: string;
   readonly principal: WorkspacePrincipal | null;
-  readonly generation: number;
   readonly enabled: boolean;
   readonly spaces: ReadonlyMap<string, SpaceAccess>;
 }
@@ -28,7 +28,7 @@ export class AccessError extends Error {
   }
 }
 
-/** A single D1 read batch gives one coherent principal/epoch/membership view.
+/** A single D1 read batch gives one coherent principal/activation/membership view.
  * Call once for all candidate spaces, never once per candidate record. */
 export async function loadAccessContext(db: D1Database, userId: string, spaceIds: readonly string[]): Promise<AccessContext> {
   const ids = [...new Set(spaceIds)];
@@ -36,16 +36,14 @@ export async function loadAccessContext(db: D1Database, userId: string, spaceIds
       || ids.some(id => typeof id !== 'string' || !id || id.length > 64)) throw new AccessError('invalid_access_request');
   const [principalResult, stateResult, spaceResult] = await db.batch([
     db.prepare('SELECT id,COALESCE(workspace_role,role) workspace_role,disabled_at FROM users WHERE id=?').bind(userId),
-    db.prepare('SELECT generation,enabled FROM access_state WHERE id=1'),
+    db.prepare('SELECT enabled FROM access_state WHERE id=1'),
     db.prepare(`SELECT s.id,s.default_access,s.export_policy,s.deleted_at,
       m.user_id member_user_id,m.role member_role,m.access member_access
       FROM spaces s LEFT JOIN space_members m ON m.space_id=s.id AND m.user_id=?
       WHERE s.id IN (SELECT value FROM json_each(?))`).bind(userId, JSON.stringify(ids)),
   ]);
-  const state = stateResult.results[0] as { generation: number; enabled: number } | undefined;
-  if (!state || !Number.isSafeInteger(state.generation) || state.generation < 1 || ![0, 1].includes(state.enabled)) {
-    throw new AccessError('permission_schema_unavailable');
-  }
+  const state = stateResult.results[0] as { enabled: number } | undefined;
+  if (!state || ![0, 1].includes(state.enabled)) throw new AccessError('permission_schema_unavailable');
   const row = principalResult.results[0] as PrincipalRow | undefined;
   const principal: WorkspacePrincipal | null = row && isWorkspaceRole(row.workspace_role)
     ? { id: row.id, workspaceRole: row.workspace_role, disabledAt: row.disabled_at } : null;
@@ -64,7 +62,7 @@ export async function loadAccessContext(db: D1Database, userId: string, spaceIds
     }
     spaces.set(s.id, { principal, space, membership });
   }
-  return { userId, principal, generation: state.generation, enabled: state.enabled === 1, spaces };
+  return { userId, principal, enabled: state.enabled === 1, spaces };
 }
 
 export function spaceAccess(context: AccessContext, spaceId: string): SpaceAccess {
@@ -73,19 +71,4 @@ export function spaceAccess(context: AccessContext, spaceId: string): SpaceAcces
 
 export function readableSpaceIds(context: AccessContext): string[] {
   return [...context.spaces].filter(([, access]) => canRead(access)).map(([id]) => id);
-}
-
-/** Include this statement in the SAME batch as protected writes. Preflight
- * alone cannot prevent a concurrent membership/role/session revocation. The
- * existing sync path uses the same SQLite error-guard pattern for revision CAS.
- * Caller must separately authenticate/check the session's expiry and validate
- * record-level operations; this fence is not a write grant. */
-export function accessFence(db: D1Database, context: AccessContext): D1PreparedStatement {
-  if (!context.principal || context.principal.disabledAt !== null) throw new AccessError('permission_context_invalid');
-  return db.prepare(`SELECT CASE WHEN EXISTS(
-    SELECT 1 FROM access_state a JOIN users u ON u.id=?
-    WHERE a.id=1 AND a.generation=? AND a.enabled=? AND u.disabled_at IS NULL
-      AND COALESCE(u.workspace_role,u.role)=?
-    ) THEN 1 ELSE json_extract('{','$') END`)
-    .bind(context.userId, context.generation, context.enabled ? 1 : 0, context.principal.workspaceRole);
 }

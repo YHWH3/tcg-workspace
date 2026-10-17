@@ -66,5 +66,9 @@
   {
     "name": "0017_phase5_space_feeds.sql",
     "sha256": "708318d5eabbc31eb5a0b5f2c5428cb5f83479f6e885a8b6840da8c181ab48f1"
+  },
+  {
+    "name": "0018_phase5_retire_generation_snapshots.sql",
+    "sha256": "6ce7b32116f5714f8c7ea5b302bac64f2f92b6d1be38d836a4205216bb53aef3"
   }
 ]

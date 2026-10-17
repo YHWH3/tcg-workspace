@@ -1,11 +1,12 @@
 /** Authenticated file capability, separate from public-share/form tokens. */
 import { canEdit } from '../shared/access';
 import { ownsThumbnail, thumbnailParentId } from '../shared/fileOwnership';
-import { readableSpaceIds, spaceAccess, type AccessContext } from './access';
+import { spaceAccess, type AccessContext } from './access';
 import type { AuthUser } from './auth';
 import { capabilityFence, capabilityViolated, LEVEL_EDIT, LEVEL_READ, minLevel, need, type Needs } from './capability';
 import { readAuthorizedRecords } from './recordAccess';
-import { fencedRead, loadAccessState, syncContext } from './syncAccess';
+import { levelSql } from './capability';
+import { loadAccessState } from './syncState';
 
 export class FileAccessError extends Error {
   constructor(public readonly status: 403 | 404 | 409 | 503, message: string) { super(message); this.name = 'FileAccessError'; }
@@ -66,21 +67,20 @@ export async function fileBatch(db: D1Database, authority: FileAuthority | null,
  * currently readable canonical files, so private bytes cannot become a side
  * channel through Settings. Bound this cold path; never return a partial sum. */
 export async function readableFileUsage(db: D1Database, user: AuthUser): Promise<number | null> {
-  const state = await loadAccessState(db);
-  if (!state.enabled) return null;
-  const context = await syncContext(db, user.id, state);
-  const [, candidates] = await fencedRead(db, context, [db.prepare(`SELECT r.id,f.size FROM records r JOIN files f ON f.id IN (r.id,
+  if (!(await loadAccessState(db)).enabled) return null;
+  // Candidates come from the caller's CURRENT readable spaces (the same SQL as every fence);
+  // each is then confirmed through the ownership graph, which is the authority.
+  const { results } = await db.prepare(`SELECT r.id,f.size FROM records r JOIN files f ON f.id IN (r.id,
       CASE WHEN json_extract(r.data,'$.thumbId')=r.id||'t'
         AND NOT EXISTS(SELECT 1 FROM records other WHERE other.id=r.id||'t') THEN r.id||'t' END)
-    WHERE r.collection='files' AND f.complete=1 AND r.space_id IN (SELECT value FROM json_each(?)) ORDER BY r.id,f.id LIMIT 5001`)
-    .bind(JSON.stringify(readableSpaceIds(context)))]);
-  if (candidates.results.length > 5000) throw new FileAccessError(503, 'usage exceeds bounded scan; retry after maintenance');
-  const rows = candidates.results as unknown as { id: string; size: number | null }[];
+    WHERE r.collection='files' AND f.complete=1
+      AND r.space_id IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1) ORDER BY r.id,f.id LIMIT 5001`)
+    .bind(user.id).all<{ id: string; size: number | null }>();
+  if (results.length > 5000) throw new FileAccessError(503, 'usage exceeds bounded scan; retry after maintenance');
   let used = 0;
-  for (let offset = 0; offset < rows.length; offset += 500) {
-    const page = rows.slice(offset, offset + 500), authorized = await readAuthorizedRecords(db, user.id, page.map(r => r.id));
-    if (authorized.context.generation !== context.generation) throw new FileAccessError(409, 'file access changed; check access and retry');
+  for (let offset = 0; offset < results.length; offset += 500) {
+    const page = results.slice(offset, offset + 500), authorized = await readAuthorizedRecords(db, user.id, page.map(r => r.id));
     for (const row of page) if (authorized.records.has(row.id)) used += row.size ?? 0;
   }
-  await fencedRead(db, context, []); return used;
+  return used;
 }

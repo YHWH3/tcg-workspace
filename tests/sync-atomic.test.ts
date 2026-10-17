@@ -39,7 +39,7 @@ class FakeD1 {
     this.seen.push(sql.slice(0, 60));
     // This focused fixture exercises the legacy Core path. Activated ACL and
     // real SQLite transaction fences are tested in phase5-writes-d1.test.ts.
-    if (sql === 'SELECT generation,enabled FROM access_state WHERE id=1') return { rows: [{ generation: 1, enabled: 0 } as unknown as Row], changes: 0 };
+    if (sql === 'SELECT enabled FROM access_state WHERE id=1') return { rows: [{ enabled: 0 } as unknown as Row], changes: 0 };
     // Atomic expectation guard (must precede the generic SELECT branches).
     if (/JOIN json_each\(\?\)/.test(sql)) {
       const expectMap = JSON.parse(String(binds[0])) as Record<string, number>;

@@ -12,9 +12,9 @@ import {D1BudgetExhausted} from './d1budget';
 import { AccessError } from './access';
 import { authorizeMutations, writeAuthorityFences, type WriteAuthority } from './mutationAccess';
 import { readAuthorizedRecords, RecordAccessError } from './recordAccess';
-import { loadAccessState, pullAuthorized, syncFailure, validateSyncProtocol } from './syncAccess';
-import { snapshotsApi } from './syncSnapshot';
-import { parsePullRequest, pullFeed } from './spaceFeed';
+import { syncFailure } from './syncAccess';
+import { loadAccessState, SyncProtocolError, validateSyncProtocol } from './syncState';
+import { loadManifest, parsePullRequest, pullFeed } from './spaceFeed';
 import { MAX_FUTURE_SKEW_MS, healTimestamps } from '../shared/clock';
 
 const MAX_CHANGES = 500;
@@ -103,10 +103,10 @@ async function readRows(db: D1Database, ids: string[]): Promise<Map<string, Reco
 }
 async function readWriteSnapshot(db: D1Database, ids: string[]) {
   const [records, stateResult] = await db.batch([
-    rowsStatement(db, ids), db.prepare('SELECT generation,enabled FROM access_state WHERE id=1'),
+    rowsStatement(db, ids), db.prepare('SELECT enabled FROM access_state WHERE id=1'),
   ]);
-  const state = stateResult.results[0] as { generation: number; enabled: number } | undefined;
-  if (!state || !Number.isSafeInteger(state.generation) || state.generation < 1 || ![0, 1].includes(state.enabled)) throw new AccessError('permission_schema_unavailable');
+  const state = stateResult.results[0] as { enabled: number } | undefined;
+  if (!state || ![0, 1].includes(state.enabled)) throw new AccessError('permission_schema_unavailable');
   return { existing: new Map((records.results as unknown as RecordRow[]).map(row => [row.id, row])), ...state };
 }
 
@@ -158,7 +158,7 @@ export interface ApplyOptions {
   session?: { tokenHash: string };
   /** Set only by the sync router. Rechecked against the same authority snapshot
    * used to plan writes so a revocation after HTTP validation cannot slip in. */
-  syncProtocol?: { protocol?: unknown; generation?: unknown };
+  syncProtocol?: { protocol?: unknown };
   createOnly?:Set<string>;
   /** Persist audit items in the same transaction as the record and event. */
   journal?: ChangesetCtx;
@@ -307,7 +307,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   // The same read serves restamping, authorization, the gate pre-check and the
   // merge plans.
   const snapshot = await readWriteSnapshot(db, [...new Set([...incoming.map(ch => ch.id), ...(opts.expect?.keys() ?? [])])]);
-  if (opts.syncProtocol) validateSyncProtocol(snapshot, opts.syncProtocol.protocol, opts.syncProtocol.generation);
+  if (opts.syncProtocol) validateSyncProtocol(snapshot, opts.syncProtocol.protocol);
   const existing = snapshot.existing;
   // Timestamp discipline (audit XP-03). Stored timestamps beyond the drift
   // ceiling were written before it existed; they are healed to the row's last
@@ -680,27 +680,29 @@ sync.onError((error, c) => {
   if (result) return c.json({ error: result.error }, result.status);
   throw error;
 });
-sync.route('/snapshot', snapshotsApi);
 
 sync.post('/push', async (c) => {
-  const body = await c.req.json<{ changes?: unknown; protocol?: unknown; generation?: unknown }>().catch(() => null);
+  const body = await c.req.json<{ changes?: unknown; protocol?: unknown }>().catch(() => null);
   if (!body || !Array.isArray(body.changes)) return c.json({ error: 'invalid body' }, 400);
   if (body.changes.length > MAX_CHANGES) return c.json({ error: `max ${MAX_CHANGES} changes per request` }, 400);
   const state = await loadAccessState(c.env.DB);
-  validateSyncProtocol(state, body.protocol, body.generation);
+  validateSyncProtocol(state, body.protocol);
 
   const user = c.get('user');
   const result = await applyChanges(c.env, user.id, body.changes, {
     event: { source: 'client', ctx: c.executionCtx },
     session: { tokenHash: user.tokenHash },
-    syncProtocol: { protocol: body.protocol, generation: body.generation },
+    syncProtocol: { protocol: body.protocol },
   });
   if (result.partialError) return c.json({ error: 'write interrupted; retry', committed: result.applied.map(a=>a.id) }, 503);
   if (result.conflict) return c.json({ error: 'conflict, retry' }, 409);
 
   pokeLive(c.env, c.executionCtx);
 
-  return c.json({ ok: true, serverTime: Date.now(), rejected: result.rejected, rejectedItems: result.rejectedItems ?? [] });
+  // Protocol 3: tell the client what its access looks like NOW, so a change that landed
+  // after its last check is noticed on the very next reply instead of at the next poll.
+  const accessEtag = state.enabled ? (await loadManifest(c.env.DB, user.id)).manifest.etag : undefined;
+  return c.json({ ok: true, serverTime: Date.now(), rejected: result.rejected, rejectedItems: result.rejectedItems ?? [], ...(accessEtag ? { accessEtag } : {}) });
 });
 
 /** Protocol 3 pull: per-space feed. Inert (404) while permissions are not active. */
@@ -715,10 +717,10 @@ sync.post('/pull', async (c) => {
 
 sync.get('/pull', async (c) => {
   const state = await loadAccessState(c.env.DB);
-  validateSyncProtocol(state, c.req.query('protocol'), c.req.query('generation'));
+  // Legacy route: while permissions are active every pull is a protocol 3 POST.
+  if (state.enabled) throw new SyncProtocolError('permission_protocol_required', 426);
   const since = Number(c.req.query('since') ?? '0');
   const limit = Math.min(Math.max(Number(c.req.query('limit') ?? '500') || 500, 1), 500);
-  if (state.enabled) return c.json(await pullAuthorized(c.env.DB, c.get('user').id, state, since, limit));
   const { results } = await c.env.DB
     .prepare('SELECT id, collection, data, field_ts, seq FROM records WHERE seq > ? ORDER BY seq LIMIT ?')
     .bind(Number.isFinite(since) ? since : 0, limit + 1)

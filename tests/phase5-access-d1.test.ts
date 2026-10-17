@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { canEdit, canManageMembers, canRead, effectiveSpaceRole } from '../shared/access';
-import { accessFence, loadAccessContext, MAX_ACCESS_SPACES, readableSpaceIds, spaceAccess } from '../worker/access';
+import { loadAccessContext, MAX_ACCESS_SPACES, readableSpaceIds, spaceAccess } from '../worker/access';
+import { capabilityFence, type CapabilityFenceInput } from '../worker/capability';
 import { createSpace, setSpaceMember } from '../worker/spaces';
 import { loadScopeGraph, readAuthorizedRecords } from '../worker/recordAccess';
 
@@ -60,7 +61,7 @@ describe('audited space administration foundation in actual D1', () => {
     expect(effectiveSpaceRole(spaceAccess(context, created.spaceId))).toBe('owner');
     expect(readableSpaceIds(await loadAccessContext(db, 'bob', [created.spaceId]))).toEqual([]);
     expect((await db.prepare('SELECT COUNT(*) n FROM access_audit').first<{ n: number }>())!.n).toBe(1);
-    expect(created.generation).toBe(context.generation);
+    expect(created.generation).toBe(await generation()); // the audit row copies the (inert) column
   });
 
   it('refuses guest, disabled and nonexistent creators and validates input before writing', async () => {
@@ -386,13 +387,12 @@ describe('Phase 5 additive migration and real D1 authority', () => {
     await member('partner', 'guest', 'commenter');
     ctx = await loadAccessContext(db, 'guest', ['space-core', 'partner']);
     expect(readableSpaceIds(ctx)).toEqual(['partner']); expect(canEdit(spaceAccess(ctx, 'partner'))).toBe(false);
-    const granted = ctx.generation;
     await db.prepare("DELETE FROM space_members WHERE user_id='guest'").run();
     ctx = await loadAccessContext(db, 'guest', ['partner']);
-    expect(readableSpaceIds(ctx)).toEqual([]); expect(ctx.generation).toBeGreaterThan(granted);
+    expect(readableSpaceIds(ctx)).toEqual([]);
     await member('partner', 'guest', 'editor');
     const regrant = await loadAccessContext(db, 'guest', ['partner']);
-    expect(canEdit(spaceAccess(regrant, 'partner'))).toBe(true); expect(regrant.generation).toBeGreaterThan(ctx.generation);
+    expect(canEdit(spaceAccess(regrant, 'partner'))).toBe(true);
     await member('partner', 'guest', 'admin');
     expect(canRead(spaceAccess(await loadAccessContext(db, 'guest', ['partner']), 'partner'))).toBe(false);
   });
@@ -408,31 +408,35 @@ describe('Phase 5 additive migration and real D1 authority', () => {
     expect(canManageMembers(spaceAccess(await loadAccessContext(db, 'owner', ['space-core']), 'space-core'))).toBe(false);
   });
 
+  const fence = (ctx: Awaited<ReturnType<typeof loadAccessContext>>, needs: Record<string, number> = {}, over: Partial<CapabilityFenceInput> = {}) =>
+    capabilityFence(db, { userId: ctx.userId, needs: new Map(Object.entries(needs)), workspaceRole: ctx.principal?.workspaceRole ?? 'member', enabled: ctx.enabled, ...over });
+
   it('keeps a permission fence and its write atomic when access is revoked after preflight', async () => {
     await migrate(); await user('alice'); await space('private'); await member('private', 'alice', 'editor');
     await db.prepare("INSERT INTO records(id,collection,data,field_ts,seq,space_id) VALUES('r','pages','{\"title\":\"Original\"}','{}',1,'private')").run();
     const stale = await loadAccessContext(db, 'alice', ['private']);
     expect(canEdit(spaceAccess(stale, 'private'))).toBe(true);
     await member('private', 'alice', 'viewer');
-    await expect(db.batch([accessFence(db, stale), db.prepare("UPDATE records SET data='{\"title\":\"Should roll back\"}' WHERE id='r'")])).rejects.toThrow();
+    await expect(db.batch([fence(stale, { private: 3 }), db.prepare("UPDATE records SET data='{\"title\":\"Should roll back\"}' WHERE id='r'")])).rejects.toThrow();
     expect(await db.prepare("SELECT data FROM records WHERE id='r'").first()).toEqual({ data: '{"title":"Original"}' });
     const current = await loadAccessContext(db, 'alice', ['private']);
     expect(canEdit(spaceAccess(current, 'private'))).toBe(false);
-    // A fresh fence validates authority freshness, not permission to edit.
-    // Callers must still check the capability before including it in a write.
-    await expect(db.batch([accessFence(db, current)])).resolves.toHaveLength(1);
+    // A fence fails exactly when the caller's CURRENT level is below what the plan relied on:
+    // a viewer still satisfies a read plan, and no longer satisfies an edit plan.
+    await expect(db.batch([fence(current, { private: 1 })])).resolves.toHaveLength(1);
+    await expect(db.batch([fence(current, { private: 3 })])).rejects.toThrow();
   });
 
   it('fences a transaction when the same batch changes authority before the guarded mutation', async () => {
     await migrate(); await user('alice');
-    const ctx = await loadAccessContext(db, 'alice', ['space-core']);
+    const ctx = await loadAccessContext(db, 'alice', ['space-core']), before = await generation();
     await expect(db.batch([
       db.prepare("UPDATE users SET disabled_at=50 WHERE id='alice'"),
-      accessFence(db, ctx),
+      fence(ctx, { 'space-core': 3 }),
       db.prepare("INSERT INTO access_audit(id,actor_id,action,generation,created_at) VALUES('bad','alice','should-rollback',1,1)"),
     ])).rejects.toThrow();
     expect(await db.prepare("SELECT disabled_at FROM users WHERE id='alice'").first()).toEqual({ disabled_at: null });
-    expect(await generation()).toBe(ctx.generation);
+    expect(await generation()).toBe(before);
     expect((await db.prepare('SELECT COUNT(*) n FROM access_audit').first<{ n: number }>())!.n).toBe(0);
   });
 
@@ -443,38 +447,37 @@ describe('Phase 5 additive migration and real D1 authority', () => {
     expect(readableSpaceIds(alice)).toEqual(['space-core']); expect(readableSpaceIds(bob)).toEqual([]);
     await db.prepare("UPDATE users SET disabled_at=0 WHERE id='alice'").run();
     const disabled = await loadAccessContext(db, 'alice', ['space-core']);
-    expect(readableSpaceIds(disabled)).toEqual([]); expect(() => accessFence(db, disabled)).toThrow('permission_context_invalid');
+    expect(readableSpaceIds(disabled)).toEqual([]);
+    await expect(db.batch([fence(disabled)])).rejects.toThrow(); // even an empty plan fails for a disabled principal
     await db.prepare("DELETE FROM users WHERE id='alice'").run();
     const gone = await loadAccessContext(db, 'alice', ['space-core']);
     expect(gone.principal).toBeNull(); expect(readableSpaceIds(gone)).toEqual([]);
     expect(readableSpaceIds(await loadAccessContext(db, 'nobody', ['space-core']))).toEqual([]);
-    await expect(db.batch([accessFence(db, alice)])).rejects.toThrow();
+    await expect(db.batch([fence(alice)])).rejects.toThrow();
   });
 
-  it('bumps epochs on authority changes, session revocation and record moves, but not profile text', async () => {
+  it('writes no global counter on authority changes, session revocation or record moves, and installs no generation trigger', async () => {
     await migrate(); await user('alice'); await space('private');
     await db.prepare("INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES('hash','alice',9999,1)").run();
     await db.prepare("INSERT INTO records(id,collection,data,field_ts,seq) VALUES('r','pages','{}','{}',1)").run();
-    let previous = await generation();
-    await db.prepare("UPDATE users SET name='New name' WHERE id='alice'").run(); expect(await generation()).toBe(previous);
+    const before = await generation();
     for (const sql of [
-      "UPDATE users SET workspace_role='guest' WHERE id='alice'",
-      "UPDATE users SET role='admin' WHERE id='alice'",
-      "UPDATE users SET disabled_at=9 WHERE id='alice'",
-      "UPDATE spaces SET default_access='members' WHERE id='private'",
-      "UPDATE records SET space_id='private' WHERE id='r'",
-      "DELETE FROM sessions WHERE token_hash='hash'",
-    ]) {
-      await db.prepare(sql).run(); expect(await generation()).toBe(previous + 1); previous++;
-    }
-    await db.prepare("UPDATE records SET space_id='private' WHERE id='r'").run(); expect(await generation()).toBe(previous);
+      "UPDATE users SET name='New name' WHERE id='alice'", "UPDATE users SET workspace_role='guest' WHERE id='alice'", "UPDATE users SET role='admin' WHERE id='alice'",
+      "UPDATE users SET disabled_at=9 WHERE id='alice'", "UPDATE spaces SET default_access='members' WHERE id='private'",
+      "UPDATE records SET space_id='private' WHERE id='r'", "DELETE FROM sessions WHERE token_hash='hash'",
+      "UPDATE records SET data=json_set(data,'$.deleted',json('true')) WHERE id='r'",
+    ]) { await db.prepare(sql).run(); expect(await generation(), sql).toBe(before); }
+    // What remains are integrity triggers, the sequence floor, session metadata and the per-move eviction facts: nothing global.
+    expect((await db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'p5_%' ORDER BY name").all<{ name: string }>()).results.map(r => r.name))
+      .toEqual(['p5_record_space_insert', 'p5_record_space_update', 'p5_seq_floor', 'p5_session_metadata', 'p5_space_event_link_retarget', 'p5_space_event_move', 'p5_space_referenced']);
+    expect(await db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE name IN ('sync_snapshots','sync_snapshot_items')").first('n')).toBe(0);
   });
 
-  it('activation change invalidates the preactivation fence even without an epoch change', async () => {
+  it('activation change invalidates the preactivation fence even without any other change', async () => {
     await migrate(); await user('alice');
     const ctx = await loadAccessContext(db, 'alice', ['space-core']);
     await db.prepare('UPDATE access_state SET enabled=1 WHERE id=1').run();
-    await expect(db.batch([accessFence(db, ctx)])).rejects.toThrow();
+    await expect(db.batch([fence(ctx)])).rejects.toThrow();
     expect((await loadAccessContext(db, 'alice', ['space-core'])).enabled).toBe(true);
   });
 

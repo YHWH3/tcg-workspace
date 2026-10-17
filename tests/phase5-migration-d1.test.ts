@@ -77,6 +77,26 @@ describe('migration 0017 schema', () => {
   });
 });
 
+describe('migration 0018 retires the generation and snapshot machinery', () => {
+  it('drops the generation triggers and snapshot tables over a populated database, leaving data untouched', async () => {
+    const db = await open('0017_phase5_space_feeds.sql');
+    await db.prepare("INSERT INTO users(id,username,name,role) VALUES('u','u','u','member')").run();
+    await db.prepare("INSERT INTO sync_snapshots(id,user_id,request_id,generation,cutoff,page_size,cursor_secret,created_at,expires_at) VALUES('s','u','r',1,0,50,'x',1,2)").run();
+    await db.prepare("INSERT INTO sync_snapshot_items(snapshot_id,ordinal,record_id,collection,data,field_ts,seq) VALUES('s',1,'a','pages','{}','{}',1)").run();
+    await put(db, 'a', 'pages', { title: 'A' }, 1);
+    const before = (await db.prepare('SELECT * FROM records').all()).results;
+    const generation = await db.prepare('SELECT generation FROM access_state WHERE id=1').first('generation');
+    expect(Number(await db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='trigger' AND name IN ('p5_session_delete','p5_record_visibility','p5_member_insert','p5_access_activation','p5_file_aux_visibility')").first('n'))).toBe(5);
+    await apply(db, '0018_phase5_retire_generation_snapshots.sql');
+    expect(Number(await db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE (type='trigger' AND name IN ('p5_space_insert','p5_space_update','p5_space_delete','p5_member_insert','p5_member_update','p5_member_delete','p5_user_insert','p5_user_update','p5_user_delete','p5_session_delete','p5_record_scope','p5_record_visibility','p5_record_delete_visibility','p5_access_activation','p5_file_aux_visibility')) OR name IN ('sync_snapshots','sync_snapshot_items')").first('n'))).toBe(0);
+    expect((await db.prepare('SELECT * FROM records').all()).results).toEqual(before);
+    expect(await db.prepare('SELECT generation FROM access_state WHERE id=1').first('generation')).toBe(generation);
+    // Authority changes are now silent on the counter.
+    await db.prepare("UPDATE users SET workspace_role='guest' WHERE id='u'").run();
+    expect(await db.prepare('SELECT generation FROM access_state WHERE id=1').first('generation')).toBe(generation);
+  });
+});
+
 describe('sequence floor (FD-17)', () => {
   it('the next write never reuses a revision a hard delete just removed', async () => {
     const db = await open(), env = { DB: db } as Env;
