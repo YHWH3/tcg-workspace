@@ -5,6 +5,7 @@
 // Replay-safe via automation_runs.event_key UNIQUE; automation-sourced events
 // never re-trigger (the processOutbox depth-1 loop guard).
 
+import { createReadGate, withReadGate } from './readAccess';
 import { Hono } from 'hono';
 import type { SemanticEvent } from '../shared/events';
 import type { EventSource } from './events';
@@ -719,6 +720,8 @@ export const automationsApi = new Hono<{ Bindings: Env; Variables: { user: AuthU
 automationsApi.use('*', requireAuth);
 
 automationsApi.get('/:id/runs', async (c) => {
+  // Run history (status/error) belongs to readers of the automation (permissions enabled).
+  if (!(await createReadGate(c.env.DB, c.get('user').id).canRead(c.req.param('id')))) return c.json({ runs: [] });
   const { results } = await c.env.DB.prepare(
     'SELECT id, automation_id, event_key, changeset_id, status, error, created_at FROM automation_runs WHERE automation_id = ? ORDER BY created_at DESC LIMIT 50'
   ).bind(c.req.param('id')).all();
@@ -726,7 +729,7 @@ automationsApi.get('/:id/runs', async (c) => {
 });
 
 automationsApi.get('/:id/validate', async (c) => {
-  const rec = await getRec(c.env, c.req.param('id'));
+  const rec = await getRec(withReadGate(c.env, c.get('user').id), c.req.param('id'));
   if (!rec || rec.collection !== 'automations') return c.json({ error: 'not found' }, 404);
   const cfg = rec.data as AutomationConfig;
   const errors = validateAutomation(cfg, await loadValidationCtx(c.env, cfg, [], true));

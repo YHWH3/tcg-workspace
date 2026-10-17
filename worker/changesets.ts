@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 import { planUndo, type ChangesetItem } from '../shared/undo';
 import { applyChanges, type AppliedChange } from './sync';
 import { getRecs } from './records';
+import { visibleItems, visibleSummaries } from './historyAccess';
 import { requireAuth, type Env, type AuthUser } from './auth';
 
 export interface ChangesetCtx {
@@ -166,8 +167,8 @@ changesApi.get('/', async (c) => {
   }
   if (conds.length) sql += ` WHERE ${conds.join(' AND ')}`;
   sql += ' ORDER BY created_at DESC LIMIT 50';
-  const { results } = await c.env.DB.prepare(sql).bind(...(binds as (string | number)[])).all();
-  return c.json({ changesets: results });
+  const { results } = await c.env.DB.prepare(sql).bind(...(binds as (string | number)[])).all<{ id: string; summary: string }>();
+  return c.json({ changesets: await visibleSummaries(c.env.DB, user.id, results) });
 });
 
 changesApi.get('/:id', async (c) => {
@@ -176,8 +177,10 @@ changesApi.get('/:id', async (c) => {
   const cs = await c.env.DB.prepare('SELECT * FROM changesets WHERE id = ?').bind(id).first<Record<string, unknown>>();
   if (!cs) return c.json({ error: 'not found' }, 404);
   if (user.role !== 'admin' && cs.user_id !== user.id) return c.json({ error: 'forbidden' }, 403);
-  const { results } = await c.env.DB.prepare('SELECT idx, collection, record_id, created, before, after, field_ts FROM changeset_items WHERE changeset_id = ? ORDER BY idx').bind(id).all();
-  return c.json({ changeset: cs, items: results });
+  const { results } = await c.env.DB.prepare('SELECT idx, collection, record_id, created, before, after, field_ts FROM changeset_items WHERE changeset_id = ? ORDER BY idx').bind(id).all<{ record_id: string }>();
+  const shown = await visibleItems(c.env.DB, user.id, results);
+  const [changeset] = shown.restricted ? await visibleSummaries(c.env.DB, user.id, [cs as { id: unknown; summary?: unknown }]) : [cs];
+  return c.json({ changeset, items: shown.items, ...(shown.restricted ? { restricted: shown.restricted } : {}) });
 });
 
 changesApi.post('/:id/undo', async (c) => {

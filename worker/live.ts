@@ -7,6 +7,10 @@ interface Attachment {
   sid?: string;
   path: string;
   lastSeen: number;
+  /** Phase 5 permissions were enabled when this socket was authorized: its route is never
+   * recorded or shared, and it never receives anyone's route (a path names a record the
+   * recipient may not be allowed to read). Pokes still flow. */
+  scoped?: boolean;
 }
 
 const IDLE_MS = 75_000;
@@ -34,7 +38,7 @@ export class LiveRoom extends DurableObject<Env> {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
-      server.serializeAttachment({ userId, sid: req.headers.get('x-session-hash') ?? undefined, path: '/', lastSeen: Date.now() } satisfies Attachment);
+      server.serializeAttachment({ userId, sid: req.headers.get('x-session-hash') ?? undefined, path: '/', lastSeen: Date.now(), ...(req.headers.get('x-scoped') === '1' ? { scoped: true } : {}) } satisfies Attachment);
       return new Response(null, { status: 101, webSocket: client });
     }
     return new Response('not found', { status: 404 });
@@ -45,7 +49,7 @@ export class LiveRoom extends DurableObject<Env> {
     if (!att) return;
     try {
       const m = JSON.parse(typeof message === 'string' ? message : new TextDecoder().decode(message)) as { t?: string; path?: string };
-      if (m.t === 'here' && typeof m.path === 'string') {
+      if (m.t === 'here' && typeof m.path === 'string' && !att.scoped) {
         att.path = m.path.slice(0, 200);
       }
       att.lastSeen = Date.now();
@@ -137,6 +141,11 @@ export class LiveRoom extends DurableObject<Env> {
       const att = ws.deserializeAttachment() as Attachment | null;
       if (att?.userId) byUser.set(att.userId, att.path);
     }
-    this.broadcast({ t: 'presence', users: [...byUser].map(([userId, path]) => ({ userId, path })) });
+    const full = JSON.stringify({ t: 'presence', users: [...byUser].map(([userId, path]) => ({ userId, path })) });
+    const pathless = JSON.stringify({ t: 'presence', users: [...byUser.keys()].map((userId) => ({ userId, path: '/' })) });
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = ws.deserializeAttachment() as Attachment | null;
+      try { ws.send(att?.scoped ? pathless : full); } catch { ws.close(); }
+    }
   }
 }

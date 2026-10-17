@@ -4,6 +4,7 @@
 // MCP tools. Approvals live in the server-controlled `approvals` D1 table —
 // generic sync can never mint one.
 
+import { createReadGate } from './readAccess';
 import { Hono } from 'hono';
 import type { Mutation } from '../shared/types';
 import { notify } from './notifications';
@@ -173,6 +174,18 @@ export interface ApprovalRow {
 
 /** Wire shape — rev is created_at ms so callers can CAS a decide on the row
  * they read (approvals have no records.seq). */
+/** Phase 5: an approval's notes and its target's title are copies of record context. A
+ * participant who can no longer read the target sees the request without them. */
+export function restrictedApprovalJson(r: ApprovalRow) {
+  return { ...approvalJson({ ...r, note: null, decided_note: null }), targetTitle: 'Restricted item', restricted: true };
+}
+
+/** Which approval targets the viewer may read now (legacy: all). */
+export async function readableTargets(db: D1Database, viewerId: string, rows: readonly ApprovalRow[]): Promise<(r: ApprovalRow) => boolean> {
+  const decision = await createReadGate(db, viewerId).decide(rows.map((r) => r.target_id));
+  return (r) => !decision.enabled || decision.readable.has(r.target_id);
+}
+
 export function approvalJson(r: ApprovalRow, extra: { targetTitle?: string; url?: string } = {}) {
   return {
     id: r.id,
@@ -334,13 +347,14 @@ export async function userExists(db: D1Database, userId: string): Promise<boolea
  * (target live, approver a real user). Returns the failure or normalized input. */
 export async function validateApprovalRequest(
   db: D1Database,
-  _requestedBy: string,
+  requestedBy: string,
   body: unknown,
 ): Promise<{ error: string } | { targetType: string; targetId: string; stageId?: string; approverId: string; note?: string; requestId?: string; meta: { title: string; url: string; boardId?: string } }> {
   const v = normalizeApprovalRequest(body as Parameters<typeof normalizeApprovalRequest>[0]);
   if ('error' in v) return v;
   const meta = await loadTargetMeta(db, v.targetType, v.targetId);
-  if (!meta) return { error: 'target not found' };
+  // Unreadable and nonexistent targets are the same answer (permissions enabled).
+  if (!meta || !(await createReadGate(db, requestedBy).canRead(v.targetId))) return { error: 'target not found' };
   if (!(await userExists(db, v.approverId))) return { error: 'approver not found' };
   return { ...v, meta };
 }
@@ -361,13 +375,15 @@ approvalsApi.get('/', async (c) => {
     status: status && ['pending', 'approved', 'rejected', 'cancelled'].includes(status) ? status : undefined,
     limit: Number(c.req.query('limit')) || undefined,
   });
+  const readable = await readableTargets(c.env.DB, user.id, rows);
   const metas = new Map<string, { title: string; url: string } | null>();
   for (const r of rows) {
     const k = `${r.target_type}:${r.target_id}`;
-    if (!metas.has(k)) metas.set(k, await loadTargetMeta(c.env.DB, r.target_type, r.target_id));
+    if (readable(r) && !metas.has(k)) metas.set(k, await loadTargetMeta(c.env.DB, r.target_type, r.target_id));
   }
   return c.json({
     approvals: rows.map((r) => {
+      if (!readable(r)) return restrictedApprovalJson(r);
       const m = metas.get(`${r.target_type}:${r.target_id}`);
       return approvalJson(r, { targetTitle: m?.title ?? r.target_id, url: m?.url });
     }),
@@ -424,7 +440,9 @@ approvalsApi.post('/:id/decide', async (c) => {
   if (out.outcome === 'not_approver') return c.json({ error: 'not your approval to decide' }, 403);
   if (out.outcome === 'stale_rev') return c.json({ error: 'conflict', approval: approvalJson(out.row!) }, 409);
   if (out.outcome === 'already_decided') return c.json({ error: 'already decided', approval: approvalJson(out.row!) }, 409);
-  const meta = await loadTargetMeta(c.env.DB, out.row!.target_type, out.row!.target_id);
+  // The approver sees the target's title only while they can read it.
+  const visible = await createReadGate(c.env.DB, user.id).canRead(out.row!.target_id);
+  const meta = visible ? await loadTargetMeta(c.env.DB, out.row!.target_type, out.row!.target_id) : null;
   {
     await notify(c.env, {
       userId: out.row!.requested_by,
@@ -439,7 +457,7 @@ approvalsApi.post('/:id/decide', async (c) => {
       dedupeKey:`approval_decided:${out.row!.id}`,
     });
   }
-  return c.json({ approval: approvalJson(out.row!, { targetTitle: meta?.title, url: meta?.url }), replayed: out.replayed === true });
+  return c.json({ approval: visible ? approvalJson(out.row!, { targetTitle: meta?.title, url: meta?.url }) : restrictedApprovalJson(out.row!), replayed: out.replayed === true });
 });
 
 approvalsApi.post('/:id/cancel', async (c) => {

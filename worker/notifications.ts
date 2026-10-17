@@ -3,6 +3,7 @@
 // collection, so generic sync can never mint, mark-read, or leak a row.
 // Every query below is bound to the session user's own rows.
 
+import { createReadGate } from './readAccess';
 import { Hono } from 'hono';
 import type { SemanticEvent } from '../shared/events';
 import type { EventSource } from './events';
@@ -343,8 +344,13 @@ notificationsApi.get('/', async (c) => {
   binds.push(limit + 1);
   const { results } = await c.env.DB.prepare(sql).bind(...binds).all<NotifRow>();
   const page = results.slice(0, limit);
+  // Stored title/body/items are historical copies of record content. While permissions are
+  // enabled each is shown only if the recipient can read its target NOW; otherwise a neutral
+  // "Restricted item" row keeps the inbox order without the copy (design review §5).
+  const decision = await createReadGate(c.env.DB, userId).decide(page.map((r) => r.target_id).filter((id): id is string => !!id));
+  const shown = (r: NotifRow) => !decision.enabled || !r.target_id || decision.readable.has(r.target_id);
   return c.json({
-    notifications: page.map(serialize),
+    notifications: page.map((r) => (shown(r) ? serialize(r) : { ...serialize({ ...r, title: 'Restricted item', body: null, url: null, items: null }), targetId: null, restricted: true })),
     nextBefore: results.length > limit ? page[page.length - 1].created_at : null,
   });
 });

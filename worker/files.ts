@@ -1,3 +1,4 @@
+import { accessEnabled } from './readAccess';
 import { Hono } from 'hono';
 import { requireAuth } from './auth';
 import type { Env, AuthUser } from './auth';
@@ -303,6 +304,8 @@ files.delete('/:id', async (c) => {
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
   const authority = await authorizeFile(c.env.DB, c.get('user'), id, true);
   const row=await c.env.DB.prepare('SELECT collection,data FROM records WHERE id=?').bind(id).first<{collection:string;data:string}>();
+  // Enabled: a record the caller may not act on is indistinguishable from a missing file.
+  if(row && !authority && await accessEnabled(c.env.DB)) return c.json({error:'not found'},404);
   if(row) {
     if(row.collection!=='files') return c.json({error:'not a file'},409);
     const {applyChanges}=await import('./sync');

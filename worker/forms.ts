@@ -14,6 +14,7 @@
 //
 // Everything testable is a plain exported function (see tests/forms.test.ts).
 
+import { editableBy, withReadGate } from './readAccess';
 import { Hono } from 'hono';
 import { applyChanges, pokeLive } from './sync';
 import { beginChangeset } from './changesets';
@@ -576,7 +577,10 @@ formsApi.post('/', async (c) => {
   const form = parseFormConfig(body as Record<string, unknown>);
   if (!form) return c.json({ error: 'invalid form config' }, 422);
 
-  const board = await getRec(c.env, form.databaseId);
+  // Member reads go through the caller's gate: an unreadable database or relation target is
+  // reported exactly like a missing one (applyChanges still authorizes the write itself).
+  const env = withReadGate(c.env, c.get('user').id);
+  const board = await getRec(env, form.databaseId);
   if (!board || board.collection !== 'boards' || board.data.deleted) return c.json({ error: 'database not found' }, 404);
 
   const errors = validateFormConfig(form, board.data);
@@ -587,7 +591,7 @@ formsApi.post('/', async (c) => {
     if (bad.length) errors.push(`notifyUserIds contains unknown users: ${bad.join(', ')}`);
   }
   for (const rel of form.createRelations ?? []) {
-    const target = await getRec(c.env, rel.toId);
+    const target = await getRec(env, rel.toId);
     const def=fieldsOf(board.data).find(f=>f.id===rel.fieldId&&f.type==='relation');
     const expected=def?.relation?.target;
     const valid=target&&!target.data.deleted&&(expected==='pages'?target.collection==='pages':target.collection==='tasks'&&target.data.boardId===expected);
@@ -611,7 +615,8 @@ formsApi.post('/', async (c) => {
     updatedBy: user.id,
     updatedAt: Date.now(),
   };
-  const existing = await getRec(c.env, id);
+  // Existence of an id the caller cannot read is not revealed: the write is refused by applyChanges.
+  const existing = await getRec(env, id);
   if (existing && (existing.collection !== 'forms' || existing.data.deleted)) return c.json({ error: 'id taken' }, 409);
   if (!existing) {
     patch.createdBy = user.id;
@@ -629,9 +634,12 @@ formsApi.post('/', async (c) => {
 
 /** Form config + its token list (tokens are D1-only, never synced). */
 formsApi.get('/:id', async (c) => {
-  const rec = await getRec(c.env, c.req.param('id'));
+  const user = c.get('user');
+  const rec = await getRec(withReadGate(c.env, user.id), c.req.param('id'));
   if (!rec || rec.collection !== 'forms' || rec.data.deleted) return c.json({ error: 'form not found' }, 404);
   const form = parseFormConfig(rec.data);
+  // Publish tokens are capabilities to write into the database: editors only (enabled).
+  if (!(await editableBy(c.env.DB, user.id, rec.id))) return c.json({ form, tokens: [] });
   const { results } = await c.env.DB.prepare('SELECT token, created_at, revoked_at FROM form_tokens WHERE form_id = ? ORDER BY created_at DESC').bind(rec.id).all<TokenRow>();
   return c.json({
     form,
@@ -641,8 +649,9 @@ formsApi.get('/:id', async (c) => {
 
 /** Mint a publish token for a form. */
 formsApi.post('/:id/tokens', async (c) => {
-  const rec = await getRec(c.env, c.req.param('id'));
-  if (!rec || rec.collection !== 'forms' || rec.data.deleted) return c.json({ error: 'form not found' }, 404);
+  const user = c.get('user');
+  const rec = await getRec(withReadGate(c.env, user.id), c.req.param('id'));
+  if (!rec || rec.collection !== 'forms' || rec.data.deleted || !(await editableBy(c.env.DB, user.id, rec.id))) return c.json({ error: 'form not found' }, 404);
   const token = mintToken();
   await c.env.DB.prepare('INSERT INTO form_tokens (token, form_id, created_at, revoked_at) VALUES (?, ?, ?, NULL)').bind(token, rec.id, Date.now()).run();
   return c.json({ token });
@@ -651,6 +660,8 @@ formsApi.post('/:id/tokens', async (c) => {
 /** Revoke a publish token (immediate: public reads check revoked_at). */
 formsApi.delete('/tokens/:token', async (c) => {
   const token = c.req.param('token');
+  const owner = await c.env.DB.prepare('SELECT form_id FROM form_tokens WHERE token = ?').bind(token).first<{ form_id: string }>();
+  if (owner && !(await editableBy(c.env.DB, c.get('user').id, owner.form_id))) return c.json({ error: 'token not found' }, 404);
   const res = await c.env.DB.prepare('UPDATE form_tokens SET revoked_at = ? WHERE token = ? AND revoked_at IS NULL').bind(Date.now(), token).run();
   if (!res.meta.changes) return c.json({ error: 'token not found' }, 404);
   return c.json({ ok: true });

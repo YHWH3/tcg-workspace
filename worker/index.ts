@@ -19,6 +19,7 @@ import { runScheduled } from './reminders';
 import {withD1Budget,D1BudgetExhausted} from './d1budget';
 import { browserHardening } from './headers';
 import type { Env, AuthUser } from './auth';
+import { accessEnabled } from './readAccess';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 // API state must not survive account switches or public-form disable/re-enable
@@ -47,7 +48,7 @@ app.get('/api/live', async (c) => {
   const stub = c.env.LIVE.get(c.env.LIVE.idFromName('workspace'));
   const res = await stub.fetch(
     new Request('https://live-room/ws', {
-      headers: { Upgrade: 'websocket', 'x-user-id': user.id, 'x-session-hash': user.tokenHash },
+      headers: { Upgrade: 'websocket', 'x-user-id': user.id, 'x-session-hash': user.tokenHash, ...((await accessEnabled(c.env.DB)) ? { 'x-scoped': '1' } : {}) },
     }),
   );
   const ws = res.webSocket;

@@ -31,6 +31,10 @@ import { findReusableBoards, planInstallPreview } from '../shared/bundled';
 import { BUNDLED, BUNDLED_AUTHORS, bundledTemplate } from './bundledTemplates';
 import { COLUMN_COLORS } from '../src/modules/boards/model';
 import { registerApprovalTools } from './mcpApprovals'; // P4-D
+import { serviceEnv, withReadGate } from './readAccess';
+import { shareAuthority } from './shareAccess';
+import { visibleItems, visibleSummaries } from './historyAccess';
+import { levelSql } from './capability';
 import type { Collection } from '../shared/collections';
 
 const MAX_WRITE_RECORDS = 500;
@@ -174,6 +178,27 @@ async function users(env: Env): Promise<UserRow[]> {
   return results;
 }
 
+
+/** A stored idempotent result is a historical copy of record-derived output. Replayed after
+ * the caller lost access, it must not disclose anything: if any record it names is now
+ * unreadable, only the replay marker and change-set reference survive. Legacy: unchanged. */
+async function refilterReplay(c: Ctx, text: string): Promise<string> {
+  const gate = c.env.READ_GATE;
+  if (!gate || !(await gate.enabled())) return text;
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { return JSON.stringify({ replayed: true, restricted: true }); }
+  const strings = new Set<string>();
+  const walk = (v: unknown) => {
+    if (typeof v === 'string') { for (const part of [v, ...v.split(/[:/]/)]) if (/^[A-Za-z0-9_-]{1,64}$/.test(part)) strings.add(part); }
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  walk(parsed);
+  const decision = await gate.decide([...strings].slice(0, 5000));
+  if (!decision.denied.size) return text;
+  const changesetId = parsed && typeof parsed === 'object' ? (parsed as { changesetId?: unknown }).changesetId : undefined;
+  return JSON.stringify({ replayed: true, restricted: true, ...(typeof changesetId === 'string' ? { changesetId } : {}) });
+}
 
 async function mentionResolvers(c: Ctx) {
   await fillCaches(c);
@@ -449,6 +474,9 @@ Safety:
 - Write calls are rate limited per user; on a rate-limit error stop and tell the user instead of retrying in a loop.`;
 
 export function createWorkspaceServer(ctx: Ctx): McpServer {
+  // Phase 5: every read below goes through this request's gate (worker/readAccess.ts);
+  // integrity checks that never reach the caller use serviceEnv(ctx.env) explicitly.
+  ctx.env = withReadGate(ctx.env, ctx.userId);
   const server = new McpServer(
     { name: 'Workspace', version: '1.0.0' },
     { instructions: INSTRUCTIONS },
@@ -523,7 +551,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       };
       if (args.requestId) {
         const out = await withIdempotency(ctx.env, ctx.userId, name, args.requestId, args, run);
-        return { content: [{ type: 'text' as const, text: out.text }], isError: out.failed === true } as ToolResult;
+        const text = out.replayed ? await refilterReplay(ctx, out.text) : out.text;
+        return { content: [{ type: 'text' as const, text }], isError: out.failed === true } as ToolResult;
       }
       const out = await run();
       return { content: [{ type: 'text' as const, text: out.text }], isError: out.isError } as ToolResult;
@@ -547,6 +576,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
     async ({ query }) => {
       const q = query.trim().toLowerCase();
+      const scoped = await ctx.env.READ_GATE!.enabled();
       const results: { id: string; title: string; url: string; rev?: number }[] = [];
       // §3/§11: scan only what search needs — no full data column.
       const { results: slim } = await ctx.env.DB.prepare(
@@ -559,9 +589,19 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
                 json_extract(data, '$.boardId') AS jboard,
                 json_extract(data, '$.deleted') AS jdel
          FROM records
-         WHERE collection IN ('pages','blocks','tasks','boards','moodboards')`,
-      ).all<{ id: string; collection: string; seq: number; jt: unknown; jn: unknown; jtext: unknown; jdesc: unknown; jpage: unknown; jboard: unknown; jdel: unknown }>();
-      const rows = slim.filter((r) => r.jdel !== 1);
+         WHERE collection IN ('pages','blocks','tasks','boards','moodboards')${scoped ? ` AND space_id IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1)` : ''}`,
+      ).bind(...(scoped ? [ctx.userId] : [])).all<{ id: string; collection: string; seq: number; jt: unknown; jn: unknown; jtext: unknown; jdesc: unknown; jpage: unknown; jboard: unknown; jdel: unknown }>();
+      let rows = slim.filter((r) => r.jdel !== 1);
+      if (scoped) {
+        // records.space_id is only a prefilter: the graph decides, on the matching rows only.
+        const pageRows = new Map(rows.filter((r) => r.collection === 'pages').map((r) => [r.id, r]));
+        const blockHits = rows.filter((b) => b.collection === 'blocks' && String(b.jtext ?? '').toLowerCase().includes(q));
+        const titleHits = rows.filter((r) => r.collection !== 'blocks' && `${r.jt ?? ''} ${r.jn ?? ''} ${r.collection === 'tasks' ? r.jdesc ?? '' : ''}`.toLowerCase().includes(q));
+        const bodyPages = blockHits.flatMap((b) => { const p = pageRows.get(String(b.jpage ?? '')); return p ? [p] : []; });
+        const candidates = [...new Map([...blockHits, ...titleHits, ...bodyPages].map((r) => [r.id, r])).values()].slice(0, 2000);
+        const kept = new Set((await ctx.env.READ_GATE!.filter(candidates.map((r) => ({ id: r.id, rev: r.seq })))).map((r) => r.id));
+        rows = rows.filter((r) => kept.has(r.id));
+      }
       const pageHasMatch = new Set<string>();
       for (const b of rows) if (b.collection === 'blocks' && String(b.jtext ?? '').toLowerCase().includes(q)) pageHasMatch.add(String(b.jpage ?? ''));
       for (const p of rows) {
@@ -728,8 +768,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const blocks = blockRows.map(toRec).sort(byOrder);
       const children = childRows.map(toRec).sort(byOrder);
       const pageName = ctx.pageTitleById;
-      const backlinks = backlinkRows.results
-        .map((r) => toRec({ id: r.id, collection: r.collection, data: JSON.parse(r.data), fieldTs: JSON.parse(r.field_ts), rev: r.seq, updatedBy: r.updated_by, updatedAt: r.updated_at }))
+      const backlinks = (await ctx.env.READ_GATE!.filter(backlinkRows.results
+        .map((r) => toRec({ id: r.id, collection: r.collection, data: JSON.parse(r.data), fieldTs: JSON.parse(r.field_ts), rev: r.seq, updatedBy: r.updated_by, updatedAt: r.updated_at }))))
         .filter((b) => b.data.pageId !== pageId && String(b.data.text ?? '').includes(`@[page:${pageId}]`))
         .slice(0, 20)
         .map((b) => ({
@@ -1655,7 +1695,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (!wants) return err('pass from/to or connects[]');
       const items = await boardItems(a.moodboardId);
       const byId = new Map(items.map((i) => [i.id, i]));
-      const depEdges = edgesOf((await listLinksByKind(ctx.env, 'blocks')).map((l) => l.data));
+      // Cycle detection must see every edge (Phase 1 invariant); only the yes/no reaches the caller.
+      const depEdges = edgesOf((await listLinksByKind(serviceEnv(ctx.env), 'blocks')).map((l) => l.data));
       const ops: WriteOp[] = [];
       const created: string[] = [];
       const existed: string[] = [];
@@ -2079,13 +2120,18 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async (a) => {
       const mb = await rec(ctx.env, 'moodboards', a.moodboardId);
       if (!mb || mb.data.deleted) return err('mood board not found');
+      const authority = await shareAuthority(ctx.env, ctx.userId, 'moodboards', a.moodboardId);
+      if (!authority.ok) return err('mood board not found');
       if (a.enabled === false) {
         await ctx.env.DB.prepare(`DELETE FROM shares WHERE page_id = ? AND target_type = 'moodboard'`).bind(a.moodboardId).run();
         return txt({ enabled: false });
       }
       const existing = await ctx.env.DB.prepare(`SELECT token FROM shares WHERE page_id = ? AND target_type = 'moodboard'`).bind(a.moodboardId).first<{ token: string }>();
       const token = existing?.token ?? randomToken();
-      if (!existing) await ctx.env.DB.prepare(`INSERT INTO shares (token, target_type, page_id, created_by, created_at) VALUES (?, 'moodboard', ?, ?, ?)`).bind(token, a.moodboardId, ctx.userId, Date.now()).run();
+      if (!existing) {
+        const insert = ctx.env.DB.prepare(`INSERT INTO shares (token, target_type, page_id, created_by, created_at, space_id) VALUES (?, 'moodboard', ?, ?, ?, ?)`).bind(token, a.moodboardId, ctx.userId, Date.now(), authority.spaceId);
+        try { await (authority.fence ? ctx.env.DB.batch([authority.fence, insert]) : insert.run()); } catch { return err('mood board not found'); }
+      }
       return txt({ enabled: true, token, url: `${ctx.origin}/s/canvas/${token}`, api: `${ctx.origin}/api/public/canvas/${token}` });
     },
   );
@@ -2142,13 +2188,18 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async ({ pageId, enabled }) => {
       const p = await rec(ctx.env, 'pages', pageId);
       if (!p || p.data.deleted) return err('page not found');
+      const authority = await shareAuthority(ctx.env, ctx.userId, 'pages', pageId);
+      if (!authority.ok) return err('page not found');
       if (!enabled) {
         await ctx.env.DB.prepare('DELETE FROM shares WHERE page_id = ?').bind(pageId).run();
         return txt({ enabled: false });
       }
       const existing = await ctx.env.DB.prepare('SELECT token FROM shares WHERE page_id = ?').bind(pageId).first<{ token: string }>();
       const token = existing?.token ?? randomToken();
-      if (!existing) await ctx.env.DB.prepare('INSERT INTO shares (token, page_id, created_by, created_at) VALUES (?, ?, ?, ?)').bind(token, pageId, ctx.userId, Date.now()).run();
+      if (!existing) {
+        const insert = ctx.env.DB.prepare('INSERT INTO shares (token, page_id, created_by, created_at, space_id) VALUES (?, ?, ?, ?, ?)').bind(token, pageId, ctx.userId, Date.now(), authority.spaceId);
+        try { await (authority.fence ? ctx.env.DB.batch([authority.fence, insert]) : insert.run()); } catch { return err('page not found'); }
+      }
       return txt({ enabled: true, token, url: `${ctx.origin}/s/${token}` });
     },
   );
@@ -2441,8 +2492,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         tasks.push(...(await tasksByBlockIds(ctx.env, taskBlockIds)).map((x) => ({ id: x.id, collection: 'tasks', data: x.data })));
         const shares = await ctx.env.DB.prepare('SELECT COUNT(*) AS n FROM shares WHERE page_id = ?').bind(id).first<{ n: number }>();
         shareCount = shares?.n ?? 0;
-        const bl = await ctx.env.DB.prepare(`SELECT COUNT(*) AS n FROM records WHERE collection = 'blocks' AND instr(data, ?) > 0 AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).bind(`@[page:${id}]`).first<{ n: number }>();
-        backlinkCount = bl?.n ?? 0;
+        if (await ctx.env.READ_GATE!.enabled()) {
+          // Count only the mentions the caller can read: a count over hidden content is itself a disclosure.
+          const { results: refs } = await ctx.env.DB.prepare(`SELECT id, seq AS rev FROM records WHERE collection = 'blocks' AND instr(data, ?) > 0 AND COALESCE(json_extract(data, '$.deleted'), 0) != 1 LIMIT 2000`).bind(`@[page:${id}]`).all<{ id: string; rev: number }>();
+          backlinkCount = (await ctx.env.READ_GATE!.filter(refs)).length;
+        } else {
+          const bl = await ctx.env.DB.prepare(`SELECT COUNT(*) AS n FROM records WHERE collection = 'blocks' AND instr(data, ?) > 0 AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).bind(`@[page:${id}]`).first<{ n: number }>();
+          backlinkCount = bl?.n ?? 0;
+        }
       } else if (impType === 'board') {
         boardTasks.push(...(await listBy(ctx.env, 'tasks', 'boardId', id)).map(toRec));
         tasks.push(...boardTasks.map((t) => ({ id: t.id, collection: 'tasks', data: t.data })));
@@ -2804,8 +2861,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     async ({ limit }) => {
-      const { results } = await ctx.env.DB.prepare('SELECT id, source, client_name, tool, summary, request_id, undoes, undone_by, item_count, created_at FROM changesets WHERE user_id = ? ORDER BY created_at DESC LIMIT ?').bind(ctx.userId, Math.min(limit ?? 50, 100)).all();
-      return txt({ changes: results });
+      const { results } = await ctx.env.DB.prepare('SELECT id, source, client_name, tool, summary, request_id, undoes, undone_by, item_count, created_at FROM changesets WHERE user_id = ? ORDER BY created_at DESC LIMIT ?').bind(ctx.userId, Math.min(limit ?? 50, 100)).all<{ id: string; summary: string }>();
+      return txt({ changes: await visibleSummaries(ctx.env.DB, ctx.userId, results) });
     },
   );
 
@@ -2820,8 +2877,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const cs = await ctx.env.DB.prepare('SELECT * FROM changesets WHERE id = ?').bind(changesetId).first<Record<string, unknown>>();
       if (!cs) return err('changeset not found');
       if (ctx.userRole !== 'admin' && cs.user_id !== ctx.userId) return err('forbidden');
-      const { results } = await ctx.env.DB.prepare('SELECT idx, collection, record_id, created, before, after, field_ts FROM changeset_items WHERE changeset_id = ? ORDER BY idx').bind(changesetId).all();
-      return txt({ changeset: cs, items: results.map((r) => ({ ...r, before: JSON.parse(String(r.before)), after: JSON.parse(String(r.after)), field_ts: JSON.parse(String(r.field_ts)) })) });
+      const { results: raw } = await ctx.env.DB.prepare('SELECT idx, collection, record_id, created, before, after, field_ts FROM changeset_items WHERE changeset_id = ? ORDER BY idx').bind(changesetId).all<{ record_id: string; before: string; after: string; field_ts: string }>();
+      const shown = await visibleItems(ctx.env.DB, ctx.userId, raw);
+      const [changeset] = shown.restricted ? await visibleSummaries(ctx.env.DB, ctx.userId, [cs as { id: unknown; summary?: unknown }]) : [cs];
+      return txt({ changeset, items: shown.items.map((r) => ({ ...r, before: JSON.parse(String(r.before)), after: JSON.parse(String(r.after)), field_ts: JSON.parse(String(r.field_ts)) })), ...(shown.restricted ? { restricted: shown.restricted } : {}) });
     },
   );
 
@@ -2843,7 +2902,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const current = await getRecs(ctx.env, items.map((i) => i.record_id));
       const { planUndo } = await import('../shared/undo');
       const plan = planUndo(items, new Map([...current.entries()].map(([rid, rr]) => [rid, { data: rr.data, field_ts: rr.fieldTs }])));
-      return txt({ dryRun: true, summary: `undo ${cs.tool} (${a.changesetId})`, counts: { restore: plan.patches.length, skipped: plan.skipped.length }, warnings: plan.skipped.map((s) => `${s.id}.${s.field}: ${s.reason}`), impact: { patches: plan.patches } });
+      // The preview shows inverse values only for records the caller can still read
+      // (`current` is gated); the undo itself re-authorizes every inverse write.
+      const scoped = await ctx.env.READ_GATE!.enabled();
+      const patches = scoped ? plan.patches.filter((p) => current.has(p.id)) : plan.patches;
+      return txt({ dryRun: true, summary: `undo ${cs.tool} (${a.changesetId})`, counts: { restore: patches.length, skipped: plan.skipped.length, ...(patches.length < plan.patches.length ? { restricted: plan.patches.length - patches.length } : {}) }, warnings: plan.skipped.filter((s) => !scoped || current.has(s.id)).map((s) => `${s.id}.${s.field}: ${s.reason}`), impact: { patches } });
       }
       const out = await undoChangeset(ctx.env, { id: ctx.userId, role: ctx.userRole } as AuthUser, a.changesetId);
       if (!out.ok) return { ...txt(out), isError: true };
@@ -3486,7 +3549,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (br.id === bd.id) return err('a record cannot block itself');
       const links = (await listBy(ctx.env, 'links', 'toId', bd.id)).map(toRec).filter((l) => l.data.kind === 'blocks');
       const edges: [string, string][] = links.map((l) => [String(l.data.fromId), String(l.data.toId)]);
-      const allLinks = await listLinksByKind(ctx.env, 'blocks');
+      const allLinks = await listLinksByKind(serviceEnv(ctx.env), 'blocks'); // every edge: cycle check only
       const allEdges = allLinks.map((l) => [String(l.data.fromId), String(l.data.toId)] as [string, string]);
       const { wouldCreateDependencyCycle } = await import('../shared/deps');
       if (wouldCreateDependencyCycle([...allEdges, ...edges], br.id, bd.id)) return err('dependency cycle');
