@@ -16,6 +16,17 @@ export const MAX_PULL_LIMIT = 500;
 /** Spaces being backfilled in one request (each is an independent index scan). */
 export const MAX_JOINING_SPACES = 20;
 
+export interface PullResponseV3 {
+  protocol: typeof PERMISSION_PROTOCOL;
+  etag: string;
+  highWater: number;
+  records: import('./types').PulledRecord[];
+  evictions: PulledEviction[];
+  cursor: number;
+  joining: PullJoining[];
+  hasMore: boolean;
+}
+
 export interface PullJoining {
   space: string;
   /** Everything of this space up to `after` has been staged (0 = the scan has not started). */
@@ -33,6 +44,8 @@ export interface PullRequestV3 {
   /** Shared cursor of every manifest space that is not listed in `joining`. */
   cursor: number;
   joining: PullJoining[];
+  /** Incomplete joins not scanned on this page; excluded from settled scans and retention checks. */
+  deferred?: string[];
   limit: number;
 }
 /** A record left `spaceId` at revision `rev`: delete the local copy iff its `_spaceId`

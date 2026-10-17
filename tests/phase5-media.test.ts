@@ -14,13 +14,13 @@ beforeEach(async () => {
 afterEach(async () => { await db.delete(); vi.unstubAllGlobals(); });
 
 describe('Phase 5 interrupted media and late response guards', () => {
-  it.each([1, 2] as const)('queues truthful thumbnail deletion metadata for protocol %s', async protocol => {
+  it.each([1, 3] as const)('queues truthful thumbnail deletion metadata for protocol %s', async protocol => {
     // fake-indexeddb uses setImmediate to settle real IDB transactions. Keep
     // that queue live while controlling only the sync debounce timers.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       access.accessClientStore.set(s => ({ ...s, status: 'offline', manifest: protocol === 1 ? { protocol, userId: state.userId } : {
-        protocol, userId: state.userId, workspaceRole: 'member', generation: 1,
+        protocol, userId: state.userId, workspaceRole: 'member', etag: 'fixture-etag',
         spaces: [{ id: 'space-core', name: 'Core', role: 'editor', exportPolicy: 'members' }],
       } }));
       await db.files.update('file', { thumbId: 'filet' });

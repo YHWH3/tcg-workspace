@@ -1,3 +1,4 @@
+import { PERMISSION_PROTOCOL } from '../../shared/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { authStore } from './auth';
@@ -235,10 +236,10 @@ export async function deleteFile(fileId: string): Promise<void> {
   const meta = await db.files.get(fileId);
   await mutate('files', fileId, { deleted: true });
   const ids = [fileId, meta?.thumbId as string | undefined].filter(Boolean) as string[];
-  // In protocol 2 a thumbnail without its own canonical row inherits cleanup
+  // In permission-aware sync a thumbnail without its own canonical row inherits cleanup
   // from the main tombstone. Do not create an orphan metadata tombstone that
   // the server must reject. Preserve the legacy protocol's historical queue.
-  if (meta?.thumbId && (accessClientStore.get().manifest?.protocol !== 2 || await db.files.get(String(meta.thumbId)))) await mutate('files', String(meta.thumbId), { deleted: true });
+  if (meta?.thumbId && (accessClientStore.get().manifest?.protocol !== PERMISSION_PROTOCOL || await db.files.get(String(meta.thumbId)))) await mutate('files', String(meta.thumbId), { deleted: true });
   await db.blobs.bulkDelete(ids);
 }
 
@@ -362,7 +363,7 @@ export function captureMediaAccess(): MediaAccess { return { uid: localStorage.g
 function mediaAccessCurrent(access: MediaAccess) {
   const current = accessClientStore.get();
   return localStorage.getItem('ws_uid') === access.uid && getToken() === access.token && current.epoch === access.epoch
-    && (current.manifest?.protocol !== 2 || current.status === 'ready' || current.status === 'offline');
+    && (current.manifest?.protocol !== PERMISSION_PROTOCOL || current.status === 'ready' || current.status === 'offline');
 }
 class MediaAccessChanged extends Error {}
 

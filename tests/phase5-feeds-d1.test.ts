@@ -249,6 +249,12 @@ describe('stale and impossible cursors', () => {
   });
 });
 
+it('resets a resumed scan whose first-page high-water mark exceeds a restored database', async () => {
+  await put('p', 'pages', { title: 'P' }, 'private');
+  const result = await pull('alice', { joining: [{ space: 'private', after: 0, base: 100 }] });
+  expect(result.status).toBe(409); expect(result.body.error).toBe('cursor_ahead');
+});
+
 describe('request validation and inertness', () => {
   it('rejects malformed requests before touching data', async () => {
     const good = await request('alice');
@@ -256,6 +262,10 @@ describe('request validation and inertness', () => {
       ['limit below the minimum group size', { ...good, limit: 7 }], ['limit above the page cap', { ...good, limit: 501 }], ['negative cursor', { ...good, cursor: -1 }],
       ['fractional cursor', { ...good, cursor: 1.5 }], ['non-string etag', { ...good, etag: 5 }], ['duplicate joining space', { ...good, joining: [{ space: 'private', after: 0, base: 0 }, { space: 'private', after: 0, base: 0 }] }],
       ['too many joining spaces', { ...good, joining: Array.from({ length: 21 }, (_, i) => ({ space: `s${i}`, after: 0, base: 0 })) }],
+      ['duplicate deferred', { ...good, deferred: ['private', 'private'] }],
+      ['overlap joining and deferred', { ...good, joining: [{ space: 'private', after: 0, base: 0 }], deferred: ['private'] }],
+      ['invalid deferred', { ...good, deferred: [null] }],
+      ['too many deferred', { ...good, deferred: Array.from({ length: 501 }, (_, i) => `s${i}`) }],
       ['negative after', { ...good, joining: [{ space: 'private', after: -3, base: 0 }] }], ['not an object', 'x'],
     ] as const) {
       const reply = await rawPull('alice', body);
@@ -263,6 +273,10 @@ describe('request validation and inertness', () => {
     }
     expect((await rawPull('alice', { ...good, protocol: 2 })).status).toBe(426);
     expect((await rawPull('alice', { ...good, protocol: undefined })).status).toBe(426);
+  });
+
+  it('a deferred space the caller cannot read is also refused', async () => {
+    const reply = await pull('alice', { deferred: ['other'] }); expect(reply.status).toBe(400);
   });
 
   it('a joining space the caller cannot read is a client error once the etag matches', async () => {

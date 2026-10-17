@@ -1,3 +1,4 @@
+import { PERMISSION_PROTOCOL } from '../../../shared/protocol';
 import { isCollection, type Collection } from '../../../shared/collections';
 import type { Mutation, PulledRecord, PublicUser } from '../../../shared/types';
 import { api, ApiError, getToken } from '../api';
@@ -221,11 +222,12 @@ async function pushOutbox(access: ReconciledAccess, assertCurrent: () => void): 
     const good = entries.filter(validOutboxEntry);
     if (good.length === 0) continue;
     const changes: Mutation[] = good.map((e) => ({ id: e.id, collection: e.collection, patch: e.patch, ts: e.ts }));
-    const res = await api<{ ok: boolean; rejected: number; rejectedItems?: { id: string; collection: string; reason: string }[] }>('/api/sync/push', { method: 'POST', body: { changes, ...(access.protocol === 2 ? { protocol: 2, generation: access.generation } : {}) } });
+    const res = await api<{ ok: boolean; accessEtag?: string; rejected: number; rejectedItems?: { id: string; collection: string; reason: string }[] }>('/api/sync/push', { method: 'POST', body: { changes, ...(access.protocol === PERMISSION_PROTOCOL ? { protocol: PERMISSION_PROTOCOL } : {}) } });
     assertCurrent();
     // Only acknowledged entries are deleted — server-rejected items stay
     // recoverable locally (they were never claimed as synced).
     const { acked, refused } = planPushOutcome(good, validatePushReply(res, good));
+    if (access.protocol === PERMISSION_PROTOCOL && (typeof res.accessEtag !== 'string' || !res.accessEtag)) throw new Error('invalid_push_reply');
     await db.transaction('rw', db.outbox, async () => {
       assertCurrent();
       await db.outbox.bulkDelete(acked.map((e) => e.autoId!).filter((n) => n !== undefined));
@@ -233,29 +235,29 @@ async function pushOutbox(access: ReconciledAccess, assertCurrent: () => void): 
       assertCurrent();
     });
     await updatePending();
+    if (access.protocol === PERMISSION_PROTOCOL && res.accessEtag !== access.etag) throw new Error('reauthorization_required');
     if (entries.length < PUSH_CHUNK) return true;
   }
 }
 
 async function pullRemote(access: ReconciledAccess, assertCurrent: () => void): Promise<boolean> {
+  if (access.protocol === PERMISSION_PROTOCOL) return true;
   let cursor = (await getMeta<number>(CURSOR_KEY)) ?? 0;
   for (;;) {
     assertCurrent();
     const res = await api<{ protocol?: number; generation?: number; records: PulledRecord[]; cursor: number; hasMore: boolean }>(
-      `/api/sync/pull?since=${cursor}&limit=${PULL_LIMIT}${access.protocol === 2 ? `&protocol=2&generation=${access.generation}` : ''}`,
+      `/api/sync/pull?since=${cursor}&limit=${PULL_LIMIT}`,
     );
     assertCurrent();
     if (!res || !Array.isArray(res.records) || res.records.length > PULL_LIMIT || typeof res.hasMore !== 'boolean'
-        || !Number.isSafeInteger(res.cursor) || res.cursor < cursor || (res.hasMore && res.cursor <= cursor)
-        || (access.protocol === 2 && (res.protocol !== 2 || res.generation !== access.generation))) throw new Error('invalid_sync_page');
+        || !Number.isSafeInteger(res.cursor) || res.cursor < cursor || (res.hasMore && res.cursor <= cursor)) throw new Error('invalid_sync_page');
     const seen = new Set<string>();
     for (const record of res.records) {
       if (!record || typeof record.id !== 'string' || !record.id || record.id.length > 64 || seen.has(record.id)
           || !isCollection(record.collection) || !record.data || typeof record.data !== 'object' || Array.isArray(record.data)
           || !record.field_ts || typeof record.field_ts !== 'object' || Array.isArray(record.field_ts)
           || Object.values(record.field_ts).some(value => typeof value !== 'number' || !Number.isFinite(value))
-          || !Number.isSafeInteger(record.seq) || record.seq <= cursor || record.seq > res.cursor
-          || (access.protocol === 2 && (typeof record.spaceId !== 'string' || !access.spaces.some(space => space.id === record.spaceId)))) throw new Error('invalid_sync_record');
+          || !Number.isSafeInteger(record.seq) || record.seq <= cursor || record.seq > res.cursor) throw new Error('invalid_sync_record');
       seen.add(record.id);
     }
     await db.transaction('rw', db.tables, async () => {
@@ -333,7 +335,9 @@ export async function syncNow(): Promise<void> {
     if (access.protocol === 1) startPresence();
     else stopPresence(); // scoped presence waits for the server ACL integration
     await pushOutbox(access, assertCurrent);
-    await pullRemote(access, assertCurrent);
+    if (access.protocol === PERMISSION_PROTOCOL) {
+      epoch = null; await prepareOnlineAccess(userId, assertCurrent); epoch = accessClientStore.get().epoch;
+    } else await pullRemote(access, assertCurrent);
     // Guest/read-only clients must never manufacture Core seed writes. The
     // server bootstrap will provision built-ins for scoped workspaces.
     if (access.protocol === 1) { await seedBuiltins(); await refreshUsers(); }

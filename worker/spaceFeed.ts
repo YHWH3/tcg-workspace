@@ -8,7 +8,7 @@
 import { isWorkspaceRole } from '../shared/access';
 import {
   MAX_JOINING_SPACES, MAX_PULL_LIMIT, MIN_PULL_LIMIT, PERMISSION_PROTOCOL,
-  type ManifestSpaceV3, type ManifestV3, type PullRequestV3, type PulledEviction,
+  type ManifestSpaceV3, type ManifestV3, type PullRequestV3, type PullResponseV3, type PulledEviction,
 } from '../shared/protocol';
 import { stableJson } from '../shared/stablejson';
 import type { PulledRecord } from '../shared/types';
@@ -43,7 +43,10 @@ export function parsePullRequest(body: unknown): PullRequestV3 {
     seen.add(e.space);
     return { space: e.space, after: e.after, base: e.base };
   });
-  return { protocol: PERMISSION_PROTOCOL, etag: b.etag, cursor: b.cursor, joining, limit };
+  const deferred = b.deferred === undefined ? [] : b.deferred;
+  if (!Array.isArray(deferred) || deferred.length + joining.length > MAX_ACCESS_SPACES) return bad();
+  for (const space of deferred) { if (!isId(space) || seen.has(space)) return bad(); seen.add(space); }
+  return { protocol: PERMISSION_PROTOCOL, etag: b.etag, cursor: b.cursor, joining, limit, ...(deferred.length ? { deferred } : {}) };
 }
 
 /** The caller's current principal and readable spaces (with roles), one batch. */
@@ -76,17 +79,7 @@ export async function loadManifest(db: D1Database, userId: string): Promise<Pars
   return parseManifest(userId, principal, spaces);
 }
 
-export interface PullResponseV3 {
-  protocol: typeof PERMISSION_PROTOCOL;
-  etag: string;
-  /** The database high-water mark of this snapshot (a backfill's `base`). */
-  highWater: number;
-  records: PulledRecord[];
-  evictions: PulledEviction[];
-  cursor: number;
-  joining: { space: string; after: number; base: number }[];
-  hasMore: boolean;
-}
+export type { PullResponseV3 } from '../shared/protocol';
 export type PullOutcome =
   | { status: 200; body: PullResponseV3 }
   | { status: 409; body: { error: 'manifest_changed'; manifest: ManifestV3 } | { error: 'cursor_ahead' } | { error: 'rebackfill_required'; spaces: string[] } | { error: 'access_changed_retry' } };
@@ -94,7 +87,7 @@ export type PullOutcome =
 interface Item { seq: number; kind: 0 | 1; id: string; space: string }
 
 export async function pullFeed(db: D1Database, userId: string, req: PullRequestV3): Promise<PullOutcome> {
-  const joiningIds = req.joining.map(j => j.space), joiningJson = JSON.stringify(joiningIds);
+  const joiningIds = [...req.joining.map(j => j.space), ...(req.deferred ?? [])], joiningJson = JSON.stringify(joiningIds);
   // Spaces the caller can read, minus the ones being backfilled (they have their own scan).
   const settledSpaces = `SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1 AND s.id NOT IN (SELECT value FROM json_each(?))`;
   const statements: D1PreparedStatement[] = [
@@ -128,13 +121,14 @@ export async function pullFeed(db: D1Database, userId: string, req: PullRequestV
   if (joiningIds.some(id => !known.has(id))) return bad();
 
   const hw = Number((highWater.results[0] as { hw: number }).hw);
-  if (req.cursor > hw || req.joining.some(j => j.after > hw)) return { status: 409, body: { error: 'cursor_ahead' } };
+  if (req.cursor > hw || req.joining.some(j => j.after > hw || j.base > hw)) return { status: 409, body: { error: 'cursor_ahead' } };
   // Retention: a pruned fact (seq <= floor) is only a problem if it could concern a row the
   // client already holds. For the shared cursor that is any fact in (cursor, floor]. A
   // backfill reads current state, so only facts NEWER than its first page can matter:
   // restart it when a floor has passed its base (a scan from 0 / not yet started is exempt,
   // and a scan merely short of the floor is fine — asking it to restart would loop forever).
   const stale = manifest.spaces.filter(space => {
+    if (req.deferred?.includes(space.id)) return false;
     const scan = req.joining.find(j => j.space === space.id), floor = floors.get(space.id) ?? 0;
     return scan ? scan.base > 0 && scan.base < floor : req.cursor < floor;
   }).map(space => space.id);

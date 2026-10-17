@@ -1,9 +1,11 @@
 /** Client presentation/cache barrier. Server authorization remains mandatory. */
 import { api } from './api';
 import { db } from './db';
+import { PERMISSION_PROTOCOL } from '../../shared/protocol';
+import { readState } from './sync/feedState';
 import { createStore } from './store';
-import { ACCESS_MANIFEST_KEY, validateAccessManifest } from './sync/accessCache';
-import { reconcileOnlineAccess, RECONCILE_REQUIRED_KEY, type ReconciledAccess } from './sync/reconcileAccess';
+import { validateAccessManifest } from './sync/feedState';
+import { reconcileOnlineAccess, type ReconciledAccess } from './sync/reconcileAccess';
 
 interface ClientAccessState {
   status: 'checking' | 'ready' | 'offline' | 'error';
@@ -39,12 +41,13 @@ export async function prepareOnlineAccess(userId: string, assertCurrent: () => v
 export async function prepareOfflineAccess(userId: string): Promise<void> {
   if (db.name !== `workspace-${userId}`) { failClientAccess('account_changed'); return; }
   try {
-    const [cached, required] = await Promise.all([db.meta.get(ACCESS_MANIFEST_KEY), db.meta.get(RECONCILE_REQUIRED_KEY)]);
-    if (required) { failClientAccess('reconnect_required'); return; }
-    const value = cached?.value as ReconciledAccess | undefined;
+    const state = await readState(db, userId);
+    if (state.required || !state.consistent || (state.feed && (state.feed.legacyUpgrade || Object.keys(state.feed.joining).length))) { failClientAccess('reconnect_required'); return; }
+    const value = state.access;
     // An existing Phase 4 cache without a manifest predates scoped permissions.
     // It remains available offline, as documented; no instant revocation claim.
-    const manifest = value?.protocol === 2 ? validateAccessManifest(value, userId) : { protocol: 1 as const, userId };
+    const manifest = value?.protocol === PERMISSION_PROTOCOL ? validateAccessManifest(value, userId) : { protocol: 1 as const, userId };
+    if (value && value.protocol !== 1 && value.protocol !== PERMISSION_PROTOCOL) throw new Error('reconnect_required');
     if (value && value.userId !== userId) throw new Error('account_cache_mismatch');
     accessClientStore.set(s => ({ ...s, status: 'offline', manifest, reason: 'offline_access_may_be_stale' }));
   } catch { failClientAccess('reconnect_required'); }
@@ -52,5 +55,5 @@ export async function prepareOfflineAccess(userId: string): Promise<void> {
 
 export function assertClientMutationReady(): void {
   const state = accessClientStore.get();
-  if (state.manifest?.protocol === 2 && state.status !== 'ready' && state.status !== 'offline') throw new Error('Check access before editing. Reconnect and retry.');
+  if (state.manifest?.protocol === PERMISSION_PROTOCOL && state.status !== 'ready' && state.status !== 'offline') throw new Error('Check access before editing. Reconnect and retry.');
 }

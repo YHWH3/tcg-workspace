@@ -2,142 +2,66 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LocalDB } from '../src/core/db';
 import { ApiError } from '../src/core/api';
-import { reconcileOnlineAccess, RECONCILE_REQUIRED_KEY, type AccessReconcileDeps } from '../src/core/sync/reconcileAccess';
-import { SNAPSHOT_KEY, ACCESS_MANIFEST_KEY, type ClientAccessManifest } from '../src/core/sync/accessCache';
-
-let store: LocalDB, userId: string, manifest: ClientAccessManifest, calls: string[], deps: AccessReconcileDeps;
-const snapshot = { snapshotId: 'frozen', generation: 20, cutoff: 100, cursor: 'first', expiresAt: Date.now() + 600_000 };
+import { reconcileOnlineAccess, type AccessReconcileDeps } from '../src/core/sync/reconcileAccess';
+import { readState, ACCESS_MANIFEST_KEY, RECONCILE_REQUIRED_KEY } from '../src/core/sync/feedState';
+import { manifestFor, record, replyFor } from './feed-cache-fixture';
+import type { ManifestV3, PullRequestV3 } from '../shared/protocol';
+let store: LocalDB, userId: string, manifest: ManifestV3, calls: string[], deps: AccessReconcileDeps;
 beforeEach(async () => {
-  userId = `reconcile-${crypto.randomUUID()}`; store = new LocalDB(`workspace-${userId}`); await store.open(); calls = [];
-  manifest = { protocol: 2, userId, workspaceRole: 'member', generation: 20, spaces: [{ id: 'space-core', name: 'Core', role: 'editor', exportPolicy: 'members' }] };
-  await store.pages.put({ id: 'prior', title: 'Prior private cache', _ts: {} });
-  deps = { store, assertCurrent: () => {}, lock: () => { calls.push('lock'); }, activated: () => { calls.push('activated'); },
-    request: async <T>(path: string, opts?: { method?: string; body?: unknown }): Promise<T> => {
-      calls.push(`${opts?.method ?? 'GET'} ${path}`);
-      if (path === '/api/access') return structuredClone(manifest) as T;
-      if (opts?.method === 'POST') return structuredClone(snapshot) as T;
-      if (opts?.method === 'DELETE') return { ok: true } as T;
-      return { protocol: 2, snapshotId: snapshot.snapshotId, generation: snapshot.generation, cutoff: snapshot.cutoff,
-        records: [{ id: 'a', collection: 'pages', data: { title: 'Authorized' }, field_ts: { title: 1 }, seq: 1, spaceId: 'space-core' }], cursor: null, done: true } as T;
-    } };
+  userId = `reconcile-${crypto.randomUUID()}`; store = new LocalDB(`workspace-${userId}`); await store.open(); manifest = manifestFor(userId); calls = [];
+  deps = { store, assertCurrent: () => {}, lock: () => calls.push('lock'), activated: () => calls.push('changed'), request: async <T>(path: string, opts?: { method?: string; body?: unknown }): Promise<T> => {
+    calls.push(`${opts?.method ?? 'GET'} ${path}`);
+    if (path === '/api/access') return structuredClone(manifest) as T;
+    return replyFor(opts!.body as PullRequestV3, (opts!.body as PullRequestV3).cursor < 100 ? [record('a')] : []) as T;
+  } };
 });
 afterEach(async () => { await store.delete(); });
-
-describe('access-first snapshot reconciliation coordinator', () => {
-  it('never overwrites a newer generation discovered by another tab with a delayed manifest', async () => {
-    await store.meta.put({ key: ACCESS_MANIFEST_KEY, value: manifest });
-    await store.meta.put({ key: RECONCILE_REQUIRED_KEY, value: { userId, generation: 21 } });
-    await expect(reconcileOnlineAccess(userId, deps)).rejects.toThrow('stale_cache_generation');
-    expect((await store.meta.get(RECONCILE_REQUIRED_KEY))!.value).toMatchObject({ generation: 21 });
-    expect(calls).not.toContain('POST /api/sync/snapshot');
+describe('access-first feed coordinator', () => {
+  it('gates, verifies, pages, revalidates then returns; steady-state needs no snapshot', async () => {
+    expect(await reconcileOnlineAccess(userId, deps)).toEqual(manifest); expect((await store.pages.get('a'))!.title).toBe('Authorized');
+    expect(calls.indexOf('lock')).toBeLessThan(calls.indexOf('POST /api/sync/pull')); expect(calls.filter(c => c.startsWith('GET'))).toEqual(['GET /api/access', 'GET /api/access']);
+    expect(calls).toContain('POST /api/sync/pull'); expect(calls.join()).not.toContain('snapshot');
+    calls.length = 0; await reconcileOnlineAccess(userId, deps); expect(calls.filter(c => c.includes('/pull'))).toHaveLength(1);
   });
-  it('cleans a crash marker after online confirmation of the atomically installed generation', async () => {
-    await store.meta.put({ key: ACCESS_MANIFEST_KEY, value: manifest });
-    await store.meta.put({ key: RECONCILE_REQUIRED_KEY, value: { userId, generation: manifest.generation } });
-    await reconcileOnlineAccess(userId, deps);
-    expect(calls).toEqual(['GET /api/access']); expect(await store.meta.get(RECONCILE_REQUIRED_KEY)).toBeUndefined();
-  });
-  it('checks access, stages, revalidates, activates, then cancels only the temporary server snapshot', async () => {
-    expect(await reconcileOnlineAccess(userId, deps)).toEqual(manifest);
-    expect(calls).toEqual(['GET /api/access', 'lock', 'POST /api/sync/snapshot', 'GET /api/sync/snapshot/frozen?cursor=first', 'GET /api/access', 'activated', 'DELETE /api/sync/snapshot/frozen']);
-    expect(await store.pages.get('prior')).toBeUndefined(); expect((await store.pages.get('a'))!.title).toBe('Authorized');
-    expect((await store.meta.get(ACCESS_MANIFEST_KEY))!.value).toEqual(manifest);
-    calls.length = 0;
-    await reconcileOnlineAccess(userId, deps); expect(calls).toEqual(['GET /api/access']);
-  });
-
-  it('persists and reuses request identity after losing the snapshot-start response', async () => {
-    const original = deps.request, requestIds: unknown[] = []; let failed = false;
-    deps.request = async <T>(path: string, opts?: { method?: string; body?: unknown }) => {
-      if (opts?.method === 'POST') {
-        requestIds.push((opts.body as { requestId: string }).requestId);
-        if (!failed) { failed = true; throw new ApiError(0, 'offline'); }
-      }
-      return original<T>(path, opts);
-    };
-    await expect(reconcileOnlineAccess(userId, deps)).rejects.toThrow('offline');
-    expect(await store.pages.get('prior')).toBeDefined(); expect(await store.meta.get(ACCESS_MANIFEST_KEY)).toBeUndefined();
-    store.close(); await store.open();
-    await reconcileOnlineAccess(userId, deps);
-    expect(requestIds).toHaveLength(2); expect(requestIds[0]).toBe(requestIds[1]);
-    expect(await store.pages.get('prior')).toBeUndefined();
-  });
-
-  it('resumes a committed page after reload without restarting the snapshot or activating a partial cache', async () => {
+  it('resumes after losing a response without writing or duplicating the page', async () => {
     const original = deps.request; let fail = true;
+    deps.request = async <T>(path: string, opts?: { method?: string; body?: unknown }) => { if (path.endsWith('/pull') && fail) { fail = false; throw new ApiError(0, 'offline'); } return original<T>(path, opts); };
+    await expect(reconcileOnlineAccess(userId, deps)).rejects.toThrow('offline'); expect(await store.pages.count()).toBe(0); expect(await store.meta.get(RECONCILE_REQUIRED_KEY)).toBeDefined();
+    store.close(); await store.open(); await reconcileOnlineAccess(userId, deps); expect(await store.pages.count()).toBe(1); expect(await store.meta.get(RECONCILE_REQUIRED_KEY)).toBeUndefined();
+  });
+  it('never maps an access-check failure to a successful empty cache', async () => {
+    deps.request = async () => { throw new ApiError(503, 'budget'); };
+    await expect(reconcileOnlineAccess(userId, deps)).rejects.toThrow('budget'); expect(await store.meta.get(ACCESS_MANIFEST_KEY)).toBeUndefined();
+  });
+  it('handles an inline manifest change before accepting any rows', async () => {
+    const original = deps.request; let once = true;
     deps.request = async <T>(path: string, opts?: { method?: string; body?: unknown }) => {
-      if (path.endsWith('cursor=first')) {
-        const result = await original<Record<string, unknown>>(path, opts);
-        return { ...result, cursor: 'second', done: false } as T;
-      }
-      if (path.endsWith('cursor=second')) {
-        calls.push('second'); if (fail) throw new ApiError(0, 'offline');
-        return { ...snapshot, records: [], cursor: null, done: true } as T;
-      }
+      if (path.endsWith('/pull') && once) { once = false; manifest = { ...manifest, spaces: [], etag: 'revoked-etag' }; throw new ApiError(409, 'manifest_changed', { error: 'manifest_changed', manifest }); }
+      if (path.endsWith('/pull')) return replyFor(opts!.body as PullRequestV3) as T;
       return original<T>(path, opts);
     };
-    await expect(reconcileOnlineAccess(userId, deps)).rejects.toThrow('offline');
-    expect(await store.pages.get('prior')).toBeDefined(); expect(await store.pages.get('a')).toBeUndefined();
-    expect((await store.meta.get(SNAPSHOT_KEY))!.value).toMatchObject({ nextCursor: 'second', done: false });
-    store.close(); await store.open(); fail = false; calls.length = 0;
-    await reconcileOnlineAccess(userId, deps);
-    expect(calls).not.toContain('POST /api/sync/snapshot'); expect(calls).not.toContain('GET /api/sync/snapshot/frozen?cursor=first');
-    expect(await store.pages.get('a')).toBeDefined(); expect(await store.pages.get('prior')).toBeUndefined();
+    await reconcileOnlineAccess(userId, deps); expect(await store.pages.count()).toBe(0); expect((await readState(store, userId)).access).toEqual(manifest);
   });
-
-  it('keeps the cache gated when access changes after the last snapshot page', async () => {
-    const original = deps.request; let manifests = 0;
+  it.each(['rebackfill_required', 'cursor_ahead', 'access_changed_retry'])('recovers from %s with bounded retries', async code => {
+    await reconcileOnlineAccess(userId, deps); const original = deps.request; let once = true;
     deps.request = async <T>(path: string, opts?: { method?: string; body?: unknown }) => {
-      const response = await original<T>(path, opts);
-      return path === '/api/access' && ++manifests === 2 ? { ...manifest, generation: 21 } as T : response;
-    };
-    await expect(reconcileOnlineAccess(userId, deps)).rejects.toMatchObject({ status: 409 });
-    expect(calls).not.toContain('activated'); expect(await store.pages.get('prior')).toBeDefined();
-    expect(await store.meta.get(ACCESS_MANIFEST_KEY)).toBeUndefined();
-    expect((await store.meta.get(SNAPSHOT_KEY))!.value).toMatchObject({ done: true });
-    // A later reconciliation cancels the obsolete copy before creating the
-    // next one, so repeated revocations do not exhaust active-copy capacity.
-    manifest.generation = 21; const replacement = { ...snapshot, generation: 21, snapshotId: 'replacement' };
-    deps.request = async <T>(path: string, opts?: { method?: string; body?: unknown }) => {
-      calls.push(`${opts?.method ?? 'GET'} ${path}`);
-      if (path === '/api/access') return structuredClone(manifest) as T;
-      if (opts?.method === 'POST') return replacement as T;
-      if (opts?.method === 'DELETE') return { ok: true } as T;
-      return { ...replacement, records: [], cursor: null, done: true } as T;
-    };
-    calls.length = 0; await reconcileOnlineAccess(userId, deps);
-    expect(calls.indexOf('DELETE /api/sync/snapshot/frozen')).toBeLessThan(calls.indexOf('POST /api/sync/snapshot'));
-    expect((await store.meta.get(ACCESS_MANIFEST_KEY))!.value).toMatchObject({ generation: 21 });
-  });
-
-  it('clears an expired server continuation for a fresh retry while retaining the live cache', async () => {
-    const original = deps.request;
-    deps.request = async <T>(path: string, opts?: { method?: string; body?: unknown }) => {
-      if (path.includes('?cursor=')) throw new ApiError(410, 'snapshot_expired');
+      if (path.endsWith('/pull') && once) { once = false; throw new ApiError(409, code, { error: code, spaces: ['space-core'] }); }
+      if (path.endsWith('/pull')) return replyFor(opts!.body as PullRequestV3, (opts!.body as PullRequestV3).joining.length ? [record('a')] : []) as T;
       return original<T>(path, opts);
     };
-    await expect(reconcileOnlineAccess(userId, deps)).rejects.toMatchObject({ status: 410 });
-    expect(await store.meta.get(SNAPSHOT_KEY)).toBeUndefined(); expect(await store.syncStage.count()).toBe(0);
-    expect(await store.pages.get('prior')).toBeDefined(); expect(await store.meta.get(ACCESS_MANIFEST_KEY)).toBeUndefined();
-    deps.request = original; await reconcileOnlineAccess(userId, deps);
-    expect(await store.pages.get('prior')).toBeUndefined();
+    await reconcileOnlineAccess(userId, deps); expect(await store.pages.get('a')).toBeDefined(); expect((await readState(store, userId)).feed!.joining).toEqual({});
   });
-
-  it('cannot write or activate under a replaced account after an awaited request', async () => {
-    let switched = false; const original = deps.request;
-    deps.request = async <T>(path: string, opts?: { method?: string; body?: unknown }) => { const result = await original<T>(path, opts); switched = true; return result; };
-    deps.assertCurrent = () => { if (switched) throw new Error('account changed'); };
-    await expect(reconcileOnlineAccess(userId, deps)).rejects.toThrow('account changed');
-    expect(calls).toEqual(['GET /api/access']); expect(await store.pages.get('prior')).toBeDefined(); expect(await store.syncStage.count()).toBe(0);
-  });
-
-  it('preserves legacy compatibility but rejects a protocol downgrade after private-space activation', async () => {
-    const original = deps.request;
-    deps.request = async <T>(path: string, opts?: { method?: string; body?: unknown }) => path === '/api/access' ? { protocol: 1, userId } as T : original<T>(path, opts);
-    expect(await reconcileOnlineAccess(userId, deps)).toEqual({ protocol: 1, userId });
-    expect(await store.pages.get('prior')).toBeDefined(); expect(calls).toEqual([]);
-    await store.meta.put({ key: ACCESS_MANIFEST_KEY, value: manifest });
+  it('rejects a legacy reply after permission-aware content was installed', async () => {
+    await reconcileOnlineAccess(userId, deps); deps.request = async <T>() => ({ protocol: 1, userId } as T);
     await expect(reconcileOnlineAccess(userId, deps)).rejects.toThrow('permission_protocol_downgrade');
-    expect((await store.meta.get(ACCESS_MANIFEST_KEY))!.value).toEqual(manifest);
+  });
+  it('preserves legacy Core data while activation is off', async () => {
+    await store.pages.put({ id: 'legacy', title: 'Keep', _ts: {} }); deps.request = async <T>() => ({ protocol: 1, userId } as T);
+    expect(await reconcileOnlineAccess(userId, deps)).toEqual({ protocol: 1, userId }); expect(await store.pages.get('legacy')).toBeDefined();
+  });
+  it('does not accept a wrong-account response or an identity change during the request', async () => {
+    deps.request = async <T>() => ({ ...manifest, userId: 'wrong' } as T); await expect(reconcileOnlineAccess(userId, deps)).rejects.toThrow('invalid_access_manifest');
+    deps.assertCurrent = () => { throw new Error('account changed'); }; await expect(reconcileOnlineAccess(userId, deps)).rejects.toThrow('account changed');
+    expect(await store.pages.count()).toBe(0);
   });
 });

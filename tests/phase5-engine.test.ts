@@ -16,7 +16,7 @@ beforeEach(async () => {
   vi.stubGlobal('navigator', { onLine: true });
   vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
     const path = String(url), method = options?.method ?? 'GET'; fixture.calls.push(`${method} ${path}`);
-    const manifest = { protocol: 2, userId: fixture.userId, workspaceRole: 'member', generation, spaces: [{ id: 'space-core', name: 'Core', role: 'editor', exportPolicy: 'members' }] };
+    const manifest = { protocol: 3, userId: fixture.userId, workspaceRole: 'member', etag: `fixture-etag-${generation}`, spaces: [{ id: 'space-core', name: 'Core', role: 'editor', exportPolicy: 'members' }] };
     let body: unknown;
     if (path === '/api/access') {
       if (replaceDuringAccess) {
@@ -25,11 +25,12 @@ beforeEach(async () => {
       }
       if (failAccess) return Response.json({ error: 'processing_budget' }, { status: 503 });
       body = manifest;
-    } else if (path === '/api/sync/snapshot' && method === 'POST') body = { snapshotId: 'fixture-snapshot', generation, cutoff: 100, cursor: 'first', expiresAt: Date.now() + 60_000 };
-    else if (path.includes('/api/sync/snapshot/') && method === 'DELETE') body = { ok: true };
-    else if (path.includes('/api/sync/snapshot/')) body = { protocol: 2, snapshotId: 'fixture-snapshot', generation, cutoff: 100, records: [{ id: 'visible', collection: 'pages', data: { title: 'Visible' }, field_ts: { title: 1 }, seq: 1, spaceId: 'space-core' }], done: true, cursor: null };
-    else if (path === '/api/sync/push') body = pushOverride === undefined ? { ok: true, rejected: 0, rejectedItems: [] } : pushOverride;
-    else if (path.startsWith('/api/sync/pull')) body = pullOverride ?? { protocol: 2, generation, records: [], cursor: pullCursor, hasMore: false };
+    } else if (path === '/api/sync/push') body = pushOverride === undefined ? { ok: true, rejected: 0, rejectedItems: [], accessEtag: manifest.etag } : pushOverride;
+    else if (path === '/api/sync/pull') {
+      const request = JSON.parse(String(options?.body));
+      body = pullOverride && !request.joining.length ? pullOverride : { protocol: 3, etag: manifest.etag, highWater: pullCursor, records: request.joining.length ? [{ id: 'visible', collection: 'pages', data: { title: 'Visible' }, field_ts: { title: 1 }, seq: 1, spaceId: 'space-core' }] : [],
+        cursor: pullCursor, hasMore: false, evictions: [], joining: request.joining.map((j: {space: string; base: number}) => ({ space: j.space, after: pullCursor, base: j.base || pullCursor })) };
+    }
     else if (path === '/api/users') body = { users: [] };
     else throw new Error(`unexpected fixture request ${path}`);
     return Response.json(body);
@@ -80,8 +81,8 @@ describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
     expect(fixture.calls[0]).toBe('GET /api/access');
     expect(fixture.calls).not.toContain('POST /api/sync/push');
     expect(await db.pages.get('secret')).toBeUndefined(); expect(await db.accessQuarantine.count()).toBe(1);
-    expect(fixture.calls.indexOf('upload')).toBeGreaterThan(fixture.calls.findIndex(c => c.startsWith('GET /api/sync/snapshot/')));
-    expect(fixture.calls).toContain('GET /api/sync/pull?since=100&limit=500&protocol=2&generation=20');
+    expect(fixture.calls.indexOf('upload')).toBeGreaterThan(fixture.calls.findIndex(c => c === 'POST /api/sync/pull'));
+    expect(fixture.calls).toContain('POST /api/sync/pull');
   });
 
   it('does not push, upload, acknowledge or expose a successful sync after access-check failure', async () => {
@@ -91,14 +92,14 @@ describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
     expect(engine.syncStore.get().status).toBe('error');
   });
 
-  it('sends the validated generation with authorized pending writes and persists empty-page cursors', async () => {
+  it('sends protocol 3 with authorized pending writes and persists feed cursors', async () => {
     pullCursor = 200;
     await db.outbox.add({ id: 'visible', collection: 'pages', patch: { title: 'Local authorized edit' }, ts: 10 });
     await engine.syncNow();
     const calls = vi.mocked(fetch).mock.calls;
     const push = calls.find(([path]) => path === '/api/sync/push'); expect(push).toBeDefined();
-    expect(JSON.parse(String(push![1]?.body))).toMatchObject({ protocol: 2, generation: 20, changes: [{ id: 'visible' }] });
-    expect((await db.meta.get('sync_cursor'))!.value).toBe(200);
+    expect(JSON.parse(String(push![1]?.body))).toMatchObject({ protocol: 3, changes: [{ id: 'visible' }] });
+    expect(((await db.meta.get('access_feed'))!.value as { cursor: number }).cursor).toBe(200);
   });
 
   it.each([
@@ -110,6 +111,6 @@ describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
     pullOverride = malformed;
     await engine.syncNow();
     expect(engine.syncStore.get().status).toBe('error'); expect(fixture.calls).not.toContain('upload');
-    expect((await db.meta.get('sync_cursor'))!.value).toBe(100);
+    expect(((await db.meta.get('access_feed'))!.value as { cursor: number }).cursor).toBe(100);
   });
 });

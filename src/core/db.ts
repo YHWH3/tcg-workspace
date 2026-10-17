@@ -23,7 +23,7 @@ export interface OutboxEntry {
   createIntent?: boolean;
 }
 
-export interface SyncStageRow { snapshotId: string; id: string; collection: Collection; data: Record<string, unknown>; field_ts: Record<string, number>; seq: number; spaceId: string }
+export interface SyncStageRow { snapshotId: string; id: string; collection: Collection; data: Record<string, unknown>; field_ts: Record<string, number>; seq: number; spaceId: string; peerSpaceId?: string }
 export interface AccessQuarantineRow { autoId?: number; id: string; kind: 'outbox' | 'draft' | 'blob'; reason: string; generation: number; payload: unknown; quarantinedAt: number }
 export type AccessQuarantineInfo = Omit<AccessQuarantineRow, 'payload' | 'autoId'> & { autoId: number; collection?: string };
 
