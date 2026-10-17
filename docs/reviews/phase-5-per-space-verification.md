@@ -143,7 +143,7 @@ role downgrade, quarantine, thumbnail ownership and cache invalidation. The v7â†
 IndexedDB migration regression is preserved.
 
 This round does not complete read enforcement for MCP/public/background/history
-surfaces, the search/index pipeline, guest invitation and space-management UI, or
+surfaces (since addressed in [phase-5-authorized-reads.md](phase-5-authorized-reads.md)), the search/index pipeline, guest invitation and space-management UI, or
 history/restore. These remain blockers to real permission activation and Phase 5
 acceptance. Scoped live presence also remains pending; permission-aware clients keep
 presence disabled. No security claim follows from merely including a dependency.

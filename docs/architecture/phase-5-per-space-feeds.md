@@ -288,8 +288,9 @@ edit gates; CSP report-only rollout; guest seat/quota policy and export/quaranti
 retention; recovery/export of quarantined work; enabling permissions for real users
 (activation) and its maintenance-window procedure; Phase 6 (preview-bound writes,
 semantic search). Read-path enforcement for MCP, public routes, notifications and
-history (design review §5, §8) is outside this change and remains required before
-activation.
+history (design review §5, §8) was implemented afterwards; see
+[`../reviews/phase-5-authorized-reads.md`](../reviews/phase-5-authorized-reads.md) for the
+inventory and the blockers that remain before activation.
 
 Migrations 0019 and 0020 preserve the same schema and complete the event-trigger
 contract: peer changes notify the old home audience, and overlapping triggers use
