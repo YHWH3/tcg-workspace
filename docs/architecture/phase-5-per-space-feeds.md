@@ -99,6 +99,7 @@ mandatory proof (§4).
 | FD-18 | Medium | **Event identity and tie groups.** One write emits events for both a link's old home and old peer with the same `rev`, so `seq` alone cannot be the key; and an equal-`seq` group (record row + up to two events) can exceed two items. | `space_events` is keyed `(space_id, seq)`; the pager drops a trailing equal-`seq` group of any size and rejects `limit < 8`. |
 | FD-19 | Medium | **Migration tooling constraints.** SQLite forbids `WITH` inside a trigger body; the actual-D1 test fixtures split migrations at the first `END;` and strip `--` comments even inside string literals; `wrangler d1 migrations apply` splits differently again. | Migration 0017 uses plain trigger bodies and no `--` inside literals, and is applied through both the fixture splitter and `wrangler d1 migrations apply` by mandatory tests. |
 | FD-20 | Medium | **Downgrade guard.** The literal `2` is hard-coded in five client and three server modules (`accessClient`, `files`, `accessCache`, `reconcileAccess`, `engine`; `sync`, `syncAccess`, `syncSnapshot`). A partial update would reject a v3 manifest or treat it as ungated legacy. | One shared `PERMISSION_PROTOCOL` constant; a test proves that a stored v3 manifest plus a protocol-1 response is refused and that every site speaks 3. |
+| FD-21 | **High** | **Backfill restart livelock** (found by the randomized proof, not by review). The first draft of the retention rule flagged a resumed backfill whenever its cursor was below a space's floor, but a backfill restarted *because* of the floor is by construction below it until it has paged past: it was told to restart again, forever. | A restartable scan is judged by `base`, the database high-water mark of its FIRST response (fixed by the server, echoed back, `0` before the first page): only a floor that passed the base can have hidden a fact about a row the scan already staged. A scan from 0 or one merely short of the floor is never stale. |
 
 Findings that did **not** need a change: the capability decisions
 (`effectiveSpaceRole`, deny precedence, guest limits), child-scope derivation from the
@@ -134,7 +135,7 @@ deletes, restores and moves never do.
 `POST /api/sync/pull` (GET stays the legacy/426 route):
 
 ```json
-{ "protocol": 3, "etag": "…", "cursor": 1234, "joining": [{ "space": "s1", "after": 0 }], "limit": 500 }
+{ "protocol": 3, "etag": "…", "cursor": 1234, "joining": [{ "space": "s1", "after": 0, "base": 0 }], "limit": 500 }
 ```
 
 `cursor` applies to every manifest space not listed in `joining` (invariant: the client's
@@ -146,7 +147,7 @@ caller's current level ≥ 1; and the matching `space_events` statements.
 
 1. etag ≠ current → `409 manifest_changed` with the manifest inline; nothing else is returned.
 2. `cursor` or any `after` above the high-water mark → `409 cursor_ahead`.
-3. Any space whose shared cursor, or whose *resumed* scan (`after > 0`), is below its `events_floor` → `409 rebackfill_required {spaces}`. A scan that starts at `after: 0` is exempt: it reads current state, so pruned facts cannot matter to it — and asking it to restart would loop forever (found while testing).
+3. A settled space whose shared cursor is below its `events_floor`, or a resumed backfill whose `base` is below it → `409 rebackfill_required {spaces}`. `base` is the high-water mark of the scan's first response (`0` until then; the server fixes it and echoes it back). A scan from `0`, or one that has merely not yet reached the floor, is never stale: it reads current state, and asking it to restart would loop forever (FD-21).
 4. Merge records and events by `seq` (events before records on equal `seq`; a record found
    through both its home and peer statement appears once); take `limit`; if the last
    included item and the next candidate share a `seq`, drop the trailing equal-`seq` group
@@ -155,8 +156,8 @@ caller's current level ≥ 1; and the matching `space_events` statements.
 5. Resolve record candidates through the kernel (`readAuthorizedRecords`,
    `includeDeleted`, `includeAncestorDeleted`): graph + current context + capability-fenced
    content read. A race inside it → `409 access_changed_retry`.
-6. Reply `{protocol:3, etag, records:[{id,collection,data,field_ts,seq,spaceId}],
-   evictions:[{id,rev,spaceId}], cursor, joining:[{space,after}], hasMore}`. New cursors:
+6. Reply `{protocol:3, etag, highWater, records:[{id,collection,data,field_ts,seq,spaceId,peerSpaceId?}],
+   evictions:[{id,rev,spaceId}], cursor, joining:[{space,after,base}], hasMore}`. New cursors:
    `L` (last included `seq`) if `hasMore`, else the high-water mark; `cursor' = max(cursor, L|H)`;
    `after' = max(after, L|H)`. Correct because the scan returned every row with
    `seq ≤ L` of every requested space (FD-12).
