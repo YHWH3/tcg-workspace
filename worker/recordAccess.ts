@@ -94,7 +94,11 @@ export interface AuthorizedRecords {
 /** Reusable read preflight for API/MCP/history. Denied and nonexistent IDs both
  * disappear from `records`. Do not serialize the internal graph or context.
  * Routes still authenticate the principal and apply endpoint-specific rules. */
-export async function readAuthorizedRecords(db: D1Database, userId: string, ids: readonly string[], options: { includeDeleted?: boolean } = {}): Promise<AuthorizedRecords> {
+/** `includeAncestorDeleted` is for the sync feed only: soft-deleted content (including
+ * rows under a deleted ancestor) stays readable to the space's readers — the trash
+ * model — and must reach their caches so a restore needs no re-delivery. Every other
+ * read keeps hiding it. */
+export async function readAuthorizedRecords(db: D1Database, userId: string, ids: readonly string[], options: { includeDeleted?: boolean; includeAncestorDeleted?: boolean } = {}): Promise<AuthorizedRecords> {
   const graph = await loadScopeGraph(db, ids), resolve = scopeResolver(graph.records);
   const scopes = new Map<string, RecordScope>();
   for (const id of new Set(ids)) {
@@ -107,7 +111,7 @@ export async function readAuthorizedRecords(db: D1Database, userId: string, ids:
   const allowed = new Map<string, ScopeGraphRecord & { scope: RecordScope }>();
   for (const [id, scope] of scopes) {
     const record = graph.records.get(id);
-    if (!record || scope.serviceOnly || scope.ancestorDeleted || (!options.includeDeleted && record.data.deleted === true)) continue;
+    if (!record || scope.serviceOnly || (scope.ancestorDeleted && !options.includeAncestorDeleted) || (!options.includeDeleted && record.data.deleted === true)) continue;
     if (scope.readSpaceIds.every(spaceId => canRead(spaceAccess(context, spaceId)))) allowed.set(id, { ...record, scope });
   }
   const records = new Map<string, ScopedStoredRecord & { scope: RecordScope }>();

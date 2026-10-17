@@ -146,7 +146,7 @@ caller's current level ≥ 1; and the matching `space_events` statements.
 
 1. etag ≠ current → `409 manifest_changed` with the manifest inline; nothing else is returned.
 2. `cursor` or any `after` above the high-water mark → `409 cursor_ahead`.
-3. Any requested space with cursor < `events_floor` → `409 rebackfill_required {spaces}`.
+3. Any space whose shared cursor, or whose *resumed* scan (`after > 0`), is below its `events_floor` → `409 rebackfill_required {spaces}`. A scan that starts at `after: 0` is exempt: it reads current state, so pruned facts cannot matter to it — and asking it to restart would loop forever (found while testing).
 4. Merge records and events by `seq` (events before records on equal `seq`; a record found
    through both its home and peer statement appears once); take `limit`; if the last
    included item and the next candidate share a `seq`, drop the trailing equal-`seq` group

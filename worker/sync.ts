@@ -14,6 +14,7 @@ import { authorizeMutations, writeAuthorityFences, type WriteAuthority } from '.
 import { readAuthorizedRecords, RecordAccessError } from './recordAccess';
 import { loadAccessState, pullAuthorized, syncFailure, validateSyncProtocol } from './syncAccess';
 import { snapshotsApi } from './syncSnapshot';
+import { parsePullRequest, pullFeed } from './spaceFeed';
 import { MAX_FUTURE_SKEW_MS, healTimestamps } from '../shared/clock';
 
 const MAX_CHANGES = 500;
@@ -700,6 +701,16 @@ sync.post('/push', async (c) => {
   pokeLive(c.env, c.executionCtx);
 
   return c.json({ ok: true, serverTime: Date.now(), rejected: result.rejected, rejectedItems: result.rejectedItems ?? [] });
+});
+
+/** Protocol 3 pull: per-space feed. Inert (404) while permissions are not active. */
+sync.post('/pull', async (c) => {
+  const state = await loadAccessState(c.env.DB);
+  if (!state.enabled) return c.json({ error: 'permissions_not_active' }, 404);
+  const request = parsePullRequest(await c.req.json().catch(() => null));
+  const outcome = await pullFeed(c.env.DB, c.get('user').id, request);
+  c.header('Cache-Control', 'no-store');
+  return c.json(outcome.body, outcome.status);
 });
 
 sync.get('/pull', async (c) => {

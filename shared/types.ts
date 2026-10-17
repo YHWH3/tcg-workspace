@@ -14,8 +14,10 @@ export interface PulledRecord extends StoredRecord {
   id: string;
   collection: string;
   seq: number;
-  /** Protocol 2: server-resolved scope. Legacy responses omit this field. */
+  /** Permission-aware protocols: server-resolved home space. Legacy responses omit this field. */
   spaceId?: string;
+  /** Protocol 3, cross-space relations only: the other readable space (the home space is `spaceId`). */
+  peerSpaceId?: string;
 }
 
 export interface PublicUser {
