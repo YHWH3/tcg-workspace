@@ -14,7 +14,7 @@ import { startFixture, bootstrap, push, eventually } from './phase4-fixture.mjs'
 
 const engines = { chromium, firefox, webkit }, selected = process.argv.find(a => a.startsWith('--only='))?.slice(7);
 const names = ['legacy Core startup remains functional', 'startup gates cached views until current access is checked', 'offline edit survives browser close and is quarantined after revocation', 'regrant restores canonical content without replaying held work', 'another tab reconciles revocation before cached content reuse', 'access failure gates content and keyboard retry recovers', 'held-work review is redacted and explicit discard preserves D1', 'account replacement locks the old tab without clearing the new token'];
-names.push('session controls confirm remote revocation and current-device signout');
+names.push('session controls confirm remote revocation and current-device signout', 'protocol 3 move evicts a relation and peer regrant restores it', 'protocol 3 backfill resumes after closing the browser between pages');
 const reporter = createCertificationReporter('verify-phase5-sync', (selected ? [selected] : Object.keys(engines)).flatMap(engine => names.map(name => `${engine}/${name}`)));
 if (selected && !engines[selected]) throw new Error('Unknown mandatory browser engine');
 const output = process.env.CERT_ARTIFACT_DIR ?? mkdtempSync(join(tmpdir(), 'tcg-phase5-sync-')); mkdirSync(output, { recursive: true });
@@ -160,6 +160,55 @@ for (const [engine, browserType] of Object.entries(engines).filter(([name]) => !
       await eventually(async () => (await readAccountStore(page, 'accessQuarantine')).length === 0);
       assert.equal((await readAccountStore(page, 'accessQuarantineInfo')).length, 0);
       assert.equal((await sql(`SELECT json_extract(data,'$.title') title FROM records WHERE id=${quote(pageId)}`))[0].title, originalTitle);
+    });
+    await check(names[9], async () => {
+      const destination = `${prefix}_destination`, from = `${prefix}_relation_from`, to = `${prefix}_relation_to`, link = `${prefix}_relation`;
+      await sql(`INSERT INTO spaces(id,name,default_access,created_at) VALUES(${quote(destination)},'Move destination','private',1);
+        INSERT INTO space_members(space_id,user_id,role) VALUES(${quote(space)},${quote(admin.user.id)},'editor'),(${quote(destination)},${quote(admin.user.id)},'editor');`);
+      const response = await fetch(`${fixture.base}/api/sync/push`, { method: 'POST', headers: { Authorization: `Bearer ${admin.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ protocol: 3, changes: [
+        { id: from, collection: 'pages', patch: { title: 'Relation source', spaceId: space }, ts: Date.now() },
+        { id: to, collection: 'pages', patch: { title: 'Relation target', spaceId: space }, ts: Date.now() },
+        { id: link, collection: 'links', patch: { kind: 'related', fromType: 'page', fromId: from, toType: 'page', toId: to }, ts: Date.now() },
+      ] }) });
+      assert.equal(response.status, 200); assert.equal((await response.json()).rejected, 0);
+      await page.reload(); await page.getByPlaceholder('Untitled', { exact: true }).waitFor();
+      await eventually(async () => (await readAccountStore(page, 'links')).some(r => r.id === link));
+      const moved = await fetch(`${fixture.base}/api/spaces/move`, { method: 'POST', headers: { Authorization: `Bearer ${admin.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ recordId: to, toSpaceId: destination, requestId: `${prefix}_move` }) });
+      assert.equal(moved.status, 200); await page.reload(); await page.getByPlaceholder('Untitled', { exact: true }).waitFor();
+      assert.equal((await readAccountStore(page, 'pages')).some(r => r.id === to), false);
+      assert.equal((await readAccountStore(page, 'links')).some(r => r.id === link), false);
+      await sql(`INSERT INTO space_members(space_id,user_id,role) VALUES(${quote(destination)},${quote(bob.user.id)},'viewer')`);
+      await page.reload(); await page.getByPlaceholder('Untitled', { exact: true }).waitFor();
+      await eventually(async () => (await readAccountStore(page, 'links')).some(r => r.id === link));
+      assert.ok((await readAccountStore(page, 'pages')).some(r => r.id === to));
+    });
+    await check(names[10], async () => {
+      const joining = `${prefix}_joining`, ids = Array.from({ length: 24 }, (_, i) => `${prefix}_joining_${i}`);
+      await sql(`INSERT INTO spaces(id,name,default_access,created_at) VALUES(${quote(joining)},'Resumable backfill','private',1);
+        INSERT INTO space_members(space_id,user_id,role) VALUES(${quote(joining)},${quote(admin.user.id)},'editor');`);
+      const response = await fetch(`${fixture.base}/api/sync/push`, { method: 'POST', headers: { Authorization: `Bearer ${admin.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ protocol: 3, changes: ids.map(id => ({ id, collection: 'pages', patch: { title: id, spaceId: joining }, ts: Date.now() })) }) });
+      assert.equal(response.status, 200); assert.equal((await response.json()).rejected, 0);
+      await sql(`INSERT INTO space_members(space_id,user_id,role) VALUES(${quote(joining)},${quote(bob.user.id)},'viewer')`);
+      let requests = 0, release;
+      const blocked = new Promise(resolve => { release = resolve; });
+      await context.route('**/api/sync/pull', async route => {
+        const body = route.request().postDataJSON();
+        if (!body.joining?.some(j => j.space === joining)) return settle(() => route.continue());
+        if (++requests > 1) { await blocked; return settle(() => route.continue()); }
+        body.limit = 8;
+        await settle(async () => route.fulfill({ response: await route.fetch({ postData: JSON.stringify(body) }) }));
+      });
+      try {
+        await page.reload();
+        await eventually(async () => requests >= 2 && (await readAccountStore(page, 'syncStage')).some(r => r.spaceId === joining));
+        assert.equal((await readAccountStore(page, 'pages')).some(r => ids.includes(r.id)), false);
+        await context.close(); context = null;
+      } finally { release(); }
+      page = await start(bob); await page.goto(`${fixture.base}/pages/${pageId}`); await page.getByPlaceholder('Untitled', { exact: true }).waitFor();
+      await eventually(async () => (await readAccountStore(page, 'pages')).filter(r => ids.includes(r.id)).length === ids.length);
+      assert.equal((await readAccountStore(page, 'syncStage')).length, 0);
+      const state = (await readAccountStore(page, 'meta')).find(r => r.key === 'access_feed')?.value;
+      assert.equal(Object.keys(state.joining).length, 0);
     });
     await check(names[7], async () => {
       const other = await context.newPage(); await other.goto(`${fixture.base}/pages/${pageId}`); await other.getByPlaceholder('Untitled', { exact: true }).waitFor();
