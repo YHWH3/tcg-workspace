@@ -3,6 +3,7 @@
 // reliability floor. Reminder dedupe is the `reminder_sent` table; recurrence
 // is event-driven via recurrencesForEvent (called from notificationsForEvent).
 
+import { pruneSpaceEvents } from './spaceEvents';
 import { processOutbox } from './events';
 import { notify, reminderKind, type EventCtx } from './notifications';
 import { addDays, isDone, nextDate, todayUtc, type Recurrence } from '../shared/recurrence';
@@ -251,6 +252,8 @@ async function runRetention(env: { DB: D1Database }, now: number): Promise<void>
     ),
   ];
   await db.batch(stmts).catch(() => {});
+  // Per-space eviction facts past the retention window; their space's floor is raised in the same batch.
+  await pruneSpaceEvents(env, now).catch(() => {});
 
   // Abandoned authenticated uploads: chunk rows of a file that never completed
   // and that no synced `files` record claims (a legitimate upload is announced
