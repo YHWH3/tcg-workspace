@@ -74,5 +74,9 @@
   {
     "name": "0019_phase5_peer_eviction_fact.sql",
     "sha256": "045178875d32122aa8077a41c36634926372104acc8619e53b3bce00e5f9a2db"
+  },
+  {
+    "name": "0020_phase5_upsert_eviction_facts.sql",
+    "sha256": "c9dbfe2591507208e10ffcd427f4200936d834dfc1b2502fc9342b7adc41716e"
   }
 ]

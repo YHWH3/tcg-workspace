@@ -334,3 +334,20 @@ describe('retention of eviction facts', () => {
     expect(await pruneSpaceEvents(env)).toBe(5); expect(await events()).toEqual([]);
   });
 });
+
+it('reproduces trigger conflict under a real UPSERT and retries after the forward correction', async () => {
+  const folder = fileURLToPath(new URL('../migrations/', import.meta.url));
+  const statements = (name: string) => readFileSync(`${folder}/${name}`, 'utf8').replace(/--[^\n]*/g, '').match(/\s*CREATE\s+TRIGGER\b[\s\S]*?END\s*;|[^;]+;/gi) ?? [];
+  // Reinstall just the pre-correction event triggers in this disposable database.
+  const old = [...statements('0017_phase5_space_feeds.sql').filter(sql => /CREATE\s+TRIGGER\s+p5_space_event_(move|link_retarget)\b/i.test(sql)), ...statements('0019_phase5_peer_eviction_fact.sql')];
+  await db.batch([...['move', 'link_retarget', 'peer_change'].map(name => db.prepare(`DROP TRIGGER p5_space_event_${name}`)), ...old.map(sql => db.prepare(sql.trim()))]);
+  const mutation = [{ id: 'L1', collection: 'links', patch: { toId: 'stay' }, ts: Date.now() }];
+  const red = await applyChanges(env, 'alice', mutation, { serverTs: true });
+  expect(red.partialError).toContain('UNIQUE constraint failed: space_events.space_id, space_events.seq'); expect(red.changed).toBe(0);
+  expect(await db.prepare("SELECT json_extract(data,'$.toId') v FROM records WHERE id='L1'").first('v')).toBe('Q');
+  await db.batch(statements('0020_phase5_upsert_eviction_facts.sql').map(sql => db.prepare(sql.trim())));
+  const green = await applyChanges(env, 'alice', mutation, { serverTs: true });
+  expect(green.partialError).toBeUndefined(); expect(green.rejected).toBe(0); expect(green.changed).toBe(1);
+  expect(await db.prepare("SELECT json_extract(data,'$.toId') v FROM records WHERE id='L1'").first('v')).toBe('stay');
+  const facts = await events(); expect(facts.filter(e => e.record_id === 'L1').map(e => e.space_id).sort()).toEqual(['s1', 's2']);
+});
