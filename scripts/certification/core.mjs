@@ -25,9 +25,13 @@ export async function fetchFixtureApi(url,init={},fetchImpl=fetch) {
   const target=new URL(url);
   if(target.username||target.password)throw new Error('Fixture API URL must not contain credentials');
   localOrigin(target.origin);
+  // Wrangler CLI updates can outlast the server's idle-socket timeout. These
+  // local test requests need a fresh socket, especially POST security probes
+  // which must never be replayed automatically after an ambiguous failure.
+  const headers=new Headers(init.headers);headers.set('Connection','close');
   const method=(init.method??'GET').toUpperCase(),attempts=['GET','HEAD'].includes(method)?2:1;
   for(let attempt=1;attempt<=attempts;attempt++) {
-    try{return await fetchImpl(url,init);}catch(error){
+    try{return await fetchImpl(url,{...init,headers});}catch(error){
       if(attempt===attempts)throw new Error(`Fixture API ${method} ${target.pathname} transport failed after ${attempt} attempt${attempt===1?'':'s'} (${error?.cause?.code??error?.code??error?.name??'unknown'})`,{cause:error});
       await new Promise(resolve=>setTimeout(resolve,100));
     }

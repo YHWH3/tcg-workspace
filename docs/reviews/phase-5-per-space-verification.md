@@ -103,6 +103,17 @@ cause code without URL query values. Four red/green harness regressions cover th
 real 401 response, write/error non-retry, repeated failure and local-only targets.
 All OAuth/session assertions are unchanged. The final complete rerun is required.
 
+The `a19fdee` run's diagnostic exposed another `ECONNRESET` on the POST security
+probe immediately after a synchronous Wrangler D1 command. The final fixture
+adapter now requests `Connection: close` so these probes never reuse an idle
+socket, and all six verifier CLI calls yield the Node event loop through async
+`execFile`. POST retries remain prohibited. The fresh-connection regression was
+red before this correction. The failed run remains preserved, including all
+unexecuted mandatory assertions; it is not classified as a successful suite.
+Two consecutive fresh base-MCP fixtures then passed all 94 checks under the
+certification `runCommand` supervisor (not the standalone fixture launcher).
+These targeted dirty-source runs do not replace final committed certification.
+
 `phase5-cost-d1.test.ts` exercises 500- and 1,000-record fixtures, counting all
 observed result metadata, individual statements and batched statements. The measured
 operations exclude fixture setup. Feed numbers are for `pullFeed`; they do not include

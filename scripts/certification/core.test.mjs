@@ -16,6 +16,13 @@ test('local API read retries a transport reset but returns the actual authorizat
   });
   assert.equal(calls,2);assert.equal(response.status,401);
 });
+test('local fixture requests use a fresh connection after external D1 CLI updates',async()=>{
+  const {fetchFixtureApi}=await import('./core.mjs');
+  await fetchFixtureApi('http://localhost:8788/mcp',{method:'POST',headers:{Authorization:'Bearer fixture-only'}},async(_,init)=>{
+    const headers=new Headers(init.headers);assert.equal(headers.get('connection'),'close');assert.equal(headers.get('authorization'),'Bearer fixture-only');
+    return new Response('denied',{status:401});
+  });
+});
 test('local API writes and HTTP failures are never retried',async()=>{
   const {fetchFixtureApi}=await import('./core.mjs');let calls=0;
   await assert.rejects(fetchFixtureApi('http://localhost:8788/token',{method:'POST'},async()=>{calls++;throw new Error('reset');}),/1 attempt/);
