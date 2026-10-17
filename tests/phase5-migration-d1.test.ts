@@ -33,11 +33,11 @@ const put = (db: D1Database, id: string, collection: string, data: Record<string
 const events = async (db: D1Database) => (await db.prepare('SELECT space_id,seq,record_id,kind FROM space_events ORDER BY space_id,seq,record_id').all()).results;
 
 describe('migration 0017 schema', () => {
-  it('is the last migration and creates the per-space feed objects', async () => {
-    expect(files).toContain('0017_phase5_space_feeds.sql');
+  it('creates the per-space feed objects', async () => {
+    expect(files).toContain('0017_phase5_space_feeds.sql'); expect(files).toContain('0019_phase5_peer_eviction_fact.sql');
     const db = await open();
-    const names = (await db.prepare("SELECT name FROM sqlite_master WHERE name IN ('seq_floor','space_events','idx_space_events_created','idx_records_peer_seq','p5_seq_floor','p5_space_event_move','p5_space_event_link_retarget') ORDER BY name").all<{ name: string }>()).results.map(r => r.name);
-    expect(names).toEqual(['idx_records_peer_seq', 'idx_space_events_created', 'p5_seq_floor', 'p5_space_event_link_retarget', 'p5_space_event_move', 'seq_floor', 'space_events']);
+    const names = (await db.prepare("SELECT name FROM sqlite_master WHERE name IN ('seq_floor','space_events','idx_space_events_created','idx_records_peer_seq','p5_seq_floor','p5_space_event_move','p5_space_event_link_retarget','p5_space_event_peer_change') ORDER BY name").all<{ name: string }>()).results.map(r => r.name);
+    expect(names).toEqual(['idx_records_peer_seq', 'idx_space_events_created', 'p5_seq_floor', 'p5_space_event_link_retarget', 'p5_space_event_move', 'p5_space_event_peer_change', 'seq_floor', 'space_events']);
     expect(await db.prepare('SELECT floor FROM seq_floor WHERE id=1').first('floor')).toBe(0);
     expect(await db.prepare("SELECT events_floor FROM spaces WHERE id='space-core'").first('events_floor')).toBe(0);
     expect(await db.prepare('SELECT enabled FROM access_state WHERE id=1').first('enabled')).toBe(0); // activation stays off
@@ -51,9 +51,9 @@ describe('migration 0017 schema', () => {
     const wrangler = resolve('node_modules/.bin/wrangler');
     execFileSync(wrangler, ['d1', 'migrations', 'apply', 'DB', '--local', '--config', config, '--persist-to', state], { env, stdio: 'pipe', timeout: 120_000 });
     const out = execFileSync(wrangler, ['d1', 'execute', 'DB', '--local', '--config', config, '--persist-to', state, '--json', '--command',
-      "SELECT name FROM sqlite_master WHERE name IN ('seq_floor','space_events','p5_seq_floor','p5_space_event_move','p5_space_event_link_retarget','idx_records_peer_seq') ORDER BY name"], { env, stdio: 'pipe', timeout: 120_000 }).toString();
+      "SELECT name FROM sqlite_master WHERE name IN ('seq_floor','space_events','p5_seq_floor','p5_space_event_move','p5_space_event_link_retarget','p5_space_event_peer_change','idx_records_peer_seq') ORDER BY name"], { env, stdio: 'pipe', timeout: 120_000 }).toString();
     const rows = (JSON.parse(out) as { results: { name: string }[] }[]).flatMap(r => r.results).map(r => r.name);
-    expect(rows).toEqual(['idx_records_peer_seq', 'p5_seq_floor', 'p5_space_event_link_retarget', 'p5_space_event_move', 'seq_floor', 'space_events']);
+    expect(rows).toEqual(['idx_records_peer_seq', 'p5_seq_floor', 'p5_space_event_link_retarget', 'p5_space_event_move', 'p5_space_event_peer_change', 'seq_floor', 'space_events']);
   }, 180_000);
 
   it('upgrades populated data: link peers are backfilled, nothing else is rewritten', async () => {
@@ -151,6 +151,35 @@ describe('eviction fact triggers', () => {
     const db = await fixture();
     await db.prepare("UPDATE records SET data=json_set(data,'$.label','renamed'), seq=21 WHERE id='link'").run();
     expect(await events(db)).toEqual([]);
+  });
+
+  it('a relation whose peer changes (its other endpoint moved) tells its HOME audience: every holder can read the home', async () => {
+    const db = await fixture();
+    await db.prepare("UPDATE records SET peer_space_id='c', seq=40 WHERE id='link'").run();
+    expect(await events(db)).toEqual([{ space_id: 'a', seq: 40, record_id: 'link', kind: 'evict' }]);
+  });
+
+  it('a peer that becomes the home: one fact for the old home (the move trigger and this one agree)', async () => {
+    const db = await fixture();
+    // The from-endpoint moved a -> b: home b (was a), the old peer b is now the home, the other endpoint stays in a.
+    await db.prepare("UPDATE records SET space_id='b', peer_space_id='a', seq=41 WHERE id='link'").run();
+    expect(await events(db)).toEqual([{ space_id: 'a', seq: 41, record_id: 'link', kind: 'evict' }]);
+  });
+
+  it('a relation that stops being cross-space (peer cleared) emits a fact; an unchanged peer or an unrelated row emits nothing', async () => {
+    const db = await fixture();
+    await db.prepare("UPDATE records SET peer_space_id=NULL, seq=42 WHERE id='link'").run();
+    expect(await events(db)).toEqual([{ space_id: 'a', seq: 42, record_id: 'link', kind: 'evict' }]);
+    await db.prepare("UPDATE records SET peer_space_id=NULL, seq=43 WHERE id='link'").run();
+    await db.prepare("UPDATE records SET peer_space_id=NULL, seq=44 WHERE id='page'").run();
+    expect((await events(db)).length).toBe(1);
+  });
+
+  it('GAINING a peer narrows the audience (readers of the home who cannot read the new peer lose the row): the home is told', async () => {
+    const db = await fixture();
+    await put(db, 'same', 'links', { fromType: 'page', fromId: 'page', toType: 'page', toId: 'page' }, 5, 'a', null);
+    await db.prepare("UPDATE records SET peer_space_id='b', seq=45 WHERE id='same'").run();
+    expect(await events(db)).toEqual([{ space_id: 'a', seq: 45, record_id: 'same', kind: 'evict' }]);
   });
 
   it('a move that also retargets emits one fact per old space, not a constraint failure', async () => {

@@ -103,17 +103,25 @@ describe('protocol 3 converges under random schedules', () => {
         const c = clients.get(actor)!, manifest = (await loadManifest(db, actor)).manifest, readable = new Set(manifest.spaces.map(s => s.id));
         const rows = (await db.prepare('SELECT id,collection,data,seq,space_id,peer_space_id FROM records ORDER BY id').all<{ id: string; collection: string; data: string; seq: number; space_id: string; peer_space_id: string | null }>()).results
           .filter(r => readable.has(r.space_id) && (!r.peer_space_id || readable.has(r.peer_space_id)));
-        expect(c.ids(), `${actor} rows`).toEqual(rows.map(r => r.id).sort());
+        const wanted = rows.map(r => r.id).sort();
+        if (JSON.stringify(c.ids()) !== JSON.stringify(wanted) && process.env.PHASE5_LOG_ALL) {
+          for (const id of [...new Set([...c.ids().filter(x => !wanted.includes(x)), ...wanted.filter(x => !c.ids().includes(x))])]) {
+            const server = await db.prepare('SELECT id,seq,space_id,peer_space_id,data FROM records WHERE id=?').bind(id).first();
+            log.push(`DIAG ${actor} ${id}: client=${JSON.stringify(c.live.get(id))} server=${JSON.stringify(server)} manifest=${[...readable]} settled=${[...c.settled]} joining=${[...c.joining.keys()]} clientlog=${c.log.join('|')}`);
+          }
+        }
+        expect(c.ids(), `${actor} rows`).toEqual(wanted);
         for (const r of rows) {
           const mine = c.live.get(r.id)!;
           expect({ seq: mine.seq, space: mine.spaceId, data: mine.data }, `${actor} ${r.id}`).toEqual({ seq: r.seq, space: r.space_id, data: JSON.parse(r.data) });
         }
         for (const line of c.log) { if (line.includes('manifest_changed')) coverage.manifestChanged++; if (line.includes('rebackfill_required')) coverage.rebackfill++; if (line.includes('cursor_ahead')) coverage.cursorAhead++; }
+        expect(c.dangling(), `${actor} dangling relations (no client-side sweep exists; facts alone must suffice)`).toEqual([]);
         expect(c.joining.size, `${actor} still joining`).toBe(0);
         expect([...c.settled].sort(), `${actor} settled`).toEqual([...readable].sort());
       }
     } catch (error) {
-      console.error(`PHASE5 PROPERTY FAILURE seed=${seed}\n${log.slice(-40).join('\n')}`);
+      console.error(`PHASE5 PROPERTY FAILURE seed=${seed}\n${(process.env.PHASE5_LOG_ALL ? log : log.slice(-40)).join('\n')}`);
       throw error;
     }
   }, 120_000);

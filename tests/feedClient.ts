@@ -15,6 +15,8 @@ export class RefClient {
   joining = new Map<string, { after: number; base: number; staged: Map<string, FeedRow>; refresh: boolean }>();
   cursor = 0;
   etag = '';
+  /** Every space of the adopted manifest: settled ∪ joining. */
+  private known = new Set<string>();
   live = new Map<string, FeedRow>();
   pages = 0;
   log: string[] = [];
@@ -23,24 +25,35 @@ export class RefClient {
   /** Adopt a manifest: evict removed spaces FIRST, then start joining added ones. */
   reconcile(manifest: ManifestV3): void {
     const next = new Set(manifest.spaces.map(space => space.id));
+    this.known = next;
+    // A space being re-backfilled (refresh) still has its previous rows visible: they go too.
     for (const space of [...this.settled]) if (!next.has(space)) { this.evictSpace(space); this.settled.delete(space); }
-    for (const space of [...this.joining.keys()]) if (!next.has(space)) this.joining.delete(space);
+    for (const space of [...this.joining.keys()]) if (!next.has(space)) { this.evictSpace(space); this.joining.delete(space); }
     for (const space of next) if (!this.settled.has(space) && !this.joining.has(space)) this.joining.set(space, { after: 0, base: 0, staged: new Map(), refresh: false });
     this.etag = manifest.etag;
-    this.collectGarbage();
+  }
+
+  /** A row belongs to the audience of its home space AND of its peer space (a cross-space relation). */
+  private static inAudience(row: { spaceId: string; peerSpaceId?: string }, space: string): boolean {
+    return row.spaceId === space || row.peerSpaceId === space;
   }
 
   private evictSpace(space: string): void {
-    for (const [id, row] of this.live) if (row.spaceId === space) this.live.delete(id);
+    for (const [id, row] of this.live) if (RefClient.inAudience(row, space)) this.live.delete(id);
+    // A relation staged for ANOTHER joining space (its home) must not outlive its peer.
+    for (const state of this.joining.values()) for (const [id, row] of state.staged) if (RefClient.inAudience(row, space)) state.staged.delete(id);
   }
 
-  /** A relation is held only while both endpoints are held. */
-  collectGarbage(): void {
+  /** Relations held without both endpoints. The protocol never needs a client-side sweep: every
+   * audience that loses a row is told by a fact, so this must be empty whenever a sync is
+   * complete (asserted by the tests; it is a diagnostic, not a repair). */
+  dangling(): string[] {
+    const out: string[] = [];
     for (const [id, row] of this.live) {
       if (row.collection !== 'links') continue;
-      const from = this.live.get(String(row.data.fromId)), to = this.live.get(String(row.data.toId));
-      if (!from || !to) this.live.delete(id);
+      if (!this.live.has(String(row.data.fromId)) || !this.live.has(String(row.data.toId))) out.push(id);
     }
+    return out.sort();
   }
 
   private upsert(into: Map<string, FeedRow>, row: FeedRow): void {
@@ -49,10 +62,12 @@ export class RefClient {
   }
 
   private applyEviction(event: Eviction): void {
-    const staging = this.joining.get(event.spaceId)?.staged;
-    if (staging) { const staged = staging.get(event.id); if (staged && staged.seq < event.rev) staging.delete(event.id); }
+    for (const state of this.joining.values()) {
+      const staged = state.staged.get(event.id);
+      if (staged && RefClient.inAudience(staged, event.spaceId) && staged.seq < event.rev) state.staged.delete(event.id);
+    }
     const row = this.live.get(event.id);
-    if (row && row.spaceId === event.spaceId && row.seq < event.rev) this.live.delete(event.id);
+    if (row && RefClient.inAudience(row, event.spaceId) && row.seq < event.rev) this.live.delete(event.id);
   }
 
   /** A joining space activates only once its backfill is COMPLETE: the feed is
@@ -61,11 +76,14 @@ export class RefClient {
     if (!exhausted) return;
     for (const [space, state] of [...this.joining]) {
       if (state.after < this.cursor) continue;
-      if (state.refresh) for (const [id, row] of this.live) if (row.spaceId === space && !state.staged.has(id)) this.live.delete(id);
-      for (const row of state.staged.values()) if (row.spaceId === space || this.settled.has(row.spaceId) || row.peerSpaceId === space) this.upsert(this.live, row);
+      if (state.refresh) for (const [id, row] of this.live) if (RefClient.inAudience(row, space) && !state.staged.has(id)) this.live.delete(id);
+      for (const row of state.staged.values()) {
+        const inAudience = row.spaceId === space || this.settled.has(row.spaceId) || row.peerSpaceId === space;
+        // Both ends of the audience must still be in the manifest (a space can be removed mid-backfill).
+        if (inAudience && this.known.has(row.spaceId) && (!row.peerSpaceId || this.known.has(row.peerSpaceId))) this.upsert(this.live, row);
+      }
       this.settled.add(space); this.joining.delete(space);
     }
-    this.collectGarbage();
   }
 
   /** One request/response round trip. Returns the reply status. */
@@ -82,7 +100,6 @@ export class RefClient {
         else this.upsert(this.live, record);
       }
       for (const event of body.evictions) this.applyEviction(event);
-      this.collectGarbage();
       this.cursor = body.cursor;
       for (const entry of body.joining) { const state = this.joining.get(entry.space); if (state) { state.after = entry.after; state.base = entry.base; } }
       this.activateCaughtUp(!body.hasMore);

@@ -152,6 +152,18 @@ describe('relations across spaces', () => {
     expect(await row('L1')).toMatchObject({ space_id: 's1', peer_space_id: 's3' });
   });
 
+  it('a reader of s1 and s2 (not s3) loses the relation to the moved endpoint by an explicit fact, with no client-side sweep', async () => {
+    await member('s3', 'alice');
+    const bob = await client('bob'); await member('s2', 'bob', 'viewer'); await bob.sync();   // bob: s1 + s2
+    expect(bob.live.has('L1')).toBe(true); expect(bob.live.has('Q')).toBe(true);
+    await moveRoot(db, user('alice'), { recordId: 'Q', toSpaceId: 's3', requestId: 'm' });
+    const l1 = await row('L1');
+    expect(await events()).toContainEqual({ space_id: 's1', seq: l1!.seq, record_id: 'L1' });   // the fact for the home every holder can read
+    await bob.sync();
+    expect(bob.live.has('Q')).toBe(false); expect(bob.live.has('L1')).toBe(false); expect(bob.live.has('P')).toBe(true);
+    expect(bob.dangling()).toEqual([]);
+  });
+
   it('retargeting a relation emits eviction facts for its previous home and peer at the new revision', async () => {
     const revised = await nextSeq();
     await db.prepare("UPDATE records SET data=json_set(data,'$.toId','stay'), peer_space_id=NULL, seq=? WHERE id='L1'").bind(revised).run();

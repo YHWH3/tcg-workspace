@@ -70,5 +70,9 @@
   {
     "name": "0018_phase5_retire_generation_snapshots.sql",
     "sha256": "6ce7b32116f5714f8c7ea5b302bac64f2f92b6d1be38d836a4205216bb53aef3"
+  },
+  {
+    "name": "0019_phase5_peer_eviction_fact.sql",
+    "sha256": "045178875d32122aa8077a41c36634926372104acc8619e53b3bce00e5f9a2db"
   }
 ]
