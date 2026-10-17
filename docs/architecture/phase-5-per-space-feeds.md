@@ -101,6 +101,13 @@ mandatory proof (§4).
 | FD-20 | Medium | **Downgrade guard.** The literal `2` is hard-coded in five client and three server modules (`accessClient`, `files`, `accessCache`, `reconcileAccess`, `engine`; `sync`, `syncAccess`, `syncSnapshot`). A partial update would reject a v3 manifest or treat it as ungated legacy. | One shared `PERMISSION_PROTOCOL` constant; a test proves that a stored v3 manifest plus a protocol-1 response is refused and that every site speaks 3. |
 | FD-21 | **High** | **Backfill restart livelock** (found by the randomized proof, not by review). The first draft of the retention rule flagged a resumed backfill whenever its cursor was below a space's floor, but a backfill restarted *because* of the floor is by construction below it until it has paged past: it was told to restart again, forever. | A restartable scan is judged by `base`, the database high-water mark of its FIRST response (fixed by the server, echoed back, `0` before the first page): only a floor that passed the base can have hidden a fact about a row the scan already staged. A scan from 0 or one merely short of the floor is never stale. |
 
+| FD-22 | **High** | A relation gaining/changing its peer space did not evict the old home-space audience when its data was unchanged. The randomized convergence test reproduced stale relations. | Migration 0019 emits a fact for the old home on a peer-space change. The reference client no longer masks this with a dangling-link sweep. |
+| FD-23 | **High** | Retargeting through the real `applyChanges` UPSERT can invoke both retarget and peer-change triggers. SQLite uses the outer statement's conflict policy, overriding trigger `OR IGNORE`; duplicate facts aborted the transaction. The new real-client/HTTP/D1 regression reproduced `UNIQUE constraint failed: space_events.space_id, space_events.seq`. | Forward migration 0020 replaces conflict-policy reliance with explicit `NOT EXISTS` predicates. The same real upsert and client eviction test passes. See SQLite's [trigger conflict policy](https://www.sqlite.org/lang_createtrigger.html). |
+
+| FD-24 | **High** | When more than 20 spaces join, retained-event floors of unrequested joins were checked as settled spaces. The real client/D1 test repeatedly received `rebackfill_required` and could never finish. | The request lists deferred incomplete joins separately. They are excluded from settled scans and floor checks until their bounded scan starts. Completed scans remain in the steady stream until group activation. Names are checked against the caller's manifest; no additional scan is created. |
+| FD-25 | **High** | After restoring a database, a scan's old `base` may exceed current high water even when `after` does not. Accepting it can retain staged rows from the abandoned history. An actual-D1 test reproduced HTTP 200 instead of reset. | `cursor_ahead` also checks every scan's base. The client clears staging for reset scans and starts a fresh group. |
+| FD-26 | Medium | A malformed exhausted response could claim a cursor below its high-water mark while its joining cursor claimed completion. The client accepted it as complete. | Reject `hasMore=false` unless shared cursor equals high water, before any cache write. The same red test now passes. |
+
 Findings that did **not** need a change: the capability decisions
 (`effectiveSpaceRole`, deny precedence, guest limits), child-scope derivation from the
 ownership graph, protected-field rejection, graph resolution as the authority with
@@ -199,26 +206,32 @@ incident link's home and peer, an audit row. Retargeting any other way remains
 
 ### 3.7 Client
 
-State: `access_manifest` (latest verified), `access_settled` (spaces whose cache is
-complete), `sync_cursor` (shared by settled spaces), `access_joining`
-(`{space: {after, count}}`) with rows staged in `syncStage`, quarantine tables unchanged.
+State: `access_manifest` and `access_feed` (manifest etag, settled shared cursor,
+per-space joining scans `{after, base, refresh, complete}`, staging ID, monotonically
+increasing local `version`, legacy-upgrade marker). `syncStage` holds server-confirmed
+rows outside the rendered collections. Existing quarantine tables remain account-bound.
 
-1. On a manifest (startup, `409 manifest_changed`, focus): compute the diff.
-2. **Evictions first, atomically:** for removed spaces delete their rows, blobs, links
-   left dangling and unreadable work (outbox → quarantine, drafts → quarantine); role
-   reductions quarantine now-unauthorized pending edits; a persisted
-   `access_reconcile_required` marker covers a crash between seeing the manifest and the
-   commit (offline restart stays locked until online).
-3. Added spaces become `joining` (`after: 0`); pages are staged per page in one
-   transaction with the cursor; a restart resumes.
-4. A space activates in one transaction when caught up: scope of every staged row is
-   verified against the manifest with local ancestors included; pending edits are rebased
-   or quarantined; staged rows replace the space's rows (mark-and-sweep); manifest,
-   settled set and cursor are written together.
-5. Unscoped legacy rows ⇒ all-or-nothing activation (FD-10).
-6. Steady state: pull page → rebase → upsert → apply evictions → cursor, one transaction.
+1. Capture the persisted version **before** fetching a manifest. Install the result in one
+   IndexedDB transaction only if that version still matches. Every subsequent page uses
+   the same compare-and-swap rule; an obsolete tab response cannot roll back newer access.
+2. On a manifest diff, quarantine no-longer-authorized edits/drafts/pending bytes and evict
+   removed spaces from both live and staged rows, including links whose peer was removed.
+   A role downgrade with optimistic edits starts a canonical refresh before rendering.
+3. Added spaces become joining scans. Each request names at most 20 incomplete scans and lists other incomplete scans as deferred;
+   stages pages and advances their cursors atomically. A restart resumes durable progress.
+4. All joining spaces activate as a group once every scan is complete. Validate their
+   ownership graph with settled ancestors, rebase allowed work, sweep obsolete rows of
+   refreshed spaces and publish cache plus cursors in one transaction. A hook-injected
+   crash rolls back the entire operation. No materialized D1 snapshot is created.
+5. A protocol-2/unscoped legacy cache is gated by a durable reconciliation marker until
+   the atomic upgrade completes. A protocol-1 response after scoped activation is refused.
+6. Steady-state pages apply records, pending-edit rebases, revision-aware evictions and
+   cursors in one transaction. Evict iff home **or peer** matches and `_serverRev < rev`.
+   Do not sweep arbitrary dangling links: their endpoints may arrive on a later page.
+7. Online reconciliation verifies the manifest again before reopening the presentation
+   barrier. Ordinary unchanged polling does not unmount editors or notify sibling tabs.
 
-### 3.8 Schema change (migration 0017, forward only)
+### 3.8 Schema changes (0017–0020, forward only)
 
 Existing migrations are hash-locked by certification, so nothing is rewritten. 0017 drops
 the generation triggers (`p5_space_*`, `p5_member_*`, `p5_user_*`, `p5_session_delete`,
@@ -238,15 +251,15 @@ comparison), and 0017 is applied by tests through both the vitest fixture splitt
 |---|---|
 | SQL level ≡ `effectiveSpaceRole` | `phase5-capability-d1.test.ts` (exhaustive parity) |
 | Revocation: no row of S after the manifest drops it; etag mismatch returns the manifest only | `phase5-feeds-d1.test.ts` |
-| Regrant: backfill includes rows changed while revoked; client sweeps stale rows | `phase5-feeds-d1.test.ts`, `phase5-spacefeed-client.test.ts` |
+| Regrant: backfill includes rows changed while revoked; client sweeps stale rows | `phase5-feeds-d1.test.ts`, `phase5-spacefeed-client-d1.test.ts` |
 | Stale cursor below `events_floor`; cursor ahead of the database | `phase5-feeds-d1.test.ts` |
 | Cross-space move: events, descendants, destination feed, out-and-back ordering | `phase5-moves-d1.test.ts`, client rev rule |
-| Relations: both endpoints required, regrant of the peer delivers the link, retarget evicts, dangling GC | `phase5-moves-d1.test.ts`, `phase5-spacefeed-client.test.ts` |
-| Interrupted backfill: crash between pages and during activation leaves no partial state | `phase5-spacefeed-client.test.ts`; browser journey |
+| Relations: both endpoints required, regrant of the peer delivers the link, retarget evicts, dangling GC | `phase5-moves-d1.test.ts`, `phase5-spacefeed-client-d1.test.ts` |
+| Interrupted backfill: crash between pages and during activation leaves no partial state | `phase5-spacefeed-client-d1.test.ts`; browser journey |
 | Concurrent edits while backfilling and paging (no missed or duplicated row) | `phase5-feeds-d1.test.ts` (interleaving + seeded random schedule) |
 | Authorization change during a write (revoke, downgrade, disable, move, parent change) | `phase5-writes-d1.test.ts`, `phase5-files-d1.test.ts`, `phase5-moves-d1.test.ts` |
 | Sequence never regresses after a hard delete of the maximum row (FD-17) | `phase5-feeds-d1.test.ts` |
-| Protocol downgrade refused; one protocol constant (FD-20) | `phase5-spacefeed-client.test.ts`, `phase5-feeds-d1.test.ts` |
+| Protocol downgrade refused; one protocol constant (FD-20) | `phase5-spacefeed-client-d1.test.ts`, `phase5-feeds-d1.test.ts` |
 | Migration 0017 on the fixture splitter and `wrangler d1 migrations apply` (FD-19) | `phase5-migration-d1.test.ts`, certification `migrations` + every fixture |
 | D1 reads/writes; ordinary logout/delete write no snapshot rows; independent of N | `phase5-cost-d1.test.ts` (writes evidence JSON) |
 | Browser journeys with permissions enabled (3 engines) | `scripts/verify-phase5-sync.mjs` (fixed, mandatory suite `phase5-sync`) |
@@ -277,3 +290,8 @@ retention; recovery/export of quarantined work; enabling permissions for real us
 semantic search). Read-path enforcement for MCP, public routes, notifications and
 history (design review §5, §8) is outside this change and remains required before
 activation.
+
+Migrations 0019 and 0020 preserve the same schema and complete the event-trigger
+contract: peer changes notify the old home audience, and overlapping triggers use
+explicit existence predicates safe under the real records UPSERT. No earlier
+migration file was rewritten.

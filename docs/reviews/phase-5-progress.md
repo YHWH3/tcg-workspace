@@ -8,6 +8,17 @@ Baseline: `977475f0cac54bf05f0e5e513785c4933e0e9d73`.
 Branch: `grok/phase-5-search-permissions` in the original Desktop checkout.
 No merge, deployment or production resource changes.
 
+## Current per-space integration checkpoint (2026-10-17)
+
+Current work is on `phase5/per-space-feeds`. The client and server now implement
+protocol 3, with per-space joining scans, atomic activation/eviction and local
+version fences replacing generation/snapshot reconciliation. Migrations 0019 and
+0020 complete peer-audience eviction and safe fact deduplication under UPSERT.
+The [per-space verification record](phase-5-per-space-verification.md) separates
+executed intermediate evidence from final committed-source certification and
+lists the remaining Phase 5 features. Permissions stay off by default.
+The older ledger below records historical work and counts.
+
 ## Completed design and foundation work
 
 - P5-0 design/threat-model review committed as `b6db4a8`. See
