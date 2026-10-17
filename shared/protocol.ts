@@ -16,7 +16,16 @@ export const MAX_PULL_LIMIT = 500;
 /** Spaces being backfilled in one request (each is an independent index scan). */
 export const MAX_JOINING_SPACES = 20;
 
-export interface PullJoining { space: string; after: number }
+export interface PullJoining {
+  space: string;
+  /** Everything of this space up to `after` has been staged (0 = the scan has not started). */
+  after: number;
+  /** The database high-water mark of the scan's FIRST response (0 until then; the server
+   * fixes it and echoes it back, the client only passes it on). Retention facts newer than
+   * this could concern rows already staged, so a resumed scan is stale only when a floor
+   * passed its base — never merely because the scan has not reached the floor yet. */
+  base: number;
+}
 export interface PullRequestV3 {
   protocol: typeof PERMISSION_PROTOCOL;
   /** Etag of the manifest the client last verified. */

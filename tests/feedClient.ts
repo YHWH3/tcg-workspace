@@ -12,7 +12,7 @@ export type PullFn = (request: PullRequestV3) => Promise<PullReply>;
 
 export class RefClient {
   settled = new Set<string>();
-  joining = new Map<string, { after: number; staged: Map<string, FeedRow>; refresh: boolean }>();
+  joining = new Map<string, { after: number; base: number; staged: Map<string, FeedRow>; refresh: boolean }>();
   cursor = 0;
   etag = '';
   live = new Map<string, FeedRow>();
@@ -25,7 +25,7 @@ export class RefClient {
     const next = new Set(manifest.spaces.map(space => space.id));
     for (const space of [...this.settled]) if (!next.has(space)) { this.evictSpace(space); this.settled.delete(space); }
     for (const space of [...this.joining.keys()]) if (!next.has(space)) this.joining.delete(space);
-    for (const space of next) if (!this.settled.has(space) && !this.joining.has(space)) this.joining.set(space, { after: 0, staged: new Map(), refresh: false });
+    for (const space of next) if (!this.settled.has(space) && !this.joining.has(space)) this.joining.set(space, { after: 0, base: 0, staged: new Map(), refresh: false });
     this.etag = manifest.etag;
     this.collectGarbage();
   }
@@ -71,11 +71,11 @@ export class RefClient {
   /** One request/response round trip. Returns the reply status. */
   async step(limit = 500): Promise<PullReply> {
     const request: PullRequestV3 = { protocol: 3, etag: this.etag, cursor: this.cursor, limit,
-      joining: [...this.joining].map(([space, state]) => ({ space, after: state.after })) };
+      joining: [...this.joining].map(([space, state]) => ({ space, after: state.after, base: state.base })) };
     const reply = await this.pull(request);
     this.pages++;
     if (reply.status === 200) {
-      const body = reply.body as { records: FeedRow[]; evictions: Eviction[]; cursor: number; joining: { space: string; after: number }[]; hasMore: boolean; etag: string };
+      const body = reply.body as { records: FeedRow[]; evictions: Eviction[]; cursor: number; joining: { space: string; after: number; base: number }[]; hasMore: boolean; etag: string; highWater: number };
       for (const record of body.records) {
         const targets = [record.spaceId, record.peerSpaceId].filter((space): space is string => !!space && this.joining.has(space));
         if (targets.length) for (const space of targets) this.upsert(this.joining.get(space)!.staged, record);
@@ -84,7 +84,7 @@ export class RefClient {
       for (const event of body.evictions) this.applyEviction(event);
       this.collectGarbage();
       this.cursor = body.cursor;
-      for (const entry of body.joining) { const state = this.joining.get(entry.space); if (state) state.after = entry.after; }
+      for (const entry of body.joining) { const state = this.joining.get(entry.space); if (state) { state.after = entry.after; state.base = entry.base; } }
       this.activateCaughtUp(!body.hasMore);
       return reply;
     }
@@ -93,13 +93,13 @@ export class RefClient {
     if (error === 'manifest_changed') this.reconcile(reply.body.manifest as ManifestV3);
     else if (error === 'rebackfill_required') {
       for (const space of reply.body.spaces as string[]) {
-        if (this.settled.delete(space)) this.joining.set(space, { after: 0, staged: new Map(), refresh: true });
-        else if (this.joining.has(space)) this.joining.set(space, { after: 0, staged: new Map(), refresh: true });
+        if (this.settled.delete(space)) this.joining.set(space, { after: 0, base: 0, staged: new Map(), refresh: true });
+        else if (this.joining.has(space)) this.joining.set(space, { after: 0, base: 0, staged: new Map(), refresh: true });
       }
     } else if (error === 'cursor_ahead') {
       this.cursor = 0;
-      for (const space of [...this.settled]) { this.settled.delete(space); this.joining.set(space, { after: 0, staged: new Map(), refresh: true }); }
-      for (const [space] of this.joining) this.joining.set(space, { after: 0, staged: new Map(), refresh: true });
+      for (const space of [...this.settled]) { this.settled.delete(space); this.joining.set(space, { after: 0, base: 0, staged: new Map(), refresh: true }); }
+      for (const [space] of this.joining) this.joining.set(space, { after: 0, base: 0, staged: new Map(), refresh: true });
     } else if (error !== 'access_changed_retry') throw new Error(`unexpected feed reply ${reply.status} ${JSON.stringify(reply.body)}`);
     return reply;
   }

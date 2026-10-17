@@ -38,10 +38,10 @@ export function parsePullRequest(body: unknown): PullRequestV3 {
   if (!Array.isArray(rawJoining) || rawJoining.length > MAX_JOINING_SPACES) return bad();
   const seen = new Set<string>();
   const joining = rawJoining.map(entry => {
-    if (!entry || typeof entry !== 'object' || !isId((entry as { space?: unknown }).space) || !isInt((entry as { after?: unknown }).after)
-        || (entry as { after: number }).after < 0 || seen.has((entry as { space: string }).space)) return bad();
-    seen.add((entry as { space: string }).space);
-    return { space: (entry as { space: string }).space, after: (entry as { after: number }).after };
+    const e = entry as { space?: unknown; after?: unknown; base?: unknown } | null;
+    if (!e || typeof e !== 'object' || !isId(e.space) || !isInt(e.after) || e.after < 0 || !isInt(e.base) || e.base < 0 || seen.has(e.space)) return bad();
+    seen.add(e.space);
+    return { space: e.space, after: e.after, base: e.base };
   });
   return { protocol: PERMISSION_PROTOCOL, etag: b.etag, cursor: b.cursor, joining, limit };
 }
@@ -79,10 +79,12 @@ export async function loadManifest(db: D1Database, userId: string): Promise<Pars
 export interface PullResponseV3 {
   protocol: typeof PERMISSION_PROTOCOL;
   etag: string;
+  /** The database high-water mark of this snapshot (a backfill's `base`). */
+  highWater: number;
   records: PulledRecord[];
   evictions: PulledEviction[];
   cursor: number;
-  joining: { space: string; after: number }[];
+  joining: { space: string; after: number; base: number }[];
   hasMore: boolean;
 }
 export type PullOutcome =
@@ -127,12 +129,14 @@ export async function pullFeed(db: D1Database, userId: string, req: PullRequestV
 
   const hw = Number((highWater.results[0] as { hw: number }).hw);
   if (req.cursor > hw || req.joining.some(j => j.after > hw)) return { status: 409, body: { error: 'cursor_ahead' } };
-  // A scan that starts at 0 reads current state, so pruned facts cannot matter to it (and
-  // asking it to restart would loop forever); a RESUMED scan or the shared cursor older
-  // than the retained facts of a space cannot prove completeness for that space.
+  // Retention: a pruned fact (seq <= floor) is only a problem if it could concern a row the
+  // client already holds. For the shared cursor that is any fact in (cursor, floor]. A
+  // backfill reads current state, so only facts NEWER than its first page can matter:
+  // restart it when a floor has passed its base (a scan from 0 / not yet started is exempt,
+  // and a scan merely short of the floor is fine — asking it to restart would loop forever).
   const stale = manifest.spaces.filter(space => {
     const scan = req.joining.find(j => j.space === space.id), floor = floors.get(space.id) ?? 0;
-    return scan ? scan.after > 0 && scan.after < floor : req.cursor < floor;
+    return scan ? scan.base > 0 && scan.base < floor : req.cursor < floor;
   }).map(space => space.id);
   if (stale.length) return { status: 409, body: { error: 'rebackfill_required', spaces: stale } };
 
@@ -174,9 +178,10 @@ export async function pullFeed(db: D1Database, userId: string, req: PullRequestV
   }
   const evictions: PulledEviction[] = page.filter(item => item.kind === 0).map(item => ({ id: item.id, rev: item.seq, spaceId: item.space }));
   return { status: 200, body: {
-    protocol: PERMISSION_PROTOCOL, etag: manifest.etag, records, evictions,
+    protocol: PERMISSION_PROTOCOL, etag: manifest.etag, highWater: hw, records, evictions,
     cursor: Math.max(req.cursor, reached),
-    joining: req.joining.map(j => ({ space: j.space, after: Math.max(j.after, reached) })),
+    // `base` is fixed by the scan's first response and echoed back unchanged afterwards.
+    joining: req.joining.map(j => ({ space: j.space, after: Math.max(j.after, reached), base: j.base > 0 ? j.base : hw })),
     hasMore,
   } };
 }

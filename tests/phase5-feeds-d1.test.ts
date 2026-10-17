@@ -254,9 +254,9 @@ describe('request validation and inertness', () => {
     const good = await request('alice');
     for (const [label, body] of [
       ['limit below the minimum group size', { ...good, limit: 7 }], ['limit above the page cap', { ...good, limit: 501 }], ['negative cursor', { ...good, cursor: -1 }],
-      ['fractional cursor', { ...good, cursor: 1.5 }], ['non-string etag', { ...good, etag: 5 }], ['duplicate joining space', { ...good, joining: [{ space: 'private', after: 0 }, { space: 'private', after: 0 }] }],
-      ['too many joining spaces', { ...good, joining: Array.from({ length: 21 }, (_, i) => ({ space: `s${i}`, after: 0 })) }],
-      ['negative after', { ...good, joining: [{ space: 'private', after: -3 }] }], ['not an object', 'x'],
+      ['fractional cursor', { ...good, cursor: 1.5 }], ['non-string etag', { ...good, etag: 5 }], ['duplicate joining space', { ...good, joining: [{ space: 'private', after: 0, base: 0 }, { space: 'private', after: 0, base: 0 }] }],
+      ['too many joining spaces', { ...good, joining: Array.from({ length: 21 }, (_, i) => ({ space: `s${i}`, after: 0, base: 0 })) }],
+      ['negative after', { ...good, joining: [{ space: 'private', after: -3, base: 0 }] }], ['not an object', 'x'],
     ] as const) {
       const reply = await rawPull('alice', body);
       expect(reply.status, label).toBe(400);
@@ -266,7 +266,7 @@ describe('request validation and inertness', () => {
   });
 
   it('a joining space the caller cannot read is a client error once the etag matches', async () => {
-    const reply = await pull('alice', { joining: [{ space: 'other', after: 0 }] });
+    const reply = await pull('alice', { joining: [{ space: 'other', after: 0, base: 0 }] });
     expect(reply.status).toBe(400);
   });
 
@@ -299,7 +299,7 @@ describe('page boundaries', () => {
     // Page with every possible small limit: the stream must be complete and duplicate-free.
     for (const limit of [8, 9, 10, 11, 13]) {
       const seenEvents: string[] = [], seenRecords: string[] = [];
-      let cursor = 0, hasMore = true, joining = [{ space: 'private', after: 0 }, { space: 'other', after: 0 }], guard = 0;
+      let cursor = 0, hasMore = true, joining = [{ space: 'private', after: 0, base: 0 }, { space: 'other', after: 0, base: 0 }], guard = 0;
       while (hasMore && guard++ < 100) {
         const reply = await pull('alice', { cursor, joining, limit });
         expect(reply.status).toBe(200);
@@ -381,7 +381,7 @@ describe('writes interleaved with paging', () => {
       if (++batches === 4) await member('private', 'alice', 'editor', 'deny');
       return target.batch(statements);
     });
-    const response = await sync.request('http://localhost/pull', { method: 'POST', headers: headers('alice'), body: JSON.stringify(await request('alice', { joining: [{ space: 'private', after: 0 }] })) }, { ...env, DB: raced }, ctx);
+    const response = await sync.request('http://localhost/pull', { method: 'POST', headers: headers('alice'), body: JSON.stringify(await request('alice', { joining: [{ space: 'private', after: 0, base: 0 }] })) }, { ...env, DB: raced }, ctx);
     expect(batches).toBe(4);
     expect(response.status).toBe(409); expect(await response.json()).toEqual({ error: 'access_changed_retry' });
   });
@@ -393,12 +393,12 @@ describe('writes interleaved with paging', () => {
       if (++batches === 3) await member('private', 'alice', 'editor', 'deny');
       return target.batch(statements);
     });
-    const response = await sync.request('http://localhost/pull', { method: 'POST', headers: headers('alice'), body: JSON.stringify(await request('alice', { joining: [{ space: 'private', after: 0 }] })) }, { ...env, DB: raced }, ctx);
+    const response = await sync.request('http://localhost/pull', { method: 'POST', headers: headers('alice'), body: JSON.stringify(await request('alice', { joining: [{ space: 'private', after: 0, base: 0 }] })) }, { ...env, DB: raced }, ctx);
     const body = await response.json() as { records?: unknown[] };
     expect(response.status).toBe(200); expect(body.records).toEqual([]);
     // ... and the very next request is told the manifest changed.
     expect((await pull('alice', { etag: await etagOf('alice') })).status).toBe(200);
-    const next = await rawPull('alice', { protocol: 3, etag: (await request('alice')).etag, cursor: 0, joining: [{ space: 'private', after: 0 }], limit: 500 });
+    const next = await rawPull('alice', { protocol: 3, etag: (await request('alice')).etag, cursor: 0, joining: [{ space: 'private', after: 0, base: 0 }], limit: 500 });
     expect(next.status).toBe(400); // private is no longer readable, so it cannot be a joining space
   });
 });
