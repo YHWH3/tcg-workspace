@@ -78,5 +78,9 @@
   {
     "name": "0020_phase5_upsert_eviction_facts.sql",
     "sha256": "c9dbfe2591507208e10ffcd427f4200936d834dfc1b2502fc9342b7adc41716e"
+  },
+  {
+    "name": "0021_phase5_share_space_pin.sql",
+    "sha256": "798843d06b9161b102c839f712dcdcef70fe7a01dabffbb0b60ac366ecf6e6b2"
   }
 ]
