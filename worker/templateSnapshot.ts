@@ -11,6 +11,7 @@
 
 import type { Env } from './auth';
 import { boardRefsOf, type RecSnapshot } from '../shared/templates';
+import { gateRows } from './readAccess';
 
 interface Row {
   id: string;
@@ -40,7 +41,7 @@ function take(rows: Row[], into: Bag): string[] {
  *   are loaded so the new root is ordered after them (the planner derives the
  *   root's order from its siblings).
  */
-export async function loadTemplateSnapshot(env: Pick<Env, 'DB'>, templateId: string, parentId: string | null = null): Promise<RecSnapshot> {
+export async function loadTemplateSnapshot(env: Pick<Env, 'DB' | 'READ_GATE'>, templateId: string, parentId: string | null = null): Promise<RecSnapshot> {
   const db = env.DB;
   const snap: RecSnapshot = { pages: {}, blocks: {}, boards: {}, tasks: {}, views: {}, links: {} };
   const ids = (list: string[]) => JSON.stringify(list);
@@ -105,5 +106,11 @@ export async function loadTemplateSnapshot(env: Pick<Env, 'DB'>, templateId: str
       .all<Row>();
     take(links.results, snap.links!);
   }
+  if (!env.READ_GATE) return snap;
+  // A user-visible copy contains only what the caller can read now (an embedded database
+  // or relation target in another space is left out, never copied).
+  const bags = (Object.values(snap) as (Bag | undefined)[]).filter((bag): bag is Bag => !!bag);
+  const kept = new Set((await gateRows(env, bags.flatMap(bag => Object.keys(bag)).map(id => ({ id })))).map(row => row.id));
+  for (const bag of bags) for (const id of Object.keys(bag)) if (!kept.has(id)) delete bag[id];
   return snap;
 }

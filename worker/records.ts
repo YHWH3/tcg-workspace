@@ -4,6 +4,8 @@
 import { applyChanges, type AppliedChange, type ApplyResult } from './sync';
 import type { Env } from './auth';
 import type { ChangesetCtx } from './changesets';
+import { gateRows } from './readAccess';
+import { levelSql } from './capability';
 
 export interface RecRow {
   id: string;
@@ -31,9 +33,12 @@ export function toRow(r: RawRow): RecRow {
 
 export const SELECT = 'id, collection, data, field_ts, seq, updated_by, updated_at';
 
+/* Every helper below applies the request's read gate when the environment carries one
+ * (user-visible reads: MCP, member routes). Service callers pass the plain environment. */
+
 export async function getRec(env: Env, id: string): Promise<RecRow | null> {
   const row = await env.DB.prepare(`SELECT ${SELECT} FROM records WHERE id = ?`).bind(id).first<RawRow>();
-  return row ? toRow(row) : null;
+  return row ? (await gateRows(env, [toRow(row)]))[0] ?? null : null;
 }
 
 export async function getRecs(env: Env, ids: string[]): Promise<Map<string, RecRow>> {
@@ -44,7 +49,8 @@ export async function getRecs(env: Env, ids: string[]): Promise<Map<string, RecR
     const { results } = await env.DB.prepare(`SELECT ${SELECT} FROM records WHERE id IN (${chunk.map(() => '?').join(',')})`).bind(...chunk).all<RawRow>();
     for (const r of results) out.set(r.id, toRow(r));
   }
-  return out;
+  if (!env.READ_GATE) return out;
+  return new Map((await gateRows(env, [...out.values()])).map((row) => [row.id, row]));
 }
 
 const JSON_FIELD_RE = /^[A-Za-z0-9_]+$/;
@@ -55,7 +61,7 @@ export async function listBy(env: Env, collection: string, jsonField: string, va
   let sql = `SELECT ${SELECT} FROM records WHERE collection = ? AND json_extract(data, '$.${jsonField}') = ?`;
   if (!opts.includeDeleted) sql += ` AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`;
   const { results } = await env.DB.prepare(sql).bind(collection, value as string | number).all<RawRow>();
-  return results.map(toRow);
+  return gateRows(env, results.map(toRow));
 }
 
 /** WHERE data.boardId IS NULL (boardless default board) — json_extract returns NULL for absent keys. */
@@ -63,7 +69,7 @@ export async function listDefaultBoardTasks(env: Env): Promise<RecRow[]> {
   const { results } = await env.DB
     .prepare(`SELECT ${SELECT} FROM records WHERE collection = 'tasks' AND json_extract(data, '$.boardId') IS NULL AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`)
     .all<RawRow>();
-  return results.map(toRow);
+  return gateRows(env, results.map(toRow));
 }
 
 /** Default row ceiling of whole-collection reads. */
@@ -79,15 +85,19 @@ export const COLLECTION_READ_LIMIT = 5000;
  */
 export async function listCollection(env: Env, collection: string, opts: { includeDeleted?: boolean; limit?: number } = {}): Promise<RecRow[]> {
   const limit = opts.limit ?? COLLECTION_READ_LIMIT;
+  // A gated whole-collection read first narrows to the caller's readable spaces in SQL
+  // (records.space_id is only a prefilter; the gate below still decides every row).
+  const scoped = env.READ_GATE ? await env.READ_GATE.enabled() : false;
   let sql = `SELECT ${SELECT} FROM records WHERE collection = ?`;
   if (!opts.includeDeleted) sql += ` AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`;
+  if (scoped) sql += ` AND space_id IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1)`;
   sql += ' LIMIT ?';
-  const { results } = await env.DB.prepare(sql).bind(collection, limit + 1).all<RawRow>();
+  const { results } = await env.DB.prepare(sql).bind(...(scoped ? [collection, env.READ_GATE!.userId, limit + 1] : [collection, limit + 1])).all<RawRow>();
   if (results.length > limit) {
     console.warn(JSON.stringify({ message: 'collection_read_truncated', collection, limit }));
-    return results.slice(0, limit).map(toRow);
+    return gateRows(env, results.slice(0, limit).map(toRow));
   }
-  return results.map(toRow);
+  return gateRows(env, results.map(toRow));
 }
 
 /**
@@ -101,7 +111,7 @@ export async function listLinksByKind(env: Env, kind: 'blocks' | 'relation' | 'r
     .prepare(`SELECT ${SELECT} FROM records WHERE collection = 'links' AND json_extract(data, '$.kind') = ? AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`)
     .bind(kind)
     .all<RawRow>();
-  return results.map(toRow);
+  return gateRows(env, results.map(toRow));
 }
 
 /** Links touching one record, via the fromId/toId expression indexes. */
@@ -111,7 +121,7 @@ export async function listLinksTouching(env: Env, id: string): Promise<RecRow[]>
     env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection = 'links' AND json_extract(data, '$.toId') = ? AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).bind(id),
   ]);
   const seen = new Set<string>();
-  return [...from.results, ...to.results].filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true))).map(toRow);
+  return gateRows(env, [...from.results, ...to.results].filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true))).map(toRow));
 }
 
 /**

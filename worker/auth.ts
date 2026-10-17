@@ -21,6 +21,11 @@ export interface Env {
   OAUTH_KV: KVNamespace;
   /** Injected by the OAuthProvider wrapper — MCP OAuth helpers. */
   OAUTH_PROVIDER: OAuthHelpers;
+  /** Request-scoped, never a binding: the caller's read gate (worker/readAccess.ts).
+   * Present only on the per-request copy built by `withReadGate`. */
+  READ_GATE?: import('./readAccess').ReadGate;
+  /** The ungated environment of the same request (service reads only). */
+  SERVICE_ENV?: Env;
 }
 
 export interface AuthUser extends PublicUser {

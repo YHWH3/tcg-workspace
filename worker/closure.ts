@@ -6,6 +6,7 @@
 
 import type { Env } from './auth';
 import { SELECT, toRow, type RawRow, type RecRow } from './records';
+import { gateRows } from './readAccess';
 
 export interface PageClosure {
   pages: RecRow[];
@@ -20,7 +21,7 @@ export interface PageClosure {
  * deleted independently); `includeDeleted` walks tombstones too — restore needs
  * the rows a delete hid.
  */
-export async function pageClosure(env: Pick<Env, 'DB'>, rootId: string, opts: { includeDeleted?: boolean } = {}): Promise<PageClosure> {
+export async function pageClosure(env: Pick<Env, 'DB' | 'READ_GATE'>, rootId: string, opts: { includeDeleted?: boolean } = {}): Promise<PageClosure> {
   const live = opts.includeDeleted ? '' : " AND COALESCE(json_extract(r.data,'$.deleted'),0)!=1";
   const cte = `WITH RECURSIVE sub(id) AS (
       SELECT id FROM records WHERE id=? AND collection='pages'
@@ -32,15 +33,15 @@ export async function pageClosure(env: Pick<Env, 'DB'>, rootId: string, opts: { 
     db.prepare(`${cte} SELECT ${SELECT} FROM records WHERE collection='blocks' AND json_extract(data,'$.pageId') IN (SELECT id FROM sub)`).bind(rootId),
     db.prepare(`${cte} SELECT ${SELECT} FROM records WHERE collection='files' AND json_extract(data,'$.parentId') IN (SELECT id FROM sub)`).bind(rootId),
   ]);
-  return { pages: pages.results.map(toRow), blocks: blocks.results.map(toRow), files: files.results.map(toRow) };
+  return { pages: await gateRows(env, pages.results.map(toRow)), blocks: await gateRows(env, blocks.results.map(toRow)), files: await gateRows(env, files.results.map(toRow)) };
 }
 
 /** Tasks embedded by `tasks` blocks (blockId), in one read. */
-export async function tasksByBlockIds(env: Pick<Env, 'DB'>, blockIds: string[]): Promise<RecRow[]> {
+export async function tasksByBlockIds(env: Pick<Env, 'DB' | 'READ_GATE'>, blockIds: string[]): Promise<RecRow[]> {
   if (!blockIds.length) return [];
   const { results } = await env.DB
     .prepare(`SELECT ${SELECT} FROM records WHERE collection='tasks' AND json_extract(data,'$.blockId') IN (SELECT value FROM json_each(?))`)
     .bind(JSON.stringify(blockIds))
     .all<RawRow>();
-  return results.map(toRow);
+  return gateRows(env, results.map(toRow));
 }
