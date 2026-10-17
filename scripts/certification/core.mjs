@@ -6,6 +6,17 @@ import { promisify } from 'node:util';
 import { dirname, join } from 'node:path';
 import { tmpdir, platform } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { setDefaultResultOrder, getDefaultResultOrder } from 'node:dns';
+
+/** Prefer IPv4 for certification and its owned Node children (npm and Miniflare)
+ * when IPv6 routes reset connections. Preserve address fallback, TLS checks and
+ * existing Node options; no OS settings or production Worker behavior change. */
+export function configureCertificationNetwork(env=process.env) {
+  setDefaultResultOrder('ipv4first');
+  const flag='--dns-result-order=ipv4first',existing=(env.NODE_OPTIONS??'').trim();
+  if(!existing.endsWith(flag))env.NODE_OPTIONS=`${existing} ${flag}`.trim();
+  return {dnsResultOrder:getDefaultResultOrder(),scope:'certification and owned Node children'};
+}
 
 /** A temporary assertion, tied to this process; never changes power settings.
  * macOS may still suspend on explicit lid closure. Such interrupted runs fail. */

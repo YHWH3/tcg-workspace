@@ -81,6 +81,18 @@ must not certify a later source. Complete mode now requires **27 gates**, includ
 
 ## Local resource evidence
 
+The first completed-source run at `37362f9` recorded **25/27 gates PASS**, with
+1,043 unit tests, 441 dedicated D1 tests and all browser suites passing. Its two
+failed gates remain in the artifact: npm audit reset its connection, and base MCP
+failed during project creation with a remote image. Both passed isolated reruns
+using IPv4-first Node DNS resolution (audit: zero vulnerabilities; base MCP: 94
+checks). The certification harness now records that preference and propagates it
+to its owned Node children, including npm and the Miniflare network bridge. It
+preserves TLS verification, IPv6 fallback and existing Node options. A child-process
+regression was red before the helper existed and green afterward. No application
+assertion or production network configuration was changed. The subsequent complete
+run on the committed correction remains required; isolated reruns do not certify it.
+
 `phase5-cost-d1.test.ts` exercises 500- and 1,000-record fixtures, counting all
 observed result metadata, individual statements and batched statements. The measured
 operations exclude fixture setup. Feed numbers are for `pullFeed`; they do not include

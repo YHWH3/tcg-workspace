@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 let chromium, firefox, webkit;
 import { startFixture, bootstrap } from './phase4-fixture.mjs';
 import { assessSecurityAudit } from './certification/security.mjs';
-import { json, fingerprint, preventIdleSleep, localOrigin, freePort, runCommand, validateReport, validateVitest, validateSmoke, migrationsManifest, decision, validatePerformanceEvidence } from './certification/core.mjs';
+import { json, fingerprint, preventIdleSleep, configureCertificationNetwork, localOrigin, freePort, runCommand, validateReport, validateVitest, validateSmoke, migrationsManifest, decision, validatePerformanceEvidence } from './certification/core.mjs';
 
 const cwd=fileURLToPath(new URL('../',import.meta.url));
 const mode=process.argv.includes('--quick')?'quick':process.argv.includes('--extended')?'extended':'complete';
@@ -23,8 +23,9 @@ const expectedIds=['prerequisites','dependencies','lockfile','whitespace','migra
 if(mode!=='quick')expectedIds.push('browsers','smoke','mcp-base','mcp-multiuser','mcp-phase1','mcp-phase2','mcp-phase3','mcp-phase4','v4','v6','v7','v8','v9','phase5-sync');
 if(mode==='extended')expectedIds.push('d1-stress-1','d1-stress-2');
 const sleepGuard=preventIdleSleep();
+const network=configureCertificationNetwork();
 process.once('exit',sleepGuard.stop);
-const environment={sleepPrevention:sleepGuard.evidence,os:platform(),osRelease:release(),node:process.version,cpu:cpus()[0]?.model,memoryBytes:totalmem(),startingSha,branch:execFileSync('git',['branch','--show-current'],{cwd,encoding:'utf8'}).trim(),mode,startedAt,playwright:null};
+const environment={sleepPrevention:sleepGuard.evidence,network,os:platform(),osRelease:release(),node:process.version,cpu:cpus()[0]?.model,memoryBytes:totalmem(),startingSha,branch:execFileSync('git',['branch','--show-current'],{cwd,encoding:'utf8'}).trim(),mode,startedAt,playwright:null};
 json(join(directory,'environment.json'),environment);
 let sourceFingerprint=fingerprint(cwd),buildOkay=false;
 const timeout=Number(process.env.CERT_TIMEOUT_MS??1200000);
