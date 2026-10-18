@@ -175,17 +175,115 @@ PASS. Artifact:
 This paragraph was written after run 4 and is outside its fingerprint. Earlier runs 1–3
 remain as recorded above.
 
+## Follow-up 2: permission-aware search index and bounded listings (after `ad58053`)
+
+Implements the search pipeline of [phase-5-implementation.md §9](../architecture/phase-5-implementation.md)
+and design review §6, and removes the remaining broad-read blockers.
+
+**Index (migration 0022, server-only tables, never collections).** `search_documents`
+(authoritative: one document per page, record, database and mood board; page/record bodies
+aggregate live block text, ≤ 8,000 characters, mention tokens stripped; record descriptions
+included), `search_fts` (FTS5, `unicode61 remove_diacritics 2`, rowid-aligned with
+`search_documents`, reconstructible and never part of a backup workflow) and `search_dirty`
+(one key per document). Triggers on `records` mark a document dirty in the same statement as
+any write of its row or one of its blocks, including a block moving between pages, explicit
+space moves, soft deletes and restores, from every write path. Migration 0022 marks every
+existing document dirty.
+
+**Processor (`worker/search.ts`).** `processSearchDirty` rebuilds ≤ 50 dirty documents
+from current records with one read batch and one write batch. It removes a dirty key only if
+its token (the newest `seq`) is unchanged, so a write during the rebuild keeps the key. It
+runs after each outbox event (best effort) and as a cron phase (`processSearchBacklog`).
+`POST /api/admin/reindex-search?after=` re-enqueues documents in keyset pages to rebuild a
+lost or corrupted index.
+
+**Query (`searchRecords`, shared by MCP `search` and the new `GET /api/search`).**
+- Input tokens are letters and digits only, ANDed, and prefix-matched from 2 characters. No
+  MATCH syntax or SQL is accepted.
+- Readable spaces are filtered in SQL, then the request's read gate checks every candidate.
+- Rank uses only the document's own content: a title hit sorts before a body-only hit, then
+  newer revisions first. There is no bm25, so hidden documents cannot reorder visible ones
+  (tested).
+- The ordering is total and the opaque cursor is the last scanned position, bound to the
+  query, so pages stay complete and stable when the gate drops candidates.
+- Snippets come only from indexed documents that are already authorized.
+- Dirty documents are matched on their current content, never served from the index. A dirty
+  backlog of more than 200 documents in readable spaces returns `indexPending: true`.
+- No totals, raw ranks or timings are returned.
+
+MCP `search` keeps its result shape (`id: "page:<id>"`, title, url, rev, where rev is the
+record's own revision). It adds `type`, `databaseId`, `cursor` and `limit` (≤ 50) inputs and
+`hasMore`, `nextCursor` and `indexPending` outputs. Matching changed from case-insensitive
+substring to word-prefix.
+
+**Listings.**
+- `workspace_overview` returns at most `limit` (default 200, max 500) pages, boards and mood
+  boards per list. Pages and boards are in tree order (order key, then id), and views are
+  returned for the listed boards. Each list has its own `…NextCursor`; calling with
+  `section` and `cursor` continues that list. Mood-item counts are SQL aggregates.
+- `query_records` without sorts pages any database size in id order. Filters are applied
+  window by window after the gate; the cursor is the last scanned id (a previous plain-id
+  cursor still means "after this record"), and `hasMore` is explicit.
+- `query_records` with sorts accepts databases of up to 5,000 records. A larger database
+  gets an explicit error rather than a truncated result.
+- `scanCollection` (`worker/records.ts`) is the shared gated keyset scanner.
+
+**Evidence.**
+- `tests/phase5-search-d1.test.ts` (9 tests, actual D1) covers:
+  - corpora of 1,500 readable and 900 private pages paged completely, with no duplicates,
+    nothing private and a stable order;
+  - filters by type and database, duplicate titles, body-only matches and snippets;
+  - ranking that does not change when 400 hidden matching documents are added;
+  - forged and foreign cursors, and query syntax treated as literals;
+  - edits of the title and body, soft delete, restore and a space move, each checked before
+    and after indexing;
+  - an interrupted rebuild that keeps its dirty keys, a reported backlog of more than 200,
+    and a full rebuild after losing both index tables;
+  - grant, revocation, and a revocation landing between the FTS candidate query and the gate;
+  - overview paging of 1,300 readable pages in tree order, with 700 private pages excluded;
+  - `query_records` paging a 5,200-record database completely under a filter, the explicit
+    sort bound, and revocation mid-pagination;
+  - measured cost.
+- Measured on 3,000 pages, 3,000 blocks and 3,000 records, two-thirds readable
+  (`phase5-search-cost.json`):
+
+  | Operation | Binding calls | Rows read | Rows written |
+  |---|---:|---:|---:|
+  | Search (title / body / rare term) | 6 | 6,736 / 14,331 / 6,044 | 0 |
+  | Overview, first page | 10 | 7,443 | 0 |
+  | Overview, 500-page continuation | 4 | 8,015 | 0 |
+  | `query_records`, 200 rows | 9 | 9,630 | 0 |
+  | Index rebuild, 50 documents | 3 | 6,457 | 250 |
+  | Ordinary page edit, including the dirty-key upsert | 4 | 31 | 14 |
+
+  Search rows read scale with the number of documents matching the query terms in any space
+  (FTS doclists), not with binding calls.
+
+**Certification of follow-up 2 (run 5) — PASS, 27/27 mandatory gates, exit 0**
+(2026-10-18 06:37:41Z–07:11:23Z). Tested commit `ad58053a5b01196207c0f56916d2beb137e64671`
+plus the uncommitted follow-up-2 changes, source fingerprint
+`700ac97a308ab99446520c51c821359a28a1025da68fcbf90ca25e4ccc7e4436`. Unit 1,077 PASS;
+D1 475 PASS (including `phase5-search-d1` 9/9); every MCP, smoke, v4/v6/v7/v8/v9 and the
+33 Phase 5 sync journeys PASS; migrations gate 22/22. Artifact:
+`.artifacts/certification/ad58053a5b01196207c0f56916d2beb137e64671-2026-10-18T06-37-41-351Z-complete/`.
+This paragraph was written after run 5 and is outside its fingerprint.
+
 ## Remaining activation blockers (not done here)
 
-- **Broad listings still scale with readable content:** `workspace_overview` (every page,
-  capped at 5,000), `search` (prefiltered scan; the FTS service of design review §6 is not
-  built) and `query_records` on very large databases (all rows of one database).
+- **Search rows read** grow with the number of documents matching a query's terms in all
+  spaces (FTS doclists are global; the space filter applies after the match). Binding calls
+  are constant. A per-space corpus would bound this further if measurements in production
+  require it.
+- **Search coverage**: comments, file names and mood-item text are not indexed yet (design
+  §9 lists them). The ⌘K palette still searches locally and does not call `GET /api/search`.
+- **Sorted `query_records`** is limited to databases of up to 5,000 records (explicit error
+  above that).
 - **People directory** (`/api/users`, MCP user lookup) still lists every workspace user to
   guests — an owner policy decision.
 - **Delivery-time filtering and purge** of notifications for non-readers (read-time
   redaction is in place; stored copies remain server-side until retention).
-- **Server search/index pipeline**, guest/space UI, history/restore UI and space-aware
-  `deletedVia` restore (design review §8.3) are not part of this change.
+- Guest/space UI, history/restore UI and space-aware `deletedVia` restore (design review
+  §8.3) are not part of this change.
 - Owner decisions remain pending: share minting by space admins only (implemented per the
   design review; confirm), embedding, approval separation of duties, CSP rollout, guest
   quotas, export/quarantine retention, activation procedure.

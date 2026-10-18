@@ -368,6 +368,11 @@ wipe or immediate offline revocation is promised.
 
 ## 9. Search and leakage controls
 
+> **Implemented (2026-10-18)** as specified below, with the measured deviations recorded in
+> [../reviews/phase-5-authorized-reads.md](../reviews/phase-5-authorized-reads.md) (follow-up 2):
+> no generation exists any more, so the cursor is bound to the query instead; comments,
+> file names and mood text are not yet indexed; the palette integration is pending.
+
 FTS5 availability was executed in disposable local Miniflare/D1 on 2026-10-15
 (`tests/phase5-runtime-d1.test.ts`): prefix MATCH, bm25, snippet and SQL space
 filtering work. Official D1 documents list FTS5 as supported. Keep authoritative
