@@ -6,7 +6,7 @@ import type { Env } from './auth';
 import { randomToken } from './password';
 import { rateLimitHit } from './ratelimit';
 import { applyChanges, pokeLive, MAX_EXPECTED, type ConflictInfo } from './sync';
-import { getRec, getRecs, listBy, listCollection, listDefaultBoardTasks, listLinksByKind, listLinksTouching, listLinksFor, listRootPages, casUpdate, SELECT, toRow, type RawRow, type RecRow } from './records';
+import { getRec, getRecs, listBy, listCollection, listDefaultBoardTasks, listLinksByKind, listLinksTouching, listLinksFor, listRootPages, scanCollection, casUpdate, SELECT, toRow, type RawRow, type RecRow, type ScanKey } from './records';
 import { gateRows } from './readAccess';
 import { argsHash } from '../shared/stablejson';
 import { withIdempotency } from './idempotency';
@@ -34,6 +34,7 @@ import { COLUMN_COLORS } from '../src/modules/boards/model';
 import { registerApprovalTools } from './mcpApprovals'; // P4-D
 import { serviceEnv, withReadGate } from './readAccess';
 import { shareAuthority } from './shareAccess';
+import { searchRecords, SearchError } from './search';
 import { visibleItems, visibleSummaries } from './historyAccess';
 import { levelSql } from './capability';
 import type { Collection } from '../shared/collections';
@@ -638,63 +639,26 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   server.registerTool(
     'search',
     {
-      description: 'Search workspace pages, tasks, boards and mood boards by title and content.',
-      inputSchema: z.object({ query: z.string().describe('Free-text search query') }),
+      description: 'Search pages, tasks/records, boards and mood boards by title and body text (words are prefix-matched). Returns at most `limit` (default 20, max 50) results per call; pass nextCursor back as `cursor` while hasMore is true. indexPending:true means recent changes are still being indexed.',
+      inputSchema: z.object({
+        query: z.string().describe('Free-text search query'),
+        type: z.enum(['page', 'task', 'board', 'moodboard']).optional(),
+        databaseId: z.string().optional().describe('Only records of this database'),
+        cursor: z.string().optional(),
+        limit: z.number().optional(),
+      }),
       annotations: { readOnlyHint: true },
     },
-    async ({ query }) => {
-      const q = query.trim().toLowerCase();
-      const scoped = await ctx.env.READ_GATE!.enabled();
-      const results: { id: string; title: string; url: string; rev?: number }[] = [];
-      // §3/§11: scan only what search needs — no full data column.
-      const { results: slim } = await ctx.env.DB.prepare(
-        `SELECT id, collection, seq,
-                json_extract(data, '$.title') AS jt,
-                json_extract(data, '$.name') AS jn,
-                json_extract(data, '$.text') AS jtext,
-                json_extract(data, '$.description') AS jdesc,
-                json_extract(data, '$.pageId') AS jpage,
-                json_extract(data, '$.boardId') AS jboard,
-                json_extract(data, '$.deleted') AS jdel
-         FROM records
-         WHERE collection IN ('pages','blocks','tasks','boards','moodboards')${scoped ? ` AND space_id IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1)` : ''}`,
-      ).bind(...(scoped ? [ctx.userId] : [])).all<{ id: string; collection: string; seq: number; jt: unknown; jn: unknown; jtext: unknown; jdesc: unknown; jpage: unknown; jboard: unknown; jdel: unknown }>();
-      let rows = slim.filter((r) => r.jdel !== 1);
-      if (scoped) {
-        // records.space_id is only a prefilter: the graph decides, on the matching rows only.
-        const pageRows = new Map(rows.filter((r) => r.collection === 'pages').map((r) => [r.id, r]));
-        const blockHits = rows.filter((b) => b.collection === 'blocks' && String(b.jtext ?? '').toLowerCase().includes(q));
-        const titleHits = rows.filter((r) => r.collection !== 'blocks' && `${r.jt ?? ''} ${r.jn ?? ''} ${r.collection === 'tasks' ? r.jdesc ?? '' : ''}`.toLowerCase().includes(q));
-        const bodyPages = blockHits.flatMap((b) => { const p = pageRows.get(String(b.jpage ?? '')); return p ? [p] : []; });
-        const candidates = [...new Map([...blockHits, ...titleHits, ...bodyPages].map((r) => [r.id, r])).values()].slice(0, 2000);
-        const kept = new Set((await ctx.env.READ_GATE!.filter(candidates.map((r) => ({ id: r.id, rev: r.seq })))).map((r) => r.id));
-        rows = rows.filter((r) => kept.has(r.id));
-      }
-      const pageHasMatch = new Set<string>();
-      for (const b of rows) if (b.collection === 'blocks' && String(b.jtext ?? '').toLowerCase().includes(q)) pageHasMatch.add(String(b.jpage ?? ''));
-      for (const p of rows) {
-        if (results.length >= 50) break;
-        if (p.collection !== 'pages') continue;
-        if (String(p.jt ?? '').toLowerCase().includes(q) || pageHasMatch.has(p.id)) {
-          results.push({ id: `page:${p.id}`, title: String(p.jt ?? 'Untitled'), url: pageUrl(ctx, p.id), rev: p.seq });
-        }
-      }
-      for (const t of rows) {
-        if (results.length >= 50) break;
-        if (t.collection !== 'tasks') continue;
-        if (`${t.jt ?? ''} ${t.jdesc ?? ''}`.toLowerCase().includes(q)) results.push({ id: `task:${t.id}`, title: String(t.jt ?? 'Task'), url: `${ctx.origin}/boards/${String(t.jboard ?? 'board-default')}/tasks/${t.id}`, rev: t.seq });
-      }
-      for (const b of rows) {
-        if (results.length >= 50) break;
-        if (b.collection !== 'boards') continue;
-        if (String(b.jn ?? b.jt ?? '').toLowerCase().includes(q)) results.push({ id: `board:${b.id}`, title: String(b.jn ?? b.jt ?? 'Board'), url: boardUrl(ctx, b.id), rev: b.seq });
-      }
-      for (const m of rows) {
-        if (results.length >= 50) break;
-        if (m.collection !== 'moodboards') continue;
-        if (String(m.jt ?? '').toLowerCase().includes(q)) results.push({ id: `moodboard:${m.id}`, title: String(m.jt ?? 'Mood board'), url: moodUrl(ctx, m.id), rev: m.seq });
-      }
-      return txt({ results });
+    async ({ query, type, databaseId, cursor, limit }) => {
+      // The permission-aware search service (worker/search.ts): index + live dirty docs,
+      // readable-space prefilter, the request's read gate, keyset pagination.
+      let out;
+      try { out = await searchRecords(ctx.env, ctx.userId, { q: query, type, databaseId, cursor: cursor ?? null, limit }); }
+      catch (e) { if (e instanceof SearchError) return err(e.code); throw e; }
+      const url = (h: (typeof out.results)[number]) => h.type === 'page' ? pageUrl(ctx, h.docId) : h.type === 'task' ? `${ctx.origin}/boards/${h.databaseId ?? 'board-default'}/tasks/${h.docId}` : h.type === 'board' ? boardUrl(ctx, h.docId) : moodUrl(ctx, h.docId);
+      // `rev` is the record's own revision (what expectedRev writes compare), not the index's.
+      const own = await getRecs(ctx.env, out.results.map((h) => h.docId));
+      return txt({ results: out.results.filter((h) => own.has(h.docId)).map((h) => ({ id: `${h.type}:${h.docId}`, title: h.title, url: url(h), rev: own.get(h.docId)!.rev, ...(h.snippet ? { snippet: h.snippet } : {}) })), hasMore: out.hasMore, nextCursor: out.nextCursor, indexPending: out.indexPending });
     },
   );
 
@@ -768,32 +732,38 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   server.registerTool(
     'workspace_overview',
     {
-      description: 'List people, the page tree (with templates), boards (columns + fields) and mood boards. Use this to look up ids before other tools.',
-      inputSchema: z.object({}),
+      description: 'List people, the page tree (with templates), boards (columns + fields, with views) and mood boards. Each list returns at most `limit` items (default 200, max 500) in a stable order; when pagesNextCursor / boardsNextCursor / moodboardsNextCursor is non-null, call again with section and cursor for the next page. Use this to look up ids before other tools.',
+      inputSchema: z.object({
+        section: z.enum(['pages', 'boards', 'moodboards']).optional().describe('Continue one list (with cursor); omit for the first page of every list'),
+        cursor: z.string().optional(),
+        limit: z.number().optional(),
+      }),
       annotations: { readOnlyHint: true },
     },
-    async () => {
-      const [us, pages, boards, moods, viewRowsAll] = await Promise.all([
-        users(ctx.env),
-        recs(ctx.env, 'pages'),
-        recs(ctx.env, 'boards'),
-        recs(ctx.env, 'moodboards'),
-        recs(ctx.env, 'views'),
-      ]);
-      const viewRows = live(viewRowsAll);
-      // Mood items inherit their board's scope: count them for the readable boards only,
-      // in SQL, instead of materializing (and gating) every item of the workspace.
-      const readableMoods = live(moods).map((m) => m.id);
-      const { results: itemCounts } = readableMoods.length ? await ctx.env.DB.prepare(`SELECT json_extract(data,'$.boardId') AS board, COUNT(*) AS n FROM records
-          WHERE collection='mooditems' AND COALESCE(json_extract(data,'$.deleted'),0)!=1 AND json_extract(data,'$.boardId') IN (SELECT value FROM json_each(?)) GROUP BY board`)
-        .bind(JSON.stringify(readableMoods)).all<{ board: string; n: number }>() : { results: [] as { board: string; n: number }[] };
-      const itemCount = new Map(itemCounts.map((r) => [r.board, r.n]));
-      return txt({
-        people: us.map((u) => ({ id: u.id, username: u.username, name: u.name })),
-        pages: live(pages)
-          .sort(byOrder)
-          .map((p) => ({ id: p.id, title: titleOf(p, 'Untitled'), icon: p.data.icon, parentId: p.data.parentId ?? null, isTemplate: !!p.data.isTemplate, rev: p.rev })),
-        boards: live(boards).map((b) => ({
+    async ({ section, cursor, limit: rawLimit }) => {
+      const limit = Math.max(1, Math.min(Math.floor(rawLimit ?? 200), 500));
+      let after: ScanKey | null = null;
+      if (cursor) {
+        if (!section) return err('cursor requires section');
+        try { const c = JSON.parse(atob(cursor)) as { s?: string; o?: unknown; id?: unknown }; if (c.s !== section || typeof c.o !== 'string' || typeof c.id !== 'string') throw new Error(); after = { o: c.o, id: c.id }; }
+        catch { return err('invalid cursor'); }
+      }
+      const next = (name: string, key: ScanKey | null) => (key ? btoa(JSON.stringify({ s: name, o: key.o, id: key.id })) : null);
+      const want = (name: string) => !section || section === name;
+      const out: Record<string, unknown> = {};
+      if (!section) out.people = (await users(ctx.env)).map((u) => ({ id: u.id, username: u.username, name: u.name }));
+      if (want('pages')) {
+        const page = await scanCollection(ctx.env, 'pages', { limit, after: section === 'pages' ? after : null });
+        out.pages = page.rows.map(toRec).map((p) => ({ id: p.id, title: titleOf(p, 'Untitled'), icon: p.data.icon, parentId: p.data.parentId ?? null, isTemplate: !!p.data.isTemplate, rev: p.rev }));
+        out.pagesNextCursor = next('pages', page.next);
+      }
+      if (want('boards')) {
+        const page = await scanCollection(ctx.env, 'boards', { limit, after: section === 'boards' ? after : null });
+        const boards = page.rows.map(toRec);
+        const { results: viewRaw } = boards.length ? await ctx.env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection='views' AND COALESCE(json_extract(data,'$.deleted'),0)!=1 AND json_extract(data,'$.databaseId') IN (SELECT value FROM json_each(?))`)
+          .bind(JSON.stringify(boards.map((b) => b.id))).all<RawRow>() : { results: [] as RawRow[] };
+        const viewRows = (await gateRows(ctx.env, viewRaw.map(toRow))).map(toRec);
+        out.boards = boards.map((b) => ({
           id: b.id,
           name: b.data.name,
           rev: b.rev,
@@ -803,12 +773,22 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           defaultViewId: b.data.defaultViewId ?? null,
           columns: boardColumns(b).map((c) => ({ id: c.id, name: c.name })),
           fields: fieldsOf(b.data).map((f) => ({ id: f.id, name: f.name, type: f.type, options: f.options?.map((o) => o.name), relation: f.relation ? { target: f.relation.target, pairedFieldId: f.relation.pairedFieldId, single: f.relation.single, primary: f.relation.primary } : undefined })),
-        })),
-        viewsByBoard: Object.fromEntries(
-          live(boards).map((b) => [b.id, viewRows.filter((v) => String(v.data.databaseId) === b.id).map((v) => ({ id: v.id, name: v.data.name, type: v.data.type, rev: v.rev }))]),
-        ),
-        moodboards: live(moods).map((m) => ({ id: m.id, title: m.data.title, rev: m.rev, itemCount: itemCount.get(m.id) ?? 0 })),
-      });
+        }));
+        out.viewsByBoard = Object.fromEntries(boards.map((b) => [b.id, viewRows.filter((v) => String(v.data.databaseId) === b.id).map((v) => ({ id: v.id, name: v.data.name, type: v.data.type, rev: v.rev }))]));
+        out.boardsNextCursor = next('boards', page.next);
+      }
+      if (want('moodboards')) {
+        const page = await scanCollection(ctx.env, 'moodboards', { limit, after: section === 'moodboards' ? after : null });
+        const moods = page.rows.map(toRec);
+        // Mood items inherit their board's scope: count them in SQL for the listed (readable) boards.
+        const { results: itemCounts } = moods.length ? await ctx.env.DB.prepare(`SELECT json_extract(data,'$.boardId') AS board, COUNT(*) AS n FROM records
+            WHERE collection='mooditems' AND COALESCE(json_extract(data,'$.deleted'),0)!=1 AND json_extract(data,'$.boardId') IN (SELECT value FROM json_each(?)) GROUP BY board`)
+          .bind(JSON.stringify(moods.map((m) => m.id))).all<{ board: string; n: number }>() : { results: [] as { board: string; n: number }[] };
+        const itemCount = new Map(itemCounts.map((r) => [r.board, r.n]));
+        out.moodboards = moods.map((m) => ({ id: m.id, title: m.data.title, rev: m.rev, itemCount: itemCount.get(m.id) ?? 0 }));
+        out.moodboardsNextCursor = next('moodboards', page.next);
+      }
+      return txt(out);
     },
   );
 
@@ -3960,7 +3940,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   server.registerTool(
     'query_records',
     {
-      description: 'Query a database: filters/sorts use field NAMES. Returns rows with named field values + rev. limit ≤200, cursor paginates.',
+      description: 'Query a database: filters/sorts use field NAMES. Returns rows with named field values + rev, at most `limit` (default 100, max 200) per call; while hasMore is true pass nextCursor back as `cursor`. Without sorts any database size pages in id order; with sorts the database must have at most 5,000 records (otherwise an explicit error).',
       inputSchema: z.object({
         databaseId: z.string(),
         filters: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })).optional(),
@@ -3975,53 +3955,80 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async (a) => {
       const board = await rec(ctx.env, 'boards', a.databaseId);
       if (!board || board.data.deleted) return err('database not found');
-      const limit = Math.min(a.limit ?? 100, 200);
-      const rows = live((await listBy(ctx.env, 'tasks', 'boardId', a.databaseId)).map(toRec));
+      const limit = Math.max(1, Math.min(a.limit ?? 100, 200));
       const { applyView } = await import('../shared/views');
       const fmap = new Map(fieldsOf(board.data).map((f) => [f.id, f]));
       await fillCaches(ctx);
-      // Relations of THIS database's rows only (a filter on a relation field needs all rows).
-      const relLinks = (await listLinksFor(ctx.env, rows.map((r) => r.id), 'relation')).filter((l) => l.data.fieldId);
-      await loadTitleIds(ctx, relLinks.map((l) => String(l.data.toId)));
-      const relationTitles = (recordId: string, fieldId: string) => {
-        const toIds = relLinks.filter((l) => l.data.fieldId === fieldId && String(l.data.fromId) === recordId).map((l) => String(l.data.toId));
-        return toIds.map((id) => ctx.pageTitleById.get(id) ?? id);
-      };
+      const include = new Set(a.include ?? ['fields']);
       const view = {
         filters: (a.filters ?? []).map((f) => ({ key: resolveFieldKey(board.data, f.field), op: f.op as import('../shared/views').FilterOp, value: f.value })),
         sorts: (a.sorts ?? []).map((s) => ({ key: resolveFieldKey(board.data, s.field), dir: (s.dir ?? 'asc') as 'asc' | 'desc' })),
         includeArchived: a.includeArchived === true,
       };
-      const startIdx = a.cursor ? rows.findIndex((r) => r.id === a.cursor) + 1 : 0;
-      const applied = applyView(rows.map((r) => ({ ...r.data, id: r.id })), view, { meId: ctx.userId, fieldsById: fmap, relationTitles, columnsById: new Map(boardColumns(board).map((c, i) => [c.id, i])) });
-      const page = applied.rows.slice(startIdx, startIdx + limit);
-      const include = new Set(a.include ?? ['fields']);
-      // Sub-records share their parent's database; dependencies are read for the shown rows.
-      const allTasks = rows;
-      const depEdges = include.has('deps') ? (await listLinksFor(ctx.env, page.map((d) => String(d.id ?? '')), 'blocks')).map((l) => [String(l.data.fromId), String(l.data.toId)] as [string, string]) : [];
-      const out = page.map((data) => {
-        const id = String(data.id ?? '');
-        const rec: Record<string, unknown> = { id, rev: undefined, title: data.title, status: data.status, archived: data.archived === true, url: recordUrl(a.databaseId, id) };
+      // Relation titles for exactly the rows being evaluated (filters may name relation fields).
+      const relLinks: Rec[] = [];
+      const loadRelations = async (rows: Rec[]) => {
+        const links = (await listLinksFor(ctx.env, rows.map((r) => r.id), 'relation')).map(toRec).filter((l) => l.data.fieldId);
+        await loadTitleIds(ctx, links.map((l) => String(l.data.toId)));
+        relLinks.push(...links);
+      };
+      const relationTitles = (recordId: string, fieldId: string) => {
+        const toIds = relLinks.filter((l) => l.data.fieldId === fieldId && String(l.data.fromId) === recordId).map((l) => String(l.data.toId));
+        return toIds.map((id) => ctx.pageTitleById.get(id) ?? id);
+      };
+      const vctx = { meId: ctx.userId, fieldsById: fmap, relationTitles, columnsById: new Map(boardColumns(board).map((c, i) => [c.id, i])) };
+      let page: Rec[];
+      let next: string | null;
+      if (!view.sorts.length) {
+        // Unsorted (the default): a keyset scan in id order, filters applied window by window
+        // after the read gate. The cursor is the last SCANNED id, so filtering never skips
+        // or repeats rows, and any database size is served in bounded steps. A plain record
+        // id (the previous cursor format) means "after this record".
+        let after: ScanKey | null = null;
+        if (a.cursor) after = { o: '', id: a.cursor.startsWith('k:') ? a.cursor.slice(2) : a.cursor };
+        const scanned = await scanCollection(ctx.env, 'tasks', { limit, after, by: 'id', boardId: a.databaseId,
+          keep: async (rows) => {
+            const recsIn = rows.map(toRec);
+            await loadRelations(recsIn);
+            const keep = new Set(applyView(recsIn.map((r) => ({ ...r.data, id: r.id })), view, vctx).rows.map((d) => String(d.id ?? '')));
+            return rows.filter((r) => keep.has(r.id));
+          } });
+        page = scanned.rows.map(toRec);
+        next = scanned.next ? `k:${scanned.next.id}` : null;
+      } else {
+        // A sort needs every row of the database: bounded and explicit, never truncated.
+        const MAX_SORTED = 5000;
+        const { results: raw } = await ctx.env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection='tasks' AND COALESCE(json_extract(data,'$.deleted'),0)!=1
+            AND (json_extract(data,'$.boardId') = ? OR (? = 'board-default' AND json_extract(data,'$.boardId') IS NULL)) LIMIT ?`)
+          .bind(a.databaseId, a.databaseId, MAX_SORTED + 1).all<RawRow>();
+        if (raw.length > MAX_SORTED) return err(`sorting needs every record and this database has more than ${MAX_SORTED}; query without sorts (paginated, any size) or split the database`);
+        const rows = (await gateRows(ctx.env, raw.map(toRow))).map(toRec);
+        await loadRelations(rows);
+        const applied = applyView(rows.map((r) => ({ ...r.data, id: r.id })), view, vctx).rows;
+        const startIdx = a.cursor ? applied.findIndex((r) => String(r.id) === a.cursor) + 1 : 0;
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        page = applied.slice(startIdx, startIdx + limit).map((d) => byId.get(String(d.id))!).filter(Boolean);
+        next = startIdx + limit < applied.length ? String(applied[startIdx + limit - 1]?.id ?? '') || null : null;
+      }
+      const ids = page.map((r) => r.id);
+      const children = include.has('subrecords') && ids.length ? (await gateRows(ctx.env, (await ctx.env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection='tasks' AND COALESCE(json_extract(data,'$.deleted'),0)!=1 AND json_extract(data,'$.parentId') IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(ids)).all<RawRow>()).results.map(toRow))).map(toRec) : [];
+      const depEdges = include.has('deps') ? (await listLinksFor(ctx.env, ids, 'blocks')).map((l) => [String(l.data.fromId), String(l.data.toId)] as [string, string]) : [];
+      const out = page.map((r) => {
+        const data = r.data;
+        const row: Record<string, unknown> = { id: r.id, rev: r.rev, title: data.title, status: data.status, archived: data.archived === true, url: recordUrl(a.databaseId, r.id) };
         if (include.has('fields')) {
           const fields: Record<string, unknown> = {};
-          for (const f of fieldsOf(board.data)) fields[f.name] = f.type === 'relation' ? relationTitles(id, f.id) : data[propKey(f.id)];
-          rec.fields = fields;
+          for (const f of fieldsOf(board.data)) fields[f.name] = f.type === 'relation' ? relationTitles(r.id, f.id) : data[propKey(f.id)];
+          row.fields = fields;
         }
-        if (include.has('subrecords')) rec.children = allTasks.filter((t) => String(t.data.parentId ?? '') === id).map((t) => ({ id: t.id, title: t.data.title }));
+        if (include.has('subrecords')) row.children = children.filter((t) => String(t.data.parentId ?? '') === r.id).map((t) => ({ id: t.id, title: t.data.title }));
         if (include.has('deps')) {
-          rec.blockedBy = depEdges.filter(([, t]) => t === id).map(([f]) => f);
-          rec.blocking = depEdges.filter(([f]) => f === id).map(([, t]) => t);
+          row.blockedBy = depEdges.filter(([, t]) => t === r.id).map(([f]) => f);
+          row.blocking = depEdges.filter(([f]) => f === r.id).map(([, t]) => t);
         }
-        return rec;
+        return row;
       });
-      // fill revs
-      const rowByData = new Map(rows.map((r) => [r.data, r]));
-      for (const rec2 of out) {
-        const row = page.find((d) => rowByData.get(d)?.id === rec2.id);
-        if (row) rec2.rev = rowByData.get(row)?.rev;
-      }
-      const next = startIdx + limit < applied.rows.length ? applied.rows[startIdx + limit - 1]?.id ?? null : null;
-      return txt({ rows: out, count: out.length, nextCursor: next });
+      return txt({ rows: out, count: out.length, nextCursor: next, hasMore: next !== null });
     },
   );
 

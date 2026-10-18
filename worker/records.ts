@@ -185,3 +185,49 @@ export async function listRootPages(env: Env): Promise<RecRow[]> {
       AND (json_extract(data, '$.parentId') IS NULL OR json_extract(data, '$.parentId') = '') AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).all<RawRow>();
   return gateRows(env, results.map(toRow));
 }
+
+export interface ScanKey { o: string; id: string }
+export interface ScanPage { rows: RecRow[]; next: ScanKey | null }
+
+/**
+ * One page of a collection (or of one database's records) in a total order — (order key as
+ * text, id), or id alone — with the request's gate applied window by window. The returned
+ * `next` is the last SCANNED key, so a page shortened by the gate or by `keep` never skips
+ * or repeats rows. At most `maxScan` rows are examined per call; `next` is non-null whenever
+ * rows may remain (the caller reports that explicitly, never as "no more").
+ */
+export async function scanCollection(env: Env, collection: string, opts: {
+  limit: number; after?: ScanKey | null; by?: 'order' | 'id'; boardId?: string; maxScan?: number;
+  keep?: (rows: RecRow[]) => RecRow[] | Promise<RecRow[]>;
+}): Promise<ScanPage> {
+  const by = opts.by ?? 'order', maxScan = opts.maxScan ?? 2000, window = Math.min(500, Math.max(opts.limit * 2, 50));
+  const scoped = env.READ_GATE ? await env.READ_GATE.enabled() : false;
+  const key = by === 'order' ? "COALESCE(CAST(json_extract(data,'$.order') AS TEXT),'')" : "''";
+  const out: RecRow[] = [];
+  let after = opts.after ?? null, scanned = 0;
+  while (out.length < opts.limit && scanned < maxScan) {
+    let sql = `SELECT ${SELECT}, ${key} AS scan_key FROM records WHERE collection = ? AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`;
+    const binds: unknown[] = [collection];
+    if (opts.boardId !== undefined) {
+      sql += opts.boardId === 'board-default' ? ` AND (json_extract(data,'$.boardId') = ? OR json_extract(data,'$.boardId') IS NULL)` : ` AND json_extract(data,'$.boardId') = ?`;
+      binds.push(opts.boardId);
+    }
+    if (scoped) { sql += ` AND space_id IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1)`; binds.push(env.READ_GATE!.userId); }
+    if (after) { sql += ` AND (${key} > ? OR (${key} = ? AND id > ?))`; binds.push(after.o, after.o, after.id); }
+    sql += ` ORDER BY ${key}, id LIMIT ?`; binds.push(window);
+    const { results } = await env.DB.prepare(sql).bind(...binds).all<RawRow & { scan_key: string }>();
+    if (!results.length) return { rows: out, next: null };
+    scanned += results.length;
+    const rows = results.map(toRow);
+    let kept = await gateRows(env, rows);
+    if (opts.keep) kept = await opts.keep(kept);
+    const keptIds = new Set(kept.map((r) => r.id));
+    for (let i = 0; i < rows.length; i++) {
+      after = { o: results[i].scan_key, id: results[i].id };
+      if (keptIds.has(rows[i].id)) out.push(kept.find((r) => r.id === rows[i].id)!);
+      if (out.length === opts.limit) return { rows: out, next: i < rows.length - 1 || results.length === window ? after : null };
+    }
+    if (results.length < window) return { rows: out, next: null };
+  }
+  return { rows: out, next: after };
+}
