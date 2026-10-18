@@ -469,7 +469,7 @@ describe('Phase 5 additive migration and real D1 authority', () => {
     ]) { await db.prepare(sql).run(); expect(await generation(), sql).toBe(before); }
     // What remains are integrity triggers, the sequence floor, session metadata and the per-move eviction facts: nothing global.
     expect((await db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'p5_%' ORDER BY name").all<{ name: string }>()).results.map(r => r.name))
-      .toEqual(['p5_record_space_insert', 'p5_record_space_update', 'p5_seq_floor', 'p5_session_metadata', 'p5_space_event_link_retarget', 'p5_space_event_move', 'p5_space_event_peer_change', 'p5_space_referenced']);
+      .toEqual(['p5_record_space_insert', 'p5_record_space_update', 'p5_search_dirty_insert', 'p5_search_dirty_update', 'p5_seq_floor', 'p5_session_metadata', 'p5_space_event_link_retarget', 'p5_space_event_move', 'p5_space_event_peer_change', 'p5_space_referenced']);
     expect(await db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE name IN ('sync_snapshots','sync_snapshot_items')").first('n')).toBe(0);
   });
 

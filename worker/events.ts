@@ -4,6 +4,7 @@
 // waitUntil; the cron sweeper recovers unprocessed rows. All semantic events
 // derive from successfully applied changes — never from client intentions.
 
+import { processSearchDirty } from './search';
 import { deriveEvents, type SemanticEvent, type AppliedLike } from '../shared/events';
 import type { AppliedChange } from './sync';
 import { notificationsForEvent, notify } from './notifications';
@@ -97,6 +98,10 @@ export async function processOutbox(env: { DB: D1Database }, outboxId: string): 
     await env.DB.prepare('UPDATE event_outbox SET processed_at=?,last_error=NULL,lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?')
       .bind(Date.now(), outboxId,lease)
       .run();
+    // Search freshness: rebuild one bounded chunk of dirty documents (the triggers already
+    // marked this write's documents). Best effort — the cron drains whatever remains, and
+    // queries match dirty documents live in the meantime.
+    if(hasD1Budget(env.DB,8)) await processSearchDirty(env).catch(()=>{});
   } catch (err) {
     if(err instanceof D1BudgetExhausted) {
       await d1CleanupDatabase(env.DB).prepare('UPDATE event_outbox SET attempts=MAX(0,attempts-1),last_error=?,lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?').bind(err.message,outboxId,lease).run();

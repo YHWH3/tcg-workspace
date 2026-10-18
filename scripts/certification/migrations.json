@@ -82,5 +82,9 @@
   {
     "name": "0021_phase5_share_space_pin.sql",
     "sha256": "798843d06b9161b102c839f712dcdcef70fe7a01dabffbb0b60ac366ecf6e6b2"
+  },
+  {
+    "name": "0022_phase5_search_index.sql",
+    "sha256": "510e1156a27e3b807d5dfd577400940b1d0a737911b4490ed3720fd17a368169"
   }
 ]

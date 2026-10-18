@@ -97,3 +97,13 @@ admin.delete('/users/:id', requireAdmin, async (c) => {
   if (target) await revokeAllGrants(c.env, target);
   return c.json({ ok: true });
 });
+
+// Phase 5 search index recovery: mark a keyset page of documents dirty and rebuild one chunk.
+// Repeat with `?after=<next>` until `next` is null; the cron drains the rest. The index is
+// derived data: rebuilding never changes records.
+admin.post('/admin/reindex-search', requireAdmin, async (c) => {
+  const { enqueueSearchRebuild, processSearchDirty } = await import('./search');
+  const queued = await enqueueSearchRebuild(c.env, c.req.query('after') ?? '');
+  const rebuilt = await processSearchDirty(c.env);
+  return c.json({ ok: true, queued: queued.queued, rebuilt, next: queued.next });
+});

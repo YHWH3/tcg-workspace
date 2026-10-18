@@ -15,6 +15,7 @@ import { notificationsApi } from './notifications';
 import { approvalsApi } from './approvals';
 import { formsApi, publicFormsApi } from './forms';
 import { automationsApi } from './automations';
+import { searchApi } from './searchApi';
 import { runScheduled } from './reminders';
 import {withD1Budget,D1BudgetExhausted} from './d1budget';
 import { browserHardening } from './headers';
@@ -75,6 +76,7 @@ app.route('/api/notifications', notificationsApi);
 app.route('/api/approvals', approvalsApi);
 app.route('/api/forms', formsApi);
 app.route('/api/automations', automationsApi);
+app.route('/api/search', searchApi);
 app.route('/api/public/forms', publicFormsApi);
 app.route('/api', admin);
 
