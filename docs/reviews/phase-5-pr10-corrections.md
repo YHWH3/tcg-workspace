@@ -108,6 +108,23 @@ also cover deletion, movement, regrant and mismatched arguments. Existing histor
 restore/undo/replay, file permissions, scoped share, search, notifications, Protocol 3
 browser/quarantine and guest tests remain in the complete matrix.
 
+## Certification-discovered compatibility correction
+
+The first clean-HEAD correction run on `6dca86a` passed 1,136 unit tests and
+529 dedicated D1 tests, then failed Phase 2 MCP. The moodboard tool resolved
+cards individually; fresh authority checks exposed D1 budget exhaustion at the
+larger canvas. A diagnostic disposable OAuth runner captured the actual error.
+A new 100-card regression failed with `D1BudgetExhausted` in BOTH permission modes.
+Exact card and database references are now loaded in authorized batches, retaining
+collection checks, hidden-reference redaction and final serialization validation.
+The same tests pass under 30 bindings. `review-moodboard-cost-*.json` measurements
+are mandatory in unit/D1 performance evidence. This is a targeted compatibility
+correction; no permission or budget assertion was relaxed.
+
+That initial run was stopped after the confirmed failure to correct it. Its report
+preserves the Phase 2 failure, interrupted v6 and NOT RUN later stages; it is not
+acceptance evidence. The new committed source requires a complete fresh run.
+
 ## Executed development evidence
 
 All logs are ignored local artifacts under `.artifacts/phase5-review/`:

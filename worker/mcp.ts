@@ -1460,16 +1460,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     live((await listBy(ctx.env, 'mooditems', 'boardId', moodboardId)).map(toRec));
 
   /** Resolve a card ref to {title, stage} — stage is the column NAME on the record's board. */
-  async function cardInfoFor(ref: ItemRef | null, boardsById: Map<string, Rec>): Promise<{ title: string | null; stage: string | null }> {
+  function cardInfoFor(ref: ItemRef | null, records: Map<string, RecRow>, boardsById: Map<string, RecRow>): { title: string | null; stage: string | null } {
     if (!ref) return { title: null, stage: null };
-    const r = await rec(ctx.env, ref.type === 'page' ? 'pages' : 'tasks', ref.id);
+    const row = records.get(ref.id);
+    const r = row?.collection === (ref.type === 'page' ? 'pages' : 'tasks') ? toRec(row) : null;
     if (!r || r.data.deleted) return { title: null, stage: null };
     if (ref.type === 'page') return { title: titleOf(r, 'Untitled'), stage: null };
-    let board = boardsById.get(String(r.data.boardId ?? 'board-default'));
-    if (board === undefined) {
-      board = (await rec(ctx.env, 'boards', String(r.data.boardId ?? 'board-default'))) ?? undefined;
-      if (board) boardsById.set(String(r.data.boardId ?? 'board-default'), board);
-    }
+    const candidate = boardsById.get(String(r.data.boardId ?? 'board-default'));
+    const board = candidate?.collection === 'boards' && !candidate.data.deleted ? candidate : undefined;
     const cols = (board?.data.columns ?? []) as { id: string; name: string }[];
     const status = String(r.data.status ?? '');
     return { title: titleOf(r, 'Untitled'), stage: cols.find((c) => c.id === status)?.name ?? (status || null) };
@@ -1654,7 +1652,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (mb === 'ambiguous') return err('multiple mood boards share that name — pass moodboardId');
       if (!mb) return err('mood board not found');
       const items = await boardItems(mb.id);
-      const boardsById = new Map<string, Rec>();
+      // Batch exact card references and their databases through the same read
+      // gate. Per-card authorization would exhaust the invocation budget.
+      const refs = items.filter(i=>i.data.type==='card').map(i=>cardRef(i.data as MoodItem)).filter((r):r is ItemRef=>!!r);
+      const cards = await getRecs(ctx.env,[...new Set(refs.map(r=>r.id))]);
+      const boardsById = await getRecs(ctx.env,[...new Set([...cards.values()].filter(r=>r.collection==='tasks'&&!r.data.deleted).map(r=>String(r.data.boardId??'board-default')))]);
       // linkId → live links row check for connector dangling detection
       const linkIds = items.map((i) => i.data.linkId).filter((x): x is string => typeof x === 'string' && !!x);
       const liveLinks = linkIds.length ? await getRecs(ctx.env, linkIds) : new Map();
@@ -1667,7 +1669,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         items: await Promise.all(
           out.map(async (it) => {
             const m = it as Record<string, unknown>;
-            if (m.type === 'card') m.card = await cardInfoFor(cardRef(m as MoodItem), boardsById);
+            if (m.type === 'card') m.card = cardInfoFor(cardRef(m as MoodItem), cards, boardsById);
             if (m.type === 'connector' && typeof m.linkId === 'string') {
               const l = liveLinks.get(m.linkId);
               m.dangling = !l || l.data.deleted === true;
