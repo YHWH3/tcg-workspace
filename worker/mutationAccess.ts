@@ -115,9 +115,15 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
   if (!context.enabled) throw new RecordAccessError('access_reset_required');
   const read = (scope: RecordScope | undefined, tombstoneOnly = false) => !!scope && !scope.serviceOnly && (tombstoneOnly || !scope.ancestorDeleted)
     && scope.readSpaceIds.every(id => canRead(spaceAccess(context, id)));
+  const tombstoneOnly = (id: string) => {
+    const record = candidates.get(id);
+    return !!existing.get(id) && !!record && (typeof record.data.deleted === 'boolean' || record.data.deleted === null)
+      && [...touched.get(id)!].every(field => field === 'deleted' || field === 'deletedVia')
+      && (record.data.deletedVia == null || typeof record.data.deletedVia === 'string');
+  };
   let blockedExpectation = false;
   for (const id of expected?.keys() ?? []) {
-    if (!read(oldScopes.get(id) ?? scopes.get(id))) {
+    if (!read(oldScopes.get(id) ?? scopes.get(id), tombstoneOnly(id))) {
       reject(id, candidates.get(id)?.collection ?? '', 'not_found_or_forbidden'); blockedExpectation = true;
     }
   }
@@ -130,10 +136,14 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
     // still requiring the same space capability and all revision fences.
     // This must never authorize reading/editing the hidden descendant body.
     const fields = touched.get(id)!;
-    const tombstoneOnly = !!old && typeof record.data.deleted === 'boolean'
-      && [...fields].every(field => field === 'deleted' || field === 'deletedVia')
-      && (record.data.deletedVia == null || typeof record.data.deletedVia === 'string');
-    if (!isActivePrincipal(context.principal) || !read(scope, tombstoneOnly) || (old && !read(oldScope, tombstoneOnly))) {
+    // A delete activity belongs to this same authorized tombstone plan. It
+    // cannot grant edits/reads to an already hidden target or another space.
+    const deletingTarget = !old && record.collection === 'activity' && record.data.verb === 'deleted'
+      && typeof record.data.targetId === 'string' && tombstoneOnly(record.data.targetId)
+      && candidates.get(record.data.targetId)?.data.deleted === true
+      && read(oldScopes.get(record.data.targetId));
+    const bookkeeping = tombstoneOnly(id) || deletingTarget;
+    if (!isActivePrincipal(context.principal) || !read(scope, bookkeeping) || (old && !read(oldScope, bookkeeping))) {
       // Do not distinguish guessed IDs, hidden parent/type/configuration or
       // malformed ownership for a caller with no readable scope.
       denied.set(id, { id, collection: record.collection, reason: 'not_found_or_forbidden' }); continue;

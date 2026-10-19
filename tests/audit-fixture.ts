@@ -20,10 +20,10 @@ export interface AuditFixture {
 
 export const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
 
-export async function openAuditFixture(users: { id: string; role?: 'admin' | 'member' }[] = [{ id: 'alice', role: 'admin' }, { id: 'bob' }, { id: 'carol' }], extraEnv: Partial<Env> = {}): Promise<AuditFixture> {
+export async function openAuditFixture(users: { id: string; role?: 'admin' | 'member' }[] = [{ id: 'alice', role: 'admin' }, { id: 'bob' }, { id: 'carol' }], extraEnv: Partial<Env> = {}, workerScript?: string): Promise<AuditFixture> {
   const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{
     name: 'audit', modules: true,
-    script: 'export default {fetch(){return new Response("audit fixture")}}',
+    script: workerScript ?? 'export default {fetch(){return new Response("audit fixture")}}',
     compatibilityDate: '2026-09-25', d1Databases: { DB: 'disposable-audit' },
   }] }));
   const db = (await mf.getD1Database('DB')) as D1Database;

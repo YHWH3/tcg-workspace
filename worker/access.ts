@@ -14,6 +14,8 @@ export interface AccessContext {
   readonly principal: WorkspacePrincipal | null;
   readonly enabled: boolean;
   readonly spaces: ReadonlyMap<string, SpaceAccess>;
+  /** Optional read-graph revision fence, evaluated in the authority batch. */
+  readonly recordsCurrent?: boolean;
 }
 
 interface PrincipalRow { id: string; workspace_role: unknown; disabled_at: number | null }
@@ -30,17 +32,20 @@ export class AccessError extends Error {
 
 /** A single D1 read batch gives one coherent principal/activation/membership view.
  * Call once for all candidate spaces, never once per candidate record. */
-export async function loadAccessContext(db: D1Database, userId: string, spaceIds: readonly string[]): Promise<AccessContext> {
+export async function loadAccessContext(db: D1Database, userId: string, spaceIds: readonly string[], recordRevisions?: ReadonlyMap<string, number>): Promise<AccessContext> {
   const ids = [...new Set(spaceIds)];
   if (typeof userId !== 'string' || !userId || userId.length > 64 || ids.length > MAX_ACCESS_SPACES
       || ids.some(id => typeof id !== 'string' || !id || id.length > 64)) throw new AccessError('invalid_access_request');
-  const [principalResult, stateResult, spaceResult] = await db.batch([
+  const [principalResult, stateResult, spaceResult, revisionResult] = await db.batch([
     db.prepare('SELECT id,COALESCE(workspace_role,role) workspace_role,disabled_at FROM users WHERE id=?').bind(userId),
     db.prepare('SELECT enabled FROM access_state WHERE id=1'),
     db.prepare(`SELECT s.id,s.default_access,s.export_policy,s.deleted_at,s.guest_directory_restricted,
       m.user_id member_user_id,m.role member_role,m.access member_access
       FROM spaces s LEFT JOIN space_members m ON m.space_id=s.id AND m.user_id=?
       WHERE s.id IN (SELECT value FROM json_each(?))`).bind(userId, JSON.stringify(ids)),
+    ...(recordRevisions ? [db.prepare(`SELECT NOT EXISTS(
+      SELECT 1 FROM json_each(?) e LEFT JOIN records r ON r.id=e.key WHERE r.seq IS NOT e.value
+    ) AS valid`).bind(JSON.stringify(Object.fromEntries(recordRevisions)))] : []),
   ]);
   const state = stateResult.results[0] as { enabled: number } | undefined;
   if (!state || ![0, 1].includes(state.enabled)) throw new AccessError('permission_schema_unavailable');
@@ -62,7 +67,7 @@ export async function loadAccessContext(db: D1Database, userId: string, spaceIds
     }
     spaces.set(s.id, { principal, space, membership });
   }
-  return { userId, principal, enabled: state.enabled === 1, spaces };
+  return { userId, principal, enabled: state.enabled === 1, spaces, ...(recordRevisions ? {recordsCurrent:(revisionResult.results[0] as {valid?:number}|undefined)?.valid===1}: {}) };
 }
 
 export function spaceAccess(context: AccessContext, spaceId: string): SpaceAccess {

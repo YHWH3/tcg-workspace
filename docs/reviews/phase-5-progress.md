@@ -8,6 +8,14 @@ Baseline: `977475f0cac54bf05f0e5e513785c4933e0e9d73`.
 Branch: `grok/phase-5-search-permissions` in the original Desktop checkout.
 No merge, deployment or production resource changes.
 
+## PR #10 independent-review correction round
+
+P5-R01–R03 are reproduced and corrected in the current development tree. See
+[the correction ledger](phase-5-pr10-corrections.md) for root causes, fail-closed
+behavior, deterministic D1/Worker red-to-green evidence and race boundaries.
+Final acceptance requires a new clean committed-source complete certification;
+the `fcfc5e0` baseline is preserved and does not certify these changes.
+
 ## Current per-space integration checkpoint (2026-10-17)
 
 Current work is on `phase5/per-space-feeds`. The client and server now implement

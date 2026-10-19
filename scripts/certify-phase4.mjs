@@ -138,12 +138,13 @@ try {
       measurements.push({suite:id,...report});
     }
     const phase5Measurements=['unit','d1'].map(id=>{const evidence=readJson(join(directory,id+'-artifacts/performance/phase5-capabilities-cost.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!=='ENABLED'||evidence.records!==1000||!Array.isArray(evidence.measurements)||evidence.measurements.length<4||evidence.measurements.some(v=>!Number.isFinite(v.metrics?.bindings)||v.metrics.bindings>45))throw new Error('Incomplete Phase 5 resource evidence: '+id);return {suite:id,...evidence};});
+    const reviewMeasurements=['unit','d1'].map(id=>{const evidence=readJson(join(directory,id+'-artifacts/review-summary-cost.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!=='ENABLED'||evidence.journalItems<10001||!Number.isFinite(evidence.bindingCalls)||evidence.bindingCalls<1||evidence.bindingCalls>10||evidence.metrics?.bindings!==evidence.bindingCalls||!Number.isFinite(evidence.metrics?.statements)||!Number.isFinite(evidence.metrics?.rowsWritten)||!Number.isFinite(evidence.metrics?.rowsRead)||!Number.isFinite(evidence.durationMs))throw new Error('Missing review authorization resource evidence: '+id);return {suite:id,...evidence};});
     const browserMeasurements=mode==='quick'?[]:['v8','v9'].flatMap(id=>{
       const report=readJson(join(directory,id,'results.json'));
       if(!Array.isArray(report.performance)||!report.performance.length)throw new Error(`Missing browser performance evidence: ${id}`);
       return report.performance.map(metric=>({suite:id,...metric}));
     });
-    json(join(directory,'performance.json'),{measurements,phase5Measurements,browserMeasurements,limitations:['Local Miniflare and Playwright measurements only; no Cloudflare regional latency or billing measured','Binding calls and SQL statements are separate counts; all() retains row metadata for first() observation']});
+    json(join(directory,'performance.json'),{measurements,phase5Measurements,reviewMeasurements,browserMeasurements,limitations:['Local Miniflare and Playwright measurements only; no Cloudflare regional latency or billing measured','Binding calls and SQL statements are separate counts; all() retains row metadata for first() observation']});
     return {pass:measurements.reduce((count,r)=>count+r.metrics.length,0)+browserMeasurements.length,fail:0,notRun:0,allMandatoryAssertionsExecuted:true};
   });
   await internal('source-integrity',()=>{

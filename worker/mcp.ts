@@ -182,25 +182,18 @@ async function users(env: Env): Promise<UserRow[]> {
 }
 
 
-/** A stored idempotent result is a historical copy of record-derived output. Replayed after
- * the caller lost access, it must not disclose anything: if any record it names is now
- * unreadable, only the replay marker and change-set reference survive. Legacy: unchanged. */
-async function refilterReplay(c: Ctx, text: string): Promise<string> {
-  const gate = c.env.READ_GATE;
-  if (!gate || !(await gate.enabled())) return text;
-  let parsed: unknown;
-  try { parsed = JSON.parse(text); } catch { return JSON.stringify({ replayed: true, restricted: true }); }
-  const strings = new Set<string>();
-  const walk = (v: unknown) => {
-    if (typeof v === 'string') { for (const part of [v, ...v.split(/[:/]/)]) if (/^[A-Za-z0-9_-]{1,64}$/.test(part)) strings.add(part); }
-    else if (Array.isArray(v)) v.forEach(walk);
-    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
-  };
-  walk(parsed);
-  const decision = await gate.decide([...strings].slice(0, 5000));
-  if (!decision.denied.size) return text;
-  const changesetId = parsed && typeof parsed === 'object' ? (parsed as { changesetId?: unknown }).changesetId : undefined;
-  return JSON.stringify({ replayed: true, restricted: true, ...(typeof changesetId === 'string' ? { changesetId } : {}) });
+/** Stored outputs have no complete record-dependency manifest. With permissions
+ * enabled, every completed replay is metadata-only; stored payloads never authorize
+ * themselves. Disabled-mode replay retains its legacy contract in the caller. */
+async function refilterReplay(c: Ctx, requestId: string): Promise<string> {
+  // Legacy output has no complete dependency manifest. Never inspect arbitrary
+  // strings as evidence of authorization. Enabled replays retain only safe status
+  // and, if its COMPLETE journal is currently readable, a server-owned reference.
+  const cs = await c.env.DB.prepare('SELECT id FROM changesets WHERE user_id=? AND request_id=? AND tool=? ORDER BY created_at DESC LIMIT 1')
+    .bind(c.userId,requestId,c.toolName).first<{id:string}>();
+  const [shown] = cs ? await visibleSummaries(c.env.DB,c.userId,[{id:cs.id,summary:''}]) : [];
+  return JSON.stringify({replayed:true,restricted:true,resultRedacted:true,
+    ...(shown && !(shown as {restricted?:boolean}).restricted ? {changesetId:cs!.id} : {})});
 }
 
 /** Resolvers for RENDERING `texts`: the titles of exactly the pages/records/users their
@@ -552,6 +545,29 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     { instructions: INSTRUCTIONS },
   );
 
+  // Each helper authorizes its own read; the tool can still retain earlier values
+  // while awaiting later reads. Revalidate the explicitly observed record set at
+  // serialization. Never infer dependencies from response strings.
+  server.registerTool = new Proxy(server.registerTool, {
+    apply(register, receiver, args) {
+      const [name, metadata, handler] = args;
+      return Reflect.apply(register, receiver, [name, metadata, async (...input: unknown[]) => {
+        const result = await handler(...input);
+        if (!(await ctx.env.READ_GATE!.validateObserved())) {
+          // Writes may already have committed (including our own cascade delete).
+          // Drop all content, but retain truthful status and the caller's own
+          // audit reference. Possession of this ID grants no read/undo rights.
+          let id: unknown;
+          try { id = JSON.parse(result.content?.[0]?.text ?? '{}').changesetId; } catch { /* no trusted payload */ }
+          const own = typeof id === 'string' ? await ctx.env.DB.prepare('SELECT id FROM changesets WHERE id=? AND user_id=?').bind(id,ctx.userId).first<{id:string}>() : null;
+          if (own) return { ...txt({resultRedacted:true,accessChanged:true,changesetId:own.id,operationStatus:result.isError?'partial_or_failed':'completed'}),isError:result.isError===true };
+          return err('access changed during request; re-read current data');
+        }
+        return result;
+      }]);
+    },
+  });
+
   const fieldInput = z.record(z.string(), z.unknown()).optional().describe('Custom field values keyed by field name or id (select accepts option name).');
   const requestIdInput = z.string().optional().describe('Idempotency key (1-64 chars). Re-sending the same requestId returns the stored result instead of re-applying.');
   const dryRunInput = z.boolean().optional().describe('Preview impact without writing. Call with dryRun:true first and show the user the impact before executing.');
@@ -621,7 +637,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       };
       if (args.requestId) {
         const out = await withIdempotency(ctx.env, ctx.userId, name, args.requestId, args, run);
-        const text = out.replayed ? await refilterReplay(ctx, out.text) : out.text;
+        ctx.toolName = name;
+        const text = out.replayed && await ctx.env.READ_GATE!.enabled() ? await refilterReplay(ctx, args.requestId) : out.text;
         return { content: [{ type: 'text' as const, text }], isError: out.failed === true } as ToolResult;
       }
       const out = await run();
@@ -2983,8 +3000,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (!cs) return err('changeset not found');
       if (ctx.userRole !== 'admin' && cs.user_id !== ctx.userId) return err('forbidden');
       const { results: raw } = await ctx.env.DB.prepare('SELECT idx, collection, record_id, created, before, after, field_ts FROM changeset_items WHERE changeset_id = ? ORDER BY idx').bind(changesetId).all<{ record_id: string; before: string; after: string; field_ts: string }>();
+      const [summary] = await visibleSummaries(ctx.env.DB, ctx.userId, [cs as { id: unknown; summary?: unknown }]);
       const shown = await visibleItems(ctx.env.DB, ctx.userId, raw);
-      const [changeset] = shown.restricted ? await visibleSummaries(ctx.env.DB, ctx.userId, [cs as { id: unknown; summary?: unknown }]) : [cs];
+      const changeset = shown.restricted ? {...summary,summary:'Restricted change',restricted:true} : summary;
       return txt({ changeset, items: shown.items.map((r) => ({ ...r, before: JSON.parse(String(r.before)), after: JSON.parse(String(r.after)), field_ts: JSON.parse(String(r.field_ts)) })), ...(shown.restricted ? { restricted: shown.restricted } : {}) });
     },
   );

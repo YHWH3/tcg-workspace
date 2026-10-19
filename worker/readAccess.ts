@@ -45,6 +45,8 @@ export interface ReadGate {
   filter<T extends { id: string; rev?: number }>(rows: readonly T[]): Promise<T[]>;
   /** True iff `id` exists and is readable (legacy: true iff it exists or is unknown). */
   canRead(id: string): Promise<boolean>;
+  /** Final tool boundary: no earlier allowed payload may survive current revocation. */
+  validateObserved(): Promise<boolean>;
 }
 
 export async function accessEnabled(db: D1Database): Promise<boolean> {
@@ -53,33 +55,23 @@ export async function accessEnabled(db: D1Database): Promise<boolean> {
 }
 
 export function createReadGate(db: D1Database, userId: string): ReadGate {
-  let enabled: Promise<boolean> | undefined;
-  const isEnabled = () => (enabled ??= accessEnabled(db));
-  // Request-scoped memo: one decision per id per request (several tools/helpers in one MCP
-  // call ask about the same rows). Never shared across requests.
-  const memo = new Map<string, { readable: boolean; rev: number; scope?: RecordScope } | null>();
+  let mode: boolean | undefined;
+  const isEnabled = async () => (mode = await accessEnabled(db));
+  // Cache only ownership data, NEVER membership decisions. Every decision loads
+  // current authority and verifies every cached ancestor revision in the SAME batch.
+  const observed = new Set<string>();
+  let graph = new Map<string, ScopeGraphRecord>();
   const decide = async (input: readonly string[]): Promise<ReadDecision> => {
     const ids = [...new Set(input.filter(id => typeof id === 'string' && id.length > 0 && id.length <= 64))];
-    if (!(await isEnabled())) return { enabled: false, readable: new Set(ids), denied: new Set(), revs: new Map(), scopes: new Map() };
-    const unknown = ids.filter(id => !memo.get(id));
-    if (unknown.length) {
-      const fresh = await decideFresh(unknown);
-      if (!fresh.enabled) return { enabled: false, readable: new Set(ids), denied: new Set(), revs: new Map(), scopes: new Map() };
-      for (const id of unknown) memo.set(id, fresh.revs.has(id) ? { readable: fresh.readable.has(id), rev: fresh.revs.get(id)!, scope: fresh.scopes.get(id) } : null);
-    }
-    const readable = new Set<string>(), denied = new Set<string>(), revs = new Map<string, number>(), scopes = new Map<string, RecordScope>();
-    for (const id of ids) {
-      const known = memo.get(id);
-      if (!known) continue;
-      revs.set(id, known.rev); if (known.scope) scopes.set(id, known.scope);
-      (known.readable ? readable : denied).add(id);
-    }
-    return { enabled: true, readable, denied, revs, scopes };
+    if (mode !== true && !(await isEnabled())) return { enabled: false, readable: new Set(ids), denied: new Set(), revs: new Map(), scopes: new Map() };
+    const result = await decideFresh(ids);
+    for (const id of result.readable) observed.add(id);
+    return result;
   };
-  const decideFresh = async (ids: readonly string[]): Promise<ReadDecision> => {
-    const graph = new Map<string, ScopeGraphRecord>();
-    for (let i = 0; i < ids.length; i += GRAPH_CHUNK) {
-      for (const [id, record] of (await loadScopeGraph(db, ids.slice(i, i + GRAPH_CHUNK))).records) graph.set(id, record);
+  const decideFresh = async (ids: readonly string[], retry = true): Promise<ReadDecision> => {
+    const missing = ids.filter(id=>!graph.has(id));
+    for (let i = 0; i < missing.length; i += GRAPH_CHUNK) {
+      for (const [id, record] of (await loadScopeGraph(db, missing.slice(i, i + GRAPH_CHUNK))).records) graph.set(id, record);
     }
     const resolve = scopeResolver(graph), scopes = new Map<string, RecordScope>();
     for (const id of ids) {
@@ -89,14 +81,20 @@ export function createReadGate(db: D1Database, userId: string): ReadGate {
     const spaces = [...new Set([...scopes.values()].flatMap(scope => [...scope.readSpaceIds]))];
     if (spaces.length > MAX_ACCESS_SPACES) throw new RecordAccessError('scope_graph_budget');
     // Current authority, read after the content the caller already holds.
-    const context = await loadAccessContext(db, userId, spaces);
+    const context = await loadAccessContext(db, userId, spaces, new Map([...graph].map(([id,r])=>[id,r.rev])));
+    mode = context.enabled;
+    if (!context.recordsCurrent) {
+      graph.clear();
+      if (retry) return decideFresh(ids,false);
+      return { enabled:true, readable:new Set(), denied:new Set(ids), revs:new Map(), scopes:new Map() };
+    }
     const readable = new Set<string>(), denied = new Set<string>(), revs = new Map<string, number>();
     for (const id of ids) {
       const record = graph.get(id);
       if (!record) continue;
       revs.set(id, record.rev);
       const scope = scopes.get(id);
-      const ok = context.enabled && !!scope && !scope.serviceOnly && scope.readSpaceIds.every(space => canRead(spaceAccess(context, space)));
+      const ok = context.enabled && !!scope && !scope.serviceOnly && !scope.ancestorDeleted && scope.readSpaceIds.every(space => canRead(spaceAccess(context, space)));
       (ok ? readable : denied).add(id);
     }
     if (!context.enabled) return { enabled: false, readable: new Set(ids), denied: new Set(), revs, scopes };
@@ -106,13 +104,15 @@ export function createReadGate(db: D1Database, userId: string): ReadGate {
     userId,
     enabled: isEnabled,
     decide,
+    async validateObserved() {
+      if (!observed.size) return true;
+      const ids = [...observed], result = await decide(ids);
+      return !result.enabled || ids.every(id=>result.readable.has(id));
+    },
     async filter(rows) {
-      if (!rows.length || !(await isEnabled())) return [...rows];
-      let decision = await decide(rows.map(row => row.id));
+      if (!rows.length) return [...rows];
+      const decision = await decide(rows.map(row => row.id));
       if (!decision.enabled) return [...rows];
-      // A row written earlier in this request carries a newer revision than the memo: decide again.
-      const stale = rows.filter(row => row.rev !== undefined && decision.revs.has(row.id) && decision.revs.get(row.id) !== row.rev).map(row => row.id);
-      if (stale.length) { for (const id of stale) memo.delete(id); decision = await decide(rows.map(row => row.id)); }
       return rows.filter(row => decision.readable.has(row.id) && (row.rev === undefined || decision.revs.get(row.id) === row.rev));
     },
     async canRead(id) {

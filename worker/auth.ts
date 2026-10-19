@@ -164,6 +164,14 @@ export async function requireAuth(c: Ctx, next: Next) {
   if (!user) return c.json({ error: 'unauthenticated' }, 401);
   c.set('user', user);
   await next();
+  // A buffered authenticated read can outlive its credential. Recheck before
+  // committing headers/body; writes retain their existing transactional fences.
+  if ((c.req.method === 'GET' || c.req.method === 'HEAD') && c.res.status < 400) {
+    const active = await c.env.DB.prepare(`SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
+      WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL`)
+      .bind(user.tokenHash,user.id,Date.now()).first();
+    if (!active) c.res = c.json({error:'unauthenticated'},401);
+  }
 }
 
 export async function requireAdmin(c: Ctx, next: Next) {

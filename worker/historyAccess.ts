@@ -5,6 +5,8 @@
  * any such record is listed with a neutral summary. Legacy: unchanged. Undo itself is
  * re-authorized write by write in applyChanges. */
 import { createReadGate } from './readAccess';
+import { RecordAccessError } from './recordAccess';
+import { D1BudgetExhausted } from './d1budget';
 
 export async function visibleItems<T extends { record_id: string }>(db: D1Database, viewerId: string, items: T[]): Promise<{ items: T[]; restricted: number }> {
   const decision = await createReadGate(db, viewerId).decide(items.map((i) => i.record_id));
@@ -16,9 +18,20 @@ export async function visibleItems<T extends { record_id: string }>(db: D1Databa
 export async function visibleSummaries<T extends { id: unknown; summary?: unknown }>(db: D1Database, viewerId: string, changesets: T[]): Promise<T[]> {
   const gate = createReadGate(db, viewerId);
   if (!changesets.length || !(await gate.enabled())) return changesets;
-  const { results } = await db.prepare('SELECT changeset_id, record_id FROM changeset_items WHERE changeset_id IN (SELECT value FROM json_each(?)) LIMIT 10000')
+  // The sentinel proves complete coverage. An incomplete window never authorizes
+  // ANY content-derived summary in that window, even if its sampled rows are public.
+  // Keep ownership-graph evaluation within one 500-seed chunk / invocation budget.
+  const { results } = await db.prepare('SELECT changeset_id, record_id FROM changeset_items WHERE changeset_id IN (SELECT value FROM json_each(?)) ORDER BY changeset_id,idx LIMIT 501')
     .bind(JSON.stringify(changesets.map((c) => String(c.id)))).all<{ changeset_id: string; record_id: string }>();
-  const decision = await gate.decide(results.map((r) => r.record_id));
+  const neutral = (c:T, incomplete=false):T => ({ ...c, summary: 'Restricted change', restricted: true, ...(incomplete?{visibilityIncomplete:true}:{}) });
+  if (results.length > 500) return changesets.map(c=>neutral(c,true));
+  let decision;
+  try { decision = await gate.decide(results.map((r) => r.record_id)); }
+  catch (error) {
+    if (error instanceof RecordAccessError || error instanceof D1BudgetExhausted) return changesets.map(c=>neutral(c,true));
+    throw error;
+  }
+  const covered = new Set(results.map(r=>r.changeset_id));
   const hidden = new Set(results.filter((r) => !decision.readable.has(r.record_id)).map((r) => r.changeset_id));
-  return changesets.map((c) => (hidden.has(String(c.id)) ? { ...c, summary: 'Restricted change', restricted: true } : c));
+  return changesets.map(c => !covered.has(String(c.id)) || hidden.has(String(c.id)) ? neutral(c) : c);
 }

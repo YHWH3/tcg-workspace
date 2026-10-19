@@ -6,6 +6,7 @@ import { planUndo, type ChangesetItem } from '../shared/undo';
 import { applyChanges, type AppliedChange } from './sync';
 import { getRecs } from './records';
 import { visibleItems, visibleSummaries } from './historyAccess';
+import { serviceEnv } from './readAccess';
 import { requireAuth, type Env, type AuthUser } from './auth';
 
 export interface ChangesetCtx {
@@ -108,7 +109,9 @@ export async function undoChangeset(env: Env, user: AuthUser, changesetId: strin
         if(!prev) collapsed.set(r.record_id,item);
         else {for(const f of Object.keys(item.after)) if(!(f in prev.after)) prev.before[f]=item.before[f];Object.assign(prev.after,item.after);Object.assign(prev.field_ts,item.field_ts);}
       }
-      const current=await getRecs(env,[...collapsed.keys()]);
+      // Integrity-only inverse planning: current CAS revisions are required even
+      // for hidden tombstoned descendants. applyChanges reauthorizes every patch.
+      const current=await getRecs(serviceEnv(env),[...collapsed.keys()]);
       const plan=planUndo([...collapsed.values()],new Map([...current].map(([id,r])=>[id,{data:r.data,field_ts:r.fieldTs}])));
       // Store the frozen plan atomically; no inverse may precede this commit.
       const statements=[guard(),...plan.patches.map(p=>env.DB.prepare('INSERT OR IGNORE INTO undo_items(changeset_id,record_id,collection,patch,expected_rev) VALUES(?,?,?,?,?)').bind(changesetId,p.id,p.collection,JSON.stringify(p.patch),current.get(p.id)?.rev??-1)),
@@ -131,7 +134,7 @@ export async function undoChangeset(env: Env, user: AuthUser, changesetId: strin
         await env.DB.batch([guard(),...res.conflicts.map(c=>env.DB.prepare("UPDATE undo_items SET state='conflict',conflict=? WHERE changeset_id=? AND record_id=? AND state='pending'").bind(JSON.stringify({id:c.id,collection:c.collection,expectedRev:c.expectedRev,currentRev:c.currentRev}),changesetId,c.id))]);
         continue;
       }
-      if(res.partialError||res.rejected||res.conflict||res.applied.length!==items.length) throw new Error(res.partialError??'inverse batch did not complete');
+      if(res.partialError||res.rejected||res.conflict||res.applied.length!==items.length) throw new Error(res.partialError??`inverse batch did not complete${res.rejectedItems?.length ? ': '+res.rejectedItems.map(item=>item.reason).join('; ') : ''}`);
     }
     const conflicts=(await env.DB.prepare("SELECT conflict FROM undo_items WHERE changeset_id=? AND state='conflict'").bind(changesetId).all<{conflict:string}>()).results.map(r=>JSON.parse(r.conflict));
     const restored=(await env.DB.prepare("SELECT COUNT(*) n FROM undo_items WHERE changeset_id=? AND state='applied'").bind(changesetId).first<{n:number}>())!.n;
@@ -178,8 +181,9 @@ changesApi.get('/:id', async (c) => {
   if (!cs) return c.json({ error: 'not found' }, 404);
   if (user.role !== 'admin' && cs.user_id !== user.id) return c.json({ error: 'forbidden' }, 403);
   const { results } = await c.env.DB.prepare('SELECT idx, collection, record_id, created, before, after, field_ts FROM changeset_items WHERE changeset_id = ? ORDER BY idx').bind(id).all<{ record_id: string }>();
+  const [summary] = await visibleSummaries(c.env.DB, user.id, [cs as { id: unknown; summary?: unknown }]);
   const shown = await visibleItems(c.env.DB, user.id, results);
-  const [changeset] = shown.restricted ? await visibleSummaries(c.env.DB, user.id, [cs as { id: unknown; summary?: unknown }]) : [cs];
+  const changeset = shown.restricted ? {...summary,summary:'Restricted change',restricted:true} : summary;
   return c.json({ changeset, items: shown.items, ...(shown.restricted ? { restricted: shown.restricted } : {}) });
 });
 
