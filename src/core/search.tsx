@@ -9,7 +9,7 @@ import {accessClientStore} from './accessClient';
 import {authStore} from './auth';
 import {api,ApiError,getToken} from './api';
 import {Sheet,Button} from './ui';
-import {prefixMatch,mergeSearch,SearchEpoch,type PaletteHit} from './searchModel';
+import {prefixMatch,mergeSearch,SearchEpoch,localSearchVisibility,type PaletteHit} from './searchModel';
 export const paletteStore=createStore(false);
 interface Reply {results:Omit<PaletteHit,'source'>[];nextCursor:string|null;hasMore:boolean;indexPending:boolean}
 export function CommandPalette(){const open=useStore(paletteStore);return open?<SearchDialog/>:null;}
@@ -25,9 +25,12 @@ function SearchDialog(){
  const rows=useLiveQuery(async()=>{
   if(!ready)return {key,results:[] as PaletteHit[]};
   const collections=['pages','tasks','boards','moodboards','comments','files','mooditems'] as const;
-  const result:PaletteHit[]=[];const blocks=await db.blocks.filter(b=>!b.deleted).limit(2000).toArray();const bodies=new Map<string,string[]>();for(const b of blocks){const id=String(b.pageId);const text=bodies.get(id)??[];text.push(String(b.text??''));bodies.set(id,text);}
-  for(const c of collections){const table=await db.collection(c).filter(r=>!r.deleted&&!r.archived&&(!space||r._spaceId===space)&&(!database||r.boardId===database||r.id===database)).limit(2000).toArray();
-   for(const r of table){const kind=({pages:'page',tasks:'task',boards:'board',moodboards:'moodboard',comments:'comment',files:'file',mooditems:'mooditem'})[c];if(type&&type!==kind)continue;
+  const sampled=[...collections,'blocks'] as const;
+  const tables=await db.transaction('r',sampled.map(c=>db.collection(c)),()=>Promise.all(sampled.map(c=>db.collection(c).limit(2000).toArray())));
+  const visible=localSearchVisibility(tables.flatMap((rows,i)=>rows.map(r=>({id:r.id,collection:sampled[i],data:r,rootSpaceId:String(r._spaceId??r.spaceId??'space-core')}))));
+  const result:PaletteHit[]=[];const blocks=tables[sampled.indexOf('blocks')];const bodies=new Map<string,string[]>();for(const b of blocks){if(!visible(b.id))continue;const id=String(b.pageId);const text=bodies.get(id)??[];text.push(String(b.text??''));bodies.set(id,text);}
+  for(const [index,c] of collections.entries()){const table=tables[index];
+   for(const r of table){if(!visible(r.id)||(space&&(r._spaceId??r.spaceId)!==space)||(database&&r.boardId!==database&&r.id!==database))continue;const kind=({pages:'page',tasks:'task',boards:'board',moodboards:'moodboard',comments:'comment',files:'file',mooditems:'mooditem'})[c];if(type&&type!==kind)continue;
     const title=String(r.title??r.name??r.body??r.text??'Untitled');
     const content=[title,r.description,...Object.entries(r).filter(([k,v])=>k.startsWith('p_')&&typeof v==='string').map(([,v])=>v),...(bodies.get(r.id)??[])].join(' ');if(!query.trim()||!prefixMatch(query,content))continue;
     let url=c==='pages'?`/pages/${r.id}`:c==='tasks'?`/boards/${r.boardId??'board-default'}/tasks/${r.id}`:c==='boards'?`/boards/${r.id}`:c==='moodboards'?`/moodboards/${r.id}`:'';
