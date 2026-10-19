@@ -138,3 +138,12 @@ Delete its entry from `modules` in `src/modules/index.ts` — nav, routes, sideb
 - Notification delivery fences current target/recipient authority before caller checkpoints; read-time privacy and hidden unread counts remain required after delivery. Retained historical copies are not automatically purged.
 - Search FTS/document changes all require the claimed dirty token. Local/remote palette responses are account/token/access-version bound. Cache metadata is Dexie v9; bounded LRU eviction must never remove original pending/uploaded bytes or pending outbox work.
 - `npm run certify:phase5` uses the existing orchestrator; complete mode requires clean starting/ending source and all previous gates plus Phase 5 workflows. Never certify enabled permissions using disabled-mode evidence alone.
+
+## Phase 6 invariants
+
+- `ai_connections`, `ai_scope_consents`, `ai_previews`, `ai_preview_done`, `ai_workflow_changesets`, `ai_usage`, `ai_embedding_dirty`, `ai_embeddings`, `ai_suggestions`, `ai_digest_runs` are server-only, never synced collections.
+- Connector authority intersects current canonical membership with the durable approved-space list. Do not copy a grant's old scopes into an authorization decision. Scope increases need reauthorization.
+- Significant MCP writes need a frozen preview and genuine session-authenticated browser approval. MCP cannot approve itself. Retained request identity, expected revisions, source dependencies, capability fences, leases and atomic per-record checkpoints must survive retries and undo.
+- AI providers are off by default. Do not invoke paid/real models during local certification. Distinguish simulated provider-contract tests from real-provider proof. Suggestions remain non-authoritative until human acceptance.
+- Remote import is denied to arbitrary MCP URLs; never bypass explicit human consent and the exact trusted-host policy. Do not follow redirects or put workspace text in external requests.
+- `npm run certify:phase6` extends the existing local orchestrator. Keep all earlier gates, explicit permission modes and clean-source fingerprint requirements.

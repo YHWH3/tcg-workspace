@@ -1,11 +1,6 @@
 # Phase 6 — AI-assisted workflows
 
-> **Status 2026-10-15.** Re-detailed in [phase-6-implementation.md](phase-6-implementation.md).
-> Already implemented: prompts `weekly_operating_review`, `field_notes_to_log`
-> and `project_review` (the proposal's `summarize_project`); the per-user MCP
-> write rate limit and the "stored content is data" server instruction (§4).
-> Not implemented: the supporting read tools in §2, `meeting_to_actions`,
-> `draft_case_study`, `triage_inbox`, `who_can_help`, semantic search, digests.
+> **Current status:** local Phase 6 implementation is described in the current-contract section of [phase-6-implementation.md](phase-6-implementation.md). The original proposal below is historical. Exact certification and external limits are recorded in [phase-6-verification.md](../reviews/phase-6-verification.md). No deployment or real-provider execution is implied.
 
 
 Principle: **AI assists, the data model is the architecture.** The primary AI surface stays the MCP connector (Claude / ChatGPT / Gemini bring their own models). Built-in AI (Workers AI) is used only where no chat is involved (background classification, embeddings, summaries on a schedule). Every AI write is a change set (Phase 0) — transparent and undoable.
