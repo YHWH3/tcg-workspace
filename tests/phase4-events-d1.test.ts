@@ -488,6 +488,8 @@ describe('Phase 4 real D1 deadline indexing and reminder recovery', () => {
   });
 
   it('Cron recovers durable events after interruption and a failed sweep, then dedupes subsequent sweeps', async () => {
+    vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-01T12:00:00Z'));
+    try {
     await seedDates();
     await db.prepare('UPDATE event_outbox SET created_at=?').bind(Date.now() - 120_000).run();
     await db.prepare("CREATE TRIGGER injected_cron_failure BEFORE INSERT ON notifications BEGIN SELECT RAISE(ABORT,'injected cron fanout failure'); END").run();
@@ -499,6 +501,7 @@ describe('Phase 4 real D1 deadline indexing and reminder recovery', () => {
     await runScheduled(env);
     expect((await db.prepare("SELECT user_id,kind,group_count FROM notifications WHERE kind='assigned'").all()).results).toEqual([{ user_id: 'bob', kind: 'assigned', group_count: 1 }]);
     expect((await db.prepare('SELECT COUNT(*) AS n FROM event_outbox WHERE processed_at IS NULL').first<{ n: number }>())!.n).toBe(0);
+    } finally {vi.useRealTimers();}
   });
 
   it('keeps the input event recoverable if reserving its automation run fails', async () => {

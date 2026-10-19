@@ -1,0 +1,13 @@
+import {afterEach,it,expect,vi} from 'vitest';
+vi.mock('../worker/events',async original=>({...await original<typeof import('../worker/events')>(),scheduleOutbox:vi.fn()}));
+import {openAuditFixture,type AuditFixture} from './audit-fixture';
+import {applyChanges} from '../worker/sync';
+import {loadManifest,pullFeed} from '../worker/spaceFeed';
+import {loadAccessContext,spaceAccess} from '../worker/access';
+import {effectiveSpaceRole} from '../shared/access';
+import {createReadGate} from '../worker/readAccess';
+import {searchRecords} from '../worker/search';
+import {admin} from '../worker/admin';
+let f:AuditFixture;afterEach(async()=>f?.dispose());
+it('ENABLED: People directories revoke a guest audience consistently in the kernel, feed, search and read gate',async()=>{f=await openAuditFixture();await f.db.batch([f.db.prepare('UPDATE access_state SET enabled=1'),f.db.prepare("UPDATE users SET workspace_role='guest' WHERE id='bob'"),f.db.prepare("INSERT INTO space_members(space_id,user_id,role) VALUES('space-core','bob','viewer')")]);const before=await loadManifest(f.db,'bob');expect(before.manifest.spaces.map(s=>s.id)).toContain('space-core');await applyChanges(f.env,'alice',[{id:'people',collection:'boards',patch:{kind:'records',name:'People',templateDbKey:'people'},ts:1},{id:'contact',collection:'tasks',patch:{boardId:'people',title:'Private donor contact'},ts:1}],{serverTs:true});expect(effectiveSpaceRole(spaceAccess(await loadAccessContext(f.db,'bob',['space-core']),'space-core'))).toBeNull();expect((await loadManifest(f.db,'bob')).manifest.spaces).toEqual([]);expect(await createReadGate(f.db,'bob').canRead('contact')).toBe(false);expect((await searchRecords(f.env,'bob',{q:'Private donor'})).results).toEqual([]);expect((await pullFeed(f.db,'bob',{protocol:3,etag:before.manifest.etag,cursor:0,joining:[],limit:100})).status).toBe(409);expect(await createReadGate(f.db,'carol').canRead('contact')).toBe(true);await applyChanges(f.env,'alice',[{id:'people',collection:'boards',patch:{name:'Renamed',archived:true,deleted:true,templateDbKey:null},ts:2}],{serverTs:true});expect((await loadManifest(f.db,'bob')).manifest.spaces).toEqual([]);});
+it('ENABLED: guest identity directory returns only self; Core members retain compatible listing',async()=>{f=await openAuditFixture();await f.db.prepare("UPDATE users SET workspace_role='guest' WHERE id='bob'").run();const response=await admin.request('/users',{headers:f.auth('bob')},f.env,f.ctx);expect((await response.json() as any).users.map((u:any)=>u.id)).toEqual(['bob']);const core=await admin.request('/users',{headers:f.auth('carol')},f.env,f.ctx);expect((await core.json() as any).users).toHaveLength(3);});

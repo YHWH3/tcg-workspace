@@ -324,3 +324,40 @@ describe('permissions enabled: bounded D1 cost of gated reads', () => {
     writeFileSync(`${dir}/phase5-reads-cost.json`, JSON.stringify({ records: 1800 + 20, readable: 'space-core', bindingCalls: metrics }, null, 2));
   }, 120_000);
 });
+
+it('ENABLED: deletedVia restoration does not revive a descendant in an unreadable peer space',async()=>{
+ await enable();
+ await fx.db.prepare("UPDATE records SET data=json_set(data,'$.deleted',json('true')) WHERE id='ct'").run();
+ await fx.db.prepare("UPDATE records SET data=json_set(data,'$.deleted',json('true'),'$.deletedVia','ct') WHERE id='vt'").run();
+ const result=await call('bob','restore_item',{type:'task',id:'ct',requestId:'scoped-cascade-restore'});
+ expect(result.isError,result.text).toBe(false);
+ expect(JSON.parse((await fx.db.prepare("SELECT data FROM records WHERE id='ct'").first<{data:string}>())!.data).deleted).toBe(false);
+ expect(JSON.parse((await fx.db.prepare("SELECT data FROM records WHERE id='vt'").first<{data:string}>())!.data).deleted).toBe(true);
+ expect(result.text).not.toMatch(SECRET);
+});
+
+it('ENABLED: MCP field history restores use current revision, journal undo and reauthorized replay', async () => {
+  await enable();
+  const {applyChanges}=await import('../worker/sync');
+  await applyChanges(fx.env,'bob',[{id:'ct',collection:'tasks',patch:{title:'Changed through the server'},ts:Date.now()}],{serverTs:true});
+  const h=await call('bob','get_record_history',{id:'ct'});
+  expect(h.isError,h.text).toBe(false);
+  const entry=h.json.entries[0];
+  expect(entry.before.title).toBe('Core Task');
+  const args={id:'ct',revision:entry.revision,expectedRev:h.json.revision,fields:['title'],side:'before',requestId:'mcp-history-restore'};
+  const restored=await call('bob','restore_record_fields',args);
+  expect(restored.isError,restored.text).toBe(false);
+  expect((await getRec(fx.env,'ct'))?.data.title).toBe('Core Task');
+  const replay=await call('bob','restore_record_fields',args);
+  expect(replay.isError,replay.text).toBe(false);
+  expect((await fx.db.prepare('SELECT COUNT(*) n FROM changeset_items WHERE changeset_id=?').bind(restored.json.changesetId).first())?.n).toBe(1);
+  const undo=await call('bob','undo_change',{changesetId:restored.json.changesetId,requestId:'undo-history-restore'});
+  expect(undo.isError,undo.text).toBe(false);
+  expect((await getRec(fx.env,'ct'))?.data.title).toBe('Changed through the server');
+  await fx.db.prepare("UPDATE users SET workspace_role='guest' WHERE id='bob'").run();
+  const hidden=await call('bob','get_record_history',{id:'ct'});
+  expect(hidden.isError).toBe(true);
+  expect(hidden.text).not.toContain('Changed through the server');
+  const denied=await call('bob','restore_record_fields',args);
+  expect(denied.text).not.toContain('Core Task');
+});

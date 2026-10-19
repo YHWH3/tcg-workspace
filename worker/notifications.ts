@@ -4,7 +4,7 @@
 // Every query below is bound to the session user's own rows.
 
 import { levelSql } from './capability';
-import { loadScopeGraph } from './recordAccess';
+import { loadScopeGraph, scopeParentsSql } from './recordAccess';
 import { scopeResolver } from '../shared/recordScope';
 import { createReadGate } from './readAccess';
 import { Hono } from 'hono';
@@ -338,7 +338,17 @@ function notificationVisibleSql(alias='notifications') {
  return `((SELECT enabled FROM access_state WHERE id=1)=0 OR EXISTS(SELECT 1 FROM records target
  WHERE target.id=${alias}.target_id AND COALESCE(json_extract(target.data,'$.deleted'),0)!=1
  AND ${levelSql(`${alias}.user_id`,'target.space_id')}>=1
- AND (target.peer_space_id IS NULL OR ${levelSql(`${alias}.user_id`,'target.peer_space_id')}>=1)))`;
+ AND (target.peer_space_id IS NULL OR ${levelSql(`${alias}.user_id`,'target.peer_space_id')}>=1)
+ AND NOT EXISTS(WITH RECURSIVE ancestry(id,collection,data) AS (
+   SELECT target.id,target.collection,target.data
+   UNION
+   SELECT p.id,p.collection,p.data FROM ancestry child JOIN records p
+     ON p.id IN (SELECT value FROM json_each(${scopeParentsSql('child')}))
+   LIMIT 5001
+ ) SELECT 1 FROM ancestry WHERE COALESCE(json_extract(data,'$.deleted'),0)=1
+   OR (collection='files' AND json_extract(data,'$.parentType')='form-pending')
+   OR ${levelSql(`${alias}.user_id`,"(SELECT space_id FROM records WHERE id=ancestry.id)")}<1
+   OR (SELECT COUNT(*) FROM ancestry)>5000)))`;
 }
 
 /** Unread count honoring the user's quietDigest pref (quiet kinds still land

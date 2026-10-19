@@ -61,3 +61,22 @@ it.each([500, 1000])('protocol 3 has zero backfill writes and constant logout/de
   writeFileSync(join(directory, `phase5-feed-cost-${size}.json`), JSON.stringify({ schemaVersion: 1, sourceSha: process.env.CERT_SOURCE_SHA ?? null, records: size,
     runtime: 'local Miniflare D1; not production billing or latency', scope: 'all observed D1 result metadata; index writes included', results }, null, 2));
 });
+
+it('ENABLED: history and authorized reminder delivery stay within the invocation budget on 1,000 records',async()=>{
+ fixture=await openAuditFixture();const db=fixture.db;
+ const {runDueReminders}=await import('../worker/reminders');const {notify,unreadBadge}=await import('../worker/notifications');const {withD1Budget,D1BudgetExhausted}=await import('../worker/d1budget');const {todayUtc}=await import('../shared/recurrence');const {loadPrefs}=await import('../worker/auth');
+ await db.prepare('UPDATE access_state SET enabled=1').run();
+ await db.prepare("INSERT INTO records(id,collection,data,field_ts,seq) VALUES('cost_board','boards','{\"name\":\"Cost tasks\",\"columns\":[{\"id\":\"open\"},{\"id\":\"done\"}]}','{}',1)").run();
+ const today=todayUtc();for(let start=0;start<1000;start+=100)await db.batch(Array.from({length:100},(_,j)=>{const i=start+j,id='notify_cost_'+String(i).padStart(4,'0'),date=i===999?today:'2020-01-01';return db.prepare("INSERT INTO records(id,collection,data,field_ts,seq) VALUES(?,'tasks',?,'{}',?)").bind(id,JSON.stringify({boardId:'cost_board',title:'Measured task '+i,status:'open',dueDate:date,...(i===999?{assigneeId:'bob'}:{})}),i+2);}));
+ await db.prepare("INSERT INTO date_index(record_id,field_key,date) SELECT id,'dueDate',json_extract(data,'$.dueDate') FROM records WHERE collection='tasks'").run();
+ await db.prepare("INSERT INTO rhythm_sweep_cursors(name,date,record_id,field_key) VALUES('reminders','2099-01-01','z','dueDate')").run();
+ const measurements:{name:string;metrics:Metrics}[]=[];
+ const measure=async(name:string,fn:(db:D1Database)=>Promise<unknown>)=>{const observed=meter(db),start=performance.now();await fn(observed.db);observed.metrics.durationMs=Number((performance.now()-start).toFixed(2));measurements.push({name,metrics:observed.metrics});expect(observed.metrics.bindings).toBeLessThanOrEqual(45);return observed.metrics;};
+ await measure('atomic field history',async observed=>{const result=await applyChanges({...fixture!.env,DB:observed},'alice',[{id:'notify_cost_0999',collection:'tasks',patch:{description:'Measured field history'},ts:Date.now()}],{serverTs:true});expect(result.changed).toBe(1);});
+ expect((await db.prepare("SELECT COUNT(*) n FROM record_history WHERE record_id='notify_cost_0999'").first())?.n).toBe(1);
+ await measure('fenced notification delivery',observed=>notify({...fixture!.env,DB:observed},{userId:'bob',kind:'mention',targetType:'task',targetId:'notify_cost_0999',title:'Measured notice',groupKey:'cost',dedupeKey:'cost-once'}));
+ for(let tick=0;tick<26;tick++){await measure('bounded permission-enabled reminder '+tick,async observed=>{try{await runDueReminders(withD1Budget({...fixture!.env,DB:observed},45),today);}catch(e){if(!(e instanceof D1BudgetExhausted))throw e;}});if(await db.prepare("SELECT 1 FROM reminder_sent WHERE record_id='notify_cost_0999'").first())break;}
+ expect((await db.prepare("SELECT COUNT(*) n FROM reminder_sent WHERE record_id='notify_cost_0999'").first())?.n).toBe(1);
+ await measure('authorized unread badge',async observed=>{expect(await unreadBadge(observed,'bob',await loadPrefs(observed,'bob'))).toBe(2);});
+ const directory=join(process.env.CERT_ARTIFACT_DIR??'.artifacts/phase5','performance');mkdirSync(directory,{recursive:true});writeFileSync(join(directory,'phase5-capabilities-cost.json'),JSON.stringify({sourceSha:process.env.CERT_SOURCE_SHA??null,permissionMode:'ENABLED',records:1000,measurements,limitations:['Local Miniflare D1 metadata; not production billing or latency','Binding calls and SQL statement counts are reported separately']},null,2));
+},120000);

@@ -39,25 +39,27 @@ const scopeProjection = (alias: string) => `json_object(
   'deleted',json(CASE WHEN json_extract(${alias}.data,'$.deleted')=1 THEN 'true' ELSE 'false' END),
   'trigger',json_object('databaseId',json_extract(${alias}.data,'$.trigger.databaseId'))
 )`;
+/** Canonical ancestry edges shared with content-free notification visibility checks. */
+export const scopeParentsSql = (alias: string) => `CASE ${alias}.collection
+        WHEN 'pages' THEN json_array(json_extract(${alias}.data,'$.parentId'))
+        WHEN 'tasks' THEN json_array(COALESCE(json_extract(${alias}.data,'$.boardId'),'board-default'),json_extract(${alias}.data,'$.parentId'))
+        WHEN 'blocks' THEN json_array(json_extract(${alias}.data,'$.pageId'))
+        WHEN 'views' THEN json_array(json_extract(${alias}.data,'$.databaseId'))
+        WHEN 'mooditems' THEN json_array(json_extract(${alias}.data,'$.boardId'))
+        WHEN 'comments' THEN json_array(json_extract(${alias}.data,'$.targetId'))
+        WHEN 'activity' THEN json_array(json_extract(${alias}.data,'$.targetId'))
+        WHEN 'files' THEN json_array(json_extract(${alias}.data,'$.parentId'))
+        WHEN 'forms' THEN json_array(json_extract(${alias}.data,'$.databaseId'))
+        WHEN 'automations' THEN json_array(COALESCE(json_extract(${alias}.data,'$.trigger.databaseId'),json_extract(${alias}.data,'$.databaseId')))
+        WHEN 'links' THEN json_array(json_extract(${alias}.data,'$.fromId'),json_extract(${alias}.data,'$.toId'))
+        ELSE '[]' END`;
 const graphSql = `WITH RECURSIVE scope_graph(id,collection,data,space_id,seq) AS (
   SELECT r.id,r.collection,${scopeProjection('r')},r.space_id,r.seq FROM records r
     WHERE id IN (SELECT value FROM json_each(?))
   UNION
   SELECT p.id,p.collection,${scopeProjection('p')},p.space_id,p.seq FROM scope_graph child
     JOIN records p ON p.id IN (SELECT value FROM json_each(
-      CASE child.collection
-        WHEN 'pages' THEN json_array(json_extract(child.data,'$.parentId'))
-        WHEN 'tasks' THEN json_array(COALESCE(json_extract(child.data,'$.boardId'),'board-default'),json_extract(child.data,'$.parentId'))
-        WHEN 'blocks' THEN json_array(json_extract(child.data,'$.pageId'))
-        WHEN 'views' THEN json_array(json_extract(child.data,'$.databaseId'))
-        WHEN 'mooditems' THEN json_array(json_extract(child.data,'$.boardId'))
-        WHEN 'comments' THEN json_array(json_extract(child.data,'$.targetId'))
-        WHEN 'activity' THEN json_array(json_extract(child.data,'$.targetId'))
-        WHEN 'files' THEN json_array(json_extract(child.data,'$.parentId'))
-        WHEN 'forms' THEN json_array(json_extract(child.data,'$.databaseId'))
-        WHEN 'automations' THEN json_array(COALESCE(json_extract(child.data,'$.trigger.databaseId'),json_extract(child.data,'$.databaseId')))
-        WHEN 'links' THEN json_array(json_extract(child.data,'$.fromId'),json_extract(child.data,'$.toId'))
-        ELSE '[]' END))
+      ${scopeParentsSql('child')}))
 ) SELECT * FROM scope_graph LIMIT ?`;
 
 function validateIds(ids: readonly string[]) {

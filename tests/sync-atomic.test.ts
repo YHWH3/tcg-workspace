@@ -66,6 +66,9 @@ class FakeD1 {
       const rows = binds.map((id) => this.rows.get(String(id))).filter((r): r is Row => !!r);
       return { rows, changes: 0 };
     }
+    // This focused fake models record merge/CAS, not the historical delta table.
+    // Exact atomic history persistence/faults are covered on real D1 separately.
+    if (/^INSERT INTO record_history/.test(sql)) return { rows: [], changes: 0 };
     if (/INSERT INTO records/.test(sql)) {
       const [id, collection, data, fieldTs, userId, now, baseSeq] = binds as [string, string, string, string, string, number, number];
       const row = this.rows.get(id);

@@ -13,7 +13,7 @@ import {runScheduled,runDueReminders} from '../worker/reminders';
 import {publicFormsApi} from '../worker/forms';
 import {runOneAutomation,runDateOffsetAutomations} from '../worker/automations';
 import {withD1Budget,D1BudgetExhausted} from '../worker/d1budget';
-import {todayUtc} from '../shared/recurrence';
+import {todayUtc,addDays} from '../shared/recurrence';
 import type {Env} from '../worker/auth';
 
 vi.mock('../worker/events',async original=>({...await original<typeof import('../worker/events')>(),scheduleOutbox:vi.fn()}));
@@ -67,7 +67,7 @@ it('measures Phase 4 actual D1 operations on a fixed 1000-record fixture and pro
     for(let index=0;index<5;index++)await measure('notification grouping one delivery',()=>notify(env,{userId:'bob',kind:'automation',title:'Performance group',groupKey:'perf-group',dedupeKey:`perf:${index}`}));
     for(let index=0;index<5;index++)await measure('Inbox indexed query',async()=>{await env.DB.prepare('SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 60').bind('bob').all();});
     await measure('typed date index update',async()=>{
-      const result=await applyChanges(env,'alice',[{id:'perf_0999',collection:'tasks',patch:{dueDate:todayUtc(),p_date:'2026-10-20',assigneeId:'bob'},ts:3}]);await maintainDateIndex(env,result.applied);
+      const result=await applyChanges(env,'alice',[{id:'perf_0999',collection:'tasks',patch:{dueDate:todayUtc(),p_date:addDays(todayUtc(),10),assigneeId:'bob'},ts:3}]);await maintainDateIndex(env,result.applied);
     });
     // 600 earlier unassigned dates cannot permanently starve the actionable
     // final date. Indexed keyset progress is persisted across bounded ticks.
