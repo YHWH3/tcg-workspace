@@ -1,6 +1,7 @@
+-- User IDs are retained audit identities; account removal must not purge AI history.
 -- Frozen record plans and human decisions are server-owned, never sync collections.
 CREATE TABLE ai_previews (
- id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), connection_id TEXT,
+ id TEXT PRIMARY KEY, user_id TEXT NOT NULL, connection_id TEXT,
  connection_version INTEGER, request_id TEXT, result_meta TEXT NOT NULL DEFAULT '{}', tool TEXT NOT NULL, args_hash TEXT NOT NULL, workflow_id TEXT,
  plan_json TEXT NOT NULL CHECK(json_valid(plan_json)), expected_json TEXT NOT NULL CHECK(json_valid(expected_json)),
  dependencies_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(dependencies_json)),

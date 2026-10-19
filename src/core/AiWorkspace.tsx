@@ -2,7 +2,8 @@ import {useCallback,useEffect,useState} from 'react';
 import {Link,useParams} from 'react-router';
 import {api,ApiError} from './api';
 import {Button} from './ui';
-import {onlineStore} from './sync/engine';
+// Subscribe independently of sync startup: reviews must hide immediately offline.
+function useOnline(){const [online,setOnline]=useState(()=>navigator.onLine);useEffect(()=>{const yes=()=>setOnline(true),no=()=>setOnline(false);window.addEventListener('online',yes);window.addEventListener('offline',no);setOnline(navigator.onLine);return()=>{window.removeEventListener('online',yes);window.removeEventListener('offline',no);};},[]);return online;}
 import {accessClientStore} from './accessClient';
 import {authStore} from './auth';
 import {useStore} from './store';
@@ -10,7 +11,7 @@ import {AI_WORKFLOWS} from '../../shared/aiWorkflows';
 const workflows=AI_WORKFLOWS.map(w=>[w.id,w.name]);
 interface PreviewSummary {id:string;tool:string;status:string;created_at:number;expires_at:number;workflow_id:string|null;changeset_id:string}
 interface Review {changesetId?:string;id:string;tool:string;status:string;expiresAt:number;argsHash:string;impact:{create:number;update:number;delete:number;irreversible:boolean;warnings:string[]};changes:{id:string;collection:string;before:unknown;after:unknown;expectedRev:number;currentRev:number;conflict:boolean}[]}
-export function AiWorkspace(){const access=useStore(accessClientStore),auth=useStore(authStore),online=useStore(onlineStore);return online&&access.status==='ready'?<AiWorkspaceContent key={auth.user?.id+':'+access.epoch}/>:<p role="status" className="p-4">Reconnect to verify current access before opening AI reviews.</p>;}
+export function AiWorkspace(){const access=useStore(accessClientStore),auth=useStore(authStore),online=useOnline();return online&&access.status==='ready'?<AiWorkspaceContent key={auth.user?.id+':'+access.epoch}/>:<p role="status" className="p-4">Reconnect to verify current access before opening AI reviews.</p>;}
 function AiWorkspaceContent(){
  const [items,setItems]=useState<PreviewSummary[]>([]),[error,setError]=useState(''),[copied,setCopied]=useState('');
  const load=useCallback(()=>api<{previews:PreviewSummary[]}>('/api/ai/previews').then(r=>{setItems(r.previews);setError('');}).catch(()=>setError('AI reviews require a server connection. Reconnect and retry.')),[]);
@@ -22,7 +23,7 @@ function AiWorkspaceContent(){
  <section><h2 className="mb-3 text-lg font-medium">Operation reviews and results</h2>{error&&<p role="alert">{error} <Button onClick={()=>void load()}>Retry</Button></p>}<p role="status" className="text-xs text-neutral-500 dark:text-neutral-400">{items.length} recent operations</p><ul className="divide-y dark:divide-neutral-700">{items.map(p=><li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-3"><Link className="min-h-10 break-all underline" to={`/ai/review/${p.id}`}>{p.tool}</Link><span className="text-sm">{p.status}</span>{p.workflow_id&&<span className="text-xs">Workflow: {p.workflow_id}</span>}</li>)}</ul></section>
  <WorkflowRecovery items={items}/><AiSuggestions/><AiDigest/><AiConfiguration/></div>;
 }
-export function AiReview(){const access=useStore(accessClientStore),auth=useStore(authStore),online=useStore(onlineStore);return online&&access.status==='ready'?<AiReviewContent key={auth.user?.id+':'+access.epoch}/>:<p role="status" className="p-4">Checking access. Restricted proposal details are hidden until reconciliation completes.</p>;}
+export function AiReview(){const access=useStore(accessClientStore),auth=useStore(authStore),online=useOnline();return online&&access.status==='ready'?<AiReviewContent key={auth.user?.id+':'+access.epoch}/>:<p role="status" className="p-4">Checking access. Restricted proposal details are hidden until reconciliation completes.</p>;}
 function AiReviewContent(){
  const {previewId}=useParams(),[review,setReview]=useState<Review|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
  const load=useCallback(async()=>{try{const r=await api<Review>(`/api/ai/previews/${previewId}`);setReview(r);setError('');}catch(e){setReview(null);setError(e instanceof ApiError&&e.status===403?'Access or connection scope changed. This proposal is unavailable.':'Could not load this review. Reconnect or ask your assistant for a fresh proposal.');}},[previewId]);

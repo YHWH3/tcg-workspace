@@ -78,3 +78,9 @@ describe('Phase 6 durable connector scopes — permissions ENABLED',()=>{
   expect((await applyChanges(env(),'alice',[{id:'b',collection:'pages',patch:{title:'bad'},ts:0}],{serverTs:true})).changed).toBe(0);
  });
 });
+it('user removal preserves retained AI audit rows while invalidating the connection',async()=>{
+ const {proposePreview}=await import('../worker/aiPreviews');const {loadConnection}=await import('../worker/connectorAccess');
+ const preview=await proposePreview(env(),'alice','retained',{x:1},[{id:'a',collection:'pages',patch:{title:'Proposed'}}]);
+ await f.db.prepare("DELETE FROM users WHERE id='alice'").run();
+ expect(await loadConnection(f.db,'alice','c')).toBeNull();expect(await f.db.prepare('SELECT user_id FROM ai_previews WHERE id=?').bind(preview.previewId).first('user_id')).toBe('alice');
+});

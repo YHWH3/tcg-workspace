@@ -38,7 +38,10 @@ export const SELECT = 'id, collection, data, field_ts, seq, updated_by, updated_
 
 export async function getRec(env: Env, id: string): Promise<RecRow | null> {
   const row = await env.DB.prepare(`SELECT ${SELECT} FROM records WHERE id = ?`).bind(id).first<RawRow>();
-  return row ? (await gateRows(env, [toRow(row)]))[0] ?? null : null;
+  const current=row ? (await gateRows(env,[toRow(row)]))[0]??null:null;
+  const planned=env.MCP_PLAN?.ops.filter(o=>o.id===id)??[];
+  if(!planned.length)return current;
+  return {...(current??{id,collection:planned[0].collection,fieldTs:{},rev:-1,updatedBy:null,updatedAt:null}),data:Object.assign({},current?.data,...planned.map(o=>o.patch))};
 }
 
 export async function getRecs(env: Env, ids: string[]): Promise<Map<string, RecRow>> {

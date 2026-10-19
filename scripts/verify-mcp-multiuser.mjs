@@ -317,7 +317,9 @@ check('B add_stage (casUpdate path) ok', !stageAdd.isError && !!stageAdd.data.ch
 // The board row's updated_by must be B's user id — surfaced via a stale-rev
 // conflict's changedBy (and not the literal string 'mcp').
 const staleRename = await A.call('update_board', { boardId: c2dbId, name: 'A rename', expectedRev: boardRev0 });
-const changedBy = staleRename.text.includes('conflicts') ? (JSON.parse(staleRename.text).conflicts?.[0]?.changedBy ?? null) : null;
+// Actor identity is verified through authorized history; conflict metadata may be redacted.
+const attributionHistory=await A.call('get_record_history',{id:c2dbId,limit:1});
+const changedBy=attributionHistory.data.entries?.[0]?.actor_id??null;
 check('stale board write → conflict', staleRename.isError && /conflict/.test(staleRename.text), staleRename.text.slice(0, 200));
 check('updated_by attributes to B (not "mcp")', changedBy === idB, `changedBy=${changedBy} want ${idB}`);
 

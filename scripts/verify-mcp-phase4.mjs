@@ -412,13 +412,19 @@ async function main() {
 
     const run = await waitFor(async () => {
       const response = await api(`/api/automations/${automationId}/runs`, { token: admin.token });
-      return response.status === 200 ? response.data?.runs?.[0] : null;
+      const current=response.status === 200 ? response.data?.runs?.[0] : null;
+      if(current?.status==='completed')return current;
+      // Write-path processing is optional acceleration. Exercise real durable
+      // recovery in a fresh scheduled invocation when its request budget stops.
+      const scheduled=await fetch(BASE+'/cdn-cgi/handler/scheduled?'+new URLSearchParams({cron:'*/15 * * * *',time:String(2*900000)}),{method:'POST'});
+      if(scheduled.status!==200)throw new Error('Scheduled recovery endpoint unavailable');
+      await scheduled.text();return null;
     });
     check('automation run history records source event', !!run && run.automation_id === automationId && run.status === 'completed', JSON.stringify(run).slice(0, 280));
 
     const allAfterAutomation = await pullAll(admin.token);
     const child = allAfterAutomation.find((row) => row.collection === 'tasks' && row.data?.title === automationTitle.replace('{{record.title}}', automationSourceTitle) && row.data?.deleted !== true);
-    check('automation create_record action lands a unique child', !!child, JSON.stringify(child?.data).slice(0, 220));
+    check('automation create_record action lands a unique child', !!child, String(JSON.stringify(child?.data)).slice(0, 220));
 
     if (run?.changeset_id) {
       const automationChange = await adminCall('get_change', { changesetId: run.changeset_id });

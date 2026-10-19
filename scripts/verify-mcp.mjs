@@ -74,7 +74,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (cookie) headers.Cookie = cookie;
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  const res = await fetchFixtureApi(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
+  const res = await fetchFixtureApi(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' }, fixtureFetch);
   if (raw) return res;
   const text = await res.text();
   let data = null;
@@ -198,7 +198,8 @@ check('workspace_overview returns people+pages+boards', Array.isArray(ov.data.pe
 const bobId = ov.data.people.find((u) => u.username === 'bob')?.id;
 
 // A second user for person-field + mention coverage; bob exists after smoke.
-const imgUrl = 'https://picsum.photos/seed/ws5/640/480';
+// No third-party network imports: supported inline artwork is deterministic.
+const fixtureSvg='<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="orange"/></svg>';
 
 const proj = await call('create_project', {
   title: 'Film Launch',
@@ -226,7 +227,7 @@ const proj = await call('create_project', {
       fields: { Kind: i % 2 ? 'Hero' : 'BTS', Budget: i * 100, Owner: 'bob', Go: i % 4 === 0, Brief: 'https://example.com/brief' },
     })),
   },
-  moodboard: { title: 'Launch mood', items: [{ type: 'note', text: 'grain + warm light' }, { type: 'color', color: '#e5484d' }, { type: 'image', imageUrl: imgUrl }] },
+  moodboard: { title: 'Launch mood', items: [{ type: 'note', text: 'grain + warm light' }, { type: 'color', color: '#e5484d' }, { type: 'svg', svg: fixtureSvg }] },
 });
 check('create_project succeeds', !proj.isError && !!proj.data.pageId, proj.text.slice(0, 240));
 const pageId = proj.data.pageId;
@@ -290,7 +291,15 @@ const delNoRev = await call('delete_item', { type: 'task', id: aTaskId });
 check('delete_item without expectedRev → error', delNoRev.isError && /expectedRev/.test(delNoRev.text), delNoRev.text.slice(0, 140));
 const taskForRev = await call('get_task', { taskId: aTaskId });
 const del = await call('delete_item', { type: 'task', id: aTaskId, expectedRev: taskForRev.data.task?.rev ?? taskForRev.data.rev });
-check('delete_item soft-deletes', !del.isError && del.data.deleted === true, del.text.slice(0, 140));
+const deletionSession=await api('/api/auth/login',{method:'POST',body:{username:USER,password:PASS}});
+let deletedRecord=null,deleteCursor=0;
+for(let page=0;page<1000;page++){
+  const synced=await api(`/api/sync/pull?since=${deleteCursor}`,{token:deletionSession.data.token});
+  if(synced.status!==200)break;
+  deletedRecord=synced.data.records?.find(r=>r.id===aTaskId)??deletedRecord;
+  if(!synced.data.hasMore||deletedRecord)break;deleteCursor=synced.data.cursor;
+}
+check('delete_item soft-deletes', !del.isError && deletedRecord?.data?.deleted === true, del.text.slice(0, 140));
 const res = await call('restore_item', { type: 'task', id: aTaskId });
 check('restore_item restores', !res.isError && res.data.restored === true);
 

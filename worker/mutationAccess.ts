@@ -152,8 +152,15 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
     if (oldScope && scope!.spaceId !== oldScope.spaceId) { reject(id, record.collection, 'explicit_move_required'); continue; }
     const access = spaceAccess(context, scope!.spaceId);
     const initial = before.get(id)!.data, after = record.data;
+    // Parent cascades may change tombstone bookkeeping, never another author's
+    // body. Require the target in this same plan with the matching transition.
+    const cascadeTarget=typeof initial.targetId==='string'?candidates.get(initial.targetId):undefined;
+    const cascadeVia=after.deleted===true?after.deletedVia:initial.deletedVia;
+    const commentCascade=record.collection==='comments'&&!!old&&tombstoneOnly(id)
+      &&cascadeVia===initial.targetId&&!!cascadeTarget&&touched.get(cascadeTarget.id)?.has('deleted')===true
+      &&typeof after.deleted==='boolean'&&cascadeTarget.data.deleted===after.deleted;
     required.set(id, record.collection === 'comments'
-      ? (old ? minLevel(context.principal, a => canEditComment(a, String(initial.authorId ?? ''))) : minLevel(context.principal, canComment))
+      ? (commentCascade ? minLevel(context.principal,canEdit) : old ? minLevel(context.principal, a => canEditComment(a, String(initial.authorId ?? ''))) : minLevel(context.principal, canComment))
       : record.collection === 'activity' && !old && after.verb === 'commented' ? minLevel(context.principal, canComment)
         : minLevel(context.principal, canEdit));
     // A thumbnail is auxiliary bytes owned by this canonical attachment, not
@@ -169,7 +176,8 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
     // release the pointer first and claim the ID in a subsequent operation.
     const main = thumbnailOwner ? (graph.get(thumbnailOwner) ?? candidates.get(thumbnailOwner)) : undefined;
     if (!old && main?.collection === 'files' && main.data.thumbId === id) reject(id, record.collection, 'reference_unavailable');
-    if (record.collection === 'comments') {
+    if(commentCascade){if(!canEdit(access))reject(id,record.collection,'read_only');}
+    else if (record.collection === 'comments') {
       if (old ? !canEditComment(access, String(initial.authorId ?? '')) : !canComment(access)) reject(id, record.collection, 'read_only');
       if ((!old && after.authorId !== userId) || (old && ['authorId', 'targetId', 'targetType', 'createdAt'].some(f => fields.has(f) && after[f] !== initial[f]))) reject(id, record.collection, 'protected_field');
       if ([...fields].some(f => !(old ? ['body', 'deleted'] : ['body', 'authorId', 'targetId', 'targetType', 'createdAt', 'deleted']).includes(f))) reject(id, record.collection, 'protected_field');

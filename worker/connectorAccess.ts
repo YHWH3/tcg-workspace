@@ -8,7 +8,7 @@ export interface ConnectionRow {
   created_at:number; expires_at:number; revoked_at:number|null;
 }
 export async function loadConnection(db:D1Database,userId:string,id:string):Promise<ConnectionRow|null> {
-  return db.prepare('SELECT * FROM ai_connections WHERE id=? AND user_id=? AND revoked_at IS NULL AND expires_at>?')
+  return db.prepare('SELECT g.* FROM ai_connections g JOIN users u ON u.id=g.user_id AND u.disabled_at IS NULL WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>?')
     .bind(id,userId,Date.now()).first<ConnectionRow>();
 }
 export async function availableConnectorSpaces(env:Env,userId:string) {

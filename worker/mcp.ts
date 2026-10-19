@@ -92,6 +92,7 @@ interface WriteOp {
 }
 
 /** Throw from write() — caught by the tool wrapper, becomes the §4.3 conflict result. */
+function txtConflict(e:WriteConflict):ToolResult {return {...txt({error:'conflict',conflicts:e.conflicts.map(c=>({type:'stale_rev',id:c.id,collection:c.collection,expectedRev:c.expectedRev,currentRev:c.currentRev,current:c.current,changedBy:c.updatedBy,changedAt:c.updatedAt}))}),isError:true};}
 class WriteConflict extends Error {
   constructor(public conflicts: ConflictInfo[]) {
     super('conflict');
@@ -105,9 +106,10 @@ class WriteConflict extends Error {
  */
 export async function write(c: Ctx, ops: WriteOp[], opts: { expect?: Map<string, number>; source?:'mcp'|'undo' } = {}): Promise<void> {
   if(c.env.MCP_PLAN){
-    const result=await applyChanges(c.env,c.userId,ops.map(o=>({...o,ts:0})),{serverTs:true,expect:opts.expect,atomic:true});
+    const merged=new Map<string,WriteOp>();for(const op of [...c.env.MCP_PLAN.ops,...ops]){const prior=merged.get(op.id);merged.set(op.id,{...op,patch:{...prior?.patch,...op.patch}});}
+    const result=await applyChanges(c.env,c.userId,[...merged.values()].map(o=>({...o,ts:0})),{serverTs:true,expect:opts.expect,atomic:true});
     if(result.conflicts?.length)throw new WriteConflict(result.conflicts);
-    if(result.rejected)throw new Error('plan_not_authorized');
+    if(result.rejected)throw new Error('plan_not_authorized: '+[...new Set(result.rejectedItems?.map(r=>r.reason)??[])].join(', '));
     return;
   }
   if (opts.expect && opts.expect.size > MAX_EXPECTED) throw new Error(`at most ${MAX_EXPECTED} expected ids per call`);
@@ -568,7 +570,7 @@ function planningEnv(env:Env,ops:PreviewOp[],expected:Map<string,number>):Env {
     if(key==='exec'||key==='withSession')return()=>{throw new Error('unsupported planning operation');};
     const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
   }});
-  const planned={...env,DB:db,MCP_PLAN:{ops,expected}};return {...planned,SERVICE_ENV:planned};
+  const planned={...env,DB:db,MCP_PLAN:{ops,expected}};return {...planned,SERVICE_ENV:{...planned,READ_GATE:undefined}};
 }
 
 export function createWorkspaceServer(ctx: Ctx): McpServer {
@@ -643,12 +645,13 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       // Auxiliary server-table operations keep their dedicated authorizers. Record
       // plans are evaluated without writes before any significant operation lands.
       const auxiliary=new Set(['request_approval','decide_approval','undo_change','publish_page','publish_moodboard']);
-      if(!auxiliary.has(name)) {
+      let captured: {ops:PreviewOp[];result:ToolResult;expected:Map<string,number>}|undefined;
+      if(!auxiliary.has(name)&&name!=='share_moodboard') {
         const original=ctx.env,cs=ctx.cs,tool=ctx.toolName,ops:PreviewOp[]=[],plannedRevisions=new Map<string,number>();
         ctx.env=planningEnv(original,ops,plannedRevisions);ctx.cs=beginChangeset({userId:ctx.userId,tool:name});ctx.toolName=name;
         let planned:ToolResult,display:Record<string,unknown>={};
         try {if(input.dryRun===true&&'dryRun' in meta.inputSchema.shape){const shown=await handler({...args,dryRun:true});if(shown.isError)return shown;try{display=JSON.parse(shown.content[0].text);}catch{/* no display */}ops.length=0;plannedRevisions.clear();}planned=await handler({...args,dryRun:false});}
-        catch(e){return err(e instanceof Error?e.message:'preview_planning_failed');}
+        catch(e){return e instanceof WriteConflict?txtConflict(e):err(e instanceof Error?e.message:'preview_planning_failed');}
         finally {ctx.env=original;ctx.cs=cs;ctx.toolName=tool;}
         if(planned.isError)return planned;
         const merged=new Map<string,PreviewOp>();
@@ -674,6 +677,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           catch(e){return err(e instanceof Error?e.message:'preview_failed');}
         }
         if(input.dryRun===true)return planned;
+        captured={ops:[...merged.values()],result:planned,expected:plannedRevisions};
       }
       // Runaway-agent brake: write calls per user per window. Previews are free.
       const limit = writeLimit(ctx.env);
@@ -711,6 +715,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
               ...(typeof input.moodboardId==='string'?{moodboardId:input.moodboardId}:{}),
               ...(typeof input.id==='string'?{id:input.id,type:input.type,...(name==='delete_item'?{deleted:true}:{}),...(name==='restore_item'?{restored:true}:{})}:{}),
             });
+          } else if(captured){
+            // Commit exactly the validated plan, never rerun a stateful handler.
+            const ops=captured.ops.map(o=>o.collection==='activity'?{...o,patch:{...o.patch,meta:{...(o.patch.meta as Record<string,unknown>??{}),changesetId:ctx.cs!.id}}}:o);
+            const expect=new Map([...captured.expected].filter(([,rev])=>rev>=0));
+            await write(ctx,ops,{expect});res=captured.result;
           } else res=await handler(args);
           // Commit even on error results: any write that already landed must
           // stay undoable — no successful write without a change set (§4.2).
@@ -2780,11 +2789,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const revive = (rows: RecRow[], via: string, into: Collection) => {
         for (const d of rows) if (d.data.deletedVia === via && d.data.deleted === true) ops.push({ collection: into, id: d.id, patch: { deleted: false, deletedVia: null } });
       };
-      revive(await listBy(ctx.env, 'tasks', 'deletedVia', id, { includeDeleted: true }), id, 'tasks');
-      if (collection === 'tasks') revive(await listBy(ctx.env, 'comments', 'targetId', id, { includeDeleted: true }), id, 'comments');
+      revive(await listBy(serviceEnv(ctx.env), 'tasks', 'deletedVia', id, { includeDeleted: true }), id, 'tasks');
+      if (collection === 'tasks') revive(await listBy(serviceEnv(ctx.env), 'comments', 'targetId', id, { includeDeleted: true }), id, 'comments');
       if (collection === 'pages') {
         // The deleted subtree and its blocks, in one recursive read.
-        const closure = await pageClosure(ctx.env, id, { includeDeleted: true });
+        const closure = await pageClosure(serviceEnv(ctx.env), id, { includeDeleted: true });
         revive(closure.pages, id, 'pages');
         revive(closure.blocks, id, 'blocks');
       }

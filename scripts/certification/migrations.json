@@ -109,11 +109,11 @@
   },
   {
     "name": "0028_phase6_connector_scopes.sql",
-    "sha256": "e113b8319e7d95aca70a27e985894f45d2bef25966a406ba95d40524e420c349"
+    "sha256": "eee501f6cc16f6545a966959d46d342fe3d9ca8db901ff478f6a385cf89e232e"
   },
   {
     "name": "0029_phase6_human_previews.sql",
-    "sha256": "7fe34408c672e0df808fcd7a904bb7c6cb0d1c140f573891d866824ca9a678a5"
+    "sha256": "ab758bc99b7199782b104c398bf72e039d170f31765fffa09bb3a641ddc5a8ed"
   },
   {
     "name": "0030_phase6_optional_ai.sql",
