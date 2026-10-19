@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {enableFixtureHuman} from './certification/human-review.mjs';
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 import {verifyOAuthSecurity} from './phase4-oauth-security.mjs';
 // Phase C verification: OAuth dance + MCP tools (official SDK) + UI live-poke +
 // field/template UI + screenshots. Run against `wrangler dev --port 8788`
@@ -177,6 +179,8 @@ check('prompts registered', ['plan_project', 'make_sop', 'capture_notes'].every(
 const securityPrompt=await client.getPrompt({name:'capture_notes',arguments:{notes:'Non-secret security migration fixture'}});
 check('security: MCP prompt invocation preserves supplied arguments',securityPrompt.messages.some(m=>m.content.type==='text'&&m.content.text.includes('Non-secret security migration fixture')));
 
+enableFixtureHuman(client,BASE,{username:process.env.MCP_USER??'admin',password:PASS});
+
 const call = async (name, args) => {
   const r = await client.callTool({ name, arguments: args });
   const text = r.content?.[0]?.text ?? '';
@@ -261,7 +265,7 @@ check('list_comments + mention resolved', lc.data.comments.length === 1 && /@Bob
 // publish + public check
 const pub = await call('publish_page', { pageId, enabled: true });
 check('publish_page returns url', !pub.isError && /\/s\//.test(pub.data.url ?? ''));
-const pubCheck = await fetch(pub.data.url).then((r) => r.status).catch(() => 0);
+const pubCheck = await fixtureFetch(pub.data.url).then((r) => r.status).catch(() => 0);
 check('public share page loads', pubCheck === 200, `status=${pubCheck}`);
 
 // template round-trip

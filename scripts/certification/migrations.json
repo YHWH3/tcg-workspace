@@ -106,5 +106,17 @@
   {
     "name": "0027_phase5_notification_paging.sql",
     "sha256": "cd5e20382dec6c034f2fb5eb57394ff1181818751df5bcee27f01e2c134c3932"
+  },
+  {
+    "name": "0028_phase6_connector_scopes.sql",
+    "sha256": "e113b8319e7d95aca70a27e985894f45d2bef25966a406ba95d40524e420c349"
+  },
+  {
+    "name": "0029_phase6_human_previews.sql",
+    "sha256": "7fe34408c672e0df808fcd7a904bb7c6cb0d1c140f573891d866824ca9a678a5"
+  },
+  {
+    "name": "0030_phase6_optional_ai.sql",
+    "sha256": "eb0b47a283a3ad95a6d15b93907d1c162349371dbbc9f3897427446ceb895a2e"
   }
 ]

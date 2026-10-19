@@ -3,6 +3,7 @@
 // reversible: restoring a record brings back what its deletion took down, and
 // no soft delete may destroy attachment bytes (reclamation belongs to explicit
 // attachment deletion / purge, not to hiding a parent).
+import {fixtureHumanStep} from './humanMcp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyChanges } from '../worker/sync';
 import { getRec } from '../worker/records';
@@ -20,7 +21,7 @@ function context() {
 }
 async function call(name: string, args: Record<string, unknown>) {
   createWorkspaceServer(context());
-  const res = await tools.get(name)!(args);
+  const res = await fixtureHumanStep(fx.env,'alice',name,args,await tools.get(name)!(args));
   return { ...JSON.parse(res.content[0].text), isError: res.isError } as Record<string, unknown> & { isError?: boolean };
 }
 const rev = async (id: string) => (await getRec(fx.env, id))!.rev;

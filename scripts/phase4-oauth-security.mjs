@@ -1,3 +1,4 @@
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 import crypto from 'node:crypto';
 
 // Runs inside the existing base-MCP gate, against its disposable Worker only.

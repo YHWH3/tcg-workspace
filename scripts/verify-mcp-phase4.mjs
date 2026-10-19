@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {enableFixtureHuman} from './certification/human-review.mjs';
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 // Phase 4 verification — MCP approvals, approval-gated writes, change-set
 // audit/isolation, and the established automation run → undo path.
 //
@@ -54,7 +56,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (cookie) headers.Cookie = cookie;
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  const response = await fetch(`${BASE}${path}`, {
+  const response = await fixtureFetch(`${BASE}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined,
@@ -125,6 +127,7 @@ async function mcpClient(token, name) {
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
   const client = new Client({ name, version: '1.0.0' }, { capabilities: {} });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+  enableFixtureHuman(client,BASE,{username:name.includes('bob')?'bob':'admin'});
   const call = async (tool, args = {}) => {
     try {
       const response = await client.callTool({ name: tool, arguments: args });

@@ -17,7 +17,9 @@
     "certify:phase4": "node scripts/certify-phase4.mjs",
     "certify:phase4:quick": "node scripts/certify-phase4.mjs --quick",
     "certify:phase4:full": "node scripts/certify-phase4.mjs --extended",
-    "certify:phase5": "node scripts/certify-phase4.mjs"
+    "certify:phase5": "node scripts/certify-phase4.mjs",
+    "certify:phase6": "node scripts/certify-phase4.mjs --phase6",
+    "certify:phase6:quick": "node scripts/certify-phase4.mjs --phase6 --quick"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",

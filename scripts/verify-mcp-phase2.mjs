@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {enableFixtureHuman} from './certification/human-review.mjs';
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 // Phase 2 verification: canvas item types, connectors↔links, frames, layouts,
 // diagrams, board_to_canvas, calendar/timeline views, moodboard shares →
 // public canvas API, svg sanitisation, dryRun/expectedRev/requestId/undo.
@@ -26,7 +28,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (cookie) headers.Cookie = cookie;
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  const res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
+  const res = await fixtureFetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
   if (raw) return res;
   const text = await res.text();
   let data = null;
@@ -57,6 +59,7 @@ async function grantFor(clientId, username) {
 async function mcpClient(token) {
   const client = new Client({ name: 'p2-verify', version: '1.0.0' }, { capabilities: {} });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+  enableFixtureHuman(client,BASE,{username:process.env.MCP_USER??'admin'});
   return async (tool, args) => {
     const r = await client.callTool({ name: tool, arguments: args });
     const text = r.content?.[0]?.text ?? '';
@@ -241,7 +244,7 @@ check('unknown moodboard → 404', badTarget.status === 404);
 
 // public canvas file rules: file not on board rejected, on-board file allowed
 const fid = `f${crypto.randomBytes(8).toString('hex')}`;
-const upChunk = await fetch(`${BASE}/api/files/${fid}/chunks/0`, { method: 'PUT', headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/octet-stream' }, body: Buffer.from('89504e470d0a1a0a', 'hex') });
+const upChunk = await fixtureFetch(`${BASE}/api/files/${fid}/chunks/0`, { method: 'PUT', headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/octet-stream' }, body: Buffer.from('89504e470d0a1a0a', 'hex') });
 check('file chunk upload', upChunk.status === 200, `status=${upChunk.status}`);
 const done = await api(`/api/files/${fid}/complete`, { method: 'POST', token: session, body: { mime: 'image/png', size: 8, chunks: 1 } });
 check('file complete', done.status === 200, JSON.stringify(done.data));
@@ -263,20 +266,20 @@ check('canvas token 404 on page route', cross2.status === 404);
 // svg upload via files API → sanitized + CSP on serve
 const svgBad = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
 const fsid = `fs${crypto.randomBytes(8).toString('hex')}`;
-const upBad = await fetch(`${BASE}/api/files/${fsid}/chunks/0`, { method: 'PUT', headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/octet-stream' }, body: svgBad });
+const upBad = await fixtureFetch(`${BASE}/api/files/${fsid}/chunks/0`, { method: 'PUT', headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/octet-stream' }, body: svgBad });
 await upBad.text();
 const doneBad = await api(`/api/files/${fsid}/complete`, { method: 'POST', token: session, body: { mime: 'image/svg+xml', size: svgBad.length, chunks: 1 } });
 check('svg upload completes (sanitized on write)', doneBad.status === 200, `status=${doneBad.status}`);
-const servedBad = await fetch(`${BASE}/api/files/${fsid}`, { headers: { Authorization: `Bearer ${session}` } });
+const servedBad = await fixtureFetch(`${BASE}/api/files/${fsid}`, { headers: { Authorization: `Bearer ${session}` } });
 const badText = await servedBad.text();
 check('script stripped from stored svg file', !badText.includes('script'), badText.slice(0, 120));
 const svgOk = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8"/></svg>';
 const fsid2 = `fs${crypto.randomBytes(8).toString('hex')}`;
-const upOk = await fetch(`${BASE}/api/files/${fsid2}/chunks/0`, { method: 'PUT', headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/octet-stream' }, body: svgOk });
+const upOk = await fixtureFetch(`${BASE}/api/files/${fsid2}/chunks/0`, { method: 'PUT', headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/octet-stream' }, body: svgOk });
 await upOk.text();
 const doneOk = await api(`/api/files/${fsid2}/complete`, { method: 'POST', token: session, body: { mime: 'image/svg+xml', size: svgOk.length, chunks: 1 } });
 check('clean svg upload completes', doneOk.status === 200, JSON.stringify(doneOk.data).slice(0, 120));
-const served = await fetch(`${BASE}/api/files/${fsid2}`, { headers: { Authorization: `Bearer ${session}` } });
+const served = await fixtureFetch(`${BASE}/api/files/${fsid2}`, { headers: { Authorization: `Bearer ${session}` } });
 const csp = served.headers.get('content-security-policy') ?? '';
 await served.text();
 check('svg serve has CSP+sandbox+nosniff', csp.includes("default-src 'none'") && csp.includes('sandbox') && served.headers.get('x-content-type-options') === 'nosniff', `csp=${csp}`);

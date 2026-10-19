@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {enableFixtureHuman} from './certification/human-review.mjs';
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 // Phase 3 verification (Agent F): install_template (empty + starter-people
 // reuse + dryRun + alreadyInstalled + requestId), archive_item/unarchive_item
 // on page/record/board incl. query_records includeArchived, convert_record +
@@ -84,7 +86,7 @@ if (!NO_SPAWN) {
   const t0 = Date.now();
   let ok = false;
   while (Date.now() - t0 < 120000) {
-    try { const j = await (await fetch(`${BASE}/api/auth/status`)).json(); if (!j.error) { ok = true; break; } } catch {}
+    try { const j = await (await fixtureFetch(`${BASE}/api/auth/status`)).json(); if (!j.error) { ok = true; break; } } catch {}
     await sleep(1000);
   }
   if (!ok) { console.log('FATAL: wrangler dev never came up / schema missing'); process.exit(2); }
@@ -97,7 +99,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (cookie) headers.Cookie = cookie;
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  const res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
+  const res = await fixtureFetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
   if (raw) return res;
   const text = await res.text();
   let data = null;
@@ -128,6 +130,7 @@ async function grantFor(clientId, username) {
 async function mcpClient(token, name = 'p3-verify') {
   const client = new Client({ name, version: '1.0.0' }, { capabilities: {} });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+  enableFixtureHuman(client,BASE,{username:name.includes('bob')?'bob':'admin',password:PASS});
   const call = async (tool, args) => {
     try {
       const r = await client.callTool({ name: tool, arguments: args });

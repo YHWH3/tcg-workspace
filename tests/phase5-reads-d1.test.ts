@@ -4,6 +4,7 @@
 // cross-space content while permissions are enabled, keeps Phase 0–4 behavior while they are
 // disabled, and treats unauthorized like nonexistent. Fixtures are disposable; permissions are
 // enabled only inside them.
+import {fixtureHumanStep} from './humanMcp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hono } from 'hono';
 import { openAuditFixture, ctx as executionCtx, type AuditFixture } from './audit-fixture';
@@ -42,7 +43,7 @@ function context(userId: string, userRole: 'admin' | 'member' = 'member') {
 }
 async function call(userId: string, name: string, args: Record<string, unknown>, role: 'admin' | 'member' = 'member') {
   createWorkspaceServer(context(userId, role));
-  const res = await tools.get(name)!(args);
+  const res = await fixtureHumanStep(fx.env,userId,name,args,await tools.get(name)!(args));
   return { text: res.content[0].text, isError: res.isError === true, json: JSON.parse(res.content[0].text) as Record<string, any> };
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

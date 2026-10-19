@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {enableFixtureHuman} from './certification/human-review.mjs';
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 // Phase 0 verification: two OAuth users (admin=A, bob=B) against one wrangler
 // dev isolate. Covers docs/architecture/phase-0-safe-ai-editing.md §12.
 // Requires `wrangler dev --port 8788` on the built app + smoke.sh users seeded.
@@ -34,7 +36,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (cookie) headers.Cookie = cookie;
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  const res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
+  const res = await fixtureFetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
   if (raw) return res;
   const text = await res.text();
   let data = null;
@@ -71,6 +73,7 @@ async function grantFor(clientId, username) {
 async function mcpClient(token, name) {
   const client = new Client({ name, version: '1.0.0' }, { capabilities: {} });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+  enableFixtureHuman(client,BASE,{username:name==='verify-B'?USER_B:USER_A,password:PASS});
   const call = async (tool, args) => {
     const r = await client.callTool({ name: tool, arguments: args });
     const text = r.content?.[0]?.text ?? '';

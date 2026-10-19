@@ -1,3 +1,5 @@
+import {enableFixtureHuman} from './human-review.mjs';
+import {fixtureFetch} from './oauth-consent.mjs';
 import assert from 'node:assert/strict';
 import { randomBytes, createHash } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -8,7 +10,7 @@ import { localOrigin } from '../certification-report.mjs';
 export async function connectFixtureMcp(base, { username = 'admin', password = 'password123', name = 'Certification browser' } = {}) {
   base = localOrigin(base);
   const request = async (path, { body, form, cookie, method = 'GET' } = {}) => {
-    const response = await fetch(base + path, { method, redirect: 'manual', signal: AbortSignal.timeout(60000), headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(form ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}), ...(cookie ? { Cookie: cookie } : {}) }, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form) : undefined });
+    const response = await fixtureFetch(base + path, { method, redirect: 'manual', signal: AbortSignal.timeout(60000), headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(form ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}), ...(cookie ? { Cookie: cookie } : {}) }, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form) : undefined });
     const text = await response.text(); let data; try { data = JSON.parse(text); } catch { data = null; }
     return { response, text, data };
   };
@@ -24,6 +26,7 @@ export async function connectFixtureMcp(base, { username = 'admin', password = '
   assert.ok(tokens.data?.access_token, 'Fixture OAuth token exchange failed');
   const client = new Client({ name, version: '1.0.0' }, { capabilities: {} });
   await client.connect(new StreamableHTTPClientTransport(new URL(base + '/mcp'), { requestInit: { headers: { Authorization: `Bearer ${tokens.data.access_token}` } } }));
+  enableFixtureHuman(client,base,{username,password});
   return { close: () => client.close(), call: async (name, args) => {
     const result = await client.callTool({ name, arguments: args });
     const text = result.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';

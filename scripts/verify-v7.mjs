@@ -1,3 +1,4 @@
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 // Phase 2 §9 e2e verification — visual workspace: mood canvas items/gestures/
 // culling, calendar + timeline views, connector↔link mirroring, public canvas
 // share, offline/multi-user/undo resilience, 350-item perf. Named PASS/FAIL
@@ -64,7 +65,7 @@ const procs = [];
 async function waitHttp(url, timeoutMs = 90000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
-    try { if ((await fetch(url)).status > 0) return true; } catch { /* retry */ }
+    try { if ((await fixtureFetch(url)).status > 0) return true; } catch { /* retry */ }
     await sleep(800);
   }
   return false;
@@ -108,7 +109,7 @@ if (!NO_SPAWN) {
   const t0 = Date.now();
   let ok = false;
   while (Date.now() - t0 < 120000) {
-    try { const j = await (await fetch(`${BASE}/api/auth/status`)).json(); if (!j.error) { ok = true; break; } } catch {}
+    try { const j = await (await fixtureFetch(`${BASE}/api/auth/status`)).json(); if (!j.error) { ok = true; break; } } catch {}
     await sleep(1000);
   }
   if (!ok) { console.log('FATAL: wrangler dev never came up / schema missing'); process.exit(2); }
@@ -121,7 +122,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
   if (cookie) headers.Cookie = cookie;
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fixtureFetch(`${BASE}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined,
@@ -1048,8 +1049,8 @@ async function publicShareSuite(browser, E, V) {
   const needSvg = (await page.locator('img[src*="/api/public/canvas/"]').count()) === 0;
   if (needSvg) {
     const svgBytes = readFileSync(`${FIX}/ok.svg`);
-    const put = await fetch(`${BASE}/api/files/v7_f_svg/chunks/0`, { method: 'PUT', headers: { Authorization: `Bearer ${T}`, 'Content-Type': 'application/octet-stream' }, body: svgBytes });
-    const done = await fetch(`${BASE}/api/files/v7_f_svg/complete`, { method: 'POST', headers: { Authorization: `Bearer ${T}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ mime: 'image/svg+xml', size: svgBytes.length, chunks: 1 }) });
+    const put = await fixtureFetch(`${BASE}/api/files/v7_f_svg/chunks/0`, { method: 'PUT', headers: { Authorization: `Bearer ${T}`, 'Content-Type': 'application/octet-stream' }, body: svgBytes });
+    const done = await fixtureFetch(`${BASE}/api/files/v7_f_svg/complete`, { method: 'POST', headers: { Authorization: `Bearer ${T}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ mime: 'image/svg+xml', size: svgBytes.length, chunks: 1 }) });
     await push(T, [
       { id: 'v7_i_svgsrv', collection: 'mooditems', patch: { boardId: MB, type: 'svg', x: 900, y: 480, w: 160, h: 160, fileId: 'v7_f_svg', z: 40, createdAt: NOW } },
       { id: 'v7_f_svg', collection: 'files', patch: { parentType: 'mooditem', parentId: 'v7_i_svgsrv', name: 'ok.svg', mime: 'image/svg+xml', size: svgBytes.length, state: 'uploaded', createdAt: NOW } },
@@ -1061,7 +1062,7 @@ async function publicShareSuite(browser, E, V) {
   let fileOk = svgImg > 0;
   if (fileOk) {
     const src = await page.locator('img[src*="/api/public/canvas/"]').first().getAttribute('src');
-    fileOk = await poll(async () => (await fetch(`${BASE}${src}`)).status === 200, 30000, 2000);
+    fileOk = await poll(async () => (await fixtureFetch(`${BASE}${src}`)).status === 200, 30000, 2000);
   }
   N('public: svg item renders via img on public canvas', fileOk ? 'PASS' : 'FAIL');
   await page.screenshot({ path: `${SHOTS}/public-canvas-${E}.png` });
