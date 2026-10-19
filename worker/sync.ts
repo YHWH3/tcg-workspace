@@ -443,6 +443,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   if(env.MCP_PLAN){
     if(rejected) return {rejected,rejectedItems,changed:0,applied:[]};
     const applied=[...plans.values()].filter(p=>p.changed).map(p=>makeApplied(p,p.baseSeq+1));
+    for(const ch of incoming)if(!env.MCP_PLAN.expected.has(ch.id))env.MCP_PLAN.expected.set(ch.id,existing.get(ch.id)?.seq??-1);
     env.MCP_PLAN.ops.push(...incoming.filter(ch=>isCollection(ch.collection)).map(ch=>({id:ch.id,collection:ch.collection as import('../shared/collections').Collection,patch:{...ch.patch}})));
     return {rejected:0,changed:applied.length,applied};
   }

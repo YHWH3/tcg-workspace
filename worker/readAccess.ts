@@ -35,6 +35,7 @@ export interface ReadDecision {
   /** Graph revision of each existing id (for the revision check). */
   revs: ReadonlyMap<string, number>;
   scopes: ReadonlyMap<string, RecordScope>;
+  graphRevs?:ReadonlyMap<string,number>;
 }
 
 export interface ReadGate {
@@ -100,7 +101,7 @@ export function createReadGate(db: D1Database, userId: string, connector?: Env['
       (ok ? readable : denied).add(id);
     }
     if (!mode) return { enabled: false, readable: new Set(ids), denied: new Set(), revs, scopes };
-    return { enabled: true, readable, denied, revs, scopes };
+    return { enabled: true, readable, denied, revs, scopes,graphRevs:new Map([...graph].map(([id,r])=>[id,r.rev])) };
   };
   return {
     userId,

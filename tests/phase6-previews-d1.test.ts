@@ -68,3 +68,17 @@ it('requires a new preview after source content changes, even with unchanged mem
  const p=await proposePreview(env(),'alice','draft_case_study',{source:'p'},[{id:'draft',collection:'pages',patch:{title:'Draft'}}],undefined,['p']);await decision(p.previewId,p.argsHash);await applyChanges(f.env,'alice',[{id:'p',collection:'pages',patch:{title:'New evidence'},ts:0}],{serverTs:true});
  await expect(executePreview(env(),'alice',p.previewId,p.argsHash)).rejects.toThrow();expect(await f.db.prepare("SELECT COUNT(*) n FROM records WHERE id='draft'").first('n')).toBe(0);
 });
+it('keeps unmodified source children valid across its own multi-batch parent update',async()=>{
+ await f.db.prepare(`INSERT INTO records(id,collection,data,field_ts,seq,space_id) VALUES('source-child','blocks','{"pageId":"p","type":"p","text":"Evidence"}','{}',2,'space-core')`).run();
+ const ops=[{id:'p',collection:'pages' as const,patch:{title:'Updated parent'}},...Array.from({length:100},(_,i)=>({id:'body'+i,collection:'blocks' as const,patch:{pageId:'p',type:'p',text:'Planned '+i}}))];const p=await proposePreview(env(),'alice','edit_page',{},ops,undefined,['source-child']);await decision(p.previewId,p.argsHash);expect((await executePreview(env(),'alice',p.previewId,p.argsHash)).completed).toBe(true);
+});
+it('does not claim completion if undo cancels the lease after the final committed record',async()=>{
+ const p=await propose();await decision(p.previewId,p.argsHash);const original=f.db;let injected=false;
+ const faulty=new Proxy(original,{get(t,k){if(k==='batch')return async(stmts:D1PreparedStatement[])=>{if(!injected&&stmts.some(s=>String((s as unknown as {statement:string}).statement).includes("SET status='completed'"))){injected=true;await original.prepare("UPDATE ai_previews SET status='cancelled',lease_id=NULL WHERE id=?").bind(p.previewId).run();}return t.batch(stmts);};const v=Reflect.get(t,k);return typeof v==='function'?v.bind(t):v;}});
+ await expect(executePreview({...env(),DB:faulty,READ_GATE:undefined},'alice',p.previewId,p.argsHash)).rejects.toThrow();expect(injected).toBe(true);expect(await original.prepare('SELECT status FROM ai_previews WHERE id=?').bind(p.previewId).first('status')).toBe('cancelled');
+});
+it('group recovery includes committed partial previews and fences their continuation',async()=>{
+ const p=await proposePreview(env(),'alice','meeting_to_actions',{},Array.from({length:150},(_,i)=>({id:'partial'+i,collection:'pages' as const,patch:{title:'Partial '+i}})),'partial-workflow');await decision(p.previewId,p.argsHash);
+ const first=await executePreview(withD1Budget(env(),25),'alice',p.previewId,p.argsHash);expect(first.completed).toBe(false);expect(first.processed).toBeGreaterThan(0);
+ const response=await aiPreviewApi.request('/workflows/partial-workflow/undo',{method:'POST',headers:f.auth('alice')},f.env,f.ctx);expect(response.status).toBe(200);const body=await response.json() as {results:{ok:boolean}[]};expect(body.results).toHaveLength(1);expect(body.results[0].ok).toBe(true);await expect(executePreview(env(),'alice',p.previewId,p.argsHash)).rejects.toThrow();expect(await f.db.prepare("SELECT COUNT(*) n FROM records WHERE id LIKE 'partial%' AND COALESCE(json_extract(data,'$.deleted'),0)!=1").first('n')).toBe(0);
+});

@@ -550,7 +550,7 @@ Safety:
 - Preview deletes and bulk changes with dryRun:true, show the user the impact, and apply only after they confirm. Pass expectedRev from a read and a stable requestId so a retry cannot duplicate or clobber work, and report the changesetId so the user can undo.
 - Write calls are rate limited per user; on a rate-limit error stop and tell the user instead of retrying in a loop.`;
 
-function planningEnv(env:Env,ops:PreviewOp[]):Env {
+function planningEnv(env:Env,ops:PreviewOp[],expected:Map<string,number>):Env {
   const originals=new WeakMap<object,D1PreparedStatement>();
   const statements=new WeakMap<object,string>();
   const readOnly=(sql:string)=>{if(!/^\s*(SELECT|WITH\b)/i.test(sql)||/\b(INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP|ALTER)\b/i.test(sql))throw new Error('This operation requires its dedicated Workspace review flow');};
@@ -568,7 +568,7 @@ function planningEnv(env:Env,ops:PreviewOp[]):Env {
     if(key==='exec'||key==='withSession')return()=>{throw new Error('unsupported planning operation');};
     const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
   }});
-  const planned={...env,DB:db,MCP_PLAN:{ops}};return {...planned,SERVICE_ENV:planned};
+  const planned={...env,DB:db,MCP_PLAN:{ops,expected}};return {...planned,SERVICE_ENV:planned};
 }
 
 export function createWorkspaceServer(ctx: Ctx): McpServer {
@@ -644,10 +644,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       // plans are evaluated without writes before any significant operation lands.
       const auxiliary=new Set(['request_approval','decide_approval','undo_change','publish_page','publish_moodboard']);
       if(!auxiliary.has(name)) {
-        const original=ctx.env,cs=ctx.cs,tool=ctx.toolName,ops:PreviewOp[]=[];
-        ctx.env=planningEnv(original,ops);ctx.cs=beginChangeset({userId:ctx.userId,tool:name});ctx.toolName=name;
+        const original=ctx.env,cs=ctx.cs,tool=ctx.toolName,ops:PreviewOp[]=[],plannedRevisions=new Map<string,number>();
+        ctx.env=planningEnv(original,ops,plannedRevisions);ctx.cs=beginChangeset({userId:ctx.userId,tool:name});ctx.toolName=name;
         let planned:ToolResult,display:Record<string,unknown>={};
-        try {if(input.dryRun===true&&'dryRun' in meta.inputSchema.shape){const shown=await handler({...args,dryRun:true});if(shown.isError)return shown;try{display=JSON.parse(shown.content[0].text);}catch{/* no display */}ops.length=0;}planned=await handler({...args,dryRun:false});}
+        try {if(input.dryRun===true&&'dryRun' in meta.inputSchema.shape){const shown=await handler({...args,dryRun:true});if(shown.isError)return shown;try{display=JSON.parse(shown.content[0].text);}catch{/* no display */}ops.length=0;plannedRevisions.clear();}planned=await handler({...args,dryRun:false});}
         catch(e){return err(e instanceof Error?e.message:'preview_planning_failed');}
         finally {ctx.env=original;ctx.cs=cs;ctx.toolName=tool;}
         if(planned.isError)return planned;
@@ -667,7 +667,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
               else if(key==='warnings'&&Array.isArray(value))metadata[key]=value.filter(v=>typeof v==='string').slice(0,20).map(v=>v.slice(0,300));
               else if(key==='reuse'&&value&&typeof value==='object'){const reuse=value as {databases?:number;boardIds?:unknown};metadata[key]={databases:reuse.databases,boardIds:Array.isArray(reuse.boardIds)?reuse.boardIds.filter(v=>typeof v==='string').slice(0,50):[]};}
             }
-            const make=async()=>{const preview=await proposePreview(original,ctx.userId,name,{tool:name,args:canonical},[...merged.values()],typeof input.workflowId==='string'?input.workflowId:undefined,[],args.requestId,metadata);return {text:JSON.stringify({...display,...preview,impact:{...(display.impact as object??{}),...preview.impact},dryRun:true,humanApprovalRequired:true,reviewUrl:previewUrl(ctx.origin,preview.previewId),instruction:'Open the review URL in Workspace. A signed-in human must approve before execution. Retry execution using execute_preview with the same ID/hash.'}),isError:false};};
+            const make=async()=>{const preview=await proposePreview(original,ctx.userId,name,{tool:name,args:canonical},[...merged.values()],typeof input.workflowId==='string'?input.workflowId:undefined,[],args.requestId,metadata,plannedRevisions);return {text:JSON.stringify({...display,...preview,impact:{...(display.impact as object??{}),...preview.impact},dryRun:true,humanApprovalRequired:true,reviewUrl:previewUrl(ctx.origin,preview.previewId),instruction:'Open the review URL in Workspace. A signed-in human must approve before execution. Retry execution using execute_preview with the same ID/hash.'}),isError:false};};
             const result=args.requestId?await withIdempotency(original,ctx.userId,name,args.requestId,args,make):await make();
             return {content:[{type:'text' as const,text:result.text}],isError:'failed' in result&&result.failed===true};
           }
@@ -745,8 +745,21 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   /* Review C2: CAS read-modify-write that threads the real userId (updated_by
    * attribution) and records landed writes into the change set inside
    * casUpdate itself — nothing can land unrecorded before a later push. */
-  const cas = (collection: string, id: string, mutate: Parameters<typeof casUpdate>[4]) =>
-    casUpdate(ctx.env, ctx.userId, collection, id, mutate, { journal:ctx.cs??undefined,recordTo: ctx.cs?.items ?? undefined, ectx: ctx.ectx, source: 'mcp' });
+  const cas = async (collection: string, id: string, mutate: Parameters<typeof casUpdate>[4]) => {
+    const plan=ctx.env.MCP_PLAN,prior=plan?.ops.filter(o=>o.id===id)??[];
+    if(plan&&prior.length){
+      // A multi-step tool must see its own proposed writes without touching D1.
+      // Revalidate the complete prospective graph through applyChanges; never
+      // silently omit a relation because its newly planned board is not live yet.
+      const base=await getRec(ctx.env,id),data=Object.assign({},base?.data,...prior.map(o=>o.patch));
+      if(data.deleted)return {notFound:true as const};
+      const patch=await mutate(data,base?.rev??-1);if(patch===null)return {row:{id,collection,data,rev:base?.rev??-1},result:{changed:0,rejected:0,applied:[]}};
+      const merged=new Map<string,PreviewOp>();for(const op of [...plan.ops,{id,collection:collection as Collection,patch}]){const prev=merged.get(op.id);merged.set(op.id,{...op,patch:{...prev?.patch,...op.patch}});}
+      const result=await applyChanges(ctx.env,ctx.userId,[...merged.values()].map(o=>({...o,ts:0})),{serverTs:true,atomic:true});if(result.rejected||result.conflicts?.length)throw new Error('plan_not_authorized');
+      return {row:{id,collection,data,rev:base?.rev??-1},result};
+    }
+    return casUpdate(ctx.env, ctx.userId, collection, id, mutate, { journal:ctx.cs??undefined,recordTo: ctx.cs?.items ?? undefined, ectx: ctx.ectx, source: 'mcp' });
+  };
 
   /* ---------- 1-2. search / fetch (ChatGPT connector contract) ---------- */
 
@@ -3835,17 +3848,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       // resumes instead of duplicating. The planner orders the stamped root
       // page last, so its absence below is what lets a partial install proceed
       // (the marker exists ⇒ we returned alreadyInstalled above).
-      const byCol = new Map<Collection, WriteOp[]>();
-      for (const w of plan.writes) {
-        const col = w.collection as Collection;
-        byCol.set(col, [...(byCol.get(col) ?? []), w]);
-      }
-      const existingIds = new Set<string>();
-      for (const col of byCol.keys()) {
-        // Tombstoned rows count as existing: a re-run must never resurrect
-        // rows the user deliberately deleted.
-        for (const r of await recs(ctx.env, col)) existingIds.add(r.id);
-      }
+      // Exact stable IDs, never entire collections. Tombstoned rows remain
+      // existing so retries cannot resurrect deliberately deleted pack content.
+      const existingIds=new Set((await getRecs(ctx.env,plan.writes.map(w=>w.id))).keys());
       const missing: WriteOp[] = plan.writes.filter((w) => !existingIds.has(w.id));
       const already = plan.writes.length - missing.length;
       // An older Phase 3 root marker does not prove newly authored Phase 4

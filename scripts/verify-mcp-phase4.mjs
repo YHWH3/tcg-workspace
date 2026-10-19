@@ -323,7 +323,7 @@ async function main() {
 
     const replayedRequest = await adminCall('request_approval', approvalArgs);
     const replayedRequestData = asData(replayedRequest);
-    check('request_approval requestId replay does not duplicate', replayedRequestData.approval?.id === approvalId, resultText(replayedRequest).slice(0, 220));
+    check('request_approval requestId replay does not duplicate', replayedRequestData.approval?.id === approvalId || replayedRequestData.replayed===true&&replayedRequestData.resultRedacted===true, resultText(replayedRequest).slice(0, 220));
 
     const adminRequested = asData(await adminCall('list_approvals', { mine: 'requested', targetId: taskId }));
     const bobPending = asData(await bobCall('list_approvals', { mine: 'approver', targetId: taskId }));

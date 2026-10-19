@@ -31,7 +31,7 @@ export interface Env {
    * Present only on the per-request copy built by `withReadGate`. */
   /** Server-created request constraint; never a client binding or tool argument. */
   /** In-process MCP planner; never exposed through bindings or HTTP input. */
-  MCP_PLAN?: {ops: import('./aiPreviews').PreviewOp[]};
+  MCP_PLAN?: {ops: import('./aiPreviews').PreviewOp[];expected:Map<string,number>};
   CONNECTOR?: import('./connectorAccess').ConnectorAuthority;
   READ_GATE?: import('./readAccess').ReadGate;
   /** The ungated environment of the same request (service reads only). */

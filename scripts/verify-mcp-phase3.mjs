@@ -307,7 +307,7 @@ check('record keeps relations + readable via get_record', !grAfterArch.error && 
 const ridArc = `p3arc-${Date.now()}`;
 const ra1 = j(await call('archive_item', { id: seedRecId, requestId: ridArc }));
 const ra2 = j(await call('archive_item', { id: seedRecId, requestId: ridArc }));
-check('requestId replay → one apply (same result/unchanged)', ra1.archived === true && (ra2.changed === false || ra2.idempotent === true || ra2.archived === true), JSON.stringify(ra2).slice(0, 160));
+check('requestId replay → one apply (same result/unchanged)', ra1.archived === true && (ra2.changed === false || ra2.idempotent === true || ra2.archived === true || ra2.replayed===true&&ra2.resultRedacted===true), JSON.stringify(ra2).slice(0, 160));
 await call('unarchive_item', { id: seedRecId });
 
 /* ---------------- conversion ---------------- */

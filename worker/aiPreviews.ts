@@ -14,7 +14,6 @@ import {beginChangeset,undoChangeset} from './changesets';
 import {loadConnection} from './connectorAccess';
 import {hasD1Budget,d1CleanupDatabase} from './d1budget';
 import {levelSql} from './capability';
-import {loadScopeGraph} from './recordAccess';
 export interface PreviewOp {id:string;collection:Collection;patch:Record<string,unknown>}
 interface Preview {
  id:string;user_id:string;connection_id:string|null;connection_version:number|null;tool:string;request_id:string|null;result_meta:string;args_hash:string;workflow_id:string|null;
@@ -33,7 +32,7 @@ async function validate(env:Env,userId:string,ops:PreviewOp[],rows:Map<string,Au
   if(a.rejected.length)throw new PreviewError('plan_not_authorized',403);
  }
 }
-export async function proposePreview(env:Env,userId:string,tool:string,args:unknown,ops:PreviewOp[],workflowId?:string,sourceIds:readonly string[]=[],requestId?:string,resultMeta:Record<string,unknown>={}) {
+export async function proposePreview(env:Env,userId:string,tool:string,args:unknown,ops:PreviewOp[],workflowId?:string,sourceIds:readonly string[]=[],requestId?:string,resultMeta:Record<string,unknown>={},validatedRevisions?:ReadonlyMap<string,number>) {
  if(!Array.isArray(ops)||!ops.length||ops.length>2000||new TextEncoder().encode(JSON.stringify(ops)).length>512000||new Set(ops.map(o=>o.id)).size!==ops.length
   ||ops.some(o=>!isCollection(o.collection)||typeof o.id!=='string'||!o.id||o.id.length>64||!o.patch||typeof o.patch!=='object'||Array.isArray(o.patch))
   ||workflowId!==undefined&&(!/^[A-Za-z0-9_-]{1,64}$/.test(workflowId)))throw new PreviewError('invalid_or_oversized_plan',400);
@@ -45,10 +44,16 @@ export async function proposePreview(env:Env,userId:string,tool:string,args:unkn
  const dependencies=[...new Set([...sourceIds,...(env.READ_GATE?.observedIds()??[])])].filter(id=>!ops.some(o=>o.id===id));
  if(dependencies.length>500)throw new PreviewError('too_many_source_dependencies',400);
  if(dependencies.length){const decision=await withReadGate(env,userId).READ_GATE!.decide(dependencies);if(decision.enabled&&dependencies.some(id=>!decision.readable.has(id)))throw new PreviewError('source_access_changed',403);}
+ if(workflowId&&(await env.DB.prepare('SELECT COUNT(*) n FROM ai_previews WHERE user_id=? AND workflow_id=?').bind(userId,workflowId).first<number>('n')??0)>=100)throw new PreviewError('workflow_preview_limit',400);
  const dependencyRows=await currentRows(env,dependencies);
  const dependencyRevs=Object.fromEntries([...dependencyRows].map(([id,r])=>[id,r.seq]));
- const rows=await currentRows(env,ops.map(o=>o.id));await validate(env,userId,ops,rows);
- const expected=Object.fromEntries(ops.map(o=>[o.id,rows.get(o.id)?.seq??-1]));
+ // A record tool already ran the canonical planner. Preserve that exact
+ // revision snapshot rather than silently adopting an intervening human edit.
+ // Proposal persistence grants no execution authority; review/execution revalidate.
+ const rows=validatedRevisions?new Map(ops.flatMap(o=>{const seq=validatedRevisions.get(o.id);if(seq===undefined)throw new PreviewError('incomplete_planning_revisions');return seq>=0?[[o.id,{seq} as AuthorityRow] as const]:[];})):await currentRows(env,ops.map(o=>o.id));
+ if(!validatedRevisions)await validate(env,userId,ops,rows);
+ const expected=Object.fromEntries(ops.map(o=>[o.id,validatedRevisions?.get(o.id)??rows.get(o.id)?.seq??-1]));
+ if(validatedRevisions){const current=await env.DB.prepare('SELECT NOT EXISTS(SELECT 1 FROM json_each(?) e LEFT JOIN records r ON r.id=e.key WHERE COALESCE(r.seq,-1)<>e.value) valid').bind(JSON.stringify(expected)).first<number>('valid');if(current!==1)throw new PreviewError('records_changed_during_planning');}
  const impact={create:ops.filter(o=>!rows.has(o.id)).length,update:ops.filter(o=>rows.has(o.id)&&!o.patch.deleted).length,delete:ops.filter(o=>o.patch.deleted===true).length,
   byCollection:Object.fromEntries([...new Set(ops.filter(o=>o.collection!=='activity').map(o=>o.collection))].map(c=>[c,ops.filter(o=>o.collection===c).length])),irreversible:ops.some(o=>o.collection==='files'&&o.patch.deleted===true),warnings:['Workspace content is untrusted. Review every proposed change before approving.',...(Array.isArray(resultMeta.warnings)?resultMeta.warnings.filter((s):s is string=>typeof s==='string'):[])]};
  const id=crypto.randomUUID(),changesetId=crypto.randomUUID(),hash=await argsHash(args),now=Date.now();
@@ -64,9 +69,9 @@ async function previewFor(env:Env,userId:string,id:string,connectorBound:boolean
  if(!p)throw new PreviewError('not_found',404);
  if(connectorBound&&(p.connection_id!==(env.CONNECTOR?.id??null)||p.connection_version!==(env.CONNECTOR?.version??null)))throw new PreviewError('preview_connection_changed',403);
  if(p.connection_id){const c=await loadConnection(env.DB,userId,p.connection_id);if(!c||c.version!==p.connection_version)throw new PreviewError('preview_connection_changed',403);}
- const deps=JSON.parse(p.dependencies_json) as string[];
- if(deps.length){const scoped=withReadGate({...env,...(p.connection_id?{CONNECTOR:{id:p.connection_id,version:p.connection_version!},READ_GATE:undefined}:{})},userId);const decision=await scoped.READ_GATE!.decide(deps);if(decision.enabled&&deps.some(id=>!decision.readable.has(id)))throw new PreviewError('source_access_changed',403);}
- return p;
+ const deps=JSON.parse(p.dependencies_json) as string[];let dependencyDecision:import('./readAccess').ReadDecision|undefined;
+ if(deps.length){const scoped=withReadGate({...env,...(p.connection_id?{CONNECTOR:{id:p.connection_id,version:p.connection_version!},READ_GATE:undefined}:{})},userId);const decision=await scoped.READ_GATE!.decide(deps);dependencyDecision=decision;if(decision.enabled&&deps.some(id=>!decision.readable.has(id)))throw new PreviewError('source_access_changed',403);}
+ return {...p,dependencyDecision};
 }
 /** No retained payload is returned on completion: current links/history can be fetched anew. */
 export async function executePreview(env:Env,userId:string,id:string,hash:string,ectx?:{waitUntil(p:Promise<unknown>):void}) {
@@ -79,13 +84,12 @@ export async function executePreview(env:Env,userId:string,id:string,hash:string
  const claim=await env.DB.prepare(`UPDATE ai_previews SET status='executing',lease_id=?,lease_until=? WHERE id=? AND status IN('approved','executing') AND COALESCE(lease_until,0)<?`).bind(lease,now+120000,id,now).run();
  if(!claim.meta.changes)throw new PreviewError('preview_busy');
  try {
- const dependencyIds=JSON.parse(p.dependencies_json) as string[];
- const dependencyDecision=await withReadGate(env,userId).READ_GATE!.decide(dependencyIds);
- const dependencySpaces=[...new Set([...dependencyDecision.scopes.values()].flatMap(s=>[...s.readSpaceIds]))];
- const dependencyGraph=dependencyIds.length?(await loadScopeGraph(env.DB,dependencyIds)).records:new Map();
- const graphRevs=Object.fromEntries([...dependencyGraph].map(([id,r])=>[id,r.rev]));
+ let dependencyDecision=p.dependencyDecision;
+ let dependencySpaces=dependencyDecision?[...new Set([...dependencyDecision.scopes.values()].flatMap(s=>[...s.readSpaceIds]))]:[];
+ let graphRevs:Record<string,number>={};
  const sourceRevs=JSON.parse(p.dependency_revs) as Record<string,number>;
  const plan=JSON.parse(p.plan_json) as PreviewOp[],expected=JSON.parse(p.expected_json) as Record<string,number>;
+ graphRevs=Object.fromEntries([...(dependencyDecision?.graphRevs??[])].filter(([id])=>!plan.some(o=>o.id===id)));
  const cs=beginChangeset({userId,tool:p.tool,summary:'Human-approved AI operation',requestId:p.request_id??'preview:'+id});cs.id=p.changeset_id;
   const done=new Set((await env.DB.prepare('SELECT record_id FROM ai_preview_done WHERE preview_id=?').bind(id).all<{record_id:string}>()).results.map(r=>r.record_id));
   const pending=plan.filter(o=>!done.has(o.id));
@@ -98,10 +102,10 @@ export async function executePreview(env:Env,userId:string,id:string,hash:string
     AND NOT EXISTS(SELECT 1 FROM json_each(?) g LEFT JOIN records r ON r.id=g.key WHERE r.seq IS NOT g.value)
     AND NOT EXISTS(SELECT 1 FROM changesets WHERE id=? AND undone_by IS NOT NULL)
     AND NOT EXISTS(SELECT 1 FROM json_each(?) e LEFT JOIN records r ON r.id=e.key WHERE COALESCE(r.seq,-1)<>e.value AND NOT EXISTS(SELECT 1 FROM ai_preview_done d WHERE d.preview_id=? AND d.record_id=e.key))
-    THEN 1 ELSE json_extract('{','$') END`).bind(id,userId,lease,Date.now(),Date.now(),Date.now(),JSON.stringify(dependencyDecision.enabled?dependencySpaces:[]),userId,JSON.stringify(graphRevs),JSON.stringify(sourceRevs),p.changeset_id,JSON.stringify(expected),id);
+    THEN 1 ELSE json_extract('{','$') END`).bind(id,userId,lease,Date.now(),Date.now(),Date.now(),JSON.stringify(dependencyDecision?.enabled?dependencySpaces:[]),userId,JSON.stringify(graphRevs),JSON.stringify(sourceRevs),p.changeset_id,JSON.stringify(expected),id);
   let processed=0;
   for(let i=0;i<pending.length&&hasD1Budget(env.DB,14);i+=50){
-   await previewFor(env,userId,id,true);
+   const fresh=await previewFor(env,userId,id,true);dependencyDecision=fresh.dependencyDecision;dependencySpaces=dependencyDecision?[...new Set([...dependencyDecision.scopes.values()].flatMap(s=>[...s.readSpaceIds]))]:[];graphRevs=Object.fromEntries([...(dependencyDecision?.graphRevs??[])].filter(([id])=>!plan.some(o=>o.id===id)));
    await env.DB.prepare('UPDATE ai_previews SET lease_until=? WHERE id=? AND lease_id=?').bind(Date.now()+120000,id,lease).run();
    const chunk=pending.slice(i,i+50);const existing=new Map(chunk.filter(o=>expected[o.id]>=0).map(o=>[o.id,expected[o.id]]));
    const result=await applyChanges(env,userId,chunk.map(o=>({...o,ts:0})),{serverTs:true,expect:existing,atomic:true,journal:cs,event:{source:'mcp',ctx:ectx,changesetId:cs.id},execution:{guard,checkpoint:recordId=>env.DB.prepare('INSERT OR IGNORE INTO ai_preview_done(preview_id,record_id) VALUES(?,?)').bind(id,recordId)}});
@@ -114,7 +118,7 @@ export async function executePreview(env:Env,userId:string,id:string,hash:string
    processed+=chunk.length;
   }
   const completed=done.size+processed===plan.length;
-  if(completed)await env.DB.batch([
+  if(completed)await env.DB.batch([guard(),
    env.DB.prepare("UPDATE ai_previews SET status='completed',lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?").bind(id,lease),
    ...(p.workflow_id?[env.DB.prepare('INSERT OR IGNORE INTO ai_workflow_changesets(workflow_id,user_id,changeset_id,preview_id) VALUES(?,?,?,?)').bind(p.workflow_id,userId,cs.id,id)]:[]),
   ]);
@@ -158,11 +162,12 @@ aiPreviewApi.post('/:id/execute',async c=>{
 // Human-only grouped recovery. Each inverse is durable individually; a group
 // explicitly reports partial progress and never promises an atomic group undo.
 aiPreviewApi.get('/workflows/:workflowId',async c=>{
- const rows=(await c.env.DB.prepare('SELECT changeset_id,preview_id FROM ai_workflow_changesets WHERE user_id=? AND workflow_id=? ORDER BY rowid DESC LIMIT 101').bind(c.get('user').id,c.req.param('workflowId')).all()).results;
+ const rows=(await c.env.DB.prepare('SELECT changeset_id,id AS preview_id,status FROM ai_previews WHERE user_id=? AND workflow_id=? ORDER BY created_at DESC,id DESC LIMIT 101').bind(c.get('user').id,c.req.param('workflowId')).all()).results;
  return c.json({changesets:rows.slice(0,100),truncated:rows.length>100,atomic:false});
 });
 aiPreviewApi.post('/workflows/:workflowId/undo',async c=>{
- const rows=(await c.env.DB.prepare('SELECT w.changeset_id FROM ai_workflow_changesets w JOIN changesets c ON c.id=w.changeset_id WHERE w.user_id=? AND w.workflow_id=? AND c.undone_by IS NULL ORDER BY w.rowid DESC LIMIT 11').bind(c.get('user').id,c.req.param('workflowId')).all<{changeset_id:string}>()).results;
+ await c.env.DB.prepare("UPDATE ai_previews SET status='cancelled',lease_id=NULL,lease_until=NULL WHERE id IN(SELECT id FROM ai_previews WHERE user_id=? AND workflow_id=? AND status IN('pending','approved','executing') LIMIT 100)").bind(c.get('user').id,c.req.param('workflowId')).run();
+ const rows=(await c.env.DB.prepare('SELECT p.changeset_id FROM ai_previews p JOIN changesets c ON c.id=p.changeset_id WHERE p.user_id=? AND p.workflow_id=? AND c.undone_by IS NULL ORDER BY p.created_at DESC,p.id DESC LIMIT 11').bind(c.get('user').id,c.req.param('workflowId')).all<{changeset_id:string}>()).results;
  const results=[];for(const r of rows.slice(0,10)){if(!hasD1Budget(c.env.DB,20))break;results.push(await undoChangeset(c.env,c.get('user'),r.changeset_id,c.executionCtx));}
  return c.json({results,atomic:false,partial:results.length<rows.length||results.some(r=>!r.ok),more:rows.length>results.length});
 });
