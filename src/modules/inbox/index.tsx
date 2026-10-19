@@ -1,3 +1,5 @@
+import {accessClientStore} from '../../core/accessClient';
+import {useStore} from '../../core/store';
 // Phase 4 — Inbox module (Workstream B). Notifications are server-only rows
 // read through /api/notifications — never synced records — so this module owns
 // no Dexie collection and shows an honest "needs connection" state offline.
@@ -5,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { BellOff, Check, CheckCheck, ChevronDown, Inbox as InboxIcon, WifiOff } from 'lucide-react';
-import { api, ApiError } from '../../core/api';
+import { api, ApiError,getToken } from '../../core/api';
 import { authStore } from '../../core/auth';
 import { Avatar, Button, EmptyState, Select } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
@@ -72,17 +74,17 @@ interface NotificationItem {
   groupKey: string | null;
   groupCount: number;
   items: GroupItem[];
+  restricted?:boolean;
   readAt: number | null;
   createdAt: number;
 }
 
-async function fetchNotifications(limit = 60): Promise<NotificationItem[]> {
-  const res = await api<{ notifications: NotificationItem[] }>(`/api/notifications?limit=${limit}`);
-  return res.notifications ?? [];
-}
+async function fetchNotifications(cursor?:string){return api<{notifications:NotificationItem[];nextCursor:string|null}>(`/api/notifications?limit=60${cursor?'&cursor='+encodeURIComponent(cursor):''}`);}
 
 export async function fetchUnreadBadge(): Promise<number> {
+  const uid=authStore.get().user?.id,token=getToken(),epoch=accessClientStore.get().epoch;
   const res = await api<{ unread: number }>('/api/notifications/badge');
+  if(authStore.get().user?.id!==uid||getToken()!==token||accessClientStore.get().epoch!==epoch)throw new Error('notification_access_changed');
   return res.unread ?? 0;
 }
 
@@ -206,7 +208,7 @@ function NotifRow({
             </ul>
           )}
         </div>
-        {!n.readAt && (
+        {!n.readAt && !n.restricted && (
           <button
             type="button"
             aria-label="Mark as read"
@@ -317,43 +319,33 @@ function InboxPage() {
   const [error, setError] = useState<'offline' | 'error' | null>(null);
   const [showPrefs, setShowPrefs] = useState(false);
 
-  const refresh = useCallback(() => {
-    void fetchNotifications()
-      .then((list) => {
-        setItems(list);
-        setError(null);
-        bumpBadge();
-      })
-      .catch((e) => setError(e instanceof ApiError && e.status === 0 ? 'offline' : 'error'));
-  }, []);
-
-  useEffect(refresh, [refresh]);
-
-  const markRead = useCallback(
-    (n: NotificationItem) => {
-      setItems((cur) => (cur ?? []).map((x) => (x.id === n.id ? { ...x, readAt: Date.now() } : x)));
-      void api(`/api/notifications/${encodeURIComponent(n.id)}/read`, { method: 'POST' })
-        .then(bumpBadge)
-        .catch(() => {});
-    },
-    [],
-  );
-
-  const markAll = useCallback(() => {
-    setItems((cur) => (cur ?? []).map((x) => ({ ...x, readAt: x.readAt ?? Date.now() })));
-    void api('/api/notifications/read-all', { method: 'POST' }).then(bumpBadge).catch(() => {});
-  }, []);
+  const access=useStore(accessClientStore),auth=useStore(authStore),token=getToken();
+  const key=JSON.stringify([auth.user?.id,token,access.epoch,access.status]);
+  const [owner,setOwner]=useState(''),[nextCursor,setNext]=useState<string|null>(null),[busy,setBusy]=useState(false);
+  const serial=useRef(0),alive=useRef(true);
+  const current=()=>alive.current&&authStore.get().user?.id===auth.user?.id&&getToken()===token&&accessClientStore.get().epoch===access.epoch;
+  const refresh = useCallback((cursor?:string) => {
+    const request=++serial.current;setBusy(true);
+    void fetchNotifications(cursor).then(reply=>{if(!current()||request!==serial.current)return;setItems(old=>cursor?[...(old??[]),...reply.notifications]:reply.notifications);setOwner(key);setNext(reply.nextCursor);setError(null);bumpBadge();})
+      .catch(e=>{if(current())setError(e instanceof ApiError&&e.status===0?'offline':'error');})
+      .finally(()=>{if(current()&&request===serial.current)setBusy(false);});
+  },[key]);
+  useEffect(()=>{alive.current=true;refresh();return()=>{alive.current=false;serial.current++;};},[refresh]);
+  const markRead = (n:NotificationItem)=>{if(n.restricted)return;void api(`/api/notifications/${encodeURIComponent(n.id)}/read`,{method:'POST'}).then(()=>{if(current()){setItems(old=>(old??[]).map(x=>x.id===n.id?{...x,readAt:Date.now()}:x));bumpBadge();}}).catch(()=>{if(current())setError('error');});};
+  const markAll=()=>{void api('/api/notifications/read-all',{method:'POST'}).then(()=>{if(current())refresh();}).catch(()=>{if(current())setError('error');});};
 
   const open = useCallback(
     (n: NotificationItem) => {
+      if(n.restricted)return;
       if (!n.readAt) markRead(n);
       if (n.url) navigate(n.url);
     },
     [markRead, navigate],
   );
 
-  const unread = (items ?? []).filter((n) => !n.readAt);
-  const read = (items ?? []).filter((n) => n.readAt);
+  const shown=owner===key?items:null;
+  const unread = (shown ?? []).filter((n) => !n.readAt&&!n.restricted);
+  const read = (shown ?? []).filter((n) => n.readAt||n.restricted);
 
   return (
     <div className="mx-auto h-full max-w-2xl overflow-y-auto px-5 py-8">
@@ -366,12 +358,12 @@ function InboxPage() {
         )}
       </div>
 
-      {error === 'offline' && <EmptyState icon={WifiOff} title="You're offline" body="Notifications live on the server — reconnect to load your Inbox." action={<Button onClick={refresh}>Retry</Button>} />}
-      {error === 'error' && <EmptyState icon={BellOff} title="Couldn't load notifications" body="Something went wrong fetching your Inbox." action={<Button onClick={refresh}>Retry</Button>} />}
+      {error === 'offline' && <EmptyState icon={WifiOff} title="You're offline" body="Notifications live on the server — reconnect to load your Inbox." action={<Button onClick={()=>refresh()}>Retry</Button>} />}
+      {error === 'error' && <EmptyState icon={BellOff} title="Couldn't load notifications" body="Something went wrong fetching your Inbox." action={<Button onClick={()=>refresh()}>Retry</Button>} />}
 
-      {!error && items === null && <p className="text-sm text-neutral-400">Loading…</p>}
+      {!error && shown === null && <p className="text-sm text-neutral-400">Loading…</p>}
 
-      {!error && items !== null && items.length === 0 && <EmptyState icon={InboxIcon} title="All caught up" body="Mentions, assignments, comments and reminders will show up here." />}
+      {!error && shown !== null && shown.length === 0 && <EmptyState icon={InboxIcon} title="All caught up" body="Mentions, assignments, comments and reminders will show up here." />}
 
       {!error && unread.length > 0 && (
         <>
@@ -395,7 +387,8 @@ function InboxPage() {
         </>
       )}
 
-      {!error && items !== null && (
+      {!error&&owner===key&&nextCursor&&<Button disabled={busy} onClick={()=>refresh(nextCursor)}>Load older notifications</Button>}
+      {!error && shown !== null && (
         <section className="rounded-2xl border border-neutral-200/80 bg-white dark:border-neutral-800 dark:bg-neutral-900/50">
           <button
             type="button"

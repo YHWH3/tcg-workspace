@@ -1,3 +1,5 @@
+import {MoveSpaceButton} from '../../core/MoveSpace';
+import {HistoryButton} from '../../core/History';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, Navigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -89,7 +91,7 @@ export function PageView() {
         </div>
         <div className="flex items-center gap-1">
           <PresenceStack path={`/pages/${page.id}`} />
-          <SharePopover pageId={page.id} />
+          {!page.parentId&&<MoveSpaceButton root={page}/>}<HistoryButton recordId={page.id}/><SharePopover pageId={page.id} />
           <Popover
           align="right"
           trigger={

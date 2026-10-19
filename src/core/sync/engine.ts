@@ -292,9 +292,10 @@ async function pullRemote(access: ReconciledAccess, assertCurrent: () => void): 
 
 async function refreshUsers(): Promise<void> {
   try {
+    const uid=authStore.get().user?.id,token=getToken(),epoch=accessClientStore.get().epoch;
+    const current=()=>{sameAccount();if(authStore.get().user?.id!==uid||getToken()!==token||accessClientStore.get().epoch!==epoch)throw new Error('directory_access_changed');};
     const { users } = await api<{ users: PublicUser[] }>('/api/users');
-    await db.users.clear();
-    await db.users.bulkPut(users);
+    await db.transaction('rw',db.users,async()=>{current();await db.users.clear();await db.users.bulkPut(users);current();});
   } catch {
     /* non-fatal */
   }

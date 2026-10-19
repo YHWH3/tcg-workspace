@@ -1,3 +1,5 @@
+import {SpaceHome} from './core/SpaceHome';
+import {GuestJoin} from './core/GuestJoin';
 import { useEffect } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router';
 import { authStore, initAuth } from './core/auth';
@@ -30,6 +32,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 const router = createBrowserRouter([
+ {path:'join/:token',element:<GuestJoin/>},
   // Public share links live entirely outside the auth shell — no sync engine,
   // no login redirect.
   { path: 's/canvas/:token', element: <PublicCanvas /> },
@@ -45,6 +48,7 @@ const router = createBrowserRouter([
     children: [
       ...modules.flatMap((m) => m.routes),
       { path: 'settings', element: <SettingsPage /> },
+      {path:'spaces/:spaceId',element:<SpaceHome/>},
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

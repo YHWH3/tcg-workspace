@@ -1,3 +1,5 @@
+import {Usage} from './Usage';
+import {Spaces} from './Spaces';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -41,10 +43,12 @@ export function SettingsPage() {
       <h1 className="mb-6 text-xl font-semibold tracking-tight">Settings</h1>
       <div className="flex flex-col gap-5">
         <ProfileSection user={user} />
+        <Section title="Spaces and guests"><Spaces/></Section>
         <AIConnectorsSection />
         <RecentAIChangesSection />
         <TemplateGallerySection />
         <StorageSection />
+        <Section title="Usage and retention"><Usage/></Section>
         <NotificationsSection />
         <LocalDataSection user={user} />
         <PasswordSection />

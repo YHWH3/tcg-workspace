@@ -146,7 +146,7 @@ async function finishLogin(token: string, user: PublicUser) {
   authStore.set({ status: 'authed', user });
 }
 
-export async function signUp(input: { username: string; name: string; password: string; inviteCode?: string }) {
+export async function signUp(input: { username: string; name: string; password: string; inviteCode?: string;guestInvite?:string }) {
   const res = await api<{ token: string; user: PublicUser }>('/api/auth/signup', { method: 'POST', body: input });
   await finishLogin(res.token, res.user);
 }

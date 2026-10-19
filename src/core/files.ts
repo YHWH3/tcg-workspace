@@ -1,3 +1,4 @@
+import {reserveDownloadedCache} from './cacheBudget';
 import { PERMISSION_PROTOCOL } from '../../shared/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -372,7 +373,7 @@ export async function cacheDownloadedFile(fileId: string, blob: Blob, access: Me
   const current = () => mediaAccessCurrent(access) && stillMounted();
   if (!current()) return false;
   try {
-    return await db.transaction('rw', db.files, db.blobs, async () => {
+    return await db.transaction('rw', [db.files, db.blobs,db.mediaCache,db.meta,db.outbox], async () => {
       let file = await db.files.get(fileId);
       const parentId = thumbnailParentId(fileId);
       if (!file && parentId) {
@@ -380,6 +381,9 @@ export async function cacheDownloadedFile(fileId: string, blob: Blob, access: Me
         if (parent?.thumbId === fileId) file = parent;
       }
       if (!file || file.deleted || !current()) return false;
+      const original=await db.blobs.get(fileId);
+      if(original&&original.state!=='cached')return true;
+      if(!await reserveDownloadedCache(db,fileId,blob.size))return false;
       await db.blobs.put({ id: fileId, blob, state: 'cached', uploadedChunks: 0, mime: blob.type });
       if (!current()) throw new MediaAccessChanged();
       return true;
@@ -410,6 +414,7 @@ export function useFileUrl(fileId: string | undefined, preferId?: string | undef
       const row = await db.blobs.get(target);
       if (cancelled) return;
       if (row) {
+        if(row.state==='cached'&&mediaAccessCurrent(access))await db.mediaCache.update(target,{lastUsed:Date.now()});
         const safe = await renderableBlob(row.blob);
         if (cancelled) return;
         revoke = URL.createObjectURL(safe);

@@ -1,3 +1,4 @@
+import {MoveSpaceButton} from '../../core/MoveSpace';
 import { useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { Archive, ArchiveRestore, CheckSquare, LayoutGrid, List, ListPlus, MoreHorizontal, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
@@ -125,7 +126,7 @@ export function BoardPage() {
             </div>
           )}
           <div className="ml-auto flex items-center gap-1">
-            <PresenceStack path={`/boards/${board.id}`} />
+            <MoveSpaceButton root={board}/><PresenceStack path={`/boards/${board.id}`} />
             {mobile ? (
               <IconButton aria-label="New task" onClick={async () => navigate(`/boards/${board.id}/tasks/${await createTask(board.id)}`)}>
                 <Plus size={16} />

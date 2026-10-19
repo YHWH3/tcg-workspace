@@ -1,3 +1,4 @@
+import {SpaceSwitcher} from './SpaceHome';
 import { useEffect, useState } from 'react';
 import { matchPath, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { Search, Settings, LogOut, Moon, Sun, Monitor, CloudOff, RefreshCw, Check, AlertTriangle, PanelLeft, Plus, Camera, X } from 'lucide-react';
@@ -425,6 +426,7 @@ function Toaster() {
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav className="flex flex-col gap-0.5 px-2">
+      <SpaceSwitcher/>
       {modules
         .filter((m) => m.navItem)
         .map((m) => {

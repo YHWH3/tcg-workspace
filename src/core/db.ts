@@ -63,6 +63,7 @@ export class LocalDB extends Dexie {
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<{ key: string; value: unknown }, string>;
   blobs!: Table<BlobRow, string>;
+  mediaCache!: Table<{id:string;bytes:number;lastUsed:number},string>;
   syncStage!: Table<SyncStageRow, [string, string]>;
   accessQuarantine!: Table<AccessQuarantineRow, number>;
   accessQuarantineInfo!: Table<AccessQuarantineInfo, number>;
@@ -118,6 +119,10 @@ export class LocalDB extends Dexie {
         const collection = row.kind === 'outbox' && payload && typeof payload === 'object' && 'collection' in payload ? String(payload.collection) : undefined;
         await tx.table('accessQuarantineInfo').put({ ...info, collection }); after = row.autoId;
       }
+    });
+    this.version(9).stores({mediaCache:'id,lastUsed'}).upgrade(async tx=>{
+      let after='',bytes=0;for(;;){const rows=await tx.table('blobs').where(':id').above(after).limit(100).toArray();if(!rows.length)break;for(const r of rows)if(r.state==='cached'){await tx.table('mediaCache').put({id:r.id,bytes:r.blob.size,lastUsed:0});bytes+=r.blob.size;}after=rows[rows.length-1].id;}
+      await tx.table('meta').put({key:'download-cache-bytes',value:bytes});
     });
   }
 

@@ -1,3 +1,4 @@
+import {MoveSpaceButton} from '../MoveSpace';
 /**
  * DatabasePage — the Phase 1 database shell: view tabs, view config toolbar
  * (filter/sort/group/props/mine), new-view menu, new-record button, and the
@@ -114,7 +115,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
             <span>{String(board.icon ?? (isRecordsDb(board) ? '🗃️' : '🗂️'))}</span>
             {String(board.name ?? (isRecordsDb(board) ? 'Database' : 'Board'))}
           </h1>
-          <span className="flex-1" />
+          <span className="flex-1" /><MoveSpaceButton root={board}/>
           <Button size="sm" onClick={() => void createRecord(board.id, {}).then((id) => navigate(view?.id ? `/boards/${board.id}/views/${view.id}/records/${id}` : `/boards/${board.id}/tasks/${id}`))}>
             <Plus size={14} /> New {noun.toLowerCase()}
           </Button>
