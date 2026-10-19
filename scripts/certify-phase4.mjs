@@ -21,7 +21,7 @@ mkdirSync(directory,{recursive:true});
 const results=[],controller=new AbortController();let interrupted=false;
 for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{interrupted=true;controller.abort();});
 const expectedIds=['prerequisites','dependencies','lockfile','whitespace','migrations','harness','typecheck','unit','build','d1','security','performance-evidence','source-integrity'];
-if(mode!=='quick')expectedIds.push('browsers','smoke','mcp-base','mcp-multiuser','mcp-phase1','mcp-phase2','mcp-phase3','mcp-phase4','v4','v6','v7','v8','v9','phase5-sync','phase5-workflows');
+if(mode!=='quick')expectedIds.push('browsers','smoke','mcp-base','mcp-multiuser','mcp-phase1','mcp-phase2','mcp-phase3','mcp-phase4','v4','v6','v7','v8','v9','phase5-sync','phase5-workflows','phase5-mcp');
 if(mode==='extended')expectedIds.push('d1-stress-1','d1-stress-2');
 const sleepGuard=preventIdleSleep();
 const network=configureCertificationNetwork();
@@ -126,6 +126,7 @@ try {
     // Self-managed fixture: the suite starts its own disposable Worker per engine and enables Phase 5 permissions inside it only.
     await integration('phase5-sync','scripts/verify-phase5-sync.mjs',{selfFixture:true});
     await integration('phase5-workflows','scripts/verify-phase5-workflows.mjs',{selfFixture:true});
+    await integration('phase5-mcp','scripts/verify-phase5-mcp.mjs',{selfFixture:true});
   }
   if(mode==='extended')for(let i=1;i<=2;i++){const path=join(directory,`d1-stress-${i}.json`);await stage(`d1-stress-${i}`,['npm','test','--',...d1Files,'--reporter=default','--reporter=json',`--outputFile=${path}`],{adapter:()=>validateVitest(readJson(path),d1Files)});}
   await internal('performance-evidence',()=>{

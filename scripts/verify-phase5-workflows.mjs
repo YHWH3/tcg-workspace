@@ -23,7 +23,7 @@ let built=process.argv.includes('--skip-build');
 for(const [engine,type]of Object.entries(engines).filter(([e])=>!selected||e===selected)){
  let fixture,browser,context,guestContext,page;
  const dir=join(output,engine);mkdirSync(dir,{recursive:true});
- const check=async(name,fn)=>{if(!mandatoryNames.includes(name))return;const start=performance.now();try{await fn();reporter.record(engine,'320/390/768/1024/1440',name,'PASS',null,{durationMs:Math.round(performance.now()-start)});console.log(`PASS [${engine}] ${name}`);}catch(e){reporter.record(engine,'390x844',name,'FAIL',e);console.error(`FAIL [${engine}] ${name}: ${e.message}`);throw e;}};
+ const check=async(name,fn)=>{if(!mandatoryNames.includes(name))return;const start=performance.now();const viewport=name===names[1]?'320x900/390x900/768x900/1024x900/1440x900':'390x844';try{await fn();reporter.record(engine,viewport,name,'PASS',null,{durationMs:Math.round(performance.now()-start)});console.log(`PASS [${engine}] ${name}`);}catch(e){const size=page?.viewportSize();reporter.record(engine,size?`${size.width}x${size.height}`:'none',name,'FAIL',e);console.error(`FAIL [${engine}] ${name}: ${e.message}`);throw e;}};
  try{
   fixture=await startFixture({port:await freePort(),build:!built,artifactDirectory:dir});built=true;
   const {admin,bob}=await bootstrap(fixture.base);

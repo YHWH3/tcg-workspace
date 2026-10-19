@@ -124,7 +124,7 @@ pins every migration hash. Server-only tables never enter synced COLLECTIONS.
 
 `npm run certify:phase5` is an alias of the existing complete orchestrator, preserving
 all Phase 0–4 and Protocol 3 gates and adding three-engine permission-enabled workflow
-journeys. Full certification requires clean starting/ending source and matching SHA and
+journeys plus real permission-enabled OAuth/MCP transport isolation. Full certification requires clean starting/ending source and matching SHA and
 fingerprints. Unit/D1 tests explicitly label ENABLED versus DISABLED permission cases.
 Generated artifacts identify each command, exit, count, browser version, fixture and
 source SHA. Development checks cannot certify a later commit.

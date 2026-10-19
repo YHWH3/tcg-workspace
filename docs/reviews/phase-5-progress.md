@@ -50,6 +50,9 @@ candidate. No remote push, merge, deployment or production activation is authori
 | P5-CONT-07 | Space settings appended page two then the save wrapper reloaded page one. Real-browser red run timed out waiting for all 103 authorized spaces. | Pagination bypasses the save refresh; browser fixture explicitly grants 101 additional spaces and checks every option survives. `.artifacts/phase5/space-paging-red-r3.log` records the failing old UI. |
 | P5-CONT-08 | Server search excluded descendants of archived/deleted parents, but the palette's cached title matcher retained them. A real-browser red screenshot shows `Archivephantom child` as a cached result despite empty server results. | Bounded coherent cache sampling uses the canonical scope resolver; archived ancestors are absent from the search graph, deleted/missing ancestry fails closed. Unit and three-engine archive/unarchive/delete journeys. Red artifacts: `.artifacts/phase5/palette-ancestor-red-r2-artifacts/`. |
 
+| P5-CONT-09 | Enabled MCP handler tests did not certify real OAuth/Streamable HTTP under scoped permissions. | Add the mandatory permission-enabled `phase5-mcp` gate: 13 real built-Worker checks, including replay after revocation, history restore and regrant. Existing transport suites stay mandatory for disabled-mode compatibility. |
+| P5-CONT-10 | Workflow result metadata labelled every journey with all five widths despite most using one viewport. | Record the actual 390x844 viewport on ordinary journeys, all five 900px-high layouts only on the layout journey, and the actual current viewport on failure. Functional assertions are retained. |
+
 Features are not relabelled as defects: search coverage, guest/space/history/usage UI
 are new completion work. Existing mock tests were adapted to the added atomic history
 statement; two date-dependent Phase 4 test fixtures were made explicit so the current
@@ -674,3 +677,30 @@ independent implementation continues. Permanent purge remains disabled.
 GitHub hostname resolution failed during fetch attempts on 2026-10-15; local
 work and disposable tests continued. Fetch/remote verification must succeed
 before normal push/stacked PR creation. No force push or alternate checkout.
+
+## Committed-source checkpoint and transport completion
+
+`npm run certify:phase5` passed **28/28 mandatory gates**, exit **0**, on clean
+`204606046456d24f42577ed22cc7fad53e57a970`, source fingerprint
+`be77ccf6d50c956b078bd01fcadae58fd60599601a8bca393365e3559ea8c66d`. All 1,105 tests (100 files), 498 dedicated
+actual-D1 assertions, 64 harness tests, 27 migrations, smoke 46 and six legacy MCP suites
+(94/61/37/113/64/46) passed. Browser counts: v4 33, v6 150, v7 114, v8 140, v9 75,
+permission-enabled Phase 5 sync 33 and new workflows 36. Raw npm audit: zero findings.
+Source integrity passed. Artifact:
+`.artifacts/certification/204606046456d24f42577ed22cc7fad53e57a970-2026-10-19T10-43-06-998Z-complete/`.
+
+A coverage distinction was confirmed: legacy OAuth/MCP suites demonstrate disabled-mode
+compatibility; registered-handler D1 tests alone do not prove enabled transport behavior.
+The added `verify-phase5-mcp.mjs` uses the same disposable built Worker, real DCR, PKCE,
+consent, token exchange, SDK transport and prompts with permissions ENABLED. Its 13
+checks cover viewer denial, editor writes, history restore/undo, revocation, historical
+copy suppression, idempotent replay and regrant. It is mandatory in complete mode,
+bringing the manifest to **29 gates**. It introduces no new framework or dependency.
+Workflow viewport metadata now distinguishes the five-layout journey from the individual
+390x844 journeys; functional assertions are unchanged.
+
+The 28-gate result certifies only the SHA above. The expanded 29-gate final result must
+come from the generated clean-source artifact for the later commit. No historical count
+or standalone development run is substituted for that final run. Permissions stay off
+outside disposable fixtures. Physical devices/manual accessibility/native zoom remain
+external release gates, and no push/merge/deployment is performed.
