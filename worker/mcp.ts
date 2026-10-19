@@ -2797,6 +2797,16 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         revive(closure.pages, id, 'pages');
         revive(closure.blocks, id, 'blocks');
       }
+      if(ctx.env.MCP_PLAN&&await ctx.env.READ_GATE!.enabled()){
+        // Integrity candidates can carry stale/cross-space deletedVia markers.
+        // Reuse the exact write kernel (including healed clocks and connector
+        // bounds) in its read-only planning mode, then omit denied descendants.
+        const checked=await applyChanges(ctx.env,ctx.userId,ops.map(o=>({...o,ts:0})),{serverTs:true,expect,atomic:true});
+        if(checked.conflicts?.length)throw new WriteConflict(checked.conflicts);
+        const denied=new Set(checked.rejectedItems?.map(r=>r.id)??[]);
+        if(denied.has(id))return err('item not found or restore permission changed');
+        for(let i=ops.length-1;i>=0;i--)if(denied.has(ops[i].id))ops.splice(i,1);
+      }
       await write(ctx, ops, { expect });
       return txt({ type, id, restored: true, restoredWith: ops.length - 1, ...(a.expectedRev === undefined ? { unchecked: [id] } : {}) });
     },
