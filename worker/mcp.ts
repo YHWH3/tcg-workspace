@@ -1,3 +1,4 @@
+import {loadHistoryPage,historicalPatch,HistoryError} from './history';
 import { McpServer } from '@modelcontextprotocol/server';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler } from 'agents/mcp/server';
@@ -96,7 +97,7 @@ class WriteConflict extends Error {
  * change set (activity rows excluded), and fail loudly on expectedRev
  * mismatches. `expect` caps at one atomic batch of expected ids.
  */
-export async function write(c: Ctx, ops: WriteOp[], opts: { expect?: Map<string, number> } = {}): Promise<void> {
+export async function write(c: Ctx, ops: WriteOp[], opts: { expect?: Map<string, number>; source?:'mcp'|'undo' } = {}): Promise<void> {
   if (opts.expect && opts.expect.size > MAX_EXPECTED) throw new Error(`at most ${MAX_EXPECTED} expected ids per call`);
   let job: {id:string;plan:string;expectations:string}|null=null;
   let lease:string|null=null;
@@ -131,7 +132,7 @@ export async function write(c: Ctx, ops: WriteOp[], opts: { expect?: Map<string,
       if(job) await c.env.DB.prepare('UPDATE mcp_write_jobs SET lease_until=? WHERE id=? AND lease_id=?').bind(Date.now()+120_000,job.id,lease).run();
       const jobId=job?.id;
       const r = await applyChanges(c.env,c.userId,chunk.map(o=>({...o,ts:0})),{
-        serverTs:true,expect,journal:c.cs??undefined,event:{source:'mcp',ctx:c.ectx,changesetId:c.cs?.id},
+        serverTs:true,expect,journal:c.cs??undefined,event:{source:opts.source??'mcp',ctx:c.ectx,changesetId:c.cs?.id},
         ...(jobId?{execution:{
           guard:()=>c.env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM mcp_write_jobs WHERE id=? AND cancelled=0 AND lease_id=? AND lease_until>?) THEN 1 ELSE json_extract('{','$') END`).bind(jobId,lease,Date.now()),
           checkpoint:(id:string)=>c.env.DB.prepare('INSERT OR IGNORE INTO mcp_write_done(job_id,record_id) VALUES(?,?)').bind(jobId,id),
@@ -176,7 +177,7 @@ interface UserRow {
 }
 
 async function users(env: Env): Promise<UserRow[]> {
-  const { results } = await env.DB.prepare('SELECT id, username, name FROM users').all<UserRow>();
+  const { results } = await env.DB.prepare(`SELECT id,username,name FROM users WHERE id=? OR COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest'`).bind(env.READ_GATE?.userId??'',env.READ_GATE?.userId??'').all<UserRow>();
   return results;
 }
 
@@ -639,23 +640,24 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   server.registerTool(
     'search',
     {
-      description: 'Search pages, tasks/records, boards and mood boards by title and body text (words are prefix-matched). Returns at most `limit` (default 20, max 50) results per call; pass nextCursor back as `cursor` while hasMore is true. indexPending:true means recent changes are still being indexed.',
+      description: 'Search pages, tasks/records, boards, mood boards, comments, filenames and mood items by title and body text (words are prefix-matched). Returns at most `limit` (default 20, max 50) results per call; pass nextCursor back as `cursor` while hasMore is true. indexPending:true means recent changes are still being indexed.',
       inputSchema: z.object({
         query: z.string().describe('Free-text search query'),
-        type: z.enum(['page', 'task', 'board', 'moodboard']).optional(),
+        type: z.enum(['page', 'task', 'board', 'moodboard', 'comment', 'file', 'mooditem']).optional(),
         databaseId: z.string().optional().describe('Only records of this database'),
+        spaceId:z.string().optional().describe('Only content in this authorized space'),
         cursor: z.string().optional(),
         limit: z.number().optional(),
       }),
       annotations: { readOnlyHint: true },
     },
-    async ({ query, type, databaseId, cursor, limit }) => {
+    async ({ query, type, databaseId, spaceId, cursor, limit }) => {
       // The permission-aware search service (worker/search.ts): index + live dirty docs,
       // readable-space prefilter, the request's read gate, keyset pagination.
       let out;
-      try { out = await searchRecords(ctx.env, ctx.userId, { q: query, type, databaseId, cursor: cursor ?? null, limit }); }
+      try { out = await searchRecords(ctx.env, ctx.userId, { q: query, type, databaseId, spaceId, cursor: cursor ?? null, limit }); }
       catch (e) { if (e instanceof SearchError) return err(e.code); throw e; }
-      const url = (h: (typeof out.results)[number]) => h.type === 'page' ? pageUrl(ctx, h.docId) : h.type === 'task' ? `${ctx.origin}/boards/${h.databaseId ?? 'board-default'}/tasks/${h.docId}` : h.type === 'board' ? boardUrl(ctx, h.docId) : moodUrl(ctx, h.docId);
+      const url = (h: (typeof out.results)[number]) => h.url ? `${ctx.origin}${h.url}` : h.type === 'page' ? pageUrl(ctx, h.docId) : h.type === 'task' ? `${ctx.origin}/boards/${h.databaseId ?? 'board-default'}/tasks/${h.docId}` : h.type === 'board' ? boardUrl(ctx, h.docId) : moodUrl(ctx, h.docId);
       // `rev` is the record's own revision (what expectedRev writes compare), not the index's.
       const own = await getRecs(ctx.env, out.results.map((h) => h.docId));
       return txt({ results: out.results.filter((h) => own.has(h.docId)).map((h) => ({ id: `${h.type}:${h.docId}`, title: h.title, url: url(h), rev: own.get(h.docId)!.rev, ...(h.snippet ? { snippet: h.snippet } : {}) })), hasMore: out.hasMore, nextCursor: out.nextCursor, indexPending: out.indexPending });
@@ -723,9 +725,31 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         const lines = items.map((i) => `- ${i.data.type}: ${i.data.text ?? i.data.color ?? i.data.fileId ?? ''}`);
         return txt({ id, title: titleOf(m, 'Mood board'), rev: m.rev, text: `Items:\n${lines.join('\n')}`, url: moodUrl(ctx, rawId), metadata: { type: 'moodboard' } });
       }
-      return err('unknown id — use page:, task:, board: or moodboard: prefixes');
+      if(['comment','file','mooditem'].includes(type)){
+        const collection=type==='comment'?'comments':type==='file'?'files':'mooditems';
+        const row=await rec(ctx.env,collection,rawId);if(!row||row.data.deleted)return err('item not found');
+        let parent=type==='comment'?row.data.targetId:type==='file'?row.data.parentId:row.data.boardId;
+        let url:string|null=null;
+        for(let depth=0;typeof parent==='string'&&depth<8;depth++){
+          const ancestor=await getRec(ctx.env,parent);if(!ancestor||ancestor.data.deleted)break;
+          const r=toRec(ancestor);
+          if(ancestor.collection==='pages'){url=pageUrl(ctx,r.id);break;}
+          if(ancestor.collection==='tasks'){url=taskUrl(ctx,r);break;}
+          if(ancestor.collection==='boards'){url=boardUrl(ctx,r.id);break;}
+          if(ancestor.collection==='moodboards'){url=moodUrl(ctx,r.id);break;}
+          parent=ancestor.data.pageId??ancestor.data.boardId??ancestor.data.targetId??ancestor.data.parentId;
+        }
+        if(!url)return err('item not found');
+        const text=String(type==='comment'?row.data.body??'':type==='file'?row.data.name??'':row.data.text??row.data.title??'');
+        const resolvers=await mentionResolvers(ctx,[text]);
+        return txt({id,title:String(row.data.title??row.data.name??text).slice(0,300),rev:row.rev,text:blocksToMarkdown([{type:'paragraph',text}],resolvers),url,metadata:{type}});
+      }
+      return err('unknown item type');
     },
   );
+
+  server.registerTool('get_record_history',{description:'Read authorized per-record field history with bounded revision pagination. Historical values require current record and historical-space access.',inputSchema:z.object({id:z.string(),before:z.number().int().positive().optional(),limit:z.number().int().min(1).max(50).optional()}),annotations:{readOnlyHint:true}},async a=>{try{return txt(await loadHistoryPage(ctx.env.DB,ctx.userId,a.id,a.before,a.limit));}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}});
+  reg('restore_record_fields',{description:'Restore selected retained fields from one historical revision using an exact current expectedRev. Preview with dryRun first. Deletion recovery uses restore_item or undo_change.',inputSchema:z.object({id:z.string(),revision:z.number().int().positive(),expectedRev:z.number().int().nonnegative(),fields:z.array(z.string()).min(1).max(100),side:z.enum(['before','after']).default('before')}),annotations:{idempotentHint:true}},async a=>{let planned;try{planned=await historicalPatch(ctx.env.DB,ctx.userId,a.id,a.revision,a.fields,a.side);}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}if(ctx.cs)ctx.cs.source='undo';await write(ctx,[{id:a.id,collection:planned.collection as Collection,patch:planned.patch}],{expect:new Map([[a.id,a.expectedRev]]),source:'undo'});return txt({id:a.id,restoredFields:a.fields});});
 
   /* ---------- 3. workspace_overview ---------- */
 

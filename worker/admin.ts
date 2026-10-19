@@ -10,7 +10,7 @@ admin.use('*', requireAuth);
 
 admin.get('/users', async (c) => {
   const { results } = await c.env.DB
-    .prepare('SELECT id, username, name, role, color, created_at FROM users ORDER BY created_at')
+    .prepare(`SELECT id, username, name, role, color, created_at FROM users WHERE id=? OR COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest' ORDER BY created_at`).bind(c.get('user').id,c.get('user').id)
     .all<PublicUser & { created_at: number }>();
   return c.json({ users: results.map(({ created_at: _created_at, ...u }) => u), seatsTotal: MAX_USERS });
 });

@@ -18,7 +18,7 @@ export interface AccessContext {
 
 interface PrincipalRow { id: string; workspace_role: unknown; disabled_at: number | null }
 interface SpaceRow {
-  id: string; default_access: unknown; export_policy: unknown; deleted_at: number | null;
+  id: string; guest_directory_restricted:number; default_access: unknown; export_policy: unknown; deleted_at: number | null;
   member_user_id: string | null; member_role: unknown; member_access: unknown;
 }
 
@@ -37,7 +37,7 @@ export async function loadAccessContext(db: D1Database, userId: string, spaceIds
   const [principalResult, stateResult, spaceResult] = await db.batch([
     db.prepare('SELECT id,COALESCE(workspace_role,role) workspace_role,disabled_at FROM users WHERE id=?').bind(userId),
     db.prepare('SELECT enabled FROM access_state WHERE id=1'),
-    db.prepare(`SELECT s.id,s.default_access,s.export_policy,s.deleted_at,
+    db.prepare(`SELECT s.id,s.default_access,s.export_policy,s.deleted_at,s.guest_directory_restricted,
       m.user_id member_user_id,m.role member_role,m.access member_access
       FROM spaces s LEFT JOIN space_members m ON m.space_id=s.id AND m.user_id=?
       WHERE s.id IN (SELECT value FROM json_each(?))`).bind(userId, JSON.stringify(ids)),
@@ -53,7 +53,7 @@ export async function loadAccessContext(db: D1Database, userId: string, spaceIds
     let space: AccessSpace | null = null;
     if ((s.default_access === 'members' || s.default_access === 'private')
         && (s.export_policy === 'members' || s.export_policy === 'disabled')) {
-      space = { id: s.id, defaultAccess: s.default_access, exportPolicy: s.export_policy, deletedAt: s.deleted_at };
+      space = { id: s.id, defaultAccess: s.default_access, exportPolicy: s.export_policy, deletedAt: s.deleted_at,guestDirectoryRestricted:s.guest_directory_restricted===1 };
     }
     let membership: SpaceMembership | null = null;
     if (s.member_user_id !== null) {

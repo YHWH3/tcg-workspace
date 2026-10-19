@@ -86,5 +86,25 @@
   {
     "name": "0022_phase5_search_index.sql",
     "sha256": "510e1156a27e3b807d5dfd577400940b1d0a737911b4490ed3720fd17a368169"
+  },
+  {
+    "name": "0023_phase5_search_coverage.sql",
+    "sha256": "c14a36c6f0483f41346975eadc5c0f3352b3af66c14b88bcdd805fcfe3932442"
+  },
+  {
+    "name": "0024_phase5_guest_invites.sql",
+    "sha256": "780d8b6cbcb482985252d441ed845b6b0a0da7435ca65844ecfa457462730551"
+  },
+  {
+    "name": "0025_phase5_record_history.sql",
+    "sha256": "9e83825dfd3d957d30e48d8d06f294325615e291e4f4e31daa3ab046c2f9952b"
+  },
+  {
+    "name": "0026_phase5_directory_privacy.sql",
+    "sha256": "f665c8899945141bd018370b7b82517d6c2438a9731d958eced7fec463c4cf86"
+  },
+  {
+    "name": "0027_phase5_notification_paging.sql",
+    "sha256": "cd5e20382dec6c034f2fb5eb57394ff1181818751df5bcee27f01e2c134c3932"
   }
 ]

@@ -26,8 +26,8 @@ function replay(row: AuditRow, hash: string): SpaceMutationResult {
   if (row.args_hash !== hash) throw new SpaceMutationError('request_id_reused', 409);
   return { spaceId: row.space_id, generation: row.generation, replayed: true };
 }
-const actorFence = (context: AccessContext, needs: Map<string, number>): CapabilityFenceInput => ({
-  userId: context.userId, needs, workspaceRole: context.principal!.workspaceRole, enabled: context.enabled });
+const actorFence = (context: AccessContext & {session?:string}, needs: Map<string, number>): CapabilityFenceInput => ({
+  userId: context.userId, needs, workspaceRole: context.principal!.workspaceRole, enabled: context.enabled,session:context.session });
 /** A rolled-back batch is a recoverable "your authority changed" only when the ACTOR's own
  * capability changed; any other failure keeps its original error. */
 async function assertFreshOrRethrow(db: D1Database, fence: CapabilityFenceInput, error: unknown): Promise<never> {
@@ -35,13 +35,13 @@ async function assertFreshOrRethrow(db: D1Database, fence: CapabilityFenceInput,
   throw error;
 }
 
-export async function createSpace(db: D1Database, userId: string, input: { name: string; defaultAccess?: 'members' | 'private'; requestId: string }): Promise<SpaceMutationResult> {
+export async function createSpace(db: D1Database, userId: string, input: { name: string; defaultAccess?: 'members' | 'private'; requestId: string; session?:string }): Promise<SpaceMutationResult> {
   validRequestId(input.requestId);
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 120
       || (input.defaultAccess !== undefined && !['members', 'private'].includes(input.defaultAccess))) throw new SpaceMutationError('invalid_request', 400);
   const name = input.name.trim(), defaultAccess = input.defaultAccess ?? 'private';
   const hash = await sha256Hex(stableJson({ action: 'create_space', name, defaultAccess }));
-  const context = await loadAccessContext(db, userId, []);
+  const context = Object.assign(await loadAccessContext(db, userId, []),{session:input.session});
   if (!canCreateSpace(context.principal)) throw new SpaceMutationError('forbidden', 403);
   const prior = await priorStatement(db, userId, input.requestId).first<AuditRow>();
   if (prior) {
@@ -76,12 +76,12 @@ export async function createSpace(db: D1Database, userId: string, input: { name:
   return { spaceId, generation: committed.generation, replayed: false };
 }
 
-export async function setSpaceMember(db: D1Database, userId: string, input: { spaceId: string; targetUserId: string; membership: SpaceMembership | null; requestId: string }): Promise<SpaceMutationResult> {
+export async function setSpaceMember(db: D1Database, userId: string, input: { spaceId: string; targetUserId: string; membership: SpaceMembership | null; requestId: string; session?:string }): Promise<SpaceMutationResult> {
   validRequestId(input.requestId);
   if (![input.spaceId, input.targetUserId].every(id => typeof id === 'string' && id.length > 0 && id.length <= 64)
       || (input.membership !== null && (!input.membership || !isSpaceRole(input.membership.role) || !['allow', 'deny'].includes(input.membership.access)))) throw new SpaceMutationError('invalid_request', 400);
   const hash = await sha256Hex(stableJson({ action: 'set_member', spaceId: input.spaceId, targetUserId: input.targetUserId, membership: input.membership }));
-  const context = await loadAccessContext(db, userId, [input.spaceId]);
+  const context = Object.assign(await loadAccessContext(db, userId, [input.spaceId]),{session:input.session});
   const actor = spaceAccess(context, input.spaceId), actorRole = effectiveSpaceRole(actor);
   if (!canManageMembers(actor)) throw new SpaceMutationError('forbidden', 403);
   const [priorResult, targetResult, existingResult, ownersResult] = await db.batch([
@@ -97,6 +97,7 @@ export async function setSpaceMember(db: D1Database, userId: string, input: { sp
   const target = targetResult.results[0] as { role: unknown; disabled_at: number | null } | undefined;
   const existing = existingResult.results[0] as SpaceMembership | undefined;
   if (!target || !isWorkspaceRole(target.role)) throw new SpaceMutationError('forbidden', 403);
+  if(input.membership?.access==='allow'&&target.role==='guest'&&actor.space?.guestDirectoryRestricted===true)throw new SpaceMutationError('forbidden',403);
   if (input.membership !== null) {
     if (!canGrantSpaceRole(actor, target.role, input.membership.role)
         || (input.membership.access === 'allow' && !isActivePrincipal({ id: input.targetUserId, workspaceRole: target.role, disabledAt: target.disabled_at }))) throw new SpaceMutationError('forbidden', 403);

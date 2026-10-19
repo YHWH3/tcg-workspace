@@ -39,6 +39,7 @@ export function levelSql(userExpr: string, spaceExpr: string): string {
       WHEN cu.disabled_at IS NOT NULL THEN 0
       WHEN COALESCE(cu.workspace_role,cu.role,'') NOT IN ('owner','admin','member','guest') THEN 0
       WHEN cs.id IS NULL OR cs.deleted_at IS NOT NULL THEN 0
+      WHEN COALESCE(cu.workspace_role,cu.role)='guest' AND cs.guest_directory_restricted=1 THEN 0
       WHEN cm.user_id IS NOT NULL THEN CASE
         WHEN cm.access <> 'allow' THEN 0
         WHEN COALESCE(cu.workspace_role,cu.role) = 'guest' AND cm.role IN ('owner','admin') THEN 0

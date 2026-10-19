@@ -9,10 +9,10 @@ import { SEARCH_MAX_LIMIT, SearchError, searchRecords, type SearchType } from '.
 export const searchApi = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 searchApi.use('*', requireAuth);
 
-const TYPES = new Set(['page', 'task', 'board', 'moodboard']);
+const TYPES = new Set(['page', 'task', 'board', 'moodboard', 'comment', 'file', 'mooditem']);
 const URL_OF: Record<SearchType, (id: string, db: string | null) => string> = {
   page: (id) => `/pages/${id}`, task: (id, db) => `/boards/${db ?? 'board-default'}/tasks/${id}`,
-  board: (id) => `/boards/${id}`, moodboard: (id) => `/moodboards/${id}`,
+  board: (id) => `/boards/${id}`, moodboard: (id) => `/moodboards/${id}`, comment:()=>'/', file:()=>'/', mooditem:()=>'/',
 };
 
 searchApi.get('/', async (c) => {
@@ -20,8 +20,8 @@ searchApi.get('/', async (c) => {
   const q = c.req.query('q') ?? '', type = c.req.query('type'), limit = Number(c.req.query('limit') ?? 20);
   if (q.length > 200 || (type && !TYPES.has(type)) || !Number.isFinite(limit) || limit < 1 || limit > SEARCH_MAX_LIMIT) return c.json({ error: 'invalid_query' }, 400);
   try {
-    const out = await searchRecords(withReadGate(c.env, user.id), user.id, { q, type: type as SearchType | undefined, databaseId: c.req.query('database') || undefined, cursor: c.req.query('cursor') || null, limit });
-    return c.json({ ...out, results: out.results.map((r) => ({ id: r.docId, type: r.type, title: r.title, url: URL_OF[r.type](r.docId, r.databaseId), snippet: r.snippet })) });
+    const out = await searchRecords(withReadGate(c.env, user.id), user.id, { q, spaceId:c.req.query('space') || undefined, type: type as SearchType | undefined, databaseId: c.req.query('database') || undefined, cursor: c.req.query('cursor') || null, limit });
+    return c.json({ ...out, results: out.results.map((r) => ({ id: r.docId, type: r.type, title: r.title, url: r.url ?? URL_OF[r.type](r.docId, r.databaseId), snippet: r.snippet })) });
   } catch (error) {
     if (error instanceof SearchError) return c.json({ error: error.code }, 400);
     throw error;

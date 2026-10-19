@@ -1,3 +1,4 @@
+import { usableInviteSql } from './guestInvites';
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import type { PublicUser } from '../shared/types';
@@ -201,7 +202,7 @@ auth.get('/status', async (c) => {
 });
 
 auth.post('/signup', async (c) => {
-  const body = await c.req.json<{ username?: string; name?: string; password?: string; inviteCode?: string }>().catch(() => null);
+  const body = await c.req.json<{ username?: string; name?: string; password?: string; inviteCode?: string; guestInvite?:string }>().catch(() => null);
   if (!body) return c.json({ error: 'invalid body' }, 400);
   const username = (body.username ?? '').trim().toLowerCase();
   const name = (body.name ?? '').trim() || username;
@@ -215,9 +216,13 @@ auth.post('/signup', async (c) => {
 
   if (count >= MAX_USERS) return c.json({ error: 'Workspace is full (7 seats)' }, 403);
 
+  const guestHash=typeof body.guestInvite==='string'&&body.guestInvite.length<=100?await sha256Hex(body.guestInvite):null;
   let role: 'admin' | 'member' = 'member';
   if (bootstrap) {
     role = 'admin';
+  } else if(guestHash){
+    const invite=await db.prepare(`SELECT id FROM guest_invites i WHERE i.token_hash=? AND ${usableInviteSql()}`).bind(guestHash,Date.now()).first();
+    if(!invite)return c.json({error:'Invalid, expired or revoked invitation'},403);
   } else {
     const code = (body.inviteCode ?? '').trim().toUpperCase();
     if (!code) return c.json({ error: 'Invite code required' }, 403);
@@ -237,13 +242,13 @@ auth.post('/signup', async (c) => {
   // D1 transaction. In particular the pre-hash count is never authority: two
   // first-signup requests must not each create a workspace owner.
   const eligibility = bootstrap ? 'NOT EXISTS(SELECT 1 FROM users)'
-    : 'EXISTS(SELECT 1 FROM invites WHERE code=? AND used_by IS NULL)';
+    : guestHash ? `EXISTS(SELECT 1 FROM guest_invites i WHERE token_hash=? AND ${usableInviteSql()})` : 'EXISTS(SELECT 1 FROM invites WHERE code=? AND used_by IS NULL)';
   const insert = db.prepare(`INSERT INTO users
     (id,username,name,password_hash,salt,role,workspace_role,color,created_at)
     SELECT ?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM users) < ? AND ${eligibility}`);
-  const values = [id, username, name, hash, salt, role, bootstrap ? 'owner' : 'member', color, now, MAX_USERS];
+  const values = [id, username, name, hash, salt, role, bootstrap ? 'owner' : guestHash ? 'guest' : 'member', color, now, MAX_USERS];
   const statements = [
-    insert.bind(...values, ...(bootstrap ? [] : [code])),
+    insert.bind(...values, ...(bootstrap ? [] : guestHash ? [guestHash,now] : [code])),
     db.prepare("SELECT CASE WHEN EXISTS(SELECT 1 FROM users WHERE id=?) THEN 1 ELSE json_extract('{','$') END").bind(id),
   ];
   if (bootstrap) {
@@ -254,6 +259,8 @@ auth.post('/signup', async (c) => {
         SELECT ?,?,'space-core','bootstrap_owner',?,generation,? FROM access_state WHERE id=1`)
         .bind(crypto.randomUUID(), id, JSON.stringify({ workspaceRole: 'owner', spaceRole: 'owner' }), now),
     );
+  } else if(guestHash){
+    statements.push(db.prepare(`INSERT INTO space_members(space_id,user_id,role,access,updated_at) SELECT space_id,?,role,'allow',? FROM guest_invites WHERE token_hash=?`).bind(id,now,guestHash),db.prepare('UPDATE guest_invites SET used_by=?,used_at=? WHERE token_hash=?').bind(id,now,guestHash),db.prepare(`INSERT INTO access_audit(id,actor_id,space_id,target_user_id,action,after_json,generation,created_at) SELECT ?,?,space_id,?,'guest_signup',json_object('inviteId',id,'role',role),(SELECT generation FROM access_state WHERE id=1),? FROM guest_invites WHERE token_hash=?`).bind(crypto.randomUUID(),id,id,now,guestHash));
   } else {
     statements.push(db.prepare('UPDATE invites SET used_by=?,used_at=? WHERE code=? AND used_by IS NULL').bind(id, now, code));
   }
@@ -267,6 +274,7 @@ auth.post('/signup', async (c) => {
     if (await db.prepare('SELECT id FROM users WHERE username=?').bind(username).first()) return c.json({ error: 'Username taken' }, 409);
     if ((await userCount(db)) >= MAX_USERS) return c.json({ error: 'Workspace is full (7 seats)' }, 403);
     if (bootstrap && (await userCount(db)) > 0) return c.json({ error: 'Workspace already initialized; use an invite' }, 409);
+    if(guestHash)return c.json({error:'Invalid, expired, revoked or already used invitation'},409);
     if (!bootstrap) {
       const available = await db.prepare('SELECT code FROM invites WHERE code=? AND used_by IS NULL').bind(code).first();
       if (!available) return c.json({ error: 'Invalid or used invite code' }, 403);

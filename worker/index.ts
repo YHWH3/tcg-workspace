@@ -1,3 +1,6 @@
+import {catalogApi} from './catalog';
+import {usageApi} from './usage';
+import {historyApi} from './history';
 import { Hono } from 'hono';
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
 import { auth, me, sessionsApi, userByToken } from './auth';
@@ -72,6 +75,9 @@ app.route('/api/shares', shares);
 app.route('/api/public', publicApi);
 app.route('/api/oauth', oauthGrants);
 app.route('/api/changes', changesApi);
+app.route('/api/history',historyApi);
+app.route('/api/admin/usage',usageApi);
+app.route('/api/catalog',catalogApi);
 app.route('/api/notifications', notificationsApi);
 app.route('/api/approvals', approvalsApi);
 app.route('/api/forms', formsApi);
