@@ -17,6 +17,8 @@ import { UNFINISHED_UPLOAD_WINDOW_MS } from './files';
 import { fnv1a64hex } from '../shared/linkid';
 import {hasD1Budget,d1BudgetRemaining,D1BudgetExhausted} from './d1budget';
 
+/** Keep the rotation-bound regression synchronized with the phase inventory below. */
+export const SCHEDULED_PHASE_COUNT=9;
 const OUTBOX_BATCH = 20;
 const OUTBOX_STALE_MS = 60_000;
 
@@ -329,6 +331,7 @@ export async function runScheduled(env: { DB: D1Database }, scheduledTime = Date
   // Cloudflare can deliver different scheduled slots at the same wall time.
   // Use the controller's scheduled time only for phase selection; deadlines,
   // leases and retry backoff continue to use the real current time.
+  if(phases.length!==SCHEDULED_PHASE_COUNT)throw new Error('Scheduler phase inventory mismatch');
   const offset=d1BudgetRemaining(env.DB)===Infinity?0:Math.floor(scheduledTime/900_000)%phases.length;
   for(const phase of [...phases.slice(offset),...phases.slice(0,offset)]) {
     if(!hasD1Budget(env.DB,phase.minimum))continue;

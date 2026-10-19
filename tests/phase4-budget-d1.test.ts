@@ -5,7 +5,7 @@ import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 import {withD1Budget,d1BudgetRemaining,D1BudgetExhausted} from '../worker/d1budget';
 import {applyChanges} from '../worker/sync';
 import {processOutbox,scheduleOutbox} from '../worker/events';
-import {runScheduled} from '../worker/reminders';
+import {runScheduled,SCHEDULED_PHASE_COUNT} from '../worker/reminders';
 import {runDateOffsetAutomations,dateOffsetEvent} from '../worker/automations';
 import {runEventKey} from '../shared/automations';
 import {publicFormsApi,resumeSubmission} from '../worker/forms';
@@ -98,7 +98,7 @@ it('budget-only submission interruptions keep a retryable reservation instead of
   expect((await rows('records')).filter(r=>r.collection==='tasks')).toHaveLength(1);
 });
 
-it('rotating budgeted Cron phases advance past 600 ignored dates despite 500 pending events and run a date automation',async()=>{
+it.each(Array.from({length:SCHEDULED_PHASE_COUNT},(_,i)=>i))('rotating budgeted Cron phases (offset %i) advance past 600 ignored dates despite 500 pending events and run a date automation',async(offset)=>{
   const today=todayUtc();
   await applyChanges(env,'alice',Array.from({length:500},(_,i)=>({id:`ignored_${String(i).padStart(4,'0')}`,collection:'tasks',patch:{boardId:'board',title:'Unassigned',status:'open'},ts:1})));
   await applyChanges(env,'alice',Array.from({length:100},(_,i)=>({id:`ignored_${String(500+i).padStart(4,'0')}`,collection:'tasks',patch:{boardId:'board',title:'Unassigned',status:'open'},ts:1})));
@@ -106,11 +106,13 @@ it('rotating budgeted Cron phases advance past 600 ignored dates despite 500 pen
   await db.batch(Array.from({length:600},(_,i)=>db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES(?,'dueDate','2020-01-01')").bind(`ignored_${String(i).padStart(4,'0')}`)));
   await db.prepare("INSERT INTO date_index(record_id,field_key,date) VALUES('relevant','dueDate',?)").bind(today).run();
   await db.batch(Array.from({length:500},(_,i)=>db.prepare('INSERT INTO event_outbox(id,payload,created_at) VALUES(?,?,1)').bind(`pending_${i}`,JSON.stringify({source:'automation',userId:'alice',applied:[]}))));
-  const start=(Math.floor(Date.now()/5_400_000)*6+4)*900_000;
+  const wallNow=Date.now(),start=(Math.floor(wallNow/(900_000*SCHEDULED_PHASE_COUNT))*SCHEDULED_PHASE_COUNT+offset)*900_000;
   // Delayed Cron deliveries can share a wall-clock slot. Fairness follows the
   // supplied scheduled times while leases and retries keep using real time.
-  vi.spyOn(Date,'now').mockReturnValue(start);
-  for(let tick=0;tick<24;tick++){
+  vi.spyOn(Date,'now').mockReturnValue(wallNow);
+  // Four complete rotations, as the original six-phase/24-tick contract.
+  // Cover every initial offset, not a wall-clock-dependent subset of phases.
+  for(let tick=0;tick<4*SCHEDULED_PHASE_COUNT;tick++){
     const scoped=withD1Budget(env,45);await runScheduled(scoped,start+tick*900_000);expect(d1BudgetRemaining(scoped.DB)).toBeGreaterThanOrEqual(0);
   }
   expect((await rows('reminder_sent')).filter(r=>r.record_id==='relevant')).toHaveLength(1);
@@ -119,7 +121,7 @@ it('rotating budgeted Cron phases advance past 600 ignored dates despite 500 pen
   expect(outbox.some(r=>r.processed_at!==null)).toBe(true);
   expect(outbox.filter(r=>String(r.id).startsWith('pending_')&&r.processed_at===null).length).toBeGreaterThan(0);
   expect(outbox.every(r=>r.terminal_at===null)).toBe(true);
-},60_000);
+},120_000);
 
 it('date-offset automation scan does not permanently revisit 600 already-completed candidates and starve the tail',async()=>{
   const today=todayUtc(),auto={id:'date-auto',data:{name:'Date automation',enabled:true,databaseId:'board',trigger:{kind:'date_offset',dateKey:'dueDate',days:0},actions:[{type:'create_record',databaseId:'board',title:'Tail result'}]}};
