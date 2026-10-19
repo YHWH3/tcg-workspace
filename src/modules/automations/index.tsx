@@ -267,6 +267,8 @@ function ActionEditor({ board, allBoards, action, onChange, onMove, onDelete, fi
         <Input value={a.templateId ?? ''} placeholder="Template page id" className="h-8 text-xs" onChange={(e) => onChange({ ...a, templateId: e.target.value })} aria-label="Template id" />
       )}
 
+      {a.type === 'ai_classify' && <div className="space-y-2"><p className="text-xs">Optional; creates a suggestion only. Requires operator configuration and budget.</p><Select value={a.fieldKey??''} aria-label="Classification field" onChange={e=>onChange({...a,fieldKey:e.target.value})}><option value="">Choose field</option>{availableFieldKeys(board).filter(k=>!k.startsWith('rel_')).map(k=><option key={k} value={k}>{fieldKeyLabel(board,k)}</option>)}</Select><Input value={(a.options??[]).join(', ')} aria-label="Classification options" placeholder="Comma-separated labels" onChange={e=>onChange({...a,options:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})}/></div>}
+
       {a.type === 'set_field' && (
         <div className="flex items-center gap-1.5">
           <Select value={a.fieldKey ?? ''} className={selectCls} onChange={(e) => onChange({ ...a, fieldKey: e.target.value || undefined })} aria-label="Field to set">

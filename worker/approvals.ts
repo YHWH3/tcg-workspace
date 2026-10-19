@@ -181,8 +181,8 @@ export function restrictedApprovalJson(r: ApprovalRow) {
 }
 
 /** Which approval targets the viewer may read now (legacy: all). */
-export async function readableTargets(db: D1Database, viewerId: string, rows: readonly ApprovalRow[]): Promise<(r: ApprovalRow) => boolean> {
-  const decision = await createReadGate(db, viewerId).decide(rows.map((r) => r.target_id));
+export async function readableTargets(db: D1Database, viewerId: string, rows: readonly ApprovalRow[], gate=createReadGate(db,viewerId)): Promise<(r: ApprovalRow) => boolean> {
+  const decision = await gate.decide(rows.map((r) => r.target_id));
   return (r) => !decision.enabled || decision.readable.has(r.target_id);
 }
 
@@ -229,18 +229,19 @@ export async function loadTargetMeta(
 
 export async function insertApproval(
   db: D1Database,
-  input: { targetType: string; targetId: string; stageId?: string; requestedBy: string; approverId: string; note?: string; requestKey: string },
+  input: { targetType: string; targetId: string; stageId?: string; requestedBy: string; approverId: string; note?: string; requestKey: string; guard?:D1PreparedStatement },
 ): Promise<{ row: ApprovalRow; replayed: boolean }> {
   const scopedKey=input.requestedBy+':'+input.requestKey;
   const id = 'ap_' + crypto.randomUUID();
-  const res = await db
+  const statement = db
     .prepare(
       `INSERT OR IGNORE INTO approvals
          (id, target_type, target_id, stage_id, requested_by, approver_id, status, note, request_key, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
     )
     .bind(id, input.targetType, input.targetId, input.stageId ?? null, input.requestedBy, input.approverId, input.note ?? null, scopedKey, Date.now())
-    .run();
+;
+  const res = input.guard?(await db.batch([input.guard,statement]))[1]:await statement.run();
   if ((res.meta.changes ?? 0) === 0) {
     const existing = await db.prepare('SELECT * FROM approvals WHERE request_key = ?').bind(scopedKey).first<ApprovalRow>();
     if (existing) {
@@ -259,15 +260,16 @@ export type DecideOutcome = 'ok' | 'not_found' | 'not_approver' | 'already_decid
  * an identical decision returns the stored row flagged replayed. */
 export async function decideApproval(
   db: D1Database,
-  input: { approvalId: string; approverId: string; decision: ApprovalDecision; note?: string; expectedRev?: number },
+  input: { approvalId: string; approverId: string; decision: ApprovalDecision; note?: string; expectedRev?: number; guard?:D1PreparedStatement },
 ): Promise<{ outcome: DecideOutcome; row: ApprovalRow | null; replayed?: boolean }> {
-  const res = await db
+  const statement = db
     .prepare(
       `UPDATE approvals SET status = ?, decided_note = ?, decided_at = ?
        WHERE id = ? AND approver_id = ? AND status = 'pending'${input.expectedRev !== undefined ? ' AND created_at = ?' : ''}`,
     )
     .bind(...[input.decision, input.note ?? null, Date.now(), input.approvalId, input.approverId, ...(input.expectedRev !== undefined ? [input.expectedRev] : [])])
-    .run();
+;
+  const res = input.guard?(await db.batch([input.guard,statement]))[1]:await statement.run();
   if ((res.meta.changes ?? 0) > 0) {
     const row = await db.prepare('SELECT * FROM approvals WHERE id = ?').bind(input.approvalId).first<ApprovalRow>();
     return { outcome: 'ok', row };

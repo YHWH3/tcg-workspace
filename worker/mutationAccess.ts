@@ -44,7 +44,7 @@ function configurationReferences(record: ScopeRecord): { id: string; edit: boole
   ]);
 }
 
-export async function authorizeMutations(db: D1Database, userId: string, incoming: Mutation[], existing: ReadonlyMap<string, AuthorityRow>, expected: ReadonlyMap<string, number> | undefined, session?: string): Promise<MutationAuthorization> {
+export async function authorizeMutations(db: D1Database, userId: string, incoming: Mutation[], existing: ReadonlyMap<string, AuthorityRow>, expected: ReadonlyMap<string, number> | undefined, session?: string, connector?: import('./connectorAccess').ConnectorAuthority): Promise<MutationAuthorization> {
   const changes = incoming.map(ch => ({ ...ch, patch: { ...ch.patch } }));
   const candidates = new Map<string, ScopeRecord>();
   const before = new Map<string, { data: Record<string, unknown>; field_ts: Record<string, number> }>();
@@ -111,8 +111,8 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
   }
   const spaceIds = [...new Set([...oldScopes.values(), ...scopes.values(), ...references.values()].flatMap(scope => [...scope.readSpaceIds]))];
   if (spaceIds.length > MAX_ACCESS_SPACES) throw new RecordAccessError('scope_graph_budget');
-  const context = await loadAccessContext(db, userId, spaceIds);
-  if (!context.enabled) throw new RecordAccessError('access_reset_required');
+  const context = await loadAccessContext(db, userId, spaceIds, undefined, connector);
+  if (!context.enabled && !connector) throw new RecordAccessError('access_reset_required');
   const read = (scope: RecordScope | undefined, tombstoneOnly = false) => !!scope && !scope.serviceOnly && (tombstoneOnly || !scope.ancestorDeleted)
     && scope.readSpaceIds.every(id => canRead(spaceAccess(context, id)));
   const tombstoneOnly = (id: string) => {
@@ -236,7 +236,7 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
 export function writeAuthorityFences(db: D1Database, authority: WriteAuthority): D1PreparedStatement[] {
   return [capabilityFence(db, {
     userId: authority.context.userId, needs: authority.needs,
-    workspaceRole: authority.context.principal!.workspaceRole, enabled: authority.context.enabled, session: authority.session,
+    workspaceRole: authority.context.principal!.workspaceRole, enabled: authority.context.enabled, connector:authority.context.connector, session: authority.session,
   }), db.prepare(`SELECT CASE WHEN NOT EXISTS(
     SELECT 1 FROM json_each(?) e LEFT JOIN records r ON r.id=e.key
     WHERE COALESCE(r.seq,-1)<>e.value

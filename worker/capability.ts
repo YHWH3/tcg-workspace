@@ -67,6 +67,8 @@ export interface CapabilityFenceInput {
    * request must still be valid at commit. Logout, password change and admin removal
    * of THIS session abort its own in-flight write; they never touch anyone else's. */
   session?: string | null;
+  recordRevisions?:ReadonlyMap<string,number>;
+  connector?: import('./connectorAccess').ConnectorAuthority;
 }
 
 /** Include in the SAME batch as the protected statements. Fails (SQLite error) iff
@@ -75,14 +77,18 @@ export interface CapabilityFenceInput {
  * space fell below the level the plan relied on. Another user's access, sessions and record changes never trip it. */
 export function capabilityFence(db: D1Database, input: CapabilityFenceInput): D1PreparedStatement {
   const session = input.session ?? null;
+  const connector = input.connector;
   return db.prepare(`SELECT CASE WHEN
       (SELECT enabled FROM access_state WHERE id=1) = ?
       AND EXISTS(SELECT 1 FROM users u WHERE u.id = ? AND u.disabled_at IS NULL AND COALESCE(u.workspace_role,u.role) = ?)
       AND (? IS NULL OR EXISTS(SELECT 1 FROM sessions x WHERE x.token_hash = ? AND x.user_id = ? AND x.expires_at > ?))
+      ${connector ? `AND EXISTS(SELECT 1 FROM ai_connections g WHERE g.id=? AND g.user_id=? AND g.version=? AND g.revoked_at IS NULL AND g.expires_at>? AND NOT EXISTS(SELECT 1 FROM json_each(?) n WHERE n.key NOT IN(SELECT value FROM json_each(g.spaces_json))))` : ''}
+      ${input.recordRevisions ? 'AND NOT EXISTS(SELECT 1 FROM json_each(?) r LEFT JOIN records x ON x.id=r.key WHERE x.seq IS NOT r.value)' : ''}
       AND NOT EXISTS(SELECT 1 FROM json_each(?) n WHERE ${levelSql('?', 'n.key')} < n.value)
     THEN 1 ELSE json_extract('{','$') END`)
     .bind(input.enabled ? 1 : 0, input.userId, input.workspaceRole, session, session, input.userId, Date.now(),
-      JSON.stringify(Object.fromEntries(input.needs)), input.userId);
+      ...(connector ? [connector.id, input.userId, connector.version, Date.now(), JSON.stringify(Object.fromEntries(input.needs))] : []),
+      ...(input.recordRevisions?[JSON.stringify(Object.fromEntries(input.recordRevisions))]:[]),JSON.stringify(Object.fromEntries(input.needs)), input.userId);
 }
 
 /** True when the fence for `input` would fail right now (used to translate a batch

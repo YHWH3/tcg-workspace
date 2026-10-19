@@ -39,6 +39,7 @@ export interface ReadDecision {
 
 export interface ReadGate {
   readonly userId: string;
+  readonly connectorKey:string;
   enabled(): Promise<boolean>;
   decide(ids: readonly string[]): Promise<ReadDecision>;
   /** Keep the rows the principal may read now. Rows carrying `rev` must match the graph. */
@@ -47,6 +48,7 @@ export interface ReadGate {
   canRead(id: string): Promise<boolean>;
   /** Final tool boundary: no earlier allowed payload may survive current revocation. */
   validateObserved(): Promise<boolean>;
+  observedIds():readonly string[];
 }
 
 export async function accessEnabled(db: D1Database): Promise<boolean> {
@@ -54,16 +56,16 @@ export async function accessEnabled(db: D1Database): Promise<boolean> {
   return row?.enabled === 1;
 }
 
-export function createReadGate(db: D1Database, userId: string): ReadGate {
+export function createReadGate(db: D1Database, userId: string, connector?: Env['CONNECTOR']): ReadGate {
   let mode: boolean | undefined;
-  const isEnabled = async () => (mode = await accessEnabled(db));
+  const isEnabled = async () => (mode = (await accessEnabled(db)) || !!connector);
   // Cache only ownership data, NEVER membership decisions. Every decision loads
   // current authority and verifies every cached ancestor revision in the SAME batch.
   const observed = new Set<string>();
   let graph = new Map<string, ScopeGraphRecord>();
   const decide = async (input: readonly string[]): Promise<ReadDecision> => {
     const ids = [...new Set(input.filter(id => typeof id === 'string' && id.length > 0 && id.length <= 64))];
-    if (mode !== true && !(await isEnabled())) return { enabled: false, readable: new Set(ids), denied: new Set(), revs: new Map(), scopes: new Map() };
+    if (mode !== true && !(await isEnabled())) {for(const id of ids)observed.add(id);return { enabled: false, readable: new Set(ids), denied: new Set(), revs: new Map(), scopes: new Map() };}
     const result = await decideFresh(ids);
     for (const id of result.readable) observed.add(id);
     return result;
@@ -81,8 +83,8 @@ export function createReadGate(db: D1Database, userId: string): ReadGate {
     const spaces = [...new Set([...scopes.values()].flatMap(scope => [...scope.readSpaceIds]))];
     if (spaces.length > MAX_ACCESS_SPACES) throw new RecordAccessError('scope_graph_budget');
     // Current authority, read after the content the caller already holds.
-    const context = await loadAccessContext(db, userId, spaces, new Map([...graph].map(([id,r])=>[id,r.rev])));
-    mode = context.enabled;
+    const context = await loadAccessContext(db, userId, spaces, new Map([...graph].map(([id,r])=>[id,r.rev])), connector);
+    mode = context.enabled || !!connector;
     if (!context.recordsCurrent) {
       graph.clear();
       if (retry) return decideFresh(ids,false);
@@ -94,18 +96,20 @@ export function createReadGate(db: D1Database, userId: string): ReadGate {
       if (!record) continue;
       revs.set(id, record.rev);
       const scope = scopes.get(id);
-      const ok = context.enabled && !!scope && !scope.serviceOnly && !scope.ancestorDeleted && scope.readSpaceIds.every(space => canRead(spaceAccess(context, space)));
+      const ok = mode && !!scope && !scope.serviceOnly && !scope.ancestorDeleted && scope.readSpaceIds.every(space => canRead(spaceAccess(context, space)));
       (ok ? readable : denied).add(id);
     }
-    if (!context.enabled) return { enabled: false, readable: new Set(ids), denied: new Set(), revs, scopes };
+    if (!mode) return { enabled: false, readable: new Set(ids), denied: new Set(), revs, scopes };
     return { enabled: true, readable, denied, revs, scopes };
   };
   return {
     userId,
+    connectorKey:JSON.stringify(connector??null),
     enabled: isEnabled,
+    observedIds:()=>[...observed],
     decide,
     async validateObserved() {
-      if (!observed.size) return true;
+      if (!observed.size) {if(!connector)return true;const c=await loadAccessContext(db,userId,[],undefined,connector);return !!c.principal&&c.principal.disabledAt===null&&c.connector?.version===connector.version;}
       const ids = [...observed], result = await decide(ids);
       return !result.enabled || ids.every(id=>result.readable.has(id));
     },
@@ -124,9 +128,9 @@ export function createReadGate(db: D1Database, userId: string): ReadGate {
 
 /** The request-scoped environment of a user-visible read: same bindings, plus the gate. */
 export function withReadGate<E extends Env>(env: E, userId: string): E {
-  if (env.READ_GATE?.userId === userId) return env;
+  if (env.READ_GATE?.userId === userId && env.READ_GATE.connectorKey===JSON.stringify(env.CONNECTOR??null)) return env;
   const service = env.SERVICE_ENV ?? env;
-  return { ...env, READ_GATE: createReadGate(env.DB, userId), SERVICE_ENV: service };
+  return { ...env, READ_GATE: createReadGate(env.DB, userId, env.CONNECTOR), SERVICE_ENV: service };
 }
 
 /** The ungated environment, for service work whose results never reach the caller. */

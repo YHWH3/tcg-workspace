@@ -1,3 +1,9 @@
+import {hybridSearch} from './aiSemantic';
+import {registerSuggestionTools} from './aiSuggestions';
+import {registerAiWorkflows} from './aiWorkflows';
+import {proposePreview,executePreview,previewUrl,PreviewError,type PreviewOp} from './aiPreviews';
+import {registerReadTools} from './mcpReadTools';
+import { loadConnection } from './connectorAccess';
 import {loadHistoryPage,historicalPatch,HistoryError} from './history';
 import { McpServer } from '@modelcontextprotocol/server';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
@@ -35,7 +41,7 @@ import { COLUMN_COLORS } from '../src/modules/boards/model';
 import { registerApprovalTools } from './mcpApprovals'; // P4-D
 import { serviceEnv, withReadGate } from './readAccess';
 import { shareAuthority } from './shareAccess';
-import { searchRecords, SearchError } from './search';
+import { SearchError } from './search';
 import { visibleItems, visibleSummaries } from './historyAccess';
 import { levelSql } from './capability';
 import type { Collection } from '../shared/collections';
@@ -98,6 +104,12 @@ class WriteConflict extends Error {
  * mismatches. `expect` caps at one atomic batch of expected ids.
  */
 export async function write(c: Ctx, ops: WriteOp[], opts: { expect?: Map<string, number>; source?:'mcp'|'undo' } = {}): Promise<void> {
+  if(c.env.MCP_PLAN){
+    const result=await applyChanges(c.env,c.userId,ops.map(o=>({...o,ts:0})),{serverTs:true,expect:opts.expect,atomic:true});
+    if(result.conflicts?.length)throw new WriteConflict(result.conflicts);
+    if(result.rejected)throw new Error('plan_not_authorized');
+    return;
+  }
   if (opts.expect && opts.expect.size > MAX_EXPECTED) throw new Error(`at most ${MAX_EXPECTED} expected ids per call`);
   let job: {id:string;plan:string;expectations:string}|null=null;
   let lease:string|null=null;
@@ -177,6 +189,7 @@ interface UserRow {
 }
 
 async function users(env: Env): Promise<UserRow[]> {
+  if(env.CONNECTOR){const uid=env.READ_GATE?.userId??'';const rows=await env.DB.prepare(`SELECT u.id,u.username,u.name FROM users u WHERE (u.id=? OR (COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest' AND EXISTS(SELECT 1 FROM ai_connections g,json_each(g.spaces_json) a JOIN spaces s ON s.id=a.value WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>? AND ${levelSql('?', 's.id')}>=1 AND ${levelSql('u.id', 's.id')}>=1)))`).bind(uid,uid,env.CONNECTOR.id,uid,Date.now(),uid).all<UserRow>();return rows.results;}
   const { results } = await env.DB.prepare(`SELECT id,username,name FROM users WHERE id=? OR COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest'`).bind(env.READ_GATE?.userId??'',env.READ_GATE?.userId??'').all<UserRow>();
   return results;
 }
@@ -191,7 +204,7 @@ async function refilterReplay(c: Ctx, requestId: string): Promise<string> {
   // and, if its COMPLETE journal is currently readable, a server-owned reference.
   const cs = await c.env.DB.prepare('SELECT id FROM changesets WHERE user_id=? AND request_id=? AND tool=? ORDER BY created_at DESC LIMIT 1')
     .bind(c.userId,requestId,c.toolName).first<{id:string}>();
-  const [shown] = cs ? await visibleSummaries(c.env.DB,c.userId,[{id:cs.id,summary:''}]) : [];
+  const [shown] = cs ? await visibleSummaries(c.env.DB,c.userId,[{id:cs.id,summary:''}], c.env.READ_GATE) : [];
   return JSON.stringify({replayed:true,restricted:true,resultRedacted:true,
     ...(shown && !(shown as {restricted?:boolean}).restricted ? {changesetId:cs!.id} : {})});
 }
@@ -353,6 +366,7 @@ async function resolveImageSrcs(c: Ctx, ops: WriteOp[]): Promise<void> {
         const { fileId } = await importFileFromUrl(c.env, src, { parentType: 'block', parentId: op.id, userId: c.userId });
         op.patch.fileId = fileId;
       } catch {
+        c.warnings.push('Remote image was not fetched. Upload it in Workspace or use an authorized link; network imports require separate human consent.');
         // Leave the block without fileId — it renders as a placeholder rather than failing the whole call.
       }
       delete op.patch.src;
@@ -536,6 +550,27 @@ Safety:
 - Preview deletes and bulk changes with dryRun:true, show the user the impact, and apply only after they confirm. Pass expectedRev from a read and a stable requestId so a retry cannot duplicate or clobber work, and report the changesetId so the user can undo.
 - Write calls are rate limited per user; on a rate-limit error stop and tell the user instead of retrying in a loop.`;
 
+function planningEnv(env:Env,ops:PreviewOp[]):Env {
+  const originals=new WeakMap<object,D1PreparedStatement>();
+  const statements=new WeakMap<object,string>();
+  const readOnly=(sql:string)=>{if(!/^\s*(SELECT|WITH\b)/i.test(sql)||/\b(INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP|ALTER)\b/i.test(sql))throw new Error('This operation requires its dedicated Workspace review flow');};
+  const wrap=(source:D1PreparedStatement,sql:string):D1PreparedStatement=>{
+    const wrapped=new Proxy(source,{get(target,key){
+      if(key==='bind')return(...values:Parameters<D1PreparedStatement['bind']>)=>wrap(target.bind(...values),sql);
+      const value=Reflect.get(target,key);
+      if(['run','all','first','raw'].includes(String(key)))return(...args:unknown[])=>{readOnly(sql);return (value as (...a:unknown[])=>unknown).apply(target,args);};
+      return typeof value==='function'?value.bind(target):value;
+    }});originals.set(wrapped,source);statements.set(wrapped,sql);return wrapped;
+  };
+  const db=new Proxy(env.DB,{get(target,key){
+    if(key==='prepare')return(sql:string)=>{const stmt=wrap(target.prepare(sql),sql);statements.set(stmt,sql);return stmt;};
+    if(key==='batch')return(stmts:D1PreparedStatement[])=>{for(const stmt of stmts){const sql=statements.get(stmt);if(sql===undefined)throw new Error('unsupported planning batch');readOnly(sql);}return target.batch(stmts.map(s=>originals.get(s)??s));};
+    if(key==='exec'||key==='withSession')return()=>{throw new Error('unsupported planning operation');};
+    const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
+  }});
+  const planned={...env,DB:db,MCP_PLAN:{ops}};return {...planned,SERVICE_ENV:planned};
+}
+
 export function createWorkspaceServer(ctx: Ctx): McpServer {
   // Phase 5: every read below goes through this request's gate (worker/readAccess.ts);
   // integrity checks that never reach the caller use serviceEnv(ctx.env) explicitly.
@@ -577,8 +612,69 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
    * tracking → WriteConflict → §4.3 error JSON → warnings + changesetId merge.
    */
   function reg<S extends z.ZodRawShape>(name: string, meta: { description: string; inputSchema: z.ZodObject<S>; annotations?: Record<string, unknown> }, handler: (args: z.infer<z.ZodObject<S>>) => Promise<ToolResult>): void {
-    server.registerTool(name, { ...meta, inputSchema: meta.inputSchema.extend({ requestId: requestIdInput }) } as never, async (rawArgs: unknown) => {
+    server.registerTool(name, { ...meta, inputSchema: meta.inputSchema.extend({ requestId: requestIdInput, previewId:z.string().max(64).optional(),workflowId:z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional() }) } as never, async (rawArgs: unknown) => {
       const args = rawArgs as z.infer<z.ZodObject<S>> & { requestId?: string };
+      if(args.requestId!==undefined&&!/^[A-Za-z0-9_-]{1,64}$/.test(args.requestId))return err('requestId must be 1-64 chars of [A-Za-z0-9_-]');
+      if(args.requestId){
+        // Preview identity outlives short-lived transport replay storage. A lost
+        // response or cleanup must never turn the same request into new writes.
+        const retained=await ctx.env.DB.prepare('SELECT id,tool,args_hash,status,changeset_id,expires_at,impact_json FROM ai_previews WHERE user_id=? AND request_id=?').bind(ctx.userId,args.requestId).first<{id:string;tool:string;args_hash:string;status:string;changeset_id:string;expires_at:number;impact_json:string}>();
+        if(retained){
+          const canonical=Object.fromEntries(Object.entries(args as Record<string,unknown>).filter(([key])=>!['requestId','previewId','dryRun'].includes(key)));
+          if(retained.tool!==name||retained.args_hash!==await argsHash({tool:name,args:canonical}))return err('requestId was already used with different arguments');
+          if(retained.status==='completed')return txt({replayed:true,resultRedacted:true,changesetId:retained.changeset_id,operationStatus:'completed'});
+          if(retained.status==='cancelled')return err('operation cancelled');
+          return txt({previewId:retained.id,argsHash:retained.args_hash,status:retained.status,expiresAt:retained.expires_at,humanApprovalRequired:true,reviewUrl:previewUrl(ctx.origin,retained.id)});
+        }
+        const completed=await ctx.env.DB.prepare("SELECT tool,args_hash,status FROM mcp_requests WHERE user_id=? AND request_id=? AND status='done'").bind(ctx.userId,args.requestId).first<{tool:string;args_hash:string;status:string}>();
+        if(completed){
+          if(completed.tool!==name||completed.args_hash!==await argsHash(args))return err('requestId was already used with different arguments');
+          const replay=await withIdempotency(ctx.env,ctx.userId,name,args.requestId,args,async()=>{throw new Error('completed request cannot run again');});
+          ctx.toolName=name;
+          return {content:[{type:'text' as const,text:await ctx.env.READ_GATE!.enabled()?await refilterReplay(ctx,args.requestId):replay.text}],isError:replay.failed===true};
+        }
+      }
+      const input=args as Record<string,unknown>;
+      const canonical=Object.fromEntries(Object.entries(input).filter(([key])=>!['requestId','previewId','dryRun'].includes(key)));
+      if(typeof input.previewId==='string') {
+        try {return txt(await executePreview(ctx.env,ctx.userId,input.previewId,await argsHash({tool:name,args:canonical}),ctx.ectx));}
+        catch(e){return err(e instanceof PreviewError?e.code:'preview_execution_interrupted');}
+      }
+      // Auxiliary server-table operations keep their dedicated authorizers. Record
+      // plans are evaluated without writes before any significant operation lands.
+      const auxiliary=new Set(['request_approval','decide_approval','undo_change','publish_page','publish_moodboard']);
+      if(!auxiliary.has(name)) {
+        const original=ctx.env,cs=ctx.cs,tool=ctx.toolName,ops:PreviewOp[]=[];
+        ctx.env=planningEnv(original,ops);ctx.cs=beginChangeset({userId:ctx.userId,tool:name});ctx.toolName=name;
+        let planned:ToolResult,display:Record<string,unknown>={};
+        try {if(input.dryRun===true&&'dryRun' in meta.inputSchema.shape){const shown=await handler({...args,dryRun:true});if(shown.isError)return shown;try{display=JSON.parse(shown.content[0].text);}catch{/* no display */}ops.length=0;}planned=await handler({...args,dryRun:false});}
+        catch(e){return err(e instanceof Error?e.message:'preview_planning_failed');}
+        finally {ctx.env=original;ctx.cs=cs;ctx.toolName=tool;}
+        if(planned.isError)return planned;
+        const merged=new Map<string,PreviewOp>();
+        for(const op of ops){const previous=merged.get(op.id);merged.set(op.id,{...op,patch:{...previous?.patch,...op.patch}});}
+        const significant=(name==='update_board'&&(Array.isArray(input.columns)||Array.isArray(input.removeFields)&&input.removeFields.length>0||Array.isArray(input.updateFields)&&input.updateFields.length>0))||name==='update_field'&&typeof input.type==='string'||['delete_item','remove_field','remove_stage','create_from_template','install_template','convert_record','convert_idea_to_project'].includes(name)||merged.size>25||[...merged.values()].some(o=>o.patch.deleted===true);
+        if((significant||input.dryRun===true)&&merged.size){
+          try {
+            let payload:Record<string,unknown>={};try{payload=JSON.parse(planned.content[0].text);}catch{/* no metadata */}
+            const metadata:Record<string,unknown>={};
+            for(const [key,value]of Object.entries(payload)){
+              if(typeof value==='number'||typeof value==='boolean')metadata[key]=value;
+              else if(typeof value==='string'&&(key==='id'||key.endsWith('Id'))&&/^[A-Za-z0-9_:.\-]{1,64}$/.test(value))metadata[key]=value;
+              else if(typeof value==='string'&&/url$/i.test(key)){try{const u=new URL(value,ctx.origin);if(u.origin===ctx.origin&&!u.search&&!u.hash&&/^\/(pages|boards|moodboards)\//.test(u.pathname))metadata[key]=u.href;}catch{/* no unvalidated URLs */}}
+              else if(value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length<=50&&Object.values(value).every(v=>typeof v==='number'))metadata[key]=value;
+              else if(key==='created'&&Array.isArray(value))metadata[key]=value.slice(0,2000).map(v=>v&&typeof v==='object'&&typeof v.id==='string'?{id:v.id}:null).filter(Boolean);
+              else if(key==='warnings'&&Array.isArray(value))metadata[key]=value.filter(v=>typeof v==='string').slice(0,20).map(v=>v.slice(0,300));
+              else if(key==='reuse'&&value&&typeof value==='object'){const reuse=value as {databases?:number;boardIds?:unknown};metadata[key]={databases:reuse.databases,boardIds:Array.isArray(reuse.boardIds)?reuse.boardIds.filter(v=>typeof v==='string').slice(0,50):[]};}
+            }
+            const make=async()=>{const preview=await proposePreview(original,ctx.userId,name,{tool:name,args:canonical},[...merged.values()],typeof input.workflowId==='string'?input.workflowId:undefined,[],args.requestId,metadata);return {text:JSON.stringify({...display,...preview,impact:{...(display.impact as object??{}),...preview.impact},dryRun:true,humanApprovalRequired:true,reviewUrl:previewUrl(ctx.origin,preview.previewId),instruction:'Open the review URL in Workspace. A signed-in human must approve before execution. Retry execution using execute_preview with the same ID/hash.'}),isError:false};};
+            const result=args.requestId?await withIdempotency(original,ctx.userId,name,args.requestId,args,make):await make();
+            return {content:[{type:'text' as const,text:result.text}],isError:'failed' in result&&result.failed===true};
+          }
+          catch(e){return err(e instanceof Error?e.message:'preview_failed');}
+        }
+        if(input.dryRun===true)return planned;
+      }
       // Runaway-agent brake: write calls per user per window. Previews are free.
       const limit = writeLimit(ctx.env);
       if (limit > 0 && (args as { dryRun?: unknown }).dryRun !== true) {
@@ -660,6 +756,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       description: 'Search pages, tasks/records, boards, mood boards, comments, filenames and mood items by title and body text (words are prefix-matched). Returns at most `limit` (default 20, max 50) results per call; pass nextCursor back as `cursor` while hasMore is true. indexPending:true means recent changes are still being indexed.',
       inputSchema: z.object({
         query: z.string().describe('Free-text search query'),
+        mode:z.enum(['keyword','semantic','hybrid']).optional(),
         type: z.enum(['page', 'task', 'board', 'moodboard', 'comment', 'file', 'mooditem']).optional(),
         databaseId: z.string().optional().describe('Only records of this database'),
         spaceId:z.string().optional().describe('Only content in this authorized space'),
@@ -668,16 +765,16 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       }),
       annotations: { readOnlyHint: true },
     },
-    async ({ query, type, databaseId, spaceId, cursor, limit }) => {
+    async ({ query, type, databaseId, spaceId, cursor, limit, mode }) => {
       // The permission-aware search service (worker/search.ts): index + live dirty docs,
       // readable-space prefilter, the request's read gate, keyset pagination.
       let out;
-      try { out = await searchRecords(ctx.env, ctx.userId, { q: query, type, databaseId, spaceId, cursor: cursor ?? null, limit }); }
+      try { out = await hybridSearch(ctx.env, ctx.userId, { q: query, type, databaseId, spaceId, cursor: cursor ?? null, limit },mode); }
       catch (e) { if (e instanceof SearchError) return err(e.code); throw e; }
       const url = (h: (typeof out.results)[number]) => h.url ? `${ctx.origin}${h.url}` : h.type === 'page' ? pageUrl(ctx, h.docId) : h.type === 'task' ? `${ctx.origin}/boards/${h.databaseId ?? 'board-default'}/tasks/${h.docId}` : h.type === 'board' ? boardUrl(ctx, h.docId) : moodUrl(ctx, h.docId);
       // `rev` is the record's own revision (what expectedRev writes compare), not the index's.
       const own = await getRecs(ctx.env, out.results.map((h) => h.docId));
-      return txt({ results: out.results.filter((h) => own.has(h.docId)).map((h) => ({ id: `${h.type}:${h.docId}`, title: h.title, url: url(h), rev: own.get(h.docId)!.rev, ...(h.snippet ? { snippet: h.snippet } : {}) })), hasMore: out.hasMore, nextCursor: out.nextCursor, indexPending: out.indexPending });
+      return txt({ results: out.results.filter((h) => own.has(h.docId)).map((h) => ({ id: `${h.type}:${h.docId}`, title: h.title, url: url(h), rev: own.get(h.docId)!.rev, ...(h.snippet ? { snippet: h.snippet } : {}) })), hasMore: out.hasMore, nextCursor: out.nextCursor, indexPending: out.indexPending,semantic:out.semantic });
     },
   );
 
@@ -765,8 +862,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
   );
 
-  server.registerTool('get_record_history',{description:'Read authorized per-record field history with bounded revision pagination. Historical values require current record and historical-space access.',inputSchema:z.object({id:z.string(),before:z.number().int().positive().optional(),limit:z.number().int().min(1).max(50).optional()}),annotations:{readOnlyHint:true}},async a=>{try{return txt(await loadHistoryPage(ctx.env.DB,ctx.userId,a.id,a.before,a.limit));}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}});
-  reg('restore_record_fields',{description:'Restore selected retained fields from one historical revision using an exact current expectedRev. Preview with dryRun first. Deletion recovery uses restore_item or undo_change.',inputSchema:z.object({id:z.string(),revision:z.number().int().positive(),expectedRev:z.number().int().nonnegative(),fields:z.array(z.string()).min(1).max(100),side:z.enum(['before','after']).default('before')}),annotations:{idempotentHint:true}},async a=>{let planned;try{planned=await historicalPatch(ctx.env.DB,ctx.userId,a.id,a.revision,a.fields,a.side);}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}if(ctx.cs)ctx.cs.source='undo';await write(ctx,[{id:a.id,collection:planned.collection as Collection,patch:planned.patch}],{expect:new Map([[a.id,a.expectedRev]]),source:'undo'});return txt({id:a.id,restoredFields:a.fields});});
+  server.registerTool('get_record_history',{description:'Read authorized per-record field history with bounded revision pagination. Historical values require current record and historical-space access.',inputSchema:z.object({id:z.string(),before:z.number().int().positive().optional(),limit:z.number().int().min(1).max(50).optional()}),annotations:{readOnlyHint:true}},async a=>{try{return txt(await loadHistoryPage(ctx.env.DB,ctx.userId,a.id,a.before,a.limit,ctx.env.READ_GATE,ctx.env.CONNECTOR));}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}});
+  reg('restore_record_fields',{description:'Restore selected retained fields from one historical revision using an exact current expectedRev. Preview with dryRun first. Deletion recovery uses restore_item or undo_change.',inputSchema:z.object({id:z.string(),revision:z.number().int().positive(),expectedRev:z.number().int().nonnegative(),fields:z.array(z.string()).min(1).max(100),side:z.enum(['before','after']).default('before')}),annotations:{idempotentHint:true}},async a=>{if(!await ctx.env.READ_GATE!.canRead(a.id))return err('not_found');let planned;try{planned=await historicalPatch(ctx.env.DB,ctx.userId,a.id,a.revision,a.fields,a.side);}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}if(ctx.cs)ctx.cs.source='undo';await write(ctx,[{id:a.id,collection:planned.collection as Collection,patch:planned.patch}],{expect:new Map([[a.id,a.expectedRev]]),source:'undo'});return txt({id:a.id,restoredFields:a.fields});});
 
   /* ---------- 3. workspace_overview ---------- */
 
@@ -2515,34 +2612,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
   );
 
-  /* ---------- 17. recent_activity ---------- */
+  registerReadTools(server,ctx);
+  server.registerTool('execute_preview',{description:'Execute an exact frozen plan ONLY after the human approved its Workspace review page. The preview ID is not approval. Retry pending execution with the same ID/hash; completed retries are metadata-only.',inputSchema:z.object({previewId:z.string().max(64),argsHash:z.string().length(64)}),annotations:{idempotentHint:true}},async a=>{try{return txt(await executePreview(ctx.env,ctx.userId,a.previewId,a.argsHash,ctx.ectx));}catch(e){return err(e instanceof PreviewError?e.code:'preview_execution_interrupted');}});
 
-  server.registerTool(
-    'recent_activity',
-    {
-      description: 'Most recent activity entries (who did what, and which client via meta.via).',
-      inputSchema: z.object({ limit: z.number().optional() }),
-      annotations: { readOnlyHint: true },
-    },
-    async ({ limit }) => {
-      await fillCaches(ctx);
-      // Newest first, bounded: read a window of the newest rows, then the gate.
-      const want = Math.min(limit ?? 50, 200);
-      const { results: recent } = await ctx.env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection='activity' AND COALESCE(json_extract(data,'$.deleted'),0)!=1
-          ORDER BY CAST(json_extract(data,'$.createdAt') AS REAL) DESC LIMIT ?`).bind(Math.min(want * 4, 800)).all<RawRow>();
-      const all = (await gateRows(ctx.env, recent.map(toRow))).map(toRec).slice(0, want);
-      return txt({
-        activity: all.map((a) => ({
-          actor: ctx.userNameById.get(String(a.data.actorId ?? '')) ?? null,
-          verb: a.data.verb,
-          targetType: a.data.targetType,
-          targetTitle: a.data.targetTitle,
-          via: (a.data.meta as Record<string, unknown> | null)?.via ?? undefined,
-          at: a.data.createdAt,
-        })),
-      });
-    },
-  );
 
   /* ---------- 18. delete / restore ---------- */
 
@@ -2659,7 +2731,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       for (const b of impact.ids.blocks ?? []) ops.push({ collection: 'blocks', id: b, patch: cascade });
       if (impType === 'page') {
         for (const t of impact.ids.tasks ?? []) ops.push({ collection: 'tasks', id: t, patch: cascade });
-        await ctx.env.DB.prepare('DELETE FROM shares WHERE page_id = ?').bind(id).run();
+        // Public serving already refuses a deleted root; retain the token with its recoverable tree.
       }
       if (impType === 'board') {
         const action = a.taskAction ?? 'move_to_default';
@@ -2986,7 +3058,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
     async ({ limit }) => {
       const { results } = await ctx.env.DB.prepare('SELECT id, source, client_name, tool, summary, request_id, undoes, undone_by, item_count, created_at FROM changesets WHERE user_id = ? ORDER BY created_at DESC LIMIT ?').bind(ctx.userId, Math.min(limit ?? 50, 100)).all<{ id: string; summary: string }>();
-      return txt({ changes: await visibleSummaries(ctx.env.DB, ctx.userId, results) });
+      return txt({ changes: await visibleSummaries(ctx.env.DB, ctx.userId, results, ctx.env.READ_GATE) });
     },
   );
 
@@ -3002,8 +3074,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (!cs) return err('changeset not found');
       if (ctx.userRole !== 'admin' && cs.user_id !== ctx.userId) return err('forbidden');
       const { results: raw } = await ctx.env.DB.prepare('SELECT idx, collection, record_id, created, before, after, field_ts FROM changeset_items WHERE changeset_id = ? ORDER BY idx').bind(changesetId).all<{ record_id: string; before: string; after: string; field_ts: string }>();
-      const [summary] = await visibleSummaries(ctx.env.DB, ctx.userId, [cs as { id: unknown; summary?: unknown }]);
-      const shown = await visibleItems(ctx.env.DB, ctx.userId, raw);
+      const [summary] = await visibleSummaries(ctx.env.DB, ctx.userId, [cs as { id: unknown; summary?: unknown }], ctx.env.READ_GATE);
+      const shown = await visibleItems(ctx.env.DB, ctx.userId, raw, ctx.env.READ_GATE);
       const changeset = shown.restricted ? {...summary,summary:'Restricted change',restricted:true} : summary;
       return txt({ changeset, items: shown.items.map((r) => ({ ...r, before: JSON.parse(String(r.before)), after: JSON.parse(String(r.after)), field_ts: JSON.parse(String(r.field_ts)) })), ...(shown.restricted ? { restricted: shown.restricted } : {}) });
     },
@@ -3033,6 +3105,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const patches = scoped ? plan.patches.filter((p) => current.has(p.id)) : plan.patches;
       return txt({ dryRun: true, summary: `undo ${cs.tool} (${a.changesetId})`, counts: { restore: patches.length, skipped: plan.skipped.length, ...(patches.length < plan.patches.length ? { restricted: plan.patches.length - patches.length } : {}) }, warnings: plan.skipped.filter((s) => !scoped || current.has(s.id)).map((s) => `${s.id}.${s.field}: ${s.reason}`), impact: { patches } });
       }
+      const size=await ctx.env.DB.prepare('SELECT COUNT(*) n,COALESCE(MAX(created),0) creates FROM changeset_items WHERE changeset_id=?').bind(cs.id).first<{n:number;creates:number}>();
+      if(size&&(size.n>25||size.creates))return txt({humanUndoRequired:true,changesetId:cs.id,reviewUrl:ctx.origin+'/ai/undo/'+cs.id,instruction:'Open Workspace to inspect the inverse and confirm it with your authenticated human session. No inverse has executed.'});
       const out = await undoChangeset(ctx.env, { id: ctx.userId, role: ctx.userRole } as AuthUser, a.changesetId);
       if (!out.ok) return { ...txt(out), isError: true };
       return txt({ undone: a.changesetId, undoChangesetId: out.undoChangesetId, restored: out.restored, skipped: out.skipped });
@@ -4250,93 +4324,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     }),
   );
 
-  /* ---------- Phase 3 operating prompts ---------- */
-
-  server.registerPrompt(
-    'weekly_operating_review',
-    {
-      title: 'Weekly operating review',
-      description: 'Pull live workspace data and produce a weekly review: progress, blocked, decisions needed, next actions.',
-      argsSchema: z.object({}),
-    },
-    async () => ({
-      messages: [
-        {
-          role: 'user' as const,
-          content: {
-            type: 'text' as const,
-            text: `Run the weekly operating review for this workspace.
-
-1. Call workspace_overview to find the Projects, Tasks, Opportunities and Events databases (get_board for their stages/fields). If the workspace doesn't have them, say so and adapt to the databases that exist.
-2. Query real data — never invent metrics:
-   - Projects: query_records for stages like Active and Blocked (match the actual stage names on the board).
-   - Tasks: query_records for open tasks (not Done), flag overdue/blocked.
-   - Opportunities: query_records, report any with a deadline within the next 14 days.
-   - Events: query_records, report events in the next 14 days.
-   - recent_activity for what changed this week.
-3. Produce the review with sections — Progress this week / Blocked / Decisions needed / Next actions — and cite record ids (and URLs) for every claim so each line clicks through to its record.
-4. If a database is empty or missing, say exactly that instead of estimating.
-5. If you propose record writes (stage changes, new tasks), list the proposed changes first and only apply them with update_records/create_records (with requestId + expectedRev) after the user confirms.`,
-          },
-        },
-      ],
-    }),
-  );
-
-  server.registerPrompt(
-    'project_review',
-    {
-      title: 'Project review',
-      description: 'Guide a project review using the Project Review template: pull the project and its linked records, draft the review sections, write on confirm.',
-      argsSchema: z.object({ projectId: z.string().optional().describe('Record id of the project to review (resolve via search/query_records if omitted)') }),
-    },
-    async ({ projectId }) => ({
-      messages: [
-        {
-          role: 'user' as const,
-          content: {
-            type: 'text' as const,
-            text: `Guide a project review${projectId ? ` for project record ${projectId}` : ''}.
-
-1. ${projectId ? `Fetch the project with get_record(${projectId})` : 'Find the project: workspace_overview for the Projects database, then query_records or search for the project the user means — ask the user to confirm which one if ambiguous'}.
-2. Pull everything relevant: the project's own fields, plus its related Tasks, Experiments, Decisions and Media via the record's relations and links (query_records on those databases filtered by their project relation, or follow the link ids get_record returns).
-3. Draft the Project Review against the template's 8 sections — what was planned / what happened / what worked / what failed / what we learned / what we would change / what to document / what could become a course, article or video — citing record ids for every claim. Never invent outcomes; if a section has no evidence, say so.
-4. When the draft is confirmed by the user, write it into the project record's body with edit_record_body (appendMarkdown), passing expectedRev and a requestId. Offer the draft for review first; do not write before confirmation.`,
-          },
-        },
-      ],
-    }),
-  );
-
-  server.registerPrompt(
-    'field_notes_to_log',
-    {
-      title: 'Field notes to log',
-      description: 'File raw field notes as records in the Field Log database, linked to their context — after confirming ambiguous context/units/targets.',
-      argsSchema: z.object({ notes: z.string().optional().describe('Raw field notes to file (observations, measurements, expenses)') }),
-    },
-    async ({ notes }) => ({
-      messages: [
-        {
-          role: 'user' as const,
-          content: {
-            type: 'text' as const,
-            text: `File these field notes into the Field Log.
-
-${notes ? `Notes:\n${notes}\n` : 'The user will paste raw field notes next.\n'}
-1. Find the Field Log database: workspace_overview, pick the one with templateDbKey 'field_log' — or named like "Field log" — then read its fields with get_board so each note maps to the right field names (measurement, unit, observation text, date, photos).
-2. Work out the context each note belongs to (project, experiment, place). Ask the user to CONFIRM any ambiguous context, units, dates or linked records before writing — never fabricate a measurement, date or link. If a field value is unclear or missing, ask rather than guessing.
-3. Create one record per distinct note with create_records (requestId on the call), then link each record to its context record/page with link_items kind 'related'. Use expectedRev on any follow-up updates.
-4. Report the created record ids and links, grouped by context.`,
-          },
-        },
-      ],
-    }),
-  );
-
-  /* ---------- Phase 4 approvals (Workstream D — delimited) ---------- */
-  registerApprovalTools(server, reg, ctx);
-
+  registerAiWorkflows(server,ctx);
+  registerSuggestionTools(server,ctx);
+  registerApprovalTools(server,reg,ctx);
   return server;
 }
 
@@ -4394,10 +4384,17 @@ async function normalizePromptGetRequest(request: Request): Promise<Request> {
  */
 export const mcpApiHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const props = (ctx.props ?? {}) as { userId?: string; clientName?: string };
+    const props = (ctx.props ?? {}) as { userId?: string; clientName?: string; connectionId?:string };
     if (!props.userId) return unauthorized();
     const user = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND disabled_at IS NULL').bind(props.userId).first<{ id: string }>();
     if (!user) return unauthorized();
+    if (props.connectionId) {
+      const connection=await loadConnection(env.DB,props.userId,props.connectionId);
+      if(!connection)return unauthorized();
+      env={...env,CONNECTOR:{id:connection.id,version:connection.version}};
+    } else if(await env.DB.prepare('SELECT enabled FROM access_state WHERE id=1').first<number>('enabled')===1) {
+      return new Response(JSON.stringify({error:'connector_reauthorization_required'}),{status:403,headers:{'content-type':'application/json'}});
+    }
     request = await normalizePromptGetRequest(request);
     return createMcpHandler(
       (mcpCtx: McpRequestContext) => createWorkspaceServer(ctxFor(env, ctx, mcpCtx, props)),

@@ -15,6 +15,11 @@ export interface Env {
   WORKSPACE_ENV?: string;
   /** MCP write tool calls per user per 10 minutes (default 300; 0 disables). */
   MCP_WRITE_LIMIT?: string;
+  /** Exact trusted media hosts; no remote network imports unless explicitly configured. */
+  REMOTE_IMPORT_HOSTS?: string;
+  AI_PROVIDER?:'none'|'workers-ai';
+  AI_DAILY_UNITS?:string;
+  AI_CLASSIFICATION?:string;
   TURNSTILE_LOCAL_TEST?: string;
   DB: D1Database;
   AI: Ai;
@@ -24,6 +29,10 @@ export interface Env {
   OAUTH_PROVIDER: OAuthHelpers;
   /** Request-scoped, never a binding: the caller's read gate (worker/readAccess.ts).
    * Present only on the per-request copy built by `withReadGate`. */
+  /** Server-created request constraint; never a client binding or tool argument. */
+  /** In-process MCP planner; never exposed through bindings or HTTP input. */
+  MCP_PLAN?: {ops: import('./aiPreviews').PreviewOp[]};
+  CONNECTOR?: import('./connectorAccess').ConnectorAuthority;
   READ_GATE?: import('./readAccess').ReadGate;
   /** The ungated environment of the same request (service reads only). */
   SERVICE_ENV?: Env;

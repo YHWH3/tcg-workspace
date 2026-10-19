@@ -53,20 +53,20 @@ export type ShareAuthority = { ok: true; spaceId: string | null; fence: D1Prepar
 
 /** May `userId` manage the share of `targetId` (a page or a moodboard)? Denied and missing
  * are the same answer. The returned fence goes in the same batch as the share write. */
-export async function shareAuthority(env: Pick<Env, 'DB'>, userId: string, collection: 'pages' | 'moodboards', targetId: string): Promise<ShareAuthority> {
+export async function shareAuthority(env: Pick<Env, 'DB'|'CONNECTOR'>, userId: string, collection: 'pages' | 'moodboards', targetId: string): Promise<ShareAuthority> {
   const db = env.DB;
   const row = await db.prepare('SELECT space_id, COALESCE(json_extract(data,\'$.deleted\'),0) AS deleted FROM records WHERE collection = ? AND id = ?').bind(collection, targetId).first<{ space_id: string | null; deleted: number }>();
-  if (!(await accessEnabled(db))) return row ? { ok: true, spaceId: row.space_id, fence: null } : { ok: false };
+  if (!(await accessEnabled(db))&&!env.CONNECTOR) return row ? { ok: true, spaceId: row.space_id, fence: null } : { ok: false };
   if (!row || row.deleted === 1) return { ok: false };
   const space = (await spacesOf(db, [targetId])).get(targetId);
   if (!space) return { ok: false };
-  const context = await loadAccessContext(db, userId, [space]);
-  if (!context.enabled || !context.principal || effectiveLevel(spaceAccess(context, space)) < LEVEL_ADMIN) return { ok: false };
-  return { ok: true, spaceId: space, fence: capabilityFence(db, { userId, needs: new Map([[space, LEVEL_ADMIN]]), workspaceRole: context.principal.workspaceRole, enabled: true }) };
+  const context = await loadAccessContext(db, userId, [space],undefined,env.CONNECTOR);
+  if ((!context.enabled&&!env.CONNECTOR) || !context.principal || effectiveLevel(spaceAccess(context, space)) < LEVEL_ADMIN) return { ok: false };
+  return { ok: true, spaceId: space, fence: capabilityFence(db, { userId, needs: new Map([[space, LEVEL_ADMIN]]), workspaceRole: context.principal.workspaceRole, enabled: context.enabled,connector:context.connector }) };
 }
 
 /** Shares the caller may see in a listing (legacy: all). */
-export async function visibleShares<T extends { page_id: string; target_type: string }>(env: Pick<Env, 'DB'>, userId: string, rows: T[]): Promise<T[]> {
+export async function visibleShares<T extends { page_id: string; target_type: string }>(env: Pick<Env, 'DB'|'CONNECTOR'>, userId: string, rows: T[]): Promise<T[]> {
   if (!(await accessEnabled(env.DB))) return rows;
   const out: T[] = [];
   const spaces = await spacesOf(env.DB, rows.map(r => r.page_id));

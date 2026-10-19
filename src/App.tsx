@@ -1,3 +1,4 @@
+import {AiWorkspace,AiReview,AiUndo} from './core/AiWorkspace';
 import {SpaceHome} from './core/SpaceHome';
 import {GuestJoin} from './core/GuestJoin';
 import { useEffect } from 'react';
@@ -47,6 +48,9 @@ const router = createBrowserRouter([
     ),
     children: [
       ...modules.flatMap((m) => m.routes),
+      {path:'ai',element:<AiWorkspace/>},
+      {path:'ai/review/:previewId',element:<AiReview/>},
+      {path:'ai/undo/:changesetId',element:<AiUndo/>},
       { path: 'settings', element: <SettingsPage /> },
       {path:'spaces/:spaceId',element:<SpaceHome/>},
       { path: '*', element: <Navigate to="/" replace /> },
