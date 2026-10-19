@@ -1,7 +1,6 @@
 # Phase 5 — authorized reads across the remaining server surfaces
 
-Status: implemented on `phase5/per-space-feeds` on top of `cedba69` (not committed at
-the time of writing; see "Certification" for the exact tested source). Permissions
+Status: implementation continued on `phase5/per-space-feeds`; the historical certification sections below identify earlier tested source. Current behavior and final certification discipline are recorded in the [progress ledger](phase-5-progress.md#current-completion-candidate-2026-10-19). Permissions
 remain **disabled** by default; every behavior below applies only while
 `access_state.enabled = 1`, which was set only inside disposable test fixtures. This is
 one Phase 5 checkpoint, not Phase 5 completion.
@@ -38,8 +37,8 @@ SQL). `worker/historyAccess.ts` filters historical copies.
 | Surface | Reads | Authorization while enabled |
 |---|---|---|
 | MCP read tools (`fetch`, `get_page`, `get_board`, `get_task`, `get_record`, `query_records`, `get_moodboard`, `list_comments`, `list_templates`, `recent_activity`, `workspace_overview`) | `records.ts` helpers (`getRec`, `getRecs`, `listBy`, `listCollection`, `listLinksByKind`, `listLinksTouching`, `listDefaultBoardTasks`), `pageClosure`, `tasksByBlockIds`, `loadTemplateSnapshot` | `createWorkspaceServer` builds the gated environment; every helper filters through it |
-| MCP lookup caches (`fillCaches`: page/record titles for mentions and name→id) | `listCollection` | gated + readable-space SQL prefilter; titles of unreadable pages/records never enter the caches |
-| MCP `search` | raw scan of five collections | readable-space prefilter, then the gate on every matching row (including body-only page matches) |
+| MCP lookup caches (`fillCaches`: page/record titles for mentions and name→id) | targeted `loadTitleKeys` / `loadTitleIds` / `prefetchMarkdown` | gated; guest identity lookup is self-only; titles of unreadable records never enter caches |
+| MCP `search` | shared FTS/dirty-queue service, seven content types | readable-space SQL and current graph gate, query/identity-bound cursors; own-document ranking |
 | Backlinks (`get_page`) | raw `instr` scan of blocks | gate on the scanned rows |
 | Mentions in bodies (`blocksToMarkdown`, `renderMentionText`) | gated caches | unreadable page → `[[page]]`, record → raw token, user names unchanged |
 | Relations / related / dependencies (output) | `listLinksByKind`, `listLinksTouching` | gate: a link is readable only if both endpoints' spaces are |
@@ -60,7 +59,7 @@ SQL). `worker/historyAccess.ts` filters historical copies.
 | Public forms (`/api/public/forms/:token`) | configured fields only | unchanged: the token capability exposes only the form's configured fields; submissions write as the `form` service principal with existing fences |
 | Live presence (`/api/live`) | other users' routes | sockets authorized while enabled are marked scoped: their routes are never stored or shared and they receive no routes (pokes still flow); runtime-tested in `phase5-live-d1` |
 | Sync feed, file bytes, file usage | — | already authorized (per-space feeds, `authorizeFile`, `readableFileUsage`) |
-| Background: reminders, event→notification routing, automations, forms processing, retention | service | unchanged service authority; their record-derived *output* is user-visible only through the filtered notification/approval/history reads above. `readersOf()` is available for delivery-time recipient checks |
+| Background: reminders, event→notification routing, automations, forms processing, retention | service | service authority for processing; `notify()` enforces current recipient/target access inside the delivery transaction, including caller checkpoints; reads remain separately gated |
 
 ## Confirmed defects and corrections
 
@@ -268,22 +267,22 @@ D1 475 PASS (including `phase5-search-d1` 9/9); every MCP, smoke, v4/v6/v7/v8/v9
 `.artifacts/certification/ad58053a5b01196207c0f56916d2beb137e64671-2026-10-18T06-37-41-351Z-complete/`.
 This paragraph was written after run 5 and is outside its fingerprint.
 
-## Remaining activation blockers (not done here)
+## Current continuation status and activation boundaries
 
-- **Search rows read** grow with the number of documents matching a query's terms in all
-  spaces (FTS doclists are global; the space filter applies after the match). Binding calls
-  are constant. A per-space corpus would bound this further if measurements in production
-  require it.
-- **Search coverage**: comments, file names and mood-item text are not indexed yet (design
-  §9 lists them). The ⌘K palette still searches locally and does not call `GET /api/search`.
-- **Sorted `query_records`** is limited to databases of up to 5,000 records (explicit error
-  above that).
-- **People directory** (`/api/users`, MCP user lookup) still lists every workspace user to
-  guests — an owner policy decision.
-- **Delivery-time filtering and purge** of notifications for non-readers (read-time
-  redaction is in place; stored copies remain server-side until retention).
-- Guest/space UI, history/restore UI and space-aware `deletedVia` restore (design review
-  §8.3) are not part of this change.
-- Owner decisions remain pending: share minting by space admins only (implemented per the
-  design review; confirm), embedding, approval separation of duties, CSP rollout, guest
-  quotas, export/quarantine retention, activation procedure.
+Search now covers comments, file names/link metadata and mood text; the palette uses
+server search plus the authorized local cache. Notifications check delivery and current
+read authority, hide inaccessible badges and retain neutral historical rows. Guest
+identity listings are self-only. People-containing spaces are guest-restricted in the
+canonical kernel. Invitations, memberships, space settings/switching/moves, sessions,
+contextual history/field restore, archive browsing and usage/cache controls are implemented.
+See [the current runtime contract](../architecture/phase-5-implementation.md#current-runtime-contract-2026-10-19).
+
+Measured limits remain explicit: global FTS doclists scale with matches; sorted
+`query_records` errors above 5,000 records. Retention/purge and quarantine export are
+not silently enabled. Broader directory sharing requires reviewed policy; it has no
+implicit guest exception. Share minting stays space-admin-only; existing embedding,
+approval and CSP behavior are preserved, not newly approved policies.
+
+Production permissions remain **OFF**. Independent review, activation approval and the
+external device/accessibility/security release checklist remain gates. Final automation
+must certify the clean committed source, not any historical run described above.

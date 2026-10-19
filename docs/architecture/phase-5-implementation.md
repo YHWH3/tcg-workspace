@@ -2,6 +2,170 @@
 
 > **Superseded in part.** The reconciliation protocol in this document (global access generation, materialized snapshots, protocol 2) was replaced by per-space feeds (protocol 3) — see [phase-5-per-space-feeds.md](phase-5-per-space-feeds.md). Everything about the authorization kernel, write enforcement, file capabilities and the client cache's account binding still applies.
 
+## Current runtime contract (2026-10-19)
+
+This section and [Protocol 3](phase-5-per-space-feeds.md) supersede the historical
+Protocol 2/generation/snapshot implementation notes below. Migration 0018 removes
+materialized snapshots; production reconciliation uses per-space feeds, capability
+fences and client `FeedState.version`. Old protocol requests cannot select the retired
+path after activation. Permission enforcement remains disabled outside disposable tests.
+
+### Authoritative content and search
+
+`applyChanges()` remains the mutation pipeline. Search dirty triggers cover pages,
+records/tasks, databases, moodboards, comments, file metadata and mood items. Blocks
+invalidate their page/record body; moving a block invalidates both old and new parents.
+Migration 0023 upgrades the existing index; it does not create a competing search store.
+Dirty-token guards protect every index write, so an older worker cannot resurrect stale
+content after a newer worker completes. Dirty entries are live-matched while pending;
+current ancestry, archive/deletion and caller visibility are checked before output.
+
+REST `GET /api/search` and MCP `search` accept query, type, space, database, cursor and
+limit. Prefix token matching is retained, with query/filter/identity-bound cursors and
+own-document ranking. Supported text includes custom string fields, record body text,
+comments, file names and HTTPS link hostname/path metadata, and mood text. URL query
+strings/fragments are not indexed. Snippets/titles/counts contain authorized hits only.
+Parent traversal determines navigation URLs; files/comments route to their owning item.
+Archived content and descendants of archived/deleted ancestors are excluded; browse
+archives through the space home instead. Restore/unarchive makes entries searchable again.
+
+The palette merges server results with the account-bound authorized Dexie cache. It
+has explicit offline, pending index, failure/retry, session and permission states;
+request epochs and account/token/access keys discard stale completions. It supports
+keyboard/touch, type/space/database filters, snippets and incremental loading through
+shared accessible dialog primitives. Reconciliation hides results until cache authority
+is established. Server pagination remains authoritative for complete online results.
+
+Bounds: index body 8,000 characters, title 300; local search samples up to 2,000 rows
+per collection plus 2,000 body blocks, at most 50 local hits. Offline results can be
+incomplete. FTS row reads grow with matching doclists even when binding calls are
+constant. Sorted MCP record queries still explicitly reject databases above 5,000 rows.
+
+### Notifications and retained copies
+
+`notify()` checks current recipient status/preferences and current target ancestry,
+then fences the recipient's capability and target revisions before its atomic delivery
+batch. A raced revocation rolls back caller checkpoints too. Notification groups are
+target-specific. Read-time authorization remains necessary after delivery: hidden targets
+produce neutral restricted entries without title/body/URL/actor/group payload; their
+unread badge is zero and mark-read/all cannot mutate them. Legacy groups with unproven
+mixed targets expose a neutral accessible-item summary rather than historical summaries.
+Pagination is stable by timestamp and ID and cursors bind the recipient. Neutral row
+order is retained; the policy does not claim to erase evidence that a retained row exists.
+Historical stored copies are not permanently destroyed without retention approval.
+
+### Guest and space workflows
+
+`/api/spaces` exposes the existing audited services for create/settings/membership/move,
+plus pending invitation management. Routes are inert while permissions are disabled.
+Invitations contain a random one-use secret; only its hash is stored, expire after seven
+days, require the issuer's current admin capability at redemption, cannot grant admin or
+owner, and are atomically consumed with membership/account creation. Same-account
+lost-response retries acknowledge only a still-live grant. No membership is silently
+overwritten. Existing seven-account capacity includes guests; 50 pending invitations per
+space is an explicit limit, not a new paid-seat policy. Revocation/expiry cannot be reused.
+
+The app supplies a manifest-based space switcher/home, creation, settings, members/roles,
+invitation links and redemption, root moves using existing revision/closure fences, and
+bounded archive browsing. Settings preserve selected space across access reconciliation.
+Session management continues using the existing session API/UI, expiry and socket fences.
+
+Guest user-directory listings and MCP name lookup are self-only. Migration 0026 marks
+spaces containing the canonical People database as guest-directory-restricted. The flag
+is sticky across rename/delete/move and is evaluated by both pure and SQL permission
+kernels. A guest cannot receive a grant/invitation or feed/search/file/MCP access into
+such a space. Moving a directory marks the destination as well; the old restriction is
+not silently cleared. This conservative whole-space rule avoids indirect directory leaks.
+Core members retain ordinary access. Broader sharing requires an explicit reviewed policy.
+
+### History and restoration
+
+Migration 0025 stores field deltas atomically alongside record CAS, journal and outbox.
+History records actor/source/changeset/revision/time and before/after values for supported
+content fields, excluding protected ownership, credentials and binary data. Each delta
+retains at most 128,000 encoded bytes; omitted fields are explicit and cannot be restored
+from an omitted value. No automatic history purge is enabled.
+
+`GET /api/history/:id` and MCP `get_record_history` page by revision (max 50). Both current
+record rights and current rights in the entry's historical home/peer spaces are required.
+`POST /api/history/:id/restore` accepts `{revision,expectedRev,fields,side,requestId}`.
+MCP `restore_record_fields` uses the same field planner and existing durable MCP writes.
+Both reauthorize and use revision-safe `applyChanges`; REST persists restore intent and
+checkpoints completion in the write transaction. Retrying cannot repeat an inverse write.
+History UI previews the value before confirmation and reports conflicts without silent
+replacement. Field restoration produces an undoable changeset. Ownership/deletedVia are
+not field-restorable; deletion recovery stays on existing scoped `restore_item` and
+changeset undo, whose descendant writes independently require current capabilities.
+
+### Usage, cache and retention
+
+`GET /api/admin/usage` is owner/admin-only and explicitly aggregates retained records,
+archives/tombstones, file bytes, search payload/dirty count, history payload and D1
+allocation. Allocation uses binding `meta.size_after` when available: D1 rejects PRAGMA
+page-count inspection in the local runtime. Reported rows and timings are local metadata,
+not production billing. Explicit admin aggregates may scan retained rows.
+
+Dexie v9 indexes downloaded-media cache metadata. A 100 MiB budget evicts at most 50 LRU
+cached downloads per pass, never pending/failed originals, uploaded originals or files
+with pending outbox work. When bounded reclamation cannot reserve space, the response
+can still render without caching. Settings exposes storage estimates, pending/quarantined
+work, admin usage and bounded downloaded-cache clearing. Existing quarantine is account-
+bound and outside ordinary search/export/upload; no automatic export or purge is added.
+Archive and soft delete remain reversible; reclaimed file bytes are irreversible.
+
+### Migration inventory and verification
+
+0012–0016 establish roles/ownership/sessions/media visibility; 0017 creates per-space
+feeds; 0018 retires snapshots; 0019–0020 repair peer eviction and UPSERT deduplication;
+0021 pins public shares; 0022 introduces search; 0023 extends search coverage; 0024 adds
+hashed guest invitations; 0025 adds field history/restore intent; 0026 enforces conservative
+directory privacy; 0027 indexes stable notification pagination. The certification manifest
+pins every migration hash. Server-only tables never enter synced COLLECTIONS.
+
+`npm run certify:phase5` is an alias of the existing complete orchestrator, preserving
+all Phase 0–4 and Protocol 3 gates and adding three-engine permission-enabled workflow
+journeys. Full certification requires clean starting/ending source and matching SHA and
+fingerprints. Unit/D1 tests explicitly label ENABLED versus DISABLED permission cases.
+Generated artifacts identify each command, exit, count, browser version, fixture and
+source SHA. Development checks cannot certify a later commit.
+
+### Activation and release runbook (not executed)
+
+1. Obtain independent source/security acceptance and explicit owner authorization. Keep
+   `access_state.enabled=0` until then. Do not infer approval from a passing suite.
+2. Inventory existing accounts/Core membership, grants, shares and root ownership; inspect
+   migration hashes, malformed/orphan graphs, quota headroom and the guest-directory flag.
+   Verify recoverable database/media backups and a tested restore on a disposable copy.
+3. Require compatible Protocol 3 clients; test old-client refusal, session recovery and
+   staged upgrade. Preserve existing Core access and pending/offline-work provenance.
+4. Rehearse activation on a disposable populated fixture: manifest/backfill/atomic group
+   activation, cross-tab version fencing, restart, offline quarantine, revocation, regrant,
+   relation peers, file/object-URL eviction and stale network responses.
+5. Separately approve embedding/CSP/approval-separation policies, broader directory sharing,
+   guest quota increases and retention/export. Current conservative behavior remains until
+   approval; irreversible purge is disabled. No real activation or remote command is part
+   of local certification.
+6. Plan a controlled rollout, restricted-content checks, monitoring and recovery. A flag
+   reversal does not erase already downloaded data or undo content writes. Restore and
+   incompatible-client recovery must be rehearsed; never promise instantaneous rollback
+   of delivered bytes. No production rollout is authorized by this document.
+
+External release checklist: on physical iPhone/iPad Safari and Android Chrome, sign in,
+open search, invite/redeem a guest, inspect history, revoke while another device is open,
+go offline/reconnect and confirm restricted content disappears. Capture device/OS/browser,
+route, expected/actual result and redacted screenshot. VoiceOver/TalkBack (and NVDA where
+supported) must traverse the search dialog, results, filters, history preview and invitation
+forms with understandable labels/focus restoration. Native 400% zoom must retain readable
+content and all controls. All are NOT RUN unless real execution evidence is captured;
+automated WebKit/reflow checks do not substitute. No paid device cloud is required.
+
+## Historical implementation notes
+
+The sections below retain rationale and earlier test evidence. Protocol 2 endpoints,
+materialized snapshots and global-generation reconciliation described there are retired,
+not compatibility paths that can be enabled by a new caller.
+
+
 
 Status: design reviewed against Phase 4; implementation in progress. This is not
 a certification report. Baseline: `977475f0cac54bf05f0e5e513785c4933e0e9d73`.

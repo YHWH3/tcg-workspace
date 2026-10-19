@@ -15,12 +15,13 @@ const cwd=fileURLToPath(new URL('../',import.meta.url));
 const mode=process.argv.includes('--quick')?'quick':process.argv.includes('--extended')?'extended':'complete';
 const sha=()=>execFileSync('git',['rev-parse','HEAD'],{cwd,encoding:'utf8'}).trim();
 const startingSha=sha(),startedAt=new Date().toISOString();
+const startingTreeDirty=Boolean(execFileSync('git',['status','--porcelain'],{cwd,encoding:'utf8'}).trim());
 const directory=resolve(cwd,'.artifacts/certification',`${startingSha}-${startedAt.replace(/[:.]/g,'-')}-${mode}`);
 mkdirSync(directory,{recursive:true});
 const results=[],controller=new AbortController();let interrupted=false;
 for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{interrupted=true;controller.abort();});
 const expectedIds=['prerequisites','dependencies','lockfile','whitespace','migrations','harness','typecheck','unit','build','d1','security','performance-evidence','source-integrity'];
-if(mode!=='quick')expectedIds.push('browsers','smoke','mcp-base','mcp-multiuser','mcp-phase1','mcp-phase2','mcp-phase3','mcp-phase4','v4','v6','v7','v8','v9','phase5-sync');
+if(mode!=='quick')expectedIds.push('browsers','smoke','mcp-base','mcp-multiuser','mcp-phase1','mcp-phase2','mcp-phase3','mcp-phase4','v4','v6','v7','v8','v9','phase5-sync','phase5-workflows');
 if(mode==='extended')expectedIds.push('d1-stress-1','d1-stress-2');
 const sleepGuard=preventIdleSleep();
 const network=configureCertificationNetwork();
@@ -35,10 +36,10 @@ function persist() {
   const verdict=decision(results,expectedIds),endedAt=new Date().toISOString();
   json(join(directory,'commands.json'),results.map(({command,startedAt,endedAt,durationMs,exitCode,signal,logPath,suiteId})=>({suiteId,command,startedAt,endedAt,durationMs,exitCode,signal,logPath})));
   json(join(directory,'test-results.json'),results);
-  json(join(directory,'summary.json'),{schemaVersion:1,decision:verdict,mode,startingSha,finalTestedSha:sha(),sourceFingerprint,startedAt,endedAt,mandatorySuites:expectedIds,pass:results.filter(r=>r.status==='PASS').length,fail:results.filter(r=>r.status==='FAIL').length,notRun:results.filter(r=>r.status==='NOT RUN').length,completeLocalCertification:mode!=='quick'&&verdict==='PASS',externalGates:[{name:'Physical iPhone/iPad Safari',status:'NOT RUN'},{name:'Physical Android',status:'NOT RUN'},{name:'Manual assistive technology',status:'NOT RUN'},{name:'Native 400% browser zoom',status:'NOT RUN',reason:'320px reflow equivalent is automated; not native zoom'}],securityExceptions:results.find(r=>r.suiteId==='security')?.securityAssessment?.exceptions??[],securityIndependentReviewRequired:results.find(r=>r.suiteId==='security')?.securityAssessment?.needsIndependentReview??true,productionReleaseCertified:false});
+  json(join(directory,'summary.json'),{schemaVersion:1,decision:verdict,mode,startingTreeDirty,startingSha,finalTestedSha:sha(),sourceFingerprint,startedAt,endedAt,mandatorySuites:expectedIds,pass:results.filter(r=>r.status==='PASS').length,fail:results.filter(r=>r.status==='FAIL').length,notRun:results.filter(r=>r.status==='NOT RUN').length,completeLocalCertification:mode!=='quick'&&verdict==='PASS',externalGates:[{name:'Physical iPhone/iPad Safari',status:'NOT RUN'},{name:'Physical Android',status:'NOT RUN'},{name:'Manual assistive technology',status:'NOT RUN'},{name:'Native 400% browser zoom',status:'NOT RUN',reason:'320px reflow equivalent is automated; not native zoom'}],securityExceptions:results.find(r=>r.suiteId==='security')?.securityAssessment?.exceptions??[],securityIndependentReviewRequired:results.find(r=>r.suiteId==='security')?.securityAssessment?.needsIndependentReview??true,productionReleaseCertified:false});
   const table=results.map(r=>`| ${r.suiteId} | ${r.status} | ${r.pass}/${r.fail}/${r.notRun} | ${(r.durationMs/1000).toFixed(1)} | ${r.fixtureId??'none'} | ${r.errorSummary?.replaceAll('|','/').replaceAll('\n',' ').slice(0,250)??''} |`).join('\n');
   const rows=results.flatMap(r=>(r.assertions??[]).map(t=>`| ${r.suiteId} | ${t.engine} | ${t.viewport} | ${String(t.test).replaceAll('|','/').replaceAll('\n',' ')} | ${t.status} |`)).join('\n');
-  writeFileSync(join(directory,'report.md'),`# TCG Phase 0–4 local certification\n\nDecision: **${verdict}**. Mode: ${mode}. Starting and tested commit: \`${startingSha}\`. Source fingerprint: \`${sourceFingerprint}\`.\n\nRun: ${startedAt} to ${endedAt}. ${environment.os} ${environment.osRelease}; Node ${environment.node}; Playwright ${environment.playwright}.\n\n| Suite | Result | PASS/FAIL/NOT RUN | Seconds | Fixture | Error |\n|---|---|---|---:|---|---|\n${table}\n\nExact commands, exit codes, timestamps and log paths: [commands.json](commands.json). Complete per-assertion evidence and browser versions: [test-results.json](test-results.json). Security machine output: [security-audit.json](security-audit.json). Migration hashes and actual SQLite schema: [migrations.json](migrations.json). Local resource metrics: [performance.json](performance.json).\n\nPhysical iPhone/iPad Safari, physical Android, manual assistive technology and native browser 400% zoom remain NOT RUN production release gates. Automated 320px reflow is not native zoom evidence. The npm audit raw nonzero status is retained. The coordinated Agents/MCP upgrade removes the former OAuth-client advisory exception. All high/critical findings fail the security gate. Independent release review remains required. No merge/deployment performed. Quick mode cannot establish complete local certification.\n\n| Suite | Engine | Viewport | Assertion | Result |\n|---|---|---|---|---|\n${rows}\n`);
+  writeFileSync(join(directory,'report.md'),`# TCG Phase 0–5 local certification\n\nDecision: **${verdict}**. Mode: ${mode}. Starting and tested commit: \`${startingSha}\`. Source fingerprint: \`${sourceFingerprint}\`.\n\nRun: ${startedAt} to ${endedAt}. ${environment.os} ${environment.osRelease}; Node ${environment.node}; Playwright ${environment.playwright}.\n\n| Suite | Result | PASS/FAIL/NOT RUN | Seconds | Fixture | Error |\n|---|---|---|---:|---|---|\n${table}\n\nExact commands, exit codes, timestamps and log paths: [commands.json](commands.json). Complete per-assertion evidence and browser versions: [test-results.json](test-results.json). Security machine output: [security-audit.json](security-audit.json). Migration hashes and actual SQLite schema: [migrations.json](migrations.json). Local resource metrics: [performance.json](performance.json).\n\nPhysical iPhone/iPad Safari, physical Android, manual assistive technology and native browser 400% zoom remain NOT RUN production release gates. Automated 320px reflow is not native zoom evidence. The npm audit raw nonzero status is retained. The coordinated Agents/MCP upgrade removes the former OAuth-client advisory exception. All high/critical findings fail the security gate. Independent release review remains required. No merge/deployment performed. Quick mode cannot establish complete local certification.\n\n| Suite | Engine | Viewport | Assertion | Result |\n|---|---|---|---|---|\n${rows}\n`);
 }
 function record(id,commandResult,evidence={},extra={}) {
   const {output,...command}=commandResult;const warnings=(output??'').split('\n').filter(line=>/warning|exceed|will not move module/i.test(line)).slice(0,30);
@@ -124,6 +125,7 @@ try {
     for(const [id,script]of [['mcp-base','verify-mcp'],['mcp-multiuser','verify-mcp-multiuser'],...['1','2','3','4'].map(n=>['mcp-phase'+n,'verify-mcp-phase'+n]),...['4','6','7','8','9'].map(n=>['v'+n,'verify-v'+n])])await integration(id,'scripts/'+script+'.mjs',{});
     // Self-managed fixture: the suite starts its own disposable Worker per engine and enables Phase 5 permissions inside it only.
     await integration('phase5-sync','scripts/verify-phase5-sync.mjs',{selfFixture:true});
+    await integration('phase5-workflows','scripts/verify-phase5-workflows.mjs',{selfFixture:true});
   }
   if(mode==='extended')for(let i=1;i<=2;i++){const path=join(directory,`d1-stress-${i}.json`);await stage(`d1-stress-${i}`,['npm','test','--',...d1Files,'--reporter=default','--reporter=json',`--outputFile=${path}`],{adapter:()=>validateVitest(readJson(path),d1Files)});}
   await internal('performance-evidence',()=>{
@@ -134,15 +136,17 @@ try {
       cpSync(metricPath,join(directory,id+'-performance.json'));
       measurements.push({suite:id,...report});
     }
+    const phase5Measurements=['unit','d1'].map(id=>{const evidence=readJson(join(directory,id+'-artifacts/performance/phase5-capabilities-cost.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!=='ENABLED'||evidence.records!==1000||!Array.isArray(evidence.measurements)||evidence.measurements.length<4||evidence.measurements.some(v=>!Number.isFinite(v.metrics?.bindings)||v.metrics.bindings>45))throw new Error('Incomplete Phase 5 resource evidence: '+id);return {suite:id,...evidence};});
     const browserMeasurements=mode==='quick'?[]:['v8','v9'].flatMap(id=>{
       const report=readJson(join(directory,id,'results.json'));
       if(!Array.isArray(report.performance)||!report.performance.length)throw new Error(`Missing browser performance evidence: ${id}`);
       return report.performance.map(metric=>({suite:id,...metric}));
     });
-    json(join(directory,'performance.json'),{measurements,browserMeasurements,limitations:['Local Miniflare and Playwright measurements only; no Cloudflare regional latency or billing measured','Binding calls and SQL statements are separate counts; all() retains row metadata for first() observation']});
+    json(join(directory,'performance.json'),{measurements,phase5Measurements,browserMeasurements,limitations:['Local Miniflare and Playwright measurements only; no Cloudflare regional latency or billing measured','Binding calls and SQL statements are separate counts; all() retains row metadata for first() observation']});
     return {pass:measurements.reduce((count,r)=>count+r.metrics.length,0)+browserMeasurements.length,fail:0,notRun:0,allMandatoryAssertionsExecuted:true};
   });
   await internal('source-integrity',()=>{
+    if(mode!=='quick'&&(startingTreeDirty||execFileSync('git',['status','--porcelain'],{cwd,encoding:'utf8'}).trim()))throw new Error('Complete certification requires a clean committed working tree at start and finish');
     if(sha()!==startingSha||fingerprint(cwd)!==sourceFingerprint)throw new Error('Source changed during certification; rerun the complete matrix on final source');
     return {pass:1,fail:0,notRun:0,allMandatoryAssertionsExecuted:true};
   });

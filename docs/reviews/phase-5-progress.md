@@ -3,7 +3,7 @@
 > **Superseded in part.** The snapshot/generation workstreams recorded here were retired by migration 0018 and replaced by per-space feeds — see [phase-5-per-space-feeds.md](../architecture/phase-5-per-space-feeds.md). The ledger below is the history of the draft, not the current design.
 
 
-Status: **PARTIAL — implementation and certification in progress**.
+Status: **Completion candidate — final exact-HEAD certification required**.
 Baseline: `977475f0cac54bf05f0e5e513785c4933e0e9d73`.
 Branch: `grok/phase-5-search-permissions` in the original Desktop checkout.
 No merge, deployment or production resource changes.
@@ -18,6 +18,60 @@ The [per-space verification record](phase-5-per-space-verification.md) separates
 executed intermediate evidence from final committed-source certification and
 lists the remaining Phase 5 features. Permissions stay off by default.
 The older ledger below records historical work and counts.
+
+## Current completion candidate (2026-10-19)
+
+Branch `phase5/per-space-feeds`, starting at `fe2b35c1ad0378d32dff96916c1775d5385aa6fd`.
+The continuation implements canonical-content search and the authorized palette,
+notification delivery fences, guest invitations and space administration, contextual
+history/field restore, directory privacy, bounded downloaded-media caching and admin
+usage measurements. See the current contract and activation runbook in
+[phase-5-implementation.md](../architecture/phase-5-implementation.md#current-runtime-contract-2026-10-19).
+
+`npm run certify:phase5` invokes the existing Phase 4 orchestrator with all previous
+mandatory gates plus permission-enabled Phase 5 workflow journeys. It does not
+activate permissions outside disposable fixtures. Full mode requires a clean starting
+and ending tree and identical fingerprints. Its generated `summary.json`, `report.md`,
+`test-results.json`, raw audit and performance JSON are the authoritative final
+SHA/count evidence. Development runs below are historical and cannot certify this
+candidate. No remote push, merge, deployment or production activation is authorized.
+
+### Continuation findings and regression ledger
+
+| ID | Confirmed failure / cause | Correction and regression |
+|---|---|---|
+| P5-CONT-01 | Concurrent search workers could overwrite a newer index after the dirty token had been consumed. The old implementation returned `Earlier draft` instead of `Newest durable revision`. | Guard **every** document/FTS write and deletion by the claimed dirty token. Actual-D1 red/green logs: `.artifacts/phase5/search-index-race-{red,green}.log`; mandatory `phase5-search-coverage-d1` suite. |
+| P5-CONT-02 | Recipient-scoped notifications lacked current delivery authority. A raced revocation could otherwise consume the caller's receipt without delivering. | Current target/recipient graph and SQL fence precede the entire atomic batch, including the caller checkpoint. Actual-D1 deny/grant/revoke, disabled recipient, tombstone, duplicate and injected race tests; neutral historical copies and zero hidden unread counts. |
+| P5-CONT-03 | Timestamp-only notification cursors drop tied rows between pages. | Stable `(created_at,id)` ordering and recipient-bound cursor; five tied rows traverse exactly once; another identity's cursor is rejected. |
+| P5-CONT-04 | Space creation triggered access reconciliation and remounted settings with the default selection, losing the new invitation context. Reproduced in the real browser journey. | Selected space persisted in settings URL, async responses bound to selected space/account/epoch. Three-engine creation/invitation/redemption journeys. |
+| P5-CONT-06 | A deleted ancestor hid notification content but the badge/mark-read SQL still counted its live child. Red actual-D1 regression returned badge `1` instead of `0`. | Reuse canonical ancestry edges in content-free visibility SQL; both badge and read mutations deny deleted/inaccessible ancestry. Red/green logs: `.artifacts/phase5/notification-ancestor-{red,green}.log`. |
+| P5-CONT-05 | Guests could enumerate workspace identities and a People-containing space could expose the entire directory when granted. | Guest identity list is self-only. A sticky server-owned directory-space restriction participates in both pure and SQL kernels; grant/invitation denied, existing grant evicted through Protocol 3. Core access unchanged. Enabled D1 policy and manifest/search/read regressions. |
+
+Features are not relabelled as defects: search coverage, guest/space/history/usage UI
+are new completion work. Existing mock tests were adapted to the added atomic history
+statement; two date-dependent Phase 4 test fixtures were made explicit so the current
+calendar does not change their intended reminder scenario. Functional assertions remain.
+
+### Verification discipline and limitations
+
+Focused development checks include actual D1, client IndexedDB tests, real built-Worker
+browser journeys and the existing harness self-tests. Exact final counts must come from
+the clean committed-source certification artifact; no earlier dirty run is final evidence.
+The MCP history regression exercises registered tool handlers on actual D1, revision CAS,
+idempotent replay, journal undo and revoked access. Browser workflows additionally use
+normal authenticated tabs against the built Worker. Existing MCP transport suites remain
+mandatory; they are not replaced by the handler-level regression.
+
+Local FTS row reads still scale with matching doclists; sorted record queries retain the
+explicit 5,000-row ceiling. Offline palette search samples bounded cached rows and may
+be incomplete. No retained notification/history/quarantine data is permanently purged.
+Physical devices, human assistive technology and native 400% zoom remain external
+release gates. Permissions remain off pending independent acceptance and owner policy.
+
+## Historical foundation ledger
+
+The following sections describe earlier checkpoints, including retired Protocol 2 work.
+They are not current runtime instructions or current certification claims.
 
 ## Completed design and foundation work
 

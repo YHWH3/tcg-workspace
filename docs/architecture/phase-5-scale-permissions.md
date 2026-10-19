@@ -1,5 +1,7 @@
 # Phase 5 — Search, permissions, guests, history, scale
 
+> Historical proposal: the current implementation contract is [phase-5-implementation.md](phase-5-implementation.md#current-runtime-contract-2026-10-19), with Protocol 3 per-space feeds. Earlier global snapshot proposals below are not current runtime instructions. Permissions remain disabled pending acceptance.
+
 > **Status 2026-10-15 — proposal, partly superseded.** Implementation has begun
 > in draft PR #7 and was reviewed in [phase-5-design-review.md](phase-5-design-review.md).
 > Corrections to this proposal: (1) `notifications` are a server-only D1 table

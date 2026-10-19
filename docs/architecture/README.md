@@ -1,6 +1,6 @@
 # Workspace → TCG operating system: architecture
 
-> **Status 2026-10-15.** Phases 0–4 are merged on `main` and certified locally. Phase 5 is a draft foundation in PR #7 (not enabled); see [phase-5-design-review.md](phase-5-design-review.md). Phase 6 is a plan: [phase-6-implementation.md](phase-6-implementation.md). The cross-phase audit and its findings register are in [../reviews/cross-phase-audit.md](../reviews/cross-phase-audit.md).
+> **Status 2026-10-15.** Phases 0–4 are merged on `main` and certified locally. Phase 5 completion work is local on `phase5/per-space-feeds` (not enabled); see the [current implementation contract](phase-5-implementation.md#current-runtime-contract-2026-10-19) and [progress/evidence ledger](../reviews/phase-5-progress.md). PR #7/#9 represent earlier checkpoints. Phase 6 is a plan: [phase-6-implementation.md](phase-6-implementation.md). The cross-phase audit and its findings register are in [../reviews/cross-phase-audit.md](../reviews/cross-phase-audit.md).
 
 These documents are the build spec for evolving the existing Workspace app into the organisational operating layer for The Common Ground (TCG). They are written for an implementation model: follow them phase by phase, in order.
 
@@ -13,7 +13,7 @@ These documents are the build spec for evolving the existing Workspace app into 
 | [phase-2-visual.md](phase-2-visual.md) | Canvas v2 (task/page cards, frames, connectors, shapes, SVG, diagrams), calendar + timeline views, MCP canvas tools, optional in-chat app | Architecture + interfaces |
 | [phase-3-tcg-pack.md](phase-3-tcg-pack.md) | TCG databases/templates pack, dashboard blocks, field mode, project review | Architecture + interfaces |
 | [phase-4-rhythm.md](phase-4-rhythm.md) | Server event pipeline, notifications, reminders, recurrence, public forms, approvals, automations | Architecture + interfaces |
-| [phase-5-scale-permissions.md](phase-5-scale-permissions.md) | Server search, permissions/spaces + filtered sync, guests, seats, audit history | Architecture; **needs design review before build** |
+| [phase-5-scale-permissions.md](phase-5-scale-permissions.md) | Server search, permissions/spaces + filtered sync, guests, seats, audit history | Historical proposal; current implementation linked above |
 | [phase-5-per-space-feeds.md](phase-5-per-space-feeds.md) | Per-space reconciliation protocol v3 (replaces the generation + snapshot protocol): baseline evidence, security/concurrency review, specification, proof obligations | **Normative**; activation stays off |
 | [phase-6-ai.md](phase-6-ai.md) | AI-assisted workflows through MCP prompts, digests, semantic search | Architecture |
 
@@ -26,7 +26,7 @@ Also read the platform specification. Its Phase 0/1 additions are implementation
 ## 1. Decisions already made (by the owner)
 
 - Build order: **Phase 0 + Phase 1 first.**
-- People beyond the 7 accounts participate through **public forms and read-only share links** for now; guest accounts are Phase 5.
+- People beyond the 7 accounts participate through **public forms and read-only share links** for now; Phase 5 guest invitations use the existing seven-account cap and remain disabled until activation.
 - Large media lives in **Google Drive**; the app stores links + previews. The 20 MB / 450 MB D1 file store stays for photos, voice memos and small files.
 - Keep the product generic: TCG-specific structure is **configuration (templates/databases)**, never hardcoded modules.
 - Free infrastructure (Cloudflare Workers, D1, KV, Durable Objects, Workers AI).
@@ -46,7 +46,7 @@ Also read the platform specification. Its Phase 0/1 additions are implementation
 1. **Generic records first.** New entity kinds are new collections in the generic `records` table unless they need server-only secrecy, binary data, uniqueness constraints, or heavy querying — then a dedicated D1 table.
 2. **Merge-safe shapes.** Anything two people may change concurrently must not be one array/object field. Model it as separate records (like `files` by `parentId`, `links`, `views`) or as top-level scalar keys (like `p_<fieldId>`). Rarely-edited config arrays (`columns`, `fields`) may stay single fields but must only be changed server-side via compare-and-swap ops (Phase 0 §4.3) or client UI.
 3. **One write path per side.** Client: `mutate()`. Server: `applyChanges()` (+ change set recording, Phase 0). Never write `records` directly.
-4. **Soft delete everywhere.** `deleted: true`. Hard delete only via admin purge (Phase 5). Archive ≠ delete (Phase 3 adds `archived`).
+4. **Soft delete everywhere.** `deleted: true`. Permanent purge is disabled pending retention approval. Archive ≠ delete (Phase 3 adds `archived`).
 5. **Pure shared logic.** Anything both client and worker need (field coercion, filters, markdown, templates, link ids, cycle checks) lives in `shared/` as pure functions with unit tests in `tests/`.
 6. **Every server-side (non-client) write is attributable and undoable.** MCP, automations, forms → change sets (Phase 0).
 7. **Progressive disclosure UI.** New capability = contextual action or view option, not a new top-level screen, unless it is a primitive (Inbox, Search).
