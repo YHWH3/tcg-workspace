@@ -361,6 +361,10 @@ describe('Phase 5 additive migration and real D1 authority', () => {
     expect(await db.prepare('SELECT * FROM records').first()).toEqual({ ...record, space_id: 'space-core' });
     expect(await db.prepare("SELECT lease_id,lease_until FROM event_outbox WHERE id='event'").first()).toEqual({ lease_id: 'event-lease', lease_until: 1000 });
     expect(await db.prepare("SELECT state,receipt FROM form_submissions WHERE submission_id='submission'").first()).toEqual({ state: 'accepted', receipt: 'private-receipt' });
+    // The assertions above pin the original 0012 upgrade boundary. Current
+    // application code runs only after the full migration set has been applied.
+    await migrate(migrations.filter(name => name > foundation));
+    expect((await db.prepare('SELECT id,username,name,role,password_hash,salt,prefs,created_at FROM users ORDER BY id').all()).results).toEqual(before.results);
     for (let i = 0; i < 7; i++) {
       const ctx = await loadAccessContext(db, `user-${i}`, ['space-core']);
       expect(canEdit(spaceAccess(ctx, 'space-core'))).toBe(true);
