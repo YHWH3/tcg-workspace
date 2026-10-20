@@ -91,6 +91,7 @@ interface PlannedSideEffects {
   approvals: Record<string, unknown>[];
   /** Notification rows to write via notify(). */
   notifications: NewNotification[];
+  classifications?:{id:string;targetId:string;fieldKey:string;options:string[]}[];
 }
 
 /**
@@ -237,6 +238,9 @@ async function planActions(
           created_at: Date.now(),
         });
         break;
+      }
+      case 'ai_classify': {
+        (side.classifications??=[]).push({id:`suggest_${runId}_${i}`,targetId:rec.id,fieldKey:String(a.fieldKey),options:a.options??[]});break;
       }
       case 'add_subrecords': {
         const titles = a.titles ?? [];
@@ -635,6 +639,11 @@ export async function runOneAutomation(
         `INSERT OR IGNORE INTO approvals (id, target_type, target_id, stage_id, requested_by, approver_id, status, note, request_key, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(a.id, a.target_type, a.target_id, a.stage_id, a.requested_by, a.approver_id, a.status, a.note, a.request_key, a.created_at)]);
+    }
+    for(const task of plan.side.classifications??[]){
+      await env.DB.batch([executionFence(env.DB,'automation_runs',runId,lease)()]);
+      const {classifyForAutomation}=await import('./aiClassification');
+      await classifyForAutomation(env,auto.id,task.targetId,task.fieldKey,task.options,task.id);
     }
     for (const n of plan.side.notifications) {
       await env.DB.batch([executionFence(env.DB,'automation_runs',runId,lease)()]);

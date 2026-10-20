@@ -95,6 +95,7 @@ export async function undoChangeset(env: Env, user: AuthUser, changesetId: strin
     if(job.state==='pending') {
       // A crash before/after fencing is recoverable from the reserved job.
       await env.DB.batch([guard(),
+        env.DB.prepare("UPDATE ai_previews SET status='cancelled',lease_id=NULL,lease_until=NULL WHERE changeset_id=? AND status<>'completed'").bind(changesetId),
         env.DB.prepare("UPDATE mcp_write_jobs SET cancelled=1,lease_id=NULL,lease_until=NULL WHERE id=?").bind(changesetId),
         env.DB.prepare("UPDATE automation_runs SET status='terminal_failure',error='cancelled by undo',lease_id=NULL,lease_until=NULL,updated_at=? WHERE changeset_id=? AND status NOT IN ('completed','terminal_failure')").bind(Date.now(),changesetId),
         env.DB.prepare("UPDATE form_submissions SET state='rejected',error=?,receipt=NULL,lease_id=NULL,lease_until=NULL,updated_at=? WHERE changeset_id=? AND state NOT IN ('accepted','rejected')").bind(JSON.stringify({error:'cancelled_by_undo',retryable:false}),Date.now(),changesetId),

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth, type AuthUser, type Env } from './auth';
-import { hashPassword, verifyPassword } from './password';
+import {availableConnectorSpaces,reduceConnection} from './connectorAccess';
+import { hashPassword, verifyPassword, randomToken, sha256Hex } from './password';
 import { clearLoginFailures, clientAddress, loginRetryAfter, recordLoginFailure } from './ratelimit';
 
 const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
@@ -97,9 +98,16 @@ function consentBody(details: { clientName: string; redirectHost: string; redire
     ${errHtml}
     <div class="row">
       <button class="deny" name="decision" value="deny" type="submit" formnovalidate>Cancel</button>
-      <button class="allow" name="decision" value="allow" type="submit">Allow</button>
+      <button class="allow" name="decision" value="allow" type="submit">Choose spaces</button>
     </div>
   </form>`;
+}
+
+function scopeBody(details:{clientName:string},handle:string,selection:string,spaces:{id:string;name:string}[]):string {
+  return `<h1>Choose spaces for ${esc(details.clientName)}</h1><p class="sub">Only selected spaces will be available. Your current role still applies. Adding spaces later requires a new authorization.</p>
+  <form method="post"><input type="hidden" name="handle" value="${esc(handle)}"><input type="hidden" name="selection" value="${esc(selection)}">
+  <fieldset style="border:0;padding:0"><legend>Authorized spaces</legend>${spaces.map(s=>`<label style="display:flex;align-items:center;gap:8px"><input style="width:20px;height:20px" type="checkbox" name="spaces" value="${esc(s.id)}">${esc(s.name)}</label>`).join('')}</fieldset>
+  <div class="row"><button class="deny" name="decision" value="deny" type="submit">Cancel</button><button class="allow" name="decision" value="allow" type="submit">Authorize selected spaces</button></div></form>`;
 }
 
 const htmlRes = (html: string, status = 200, headers?: Headers) => {
@@ -131,38 +139,56 @@ export function registerAuthorize(app: Hono<{ Bindings: Env; Variables: { user: 
     const handle = String(form?.get('handle') ?? '');
     const decision = String(form?.get('decision') ?? '');
     try {
-      if (decision === 'deny' || !handle) {
+      if ((decision === 'deny'&&!form?.get('selection')) || !handle) {
         const denied = await c.env.OAUTH_PROVIDER.denyConsent(c.req.raw, handle);
         return new Response(null, { status: 302, headers: denied.headers });
       }
-      const username = String(form?.get('username') ?? '').trim();
-      const password = String(form?.get('password') ?? '');
-      // The consent form accepts the workspace password, so it is a login
-      // endpoint and shares the login throttle (same buckets as /api/auth).
-      const ip = clientAddress(c.req);
-      const wait = await loginRetryAfter(c.env, ip, username);
-      // Re-derive the client facts from the query (the form posts to the same
-      // URL) so an error re-render shows accurate, unspoofable details.
-      const authReq = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
-      const details = await c.env.OAUTH_PROVIDER.describeConsent(authReq);
-      if (wait > 0) {
-        return htmlRes(page(consentBody(details, handle, 'Too many failed attempts. Try again later.')), 429, new Headers({ 'Retry-After': String(wait) }));
+      const authReq=await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
+      const details=await c.env.OAUTH_PROVIDER.describeConsent(authReq);
+      const selection=String(form?.get('selection')??'');
+      if(!selection) {
+        const username=String(form?.get('username')??'').trim(),password=String(form?.get('password')??'');
+        const ip=clientAddress(c.req),wait=await loginRetryAfter(c.env,ip,username);
+        if(wait>0)return htmlRes(page(consentBody(details,handle,'Too many failed attempts. Try again later.')),429,new Headers({'Retry-After':String(wait)}));
+        const user=await c.env.DB.prepare('SELECT id,password_hash,salt FROM users WHERE username=? AND disabled_at IS NULL').bind(username).first<{id:string;password_hash:string;salt:string}>();
+        if(!user)await hashPassword(password,new Uint8Array(16));
+        if(!user||!await verifyPassword(password,user.salt,user.password_hash)) {
+          await recordLoginFailure(c.env,ip,username);
+          return htmlRes(page(consentBody(details,handle,'Incorrect username or password.')),401);
+        }
+        await clearLoginFailures(c.env,ip,username);
+        const approved=await c.env.OAUTH_PROVIDER.approveConsent(c.req.raw,handle);
+        const token=randomToken();
+        await c.env.DB.prepare('INSERT INTO ai_scope_consents(token_hash,user_id,handle,client_id,request_json,cookie_hash,expires_at) VALUES(?,?,?,?,?,?,?)')
+          .bind(await sha256Hex(token),user.id,handle,authReq.clientId,JSON.stringify(approved.request),await sha256Hex(c.req.header('Cookie')??''),Date.now()+300_000).run();
+        return htmlRes(page(scopeBody(details,handle,token,await availableConnectorSpaces(c.env,user.id))));
       }
-      const user = await c.env.DB.prepare('SELECT id, username, password_hash, salt, name FROM users WHERE username = ? AND disabled_at IS NULL').bind(username).first<{ id: string; name: string; password_hash: string; salt: string }>();
-      if (!user) await hashPassword(password, new Uint8Array(16));
-      const ok = user ? await verifyPassword(password, user.salt, user.password_hash) : false;
-      if (!ok || !user) {
-        await recordLoginFailure(c.env, ip, username);
-        return htmlRes(page(consentBody(details, handle, 'Incorrect username or password.')), 401);
+      const tokenHash=await sha256Hex(selection);
+      const pending=await c.env.DB.prepare('SELECT user_id,request_json FROM ai_scope_consents WHERE token_hash=? AND handle=? AND client_id=? AND cookie_hash=? AND expires_at>? AND consumed_at IS NULL')
+        .bind(tokenHash,handle,authReq.clientId,await sha256Hex(c.req.header('Cookie')??''),Date.now()).first<{user_id:string;request_json:string}>();
+      if(!pending)throw new Error('selection expired');
+      if(decision==='deny'){
+        const used=await c.env.DB.prepare('UPDATE ai_scope_consents SET consumed_at=? WHERE token_hash=? AND consumed_at IS NULL').bind(Date.now(),tokenHash).run();if(!used.meta.changes)throw new Error('selection consumed');
+        const request=JSON.parse(pending.request_json),redirect=new URL(request.redirectUri);redirect.searchParams.set('error','access_denied');if(typeof request.state==='string')redirect.searchParams.set('state',request.state);
+        return new Response(null,{status:302,headers:{Location:redirect.href}});
       }
-      await clearLoginFailures(c.env, ip, username);
-      const approved = await c.env.OAUTH_PROVIDER.approveConsent(c.req.raw, handle);
-      const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
-        request: approved.request,
-        userId: user.id,
-        metadata: {},
-        scope: approved.request.scope,
-        props: { userId: user.id, clientName: details.clientName },
+      if(decision!=='allow')throw new Error('invalid decision');
+      const spaces=[...new Set((form?.getAll('spaces')??[]).map(String))];
+      const available=new Set((await availableConnectorSpaces(c.env,pending.user_id)).map(s=>s.id));
+      if(spaces.some(id=>!available.has(id)))throw new Error('space access changed');
+      const approved={request:JSON.parse(pending.request_json),headers:new Headers()};
+      const id=crypto.randomUUID(),now=Date.now();
+      // One-use selection and connection creation share a transaction. A concurrent
+      // replay cannot create another connection, even if the OAuth callback fails.
+      await c.env.DB.batch([
+        c.env.DB.prepare("SELECT CASE WHEN EXISTS(SELECT 1 FROM ai_scope_consents WHERE token_hash=? AND consumed_at IS NULL AND expires_at>?) THEN 1 ELSE json_extract('{','$') END").bind(tokenHash,now),
+        c.env.DB.prepare('UPDATE ai_scope_consents SET consumed_at=? WHERE token_hash=?').bind(now,tokenHash),
+        c.env.DB.prepare('INSERT INTO ai_connections(id,user_id,client_id,spaces_json,created_at,expires_at) VALUES(?,?,?,?,?,?)')
+          .bind(id,pending.user_id,authReq.clientId,JSON.stringify(spaces),now,now+365*86_400_000),
+      ]);
+      const {redirectTo}=await c.env.OAUTH_PROVIDER.completeAuthorization({
+        request:approved.request,userId:pending.user_id,metadata:{connectionId:id},scope:approved.request.scope,
+        props:{userId:pending.user_id,clientName:details.clientName,connectionId:id},
       });
       approved.headers.set('Location', redirectTo);
       return new Response(null, { status: 302, headers: approved.headers });
@@ -179,7 +205,7 @@ oauthGrants.use('*', requireAuth);
 
 oauthGrants.get('/grants', async (c) => {
   const user = c.get('user');
-  const out = await c.env.OAUTH_PROVIDER.listUserGrants(user.id, { limit: 100 });
+  const out = await c.env.OAUTH_PROVIDER.listUserGrants(user.id, { limit: 100,...(c.req.query('cursor')?{cursor:c.req.query('cursor')}: {}) });
   const items = await Promise.all(
     out.items.map(async (g) => {
       const client = await c.env.OAUTH_PROVIDER.lookupClient(g.clientId).catch(() => null);
@@ -188,16 +214,29 @@ oauthGrants.get('/grants', async (c) => {
         clientId: g.clientId,
         clientName: client?.clientName ?? g.clientId,
         scope: g.scope,
+        connectionId: typeof g.metadata?.connectionId==='string'?g.metadata.connectionId:null,
         createdAt: g.createdAt,
         expiresAt: g.expiresAt ?? null,
       };
     }),
   );
-  return c.json({ grants: items });
+  const connections=(await c.env.DB.prepare('SELECT id,spaces_json,version,revoked_at FROM ai_connections WHERE user_id=? AND id IN(SELECT value FROM json_each(?))').bind(user.id,JSON.stringify(items.map(g=>g.connectionId).filter(Boolean))).all<{id:string;spaces_json:string;version:number;revoked_at:number|null}>()).results;
+  return c.json({nextCursor:out.cursor??null, grants: items.map(g=>({...g,connection:connections.find(x=>x.id===g.connectionId)??null})), spaces:await availableConnectorSpaces(c.env,user.id) });
 });
 
 oauthGrants.delete('/grants/:id', async (c) => {
   const user = c.get('user');
+  const grants=await c.env.OAUTH_PROVIDER.listUserGrants(user.id,{limit:100});
+  const grant=grants.items.find(g=>g.id===c.req.param('id'));
+  const connectionId=grant?.metadata?.connectionId??c.req.query('connection');
+  if(!grant&&!connectionId)return c.json({error:'grant_not_in_current_page_use_connection_reference'},409);
+  if(connectionId)await c.env.DB.prepare('UPDATE ai_connections SET revoked_at=?,version=version+1 WHERE id=? AND user_id=?').bind(Date.now(),connectionId,user.id).run();
   await c.env.OAUTH_PROVIDER.revokeGrant(c.req.param('id'), user.id);
   return c.json({ ok: true });
+});
+
+oauthGrants.patch('/connections/:id',async c=>{
+  const body=await c.req.json().catch(()=>null);
+  if(!body||!await reduceConnection(c.env,c.get('user').id,c.req.param('id'),body.spaces,body.expectedVersion))return c.json({error:'scope_increase_requires_reauthorization_or_version_changed'},409);
+  return c.json({ok:true});
 });

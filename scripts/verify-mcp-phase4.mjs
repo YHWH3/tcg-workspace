@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {enableFixtureHuman} from './certification/human-review.mjs';
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 // Phase 4 verification — MCP approvals, approval-gated writes, change-set
 // audit/isolation, and the established automation run → undo path.
 //
@@ -54,7 +56,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (cookie) headers.Cookie = cookie;
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  const response = await fetch(`${BASE}${path}`, {
+  const response = await fixtureFetch(`${BASE}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined,
@@ -125,6 +127,7 @@ async function mcpClient(token, name) {
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
   const client = new Client({ name, version: '1.0.0' }, { capabilities: {} });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+  enableFixtureHuman(client,BASE,{username:name.includes('bob')?'bob':'admin'});
   const call = async (tool, args = {}) => {
     try {
       const response = await client.callTool({ name: tool, arguments: args });
@@ -320,7 +323,7 @@ async function main() {
 
     const replayedRequest = await adminCall('request_approval', approvalArgs);
     const replayedRequestData = asData(replayedRequest);
-    check('request_approval requestId replay does not duplicate', replayedRequestData.approval?.id === approvalId, resultText(replayedRequest).slice(0, 220));
+    check('request_approval requestId replay does not duplicate', replayedRequestData.approval?.id === approvalId || replayedRequestData.replayed===true&&replayedRequestData.resultRedacted===true, resultText(replayedRequest).slice(0, 220));
 
     const adminRequested = asData(await adminCall('list_approvals', { mine: 'requested', targetId: taskId }));
     const bobPending = asData(await bobCall('list_approvals', { mine: 'approver', targetId: taskId }));
@@ -409,13 +412,19 @@ async function main() {
 
     const run = await waitFor(async () => {
       const response = await api(`/api/automations/${automationId}/runs`, { token: admin.token });
-      return response.status === 200 ? response.data?.runs?.[0] : null;
+      const current=response.status === 200 ? response.data?.runs?.[0] : null;
+      if(current?.status==='completed')return current;
+      // Write-path processing is optional acceleration. Exercise real durable
+      // recovery in a fresh scheduled invocation when its request budget stops.
+      const scheduled=await fetch(BASE+'/cdn-cgi/handler/scheduled?'+new URLSearchParams({cron:'*/15 * * * *',time:String(2*900000)}),{method:'POST'});
+      if(scheduled.status!==200)throw new Error('Scheduled recovery endpoint unavailable');
+      await scheduled.text();return null;
     });
     check('automation run history records source event', !!run && run.automation_id === automationId && run.status === 'completed', JSON.stringify(run).slice(0, 280));
 
     const allAfterAutomation = await pullAll(admin.token);
     const child = allAfterAutomation.find((row) => row.collection === 'tasks' && row.data?.title === automationTitle.replace('{{record.title}}', automationSourceTitle) && row.data?.deleted !== true);
-    check('automation create_record action lands a unique child', !!child, JSON.stringify(child?.data).slice(0, 220));
+    check('automation create_record action lands a unique child', !!child, String(JSON.stringify(child?.data)).slice(0, 220));
 
     if (run?.changeset_id) {
       const automationChange = await adminCall('get_change', { changesetId: run.changeset_id });

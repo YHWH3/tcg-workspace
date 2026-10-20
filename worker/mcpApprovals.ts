@@ -5,6 +5,7 @@
 // path to mint or decide one — a gated stage write without an approved
 // decision is rejected `approval_required` inside applyChanges itself.
 
+import {connectorRecordFence} from './connectorAccess';
 import { createReadGate } from './readAccess';
 import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
@@ -100,6 +101,7 @@ export function registerApprovalTools(server: McpServer, reg: Reg, ctx: Approval
       annotations: { idempotentHint: true },
     },
     async (a) => {
+      const authority=await connectorRecordFence(ctx.env,ctx.userId,[a.targetId]);
       const resolved = await resolveUserId(db, a.approverId);
       if ('error' in resolved) return err(resolved.error);
       let stageId = a.stageId;
@@ -130,7 +132,7 @@ export function registerApprovalTools(server: McpServer, reg: Reg, ctx: Approval
         requestedBy: ctx.userId,
         approverId: v.approverId,
         note: v.note,
-        requestKey,
+        requestKey,guard:authority??undefined,
       });
       {
         await notify(ctx.env, {
@@ -163,7 +165,7 @@ export function registerApprovalTools(server: McpServer, reg: Reg, ctx: Approval
     },
     async (a) => {
       const rows = await listApprovals(db, { userId: ctx.userId, mine: a.mine, targetId: a.targetId, status: a.status });
-      const readable = await readableTargets(db, ctx.userId, rows);
+      const readable = await readableTargets(db, ctx.userId, rows,ctx.env.READ_GATE);
       const metas = new Map<string, { title: string; url: string } | null>();
       for (const r of rows) {
         const k = `${r.target_type}:${r.target_id}`;
@@ -196,18 +198,21 @@ export function registerApprovalTools(server: McpServer, reg: Reg, ctx: Approval
       annotations: { idempotentHint: true },
     },
     async (a) => {
+      const target=await db.prepare('SELECT target_id FROM approvals WHERE id=?').bind(a.approvalId).first<{target_id:string}>();
+      if(!target)return err('approval not found');
+      const authority=await connectorRecordFence(ctx.env,ctx.userId,[target.target_id]);
       const out = await decideApproval(db, {
         approvalId: a.approvalId,
         approverId: ctx.userId,
         decision: a.decision,
         note: a.note,
-        expectedRev: a.expectedRev,
+        expectedRev: a.expectedRev,guard:authority??undefined,
       });
       if (out.outcome === 'not_found') return err('approval not found');
       if (out.outcome === 'not_approver') return err('not your approval to decide');
       if (out.outcome === 'stale_rev') return txt({ error: 'conflict', conflicts: [{ type: 'stale_rev', id: a.approvalId, current: await decorate(out.row!) }] });
       if (out.outcome === 'already_decided') return txt({ error: 'already_decided', approval: await decorate(out.row!) });
-      const visible = await createReadGate(db, ctx.userId).canRead(out.row!.target_id);
+      const visible = await (ctx.env.READ_GATE??createReadGate(db, ctx.userId)).canRead(out.row!.target_id);
       const meta = visible ? await loadTargetMeta(db, out.row!.target_type, out.row!.target_id) : null;
       {
         await notify(ctx.env, {

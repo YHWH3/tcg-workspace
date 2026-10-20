@@ -1,6 +1,6 @@
 import {Hono} from 'hono';
 import {requireAuth,type AuthUser,type Env} from './auth';
-import {createReadGate,editableBy} from './readAccess';
+import {createReadGate,editableBy,type ReadGate} from './readAccess';
 import {levelSql} from './capability';
 import {applyChanges} from './sync';
 import {beginChangeset} from './changesets';
@@ -11,11 +11,13 @@ export const historyApi=new Hono<{Bindings:Env;Variables:{user:AuthUser}}>();his
 const visible=()=>`((SELECT enabled FROM access_state WHERE id=1)=0 OR (${levelSql('viewer.id','h.space_id')}>=1 AND (h.peer_space_id IS NULL OR ${levelSql('viewer.id','h.peer_space_id')}>=1)))`;
 async function allowed(db:D1Database,uid:string,id:string){const d=await createReadGate(db,uid).decide([id]);return !d.enabled||d.readable.has(id);}
 export class HistoryError extends Error {constructor(public code:string,public status:400|404|409){super(code);}}
-export async function loadHistoryPage(db:D1Database,uid:string,id:string,before=Number.MAX_SAFE_INTEGER,limit=20){
+export async function loadHistoryPage(db:D1Database,uid:string,id:string,before=Number.MAX_SAFE_INTEGER,limit=20,gate?:ReadGate,connector?:Env['CONNECTOR']){
  if(!Number.isSafeInteger(before)||before<1||!Number.isSafeInteger(limit)||limit<1||limit>50)throw new HistoryError('invalid_cursor',400);
- if(!await allowed(db,uid,id))throw new HistoryError('not_found',404);
- const {results}=await db.prepare(`SELECT h.*,(SELECT name FROM users WHERE id=h.actor_id) actor_name FROM record_history h CROSS JOIN (SELECT ? AS id) viewer WHERE h.record_id=? AND h.revision<? AND ${visible()} ORDER BY revision DESC LIMIT ?`).bind(uid,id,before,limit+1).all<{revision:number;before_json:string;after_json:string;omitted_json:string}>();
- const current=await db.prepare('SELECT seq FROM records WHERE id=?').bind(id).first<{seq:number}>();if(!current||!await allowed(db,uid,id))throw new HistoryError('not_found',404);
+ if(!await (gate?gate.canRead(id):allowed(db,uid,id)))throw new HistoryError('not_found',404);
+ const connectorFilter=connector?` AND h.space_id IN(SELECT value FROM ai_connections g,json_each(g.spaces_json) WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>?) AND (h.peer_space_id IS NULL OR h.peer_space_id IN(SELECT value FROM ai_connections g,json_each(g.spaces_json) WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>?))`:'';
+ const connectorBind=connector?[connector.id,uid,Date.now(),connector.id,uid,Date.now()]:[];
+ const {results}=await db.prepare(`SELECT h.*,(SELECT name FROM users WHERE id=h.actor_id) actor_name FROM record_history h CROSS JOIN (SELECT ? AS id) viewer WHERE h.record_id=? AND h.revision<? AND ${visible()}${connectorFilter} ORDER BY revision DESC LIMIT ?`).bind(uid,id,before,...connectorBind,limit+1).all<{revision:number;before_json:string;after_json:string;omitted_json:string}>();
+ const current=await db.prepare('SELECT seq FROM records WHERE id=?').bind(id).first<{seq:number}>();if(!current||!await (gate?gate.canRead(id):allowed(db,uid,id)))throw new HistoryError('not_found',404);
  return {revision:current.seq,entries:results.slice(0,limit).map(r=>({...r,before:JSON.parse(r.before_json),after:JSON.parse(r.after_json),omitted:JSON.parse(r.omitted_json),before_json:undefined,after_json:undefined,omitted_json:undefined})),nextBefore:results.length>limit?results[limit-1].revision:null};
 }
 export async function historicalPatch(db:D1Database,uid:string,id:string,revision:number,fields:string[],side:'before'|'after'){

@@ -346,9 +346,9 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   incoming=incoming.map(ch=>({...ch,patch:{...ch.patch}}));
 
   let authority: WriteAuthority | undefined;
-  if (snapshot.enabled === 1) {
+  if (snapshot.enabled === 1 || env.CONNECTOR) {
     try {
-      const authorization = await authorizeMutations(db, userId, incoming, existing, opts.expect, opts.session?.tokenHash);
+      const authorization = await authorizeMutations(db, userId, incoming, existing, opts.expect, opts.session?.tokenHash, env.CONNECTOR);
       authority = authorization.authority;
       for (const item of authorization.rejected) reject(item.id, item.collection, item.reason);
       incoming = authorization.changes;
@@ -431,6 +431,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     if (conflicts.length) {
       // Non-atomic: drop the failed ids, write the rest.
       for (const c of conflicts) plans.delete(c.id);
+      if(env.MCP_PLAN) return {rejected:rejected+conflicts.length,rejectedItems,conflicts,changed:0,applied:[]};
       const result = await flushPlans(env, userId, plans, expected, now, opts, authority);
       result.rejected += rejected + conflicts.length;
       if (rejectedItems.length) result.rejectedItems = [...rejectedItems, ...(result.rejectedItems ?? [])];
@@ -439,6 +440,13 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     }
   }
 
+  if(env.MCP_PLAN){
+    if(rejected) return {rejected,rejectedItems,changed:0,applied:[]};
+    const applied=[...plans.values()].filter(p=>p.changed).map(p=>makeApplied(p,p.baseSeq+1));
+    for(const ch of incoming)if(!env.MCP_PLAN.expected.has(ch.id))env.MCP_PLAN.expected.set(ch.id,existing.get(ch.id)?.seq??-1);
+    env.MCP_PLAN.ops.push(...incoming.filter(ch=>isCollection(ch.collection)).map(ch=>({id:ch.id,collection:ch.collection as import('../shared/collections').Collection,patch:{...ch.patch}})));
+    return {rejected:0,changed:applied.length,applied};
+  }
   const result = await flushPlans(env, userId, plans, expected, now, opts, authority);
   result.rejected += rejected;
   if (rejectedItems.length) result.rejectedItems = [...rejectedItems, ...(result.rejectedItems ?? [])];

@@ -1,3 +1,4 @@
+import {approvedRemoteUrl} from './remotePolicy';
 import type { Env } from './auth';
 import { MAX_FILE_SIZE, QUOTA_BYTES, fileChunkSlices } from './files';
 import { uuid } from '../shared/order';
@@ -30,17 +31,14 @@ async function usageBytes(db: D1Database): Promise<number> {
 export async function importFileFromUrl(
   env: Env,
   url: string,
-  opts: { parentType: 'task' | 'block' | 'mooditem'; parentId: string; userId: string; name?: string },
+  opts: { parentType: 'task' | 'block' | 'mooditem'; parentId: string; userId: string; name?: string; humanApproved?:boolean },
 ): Promise<{ fileId: string; mime: string; size: number }> {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    throw new RemoteFileError(400, 'invalid url');
-  }
-  if (u.protocol !== 'https:') throw new RemoteFileError(400, 'only https urls are supported');
-
-  const res = await fetch(u.toString(), { redirect: 'follow' });
+  let u:URL;
+  try {u=approvedRemoteUrl(url,(env.REMOTE_IMPORT_HOSTS??'').split(',').map(h=>h.trim()).filter(Boolean),opts.humanApproved===true);}
+  catch(error){throw new RemoteFileError(403,error instanceof Error?error.message:'remote_import_not_authorized');}
+  if(env.MCP_PLAN)throw new RemoteFileError(403,'remote_import_requires_separate_human_review');
+  const res=await fetch(u,{redirect:'manual',signal:AbortSignal.timeout(15000)});
+  if(res.status>=300&&res.status<400){await res.body?.cancel();throw new RemoteFileError(403,'remote_redirect_not_allowed');}
   if (!res.ok || !res.body) throw new RemoteFileError(502, `fetch failed (${res.status})`);
   if (new URL(res.url || url).protocol !== 'https:') throw new RemoteFileError(400, 'redirected to non-https url');
   const mime = (res.headers.get('content-type') ?? 'application/octet-stream').split(';')[0].trim().toLowerCase();
@@ -113,6 +111,6 @@ export async function importFileFromUrl(
       ts: Date.now(),
     },
   ]);
-  if (r.conflict) throw new RemoteFileError(500, 'record write conflict');
+  if (r.conflict||r.rejected||r.partialError){await env.DB.batch([env.DB.prepare('DELETE FROM file_chunks WHERE file_id=?').bind(fileId),env.DB.prepare('DELETE FROM files WHERE id=?').bind(fileId)]);throw new RemoteFileError(409,'attachment authorization or state changed');}
   return { fileId, mime, size: bytes.length };
 }

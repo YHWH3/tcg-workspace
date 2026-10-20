@@ -106,5 +106,21 @@
   {
     "name": "0027_phase5_notification_paging.sql",
     "sha256": "cd5e20382dec6c034f2fb5eb57394ff1181818751df5bcee27f01e2c134c3932"
+  },
+  {
+    "name": "0028_phase6_connector_scopes.sql",
+    "sha256": "eee501f6cc16f6545a966959d46d342fe3d9ca8db901ff478f6a385cf89e232e"
+  },
+  {
+    "name": "0029_phase6_human_previews.sql",
+    "sha256": "ab758bc99b7199782b104c398bf72e039d170f31765fffa09bb3a641ddc5a8ed"
+  },
+  {
+    "name": "0030_phase6_optional_ai.sql",
+    "sha256": "eb0b47a283a3ad95a6d15b93907d1c162349371dbbc9f3897427446ceb895a2e"
+  },
+  {
+    "name": "0031_phase6_digest_outcome.sql",
+    "sha256": "a6eed938b184557cc1efe4bcc439f618f5f710eb08246d16fa79c6f42107c2ac"
   }
 ]

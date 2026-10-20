@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 // Real OAuth/Streamable HTTP with permissions enabled in a disposable Worker only.
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -14,7 +15,7 @@ process.env.CERT_SOURCE_SHA??=execFileSync('git',['rev-parse','HEAD'],{encoding:
 report.setMetadata('permissionMode','ENABLED');report.setMetadata('sourceFingerprint',fingerprint(process.cwd()));
 let fixture,client,admin,bob,oauthToken,read,written,history,restored;
 const check=async(name,fn)=>{const start=performance.now();try{await fn();report.record('HTTP/MCP','none',name,'PASS',null,{durationMs:Math.round(performance.now()-start)});console.log('PASS '+name);}catch(e){report.record('HTTP/MCP','none',name,'FAIL',e);throw e;}};
-const api=async(path,{method='GET',body,form,token,cookie}={})=>{const r=await fetch(fixture.base+path,{method,redirect:'manual',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(cookie?{Cookie:cookie}:{}),...(body?{'Content-Type':'application/json'}:form?{'Content-Type':'application/x-www-form-urlencoded'}:{})},body:body?JSON.stringify(body):form?new URLSearchParams(form):undefined});const text=await r.text();let data;try{data=JSON.parse(text);}catch{}return{status:r.status,data,text,headers:r.headers};};
+const api=async(path,{method='GET',body,form,token,cookie}={})=>{const r=await fixtureFetch(fixture.base+path,{method,redirect:'manual',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(cookie?{Cookie:cookie}:{}),...(body?{'Content-Type':'application/json'}:form?{'Content-Type':'application/x-www-form-urlencoded'}:{})},body:body?JSON.stringify(body):form?new URLSearchParams(form):undefined});const text=await r.text();let data;try{data=JSON.parse(text);}catch{}return{status:r.status,data,text,headers:r.headers};};
 const membership=async role=>{const r=await api('/api/spaces/space-core/members',{method:'POST',token:admin.token,body:{targetUserId:bob.user.id,membership:{role:role??'viewer',access:role?'allow':'deny'},requestId:crypto.randomUUID()}});assert.equal(r.status,200);};
 const call=async(name,args)=>{const r=await client.callTool({name,arguments:args});const text=r.content?.[0]?.text??'';return{isError:!!r.isError,text,data:JSON.parse(text)};};
 try{

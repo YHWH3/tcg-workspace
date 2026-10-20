@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {enableFixtureHuman} from './certification/human-review.mjs';
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 // Phase 0 verification: two OAuth users (admin=A, bob=B) against one wrangler
 // dev isolate. Covers docs/architecture/phase-0-safe-ai-editing.md §12.
 // Requires `wrangler dev --port 8788` on the built app + smoke.sh users seeded.
@@ -34,7 +36,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (cookie) headers.Cookie = cookie;
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  const res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
+  const res = await fixtureFetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
   if (raw) return res;
   const text = await res.text();
   let data = null;
@@ -71,6 +73,7 @@ async function grantFor(clientId, username) {
 async function mcpClient(token, name) {
   const client = new Client({ name, version: '1.0.0' }, { capabilities: {} });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+  enableFixtureHuman(client,BASE,{username:name==='verify-B'?USER_B:USER_A,password:PASS});
   const call = async (tool, args) => {
     const r = await client.callTool({ name: tool, arguments: args });
     const text = r.content?.[0]?.text ?? '';
@@ -314,7 +317,9 @@ check('B add_stage (casUpdate path) ok', !stageAdd.isError && !!stageAdd.data.ch
 // The board row's updated_by must be B's user id — surfaced via a stale-rev
 // conflict's changedBy (and not the literal string 'mcp').
 const staleRename = await A.call('update_board', { boardId: c2dbId, name: 'A rename', expectedRev: boardRev0 });
-const changedBy = staleRename.text.includes('conflicts') ? (JSON.parse(staleRename.text).conflicts?.[0]?.changedBy ?? null) : null;
+// Actor identity is verified through authorized history; conflict metadata may be redacted.
+const attributionHistory=await A.call('get_record_history',{id:c2dbId,limit:1});
+const changedBy=attributionHistory.data.entries?.[0]?.actor_id??null;
 check('stale board write → conflict', staleRename.isError && /conflict/.test(staleRename.text), staleRename.text.slice(0, 200));
 check('updated_by attributes to B (not "mcp")', changedBy === idB, `changedBy=${changedBy} want ${idB}`);
 

@@ -43,7 +43,7 @@ const plain = (text: unknown) => String(text ?? '').replace(/@\[(?:page|user|rec
 function linkMetadata(value:unknown):string {try {const u=new URL(String(value));return u.protocol==='https:'?plain(u.hostname+' '+u.pathname):'';}catch{return '';}}
 
 /** Current documents for `ids` (absent: missing, deleted, or not a document). One binding call. */
-async function loadDocs(db: D1Database, ids: string[]): Promise<Map<string, Doc>> {
+export async function loadDocs(db: D1Database, ids: string[]): Promise<Map<string, Doc>> {
   const out = new Map<string, Doc>();
   if (!ids.length) return out;
   const json = JSON.stringify(ids);
@@ -170,14 +170,14 @@ function decode(cursor: string): Record<string, unknown> {
 
 /** The search service shared by MCP `search` and `GET /api/search`. `env` must carry the
  * caller's read gate (or `gate` is created for `userId`). */
-export async function searchRecords(env: Pick<Env, 'DB' | 'READ_GATE'>, userId: string, query: SearchQuery): Promise<SearchResult> {
-  const db = env.DB, gate: ReadGate = env.READ_GATE ?? createReadGate(db, userId);
+export async function searchRecords(env: Pick<Env, 'DB' | 'READ_GATE' | 'CONNECTOR'>, userId: string, query: SearchQuery): Promise<SearchResult> {
+  const db = env.DB, gate: ReadGate = env.READ_GATE ?? createReadGate(db, userId, env.CONNECTOR);
   const tokens = searchTokens(query.q);
   const limit = Math.max(1, Math.min(Math.floor(query.limit ?? 20), SEARCH_MAX_LIMIT));
   if (!tokens.length) return { results: [], nextCursor: null, hasMore: false, indexPending: false };
   const collection = query.type ? TYPE_COLLECTION[query.type] : null;
   if (query.type && !collection) throw new SearchError('invalid_query');
-  const fingerprint = await sha(JSON.stringify([userId, tokens, collection, query.databaseId ?? null, query.spaceId ?? null]));
+  const fingerprint = await sha(JSON.stringify([userId, env.CONNECTOR?.id ?? null, tokens, collection, query.databaseId ?? null, query.spaceId ?? null]));
   let after: Key | null = null;
   if (query.cursor) {
     const c = decode(query.cursor);
@@ -185,8 +185,8 @@ export async function searchRecords(env: Pick<Env, 'DB' | 'READ_GATE'>, userId: 
     after = { s: c.s, r: c.r, id: c.id };
   }
   const scoped = await gate.enabled();
-  const spaceFilter = (col: string) => (scoped ? ` AND ${col} IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1)` : '');
-  const spaceBind = scoped ? [userId] : [];
+  const spaceFilter = (col: string) => (scoped ? ` AND ${col} IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1${env.CONNECTOR ? ' AND s.id IN(SELECT value FROM ai_connections g,json_each(g.spaces_json) WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>?)' : ''})` : '');
+  const spaceBind = scoped ? [userId,...(env.CONNECTOR ? [env.CONNECTOR.id,userId,Date.now()] : [])] : [];
   const match = ftsExpr(tokens), titleMatch = `{title} : (${match})`;
   const docFilter = `${collection ? ' AND d.collection = ?' : ''}${query.databaseId ? ' AND d.database_id = ?' : ''}${query.spaceId ? ' AND d.space_id = ?' : ''}`;
   const docBind = [...(collection ? [collection] : []), ...(query.databaseId ? [query.databaseId] : []), ...(query.spaceId ? [query.spaceId] : [])];

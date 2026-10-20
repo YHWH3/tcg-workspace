@@ -569,19 +569,25 @@ interface GrantRow {
   scope: string[];
   createdAt: number;
   expiresAt: number | null;
+  connectionId?:string|null;
+  connection?:{id:string;spaces_json:string;version:number;revoked_at:number|null}|null;
 }
 
 function AIConnectorsSection() {
   const [grants, setGrants] = useState<GrantRow[]>([]);
   const [copied, setCopied] = useState(false);
+  const [spaces,setSpaces]=useState<{id:string;name:string}[]>([]);
+  const [reducingConnection,setReducingConnection]=useState('');
+  const [nextGrantCursor,setNextGrantCursor]=useState<string|null>(null);
+  const [connectionError,setConnectionError]=useState('');
   const mcpUrl = `${location.origin}/mcp`;
 
   const load = useCallback(async () => {
     try {
-      const r = await api<{ grants: GrantRow[] }>('/api/oauth/grants');
-      setGrants(r.grants);
+      const r = await api<{nextCursor:string|null; grants: GrantRow[];spaces:{id:string;name:string}[] }>('/api/oauth/grants');
+      setGrants(r.grants);setNextGrantCursor(r.nextCursor);setSpaces(r.spaces??[]);setConnectionError('');
     } catch {
-      /* endpoint unreachable (older build) — show section anyway */
+      setConnectionError('Connections could not be loaded. Connect to the server and retry.');
     }
   }, []);
   useEffect(() => {
@@ -599,12 +605,13 @@ function AIConnectorsSection() {
   };
 
   const revoke = async (id: string) => {
-    await api(`/api/oauth/grants/${id}`, { method: 'DELETE' });
+    await api(`/api/oauth/grants/${id}${grants.find(g=>g.id===id)?.connectionId?'?connection='+encodeURIComponent(grants.find(g=>g.id===id)!.connectionId!):''}`, { method: 'DELETE' });
     setGrants((g) => g.filter((x) => x.id !== id));
   };
 
   return (
     <Section title="AI connectors">
+      <a href="/ai" className="mb-3 inline-block min-h-10 text-sm underline">Workflows and pending operation reviews</a>
       <p className="mb-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
         Connect Claude, ChatGPT or Gemini to read and build in this workspace. Paste the MCP URL when the app asks for a
         connector endpoint — sign-in uses your workspace account.
@@ -616,24 +623,28 @@ function AIConnectorsSection() {
         </Button>
       </div>
       <details className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-        <summary className="cursor-pointer font-medium text-neutral-700 dark:text-neutral-300">Setup steps per app</summary>
-        <ul className="mt-2 space-y-1.5 pl-4 leading-5">
-          <li><b>Claude</b>: Settings → Connectors → Add custom connector → paste the URL.</li>
-          <li><b>ChatGPT</b>: Settings → Apps & Connectors → Advanced → Developer mode → Create. Write tools need Business/Enterprise/Edu; Plus/Pro get read-only search.</li>
-          <li><b>Gemini</b>: gemini.google.com → Settings → Connected Apps → Add a custom app (US personal accounts, English).</li>
-        </ul>
+        <summary className="cursor-pointer font-medium text-neutral-700 dark:text-neutral-300">Connect your AI client</summary>
+        <p className="mt-2 leading-5">Use your client’s custom MCP connector settings with this HTTPS endpoint. Client and account support varies. Sign in here, select the spaces to share, and authorize. Workflows also provide copyable instructions and normal workspace links.</p>
       </details>
+      {connectionError&&<div role="alert" className="mb-3 text-sm"><p>{connectionError}</p><Button variant="secondary" size="sm" onClick={()=>void load()}>Retry</Button></div>}
+      {nextGrantCursor&&<Button onClick={()=>void api<{grants:GrantRow[];nextCursor:string|null}>(`/api/oauth/grants?cursor=${encodeURIComponent(nextGrantCursor)}`).then(r=>{setGrants(g=>[...g,...r.grants.filter(x=>!g.some(v=>v.id===x.id))]);setNextGrantCursor(r.nextCursor);}).catch(()=>setConnectionError('More connections could not be loaded. Retry.'))}>Load more connections</Button>}
       {grants.length > 0 && (
         <div>
           <p className="mb-2 text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">Connected apps</p>
           <ul className="divide-y divide-neutral-100 rounded-xl border border-neutral-200/70 dark:divide-neutral-800 dark:border-neutral-800">
             {grants.map((g) => (
-              <li key={g.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
-                <span className="min-w-0 flex-1 truncate font-medium">{g.clientName}</span>
-                <span className="shrink-0 text-[11px] text-neutral-400">{new Date(g.createdAt < 1e12 ? g.createdAt * 1000 : g.createdAt).toLocaleDateString()}</span>
-                <button className="shrink-0 text-xs font-medium text-red-500 hover:text-red-600" onClick={() => void revoke(g.id)}>
-                  Revoke
-                </button>
+              <li key={g.id} className="space-y-2 px-3 py-3 text-sm">
+                <div className="flex flex-wrap items-center gap-3"><span className="min-w-0 flex-1 break-words font-medium">{g.clientName}</span>
+                <button className="min-h-10 px-2 text-xs font-medium text-red-500" onClick={()=>void revoke(g.id).catch(()=>setConnectionError('Revocation failed. Retry while connected.'))}>Revoke</button></div>
+                {g.connection ? <fieldset className="space-y-1"><legend className="text-xs text-neutral-500">Authorized spaces — uncheck to remove access</legend>
+                  {JSON.parse(g.connection.spaces_json).map((id:string)=><label key={id} className="flex min-h-10 items-center gap-2 break-words">
+                    <input type="checkbox" checked disabled={g.connection!.revoked_at!==null||reducingConnection===g.connectionId} onChange={()=>{
+                      setReducingConnection(g.connectionId??'');void api(`/api/oauth/connections/${g.connection!.id}`,{method:'PATCH',body:{spaces:JSON.parse(g.connection!.spaces_json).filter((s:string)=>s!==id),expectedVersion:g.connection!.version}})
+                        .then(load).catch(()=>setConnectionError('Access changed or the request failed. Reload and retry.')).finally(()=>setReducingConnection(''));
+                    }}/>{spaces.find(s=>s.id===id)?.name??'Unavailable space'}
+                  </label>)}
+                  {reducingConnection===g.connectionId&&<p role="status">Updating connection access…</p>}<p className="text-xs text-neutral-500">To add spaces, connect again and authorize a new connection.</p>
+                </fieldset>:<p className="text-xs text-amber-700 dark:text-amber-400">Legacy connection. Reconnect to select spaces. It cannot access a permission-enabled workspace.</p>}
               </li>
             ))}
           </ul>

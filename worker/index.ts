@@ -1,3 +1,7 @@
+import {aiConfigApi} from './aiConfig';
+import {aiSuggestionsApi} from './aiSuggestions';
+import {aiDigestApi} from './aiDigest';
+import {aiPreviewApi} from './aiPreviews';
 import {catalogApi} from './catalog';
 import {usageApi} from './usage';
 import {historyApi} from './history';
@@ -64,6 +68,10 @@ app.get('/api/live', async (c) => {
   });
 });
 
+app.route('/api/ai/config',aiConfigApi);
+app.route('/api/ai/previews',aiPreviewApi);
+app.route('/api/ai/suggestions',aiSuggestionsApi);
+app.route('/api/ai/digest',aiDigestApi);
 app.route('/api/auth', auth);
 app.route('/api/me', me);
 app.route('/api/sessions', sessionsApi);

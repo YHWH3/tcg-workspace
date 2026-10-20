@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {enableFixtureHuman} from './certification/human-review.mjs';
+import {fixtureFetch} from './certification/oauth-consent.mjs';
 import {verifyOAuthSecurity} from './phase4-oauth-security.mjs';
 // Phase C verification: OAuth dance + MCP tools (official SDK) + UI live-poke +
 // field/template UI + screenshots. Run against `wrangler dev --port 8788`
@@ -72,7 +74,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (cookie) headers.Cookie = cookie;
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  const res = await fetchFixtureApi(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
+  const res = await fetchFixtureApi(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' }, fixtureFetch);
   if (raw) return res;
   const text = await res.text();
   let data = null;
@@ -177,6 +179,8 @@ check('prompts registered', ['plan_project', 'make_sop', 'capture_notes'].every(
 const securityPrompt=await client.getPrompt({name:'capture_notes',arguments:{notes:'Non-secret security migration fixture'}});
 check('security: MCP prompt invocation preserves supplied arguments',securityPrompt.messages.some(m=>m.content.type==='text'&&m.content.text.includes('Non-secret security migration fixture')));
 
+enableFixtureHuman(client,BASE,{username:process.env.MCP_USER??'admin',password:PASS});
+
 const call = async (name, args) => {
   const r = await client.callTool({ name, arguments: args });
   const text = r.content?.[0]?.text ?? '';
@@ -194,7 +198,8 @@ check('workspace_overview returns people+pages+boards', Array.isArray(ov.data.pe
 const bobId = ov.data.people.find((u) => u.username === 'bob')?.id;
 
 // A second user for person-field + mention coverage; bob exists after smoke.
-const imgUrl = 'https://picsum.photos/seed/ws5/640/480';
+// No third-party network imports: supported inline artwork is deterministic.
+const fixtureSvg='<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="orange"/></svg>';
 
 const proj = await call('create_project', {
   title: 'Film Launch',
@@ -222,7 +227,7 @@ const proj = await call('create_project', {
       fields: { Kind: i % 2 ? 'Hero' : 'BTS', Budget: i * 100, Owner: 'bob', Go: i % 4 === 0, Brief: 'https://example.com/brief' },
     })),
   },
-  moodboard: { title: 'Launch mood', items: [{ type: 'note', text: 'grain + warm light' }, { type: 'color', color: '#e5484d' }, { type: 'image', imageUrl: imgUrl }] },
+  moodboard: { title: 'Launch mood', items: [{ type: 'note', text: 'grain + warm light' }, { type: 'color', color: '#e5484d' }, { type: 'svg', svg: fixtureSvg }] },
 });
 check('create_project succeeds', !proj.isError && !!proj.data.pageId, proj.text.slice(0, 240));
 const pageId = proj.data.pageId;
@@ -261,7 +266,7 @@ check('list_comments + mention resolved', lc.data.comments.length === 1 && /@Bob
 // publish + public check
 const pub = await call('publish_page', { pageId, enabled: true });
 check('publish_page returns url', !pub.isError && /\/s\//.test(pub.data.url ?? ''));
-const pubCheck = await fetch(pub.data.url).then((r) => r.status).catch(() => 0);
+const pubCheck = await fixtureFetch(pub.data.url).then((r) => r.status).catch(() => 0);
 check('public share page loads', pubCheck === 200, `status=${pubCheck}`);
 
 // template round-trip
@@ -286,7 +291,15 @@ const delNoRev = await call('delete_item', { type: 'task', id: aTaskId });
 check('delete_item without expectedRev → error', delNoRev.isError && /expectedRev/.test(delNoRev.text), delNoRev.text.slice(0, 140));
 const taskForRev = await call('get_task', { taskId: aTaskId });
 const del = await call('delete_item', { type: 'task', id: aTaskId, expectedRev: taskForRev.data.task?.rev ?? taskForRev.data.rev });
-check('delete_item soft-deletes', !del.isError && del.data.deleted === true, del.text.slice(0, 140));
+const deletionSession=await api('/api/auth/login',{method:'POST',body:{username:USER,password:PASS}});
+let deletedRecord=null,deleteCursor=0;
+for(let page=0;page<1000;page++){
+  const synced=await api(`/api/sync/pull?since=${deleteCursor}`,{token:deletionSession.data.token});
+  if(synced.status!==200)break;
+  deletedRecord=synced.data.records?.find(r=>r.id===aTaskId)??deletedRecord;
+  if(!synced.data.hasMore||deletedRecord)break;deleteCursor=synced.data.cursor;
+}
+check('delete_item soft-deletes', !del.isError && deletedRecord?.data?.deleted === true, del.text.slice(0, 140));
 const res = await call('restore_item', { type: 'task', id: aTaskId });
 check('restore_item restores', !res.isError && res.data.restored === true);
 
@@ -364,7 +377,9 @@ await ui.keyboard.press('Escape').catch(() => {});
 // settings → AI connectors
 await ui.goto(`${BASE}/settings`);
 await ui.waitForSelector('text=AI connectors', { timeout: 8000 });
-check('AI connectors section renders', await ui.locator('text=/Connected apps|Setup steps/').first().isVisible());
+const connectorsVisible = await ui.locator('text=/Connected apps|Setup steps/').first()
+  .waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false);
+check('AI connectors section renders', connectorsVisible, 'Connector list/setup content did not become visible within 8000ms');
 const grantsVisible = await ui.locator('text=MCP Verify').first().waitFor({ timeout: 8000 }).then(() => true).catch(() => false);
 check('grant listed (MCP Verify)', grantsVisible);
 await ui.locator('section:has-text("AI connectors")').screenshot({ path: `${SHOTS}/settings-ai-connectors.png` }).catch(async () => ui.screenshot({ path: `${SHOTS}/settings-ai-connectors.png` }));

@@ -46,7 +46,8 @@ export interface AutomationAction {
     | 'set_field'
     | 'notify'
     | 'request_approval'
-    | 'add_subrecords';
+    | 'add_subrecords'
+    | 'ai_classify';
   /** create_record: target database (board id). */
   databaseId?: string;
   /** create_record: title (template-rendered). */
@@ -74,6 +75,8 @@ export interface AutomationAction {
   note?: string;
   /** add_subrecords: child record titles (template-rendered). */
   titles?: string[];
+  /** Optional classification writes a separate suggestion, never final values. */
+  options?:string[];
 }
 
 export interface AutomationConfig {
@@ -345,6 +348,11 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
         if(a.approverField&&ctx.boardsById&&a.approverField!=='assigneeId'&&fieldsOf(board).find(f=>f.id===a.approverField)?.type!=='person') errors.push(`${at}: approverField must be a person field`);
         break;
       }
+      case 'ai_classify': {
+        if(!a.fieldKey||(!ACTION_FIELD_KEYS.has(a.fieldKey)&&!fieldDefByKey(board,a.fieldKey)))errors.push(`${at}: writable fieldKey required`);
+        if(!Array.isArray(a.options)||!a.options.length||a.options.length>20||a.options.some(v=>typeof v!=='string'||!v||v.length>100))errors.push(`${at}: 1–20 bounded classification options required`);
+        break;
+      }
       case 'add_subrecords': {
         if (!Array.isArray(a.titles) || !a.titles.length) errors.push(`${at}: at least one title is required`);
         else if (a.titles.length > 20) errors.push(`${at}: at most 20 titles`);
@@ -373,5 +381,6 @@ export const ACTION_TYPES: { id: AutomationAction['type']; label: string }[] = [
   { id: 'set_field', label: 'set field' },
   { id: 'notify', label: 'notify' },
   { id: 'request_approval', label: 'request approval' },
+  { id: 'ai_classify', label: 'suggest AI classification (optional)' },
   { id: 'add_subrecords', label: 'add sub-records' },
 ];

@@ -1,3 +1,4 @@
+import {fixtureHumanStep} from './humanMcp';
 import {readFileSync,readdirSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
@@ -16,7 +17,7 @@ import {createWorkspaceServer,write} from '../worker/mcp';
 let mf:Miniflare,db:D1Database,env:Env;
 function context(){return {env,ectx:{waitUntil:()=>{}} as unknown as ExecutionContext,userId:'alice',userRole:'admin',origin:'http://localhost',userByKey:new Map(),userNameById:new Map(),pageTitleById:new Map(),recordTitleById:new Map(),recordIdByTitle:new Map(),pageIdByTitle:new Map(),cachesReady:false,warnings:[],cs:null,toolName:''} as Parameters<typeof createWorkspaceServer>[0];}
 function register(){createWorkspaceServer(context());}
-async function call(name:string,args:Record<string,unknown>){register();const r=await tools.get(name)!(args);return {...JSON.parse(r.content[0].text),isError:r.isError};}
+async function call(name:string,args:Record<string,unknown>){register();const r=await fixtureHumanStep(env,'alice',name,args,await tools.get(name)!(args));return {...JSON.parse(r.content[0].text),isError:r.isError};}
 beforeEach(async()=>{
  mf=new Miniflare(convertV4MiniflareOptions({workers:[{name:'integrity-mcp',modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-09-25',d1Databases:{DB:'integrity-mcp-disposable'}}]}));db=await mf.getD1Database('DB') as D1Database;env={DB:db} as Env;
  const dir=fileURLToPath(new URL('../migrations/',import.meta.url));for(const f of readdirSync(dir).filter(f=>f.endsWith('.sql')).sort())await db.batch((readFileSync(`${dir}/${f}`,'utf8').replace(/--[^\n]*/g,'').match(/\s*CREATE\s+TRIGGER\b[\s\S]*?END\s*;|[^;]+;/gi)??[]).map(s=>db.prepare(s.trim())));
@@ -64,7 +65,7 @@ it('INT-04 stale guard in second chunk fails before any writes',async()=>{
 it('INT-04 interrupted 1000-block MCP edit retries its frozen IDs and keeps one audit',async()=>{
  let n=0;const original=env;
  const fault=new Proxy(db,{get(target,key){if(key==='batch')return async(statements:D1PreparedStatement[])=>{
-  if(statements.some(st=>String((st as unknown as {statement:string}).statement).includes('INSERT OR IGNORE INTO mcp_write_done'))&&++n===7)throw new Error('interrupted after chunk 1');return target.batch(statements);
+  if(statements.some(st=>String((st as unknown as {statement:string}).statement).includes('INSERT OR IGNORE INTO ai_preview_done'))&&++n===7)throw new Error('interrupted after chunk 1');return target.batch(statements);
  };const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});
  env={...env,DB:fault};const args={pageId:'page',replaceBlocks:[{blockId:'old',expectedRev:(await getRec(original,'old'))!.rev,markdown:Array.from({length:1000},(_,i)=>`line ${i}`).join('\n\n')}],requestId:'retry-1000'};
  const first=await call('edit_page',args);expect(first.isError).toBe(true);expect(n).toBe(7);
@@ -116,7 +117,7 @@ it('INT-02 MCP database deletion archives generic records and restores in place'
 it('INT-04 retry resumes even when its first committed chunk deleted a guarded block',async()=>{
  let n=0;const original=env;
  const fault=new Proxy(db,{get(target,key){if(key==='batch')return async(statements:D1PreparedStatement[])=>{
-  if(statements.some(st=>String((st as unknown as {statement:string}).statement).includes('INSERT OR IGNORE INTO mcp_write_done'))&&++n===7)throw new Error('interrupted after delete and first chunk');return target.batch(statements);
+  if(statements.some(st=>String((st as unknown as {statement:string}).statement).includes('INSERT OR IGNORE INTO ai_preview_done'))&&++n===7)throw new Error('interrupted after delete and first chunk');return target.batch(statements);
  };const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});
  const args={pageId:'page',deleteBlocks:[{blockId:'old',expectedRev:(await getRec(env,'old'))!.rev}],appendMarkdown:Array.from({length:500},(_,i)=>`Append ${i}`).join('\n\n'),requestId:'retry-deleted-guard'};
  env={...env,DB:fault};const first=await call('edit_page',args);expect(first.isError).toBe(true);expect((await getRec(original,'old'))!.data.deleted).toBe(true);
