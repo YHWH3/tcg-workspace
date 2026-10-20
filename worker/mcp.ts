@@ -1,3 +1,4 @@
+import {recordHref} from '../shared/recordRoutes';
 import {hybridSearch} from './aiSemantic';
 import {registerSuggestionTools} from './aiSuggestions';
 import {registerAiWorkflows} from './aiWorkflows';
@@ -304,7 +305,7 @@ function boardUrl(c: Ctx, id: string) {
   return `${c.origin}/boards/${id}`;
 }
 function taskUrl(c: Ctx, task: Rec) {
-  return `${c.origin}/boards/${String(task.data.boardId ?? 'board-default')}/tasks/${task.id}`;
+  return c.origin+recordHref(String(task.data.boardId ?? 'board-default'),undefined,task.id);
 }
 function moodUrl(c: Ctx, id: string) {
   return `${c.origin}/moodboards/${id}`;
@@ -3149,7 +3150,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
 
   const VIEW_TYPES = ['table', 'list', 'gallery', 'board', 'calendar', 'timeline'] as const;
   const viewUrl = (dbId: string, viewId: string) => `${ctx.origin}/boards/${dbId}/views/${viewId}`;
-  const recordUrl = (dbId: string, recId: string) => `${ctx.origin}/boards/${dbId}/tasks/${recId}`;
+  const recordUrl = (dbId: string, recId: string) => ctx.origin+recordHref(dbId,undefined,recId);
 
   const viewInput = z.object({
     name: z.string(),

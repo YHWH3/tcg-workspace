@@ -8,11 +8,11 @@ import {aggregate,applyView,type Filter,type FieldKey,type ViewConfig} from '../
 import {fieldsOf} from '../shared/fields';
 import {recordsForCalendar} from '../shared/calendarView';
 import {argsHash} from '../shared/stablejson';
+import {recordHref} from '../shared/recordRoutes';
 interface Context {env:Env;userId:string;origin:string}
 const txt=(value:unknown)=>({content:[{type:'text' as const,text:JSON.stringify(value)}]});
 const fail=(error:string)=>({...txt({error}),isError:true});
 const title=(r:{data:Record<string,unknown>})=>String(r.data.title??r.data.name??'Untitled').slice(0,300);
-const url=(c:Context,id:string)=>`${c.origin}/pages/${encodeURIComponent(id)}`;
 const trust={untrusted:true,source:'workspace',instructions:false};
 async function bounded(c:Context,collection:string,where:string,bind:(string|number)[],limit:number) {
  const raw=(await c.env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection=? AND COALESCE(json_extract(data,'$.deleted'),0)!=1 AND ${where} ORDER BY id LIMIT ?`).bind(collection,...bind,limit+1).all<RawRow>()).results;
@@ -76,7 +76,7 @@ export function registerReadTools(server:McpServer,c:Context) {
   const relationTargets=await getRecs(c.env,[...new Set(relationLinks.rows.map(l=>String(l.data.toId)))].slice(0,500));
   const views=await getRecs(c.env,[...supported.map(b=>b.data.viewId),...[...boards.values()].map(b=>b.data.defaultViewId)].filter((id):id is string=>typeof id==='string'));
   const contextFor=(board:typeof page)=>({meId:c.userId,today:new Date().toISOString().slice(0,10),fieldsById:new Map(fieldsOf(board.data).map(f=>[f.id,f])),columnsById:(board.data.columns as {id:string}[]|undefined)?.map(s=>s.id),relationTitles:(id:string,fid:string)=>relationLinks.rows.filter(l=>l.data.fromId===id&&l.data.fieldId===fid&&relationTargets.has(String(l.data.toId))).map(l=>title(relationTargets.get(String(l.data.toId))!))});
-  const brief=(r:{id?:unknown;title?:unknown;status?:unknown;dueDate?:unknown;boardId?:unknown})=>({id:r.id,title:String(r.title??'').slice(0,300),status:r.status,dueDate:r.dueDate,url:c.origin+`/boards/${String(r.boardId??'board-default')}/tasks/${String(r.id)}`,trust});
+  const brief=(r:{id?:unknown;title?:unknown;status?:unknown;dueDate?:unknown;boardId?:unknown})=>({id:r.id,title:String(r.title??'').slice(0,300),status:r.status,dueDate:r.dueDate,url:c.origin+recordHref(String(r.boardId??'board-default'),undefined,String(r.id)),trust});
   const output=supported.map(block=>{
    const data=block.data,board=boards.get(String(data.databaseId));
    if(data.type==='activity')return {id:block.id,type:data.type,activity:activity?.activity.filter(r=>data.scope==='mine'?r.actorId===c.userId:data.scope&&typeof data.scope==='object'?treeRows.slice(0,2000).some(t=>t.root===(data.scope as {pageTreeId?:string}).pageTreeId&&(t.id===r.targetId||t.id===r.pageId)):true).slice(0,Math.min(Number(data.limit)||20,100)),truncated:!!activity?.truncated||treeRows.length>2000};
@@ -99,7 +99,7 @@ export function registerReadTools(server:McpServer,c:Context) {
    const filters=(data.type==='metric'?data.filters:config.filters) as Filter[]|undefined;
    if(data.type==='metric')return {id:block.id,type:data.type,label:data.label,...aggregate(rows,{agg:['sum','avg'].includes(String(data.agg))?data.agg as 'sum'|'avg':'count',fieldKey:data.fieldKey as FieldKey,filters},context),truncated:tasks.truncated||relationLinks.truncated};
    const evaluated=applyView(rows,{...config,...(data.type==='mywork'?{mine:true}:{} )},context).rows;
-   return {id:block.id,type:data.type,records:evaluated.slice(0,100).map(r=>({id:r.id,title:String(r.title??'').slice(0,300),status:r.status,dueDate:r.dueDate,url:url(c,String(r.id)),trust})),truncated:tasks.truncated||relationLinks.truncated||evaluated.length>100};
+   return {id:block.id,type:data.type,records:evaluated.slice(0,100).map(brief),truncated:tasks.truncated||relationLinks.truncated||evaluated.length>100};
   });
   return txt({pageId:a.pageId,blocks:output,truncated:blocks.truncated||tasks.truncated,trust});
  });

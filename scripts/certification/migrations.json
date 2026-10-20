@@ -118,5 +118,9 @@
   {
     "name": "0030_phase6_optional_ai.sql",
     "sha256": "eb0b47a283a3ad95a6d15b93907d1c162349371dbbc9f3897427446ceb895a2e"
+  },
+  {
+    "name": "0031_phase6_digest_outcome.sql",
+    "sha256": "a6eed938b184557cc1efe4bcc439f618f5f710eb08246d16fa79c6f42107c2ac"
   }
 ]

@@ -59,5 +59,14 @@ it('uses actual calendar sources, open assigned work and pinned view configurati
   f.db.prepare(`UPDATE records SET data=json_set(data,'$.assigneeId','alice','$.dueDate','2026-01-01') WHERE id='t'`),
   f.db.prepare(`INSERT INTO records(id,collection,data,field_ts,seq,space_id) VALUES('cal','blocks','{"pageId":"p","type":"calendar","sources":[{"databaseId":"b","dateKey":"dueDate"}]}','{}',30,'space-core'),('mine','blocks','{"pageId":"p","type":"mywork"}','{}',31,'space-core'),('feed','blocks','{"pageId":"p","type":"activity","scope":{"pageTreeId":"p"}}','{}',32,'space-core')`),
  ]);
- const r=await call('dashboard_snapshot',{pageId:'p'});expect(r.blocks.find((b:{id:string})=>b.id==='cal').dates['2026-01-01'][0].id).toBe('t');expect(r.blocks.find((b:{id:string})=>b.id==='mine').groups.flatMap((g:{records:{id:string}[]})=>g.records).map((t:{id:string})=>t.id)).toEqual(['t']);expect(r.blocks.find((b:{id:string})=>b.id==='feed').activity).toHaveLength(2);
+ const r=await call('dashboard_snapshot',{pageId:'p'});expect(r.blocks.find((b:{id:string})=>b.id==='cal').dates['2026-01-01'][0]).toMatchObject({id:'t',url:'http://localhost/boards/b/tasks/t'});expect(r.blocks.find((b:{id:string})=>b.id==='mine').groups.flatMap((g:{records:{id:string}[]})=>g.records).map((t:{id:string})=>t.id)).toEqual(['t']);expect(r.blocks.find((b:{id:string})=>b.id==='mine').groups.flatMap((g:{records:{url:string}[]})=>g.records)[0].url).toBe('http://localhost/boards/b/tasks/t');expect(r.blocks.find((b:{id:string})=>b.id==='feed').activity).toHaveLength(2);
+});
+
+it.each(['table','board','list'])('P6-R01: dashboard %s view links point to the database record route',async type=>{
+ await f.db.batch([
+  f.db.prepare(`INSERT INTO records(id,collection,data,field_ts,seq,space_id) VALUES('v','views',?,'{}',40,'space-core')`).bind(JSON.stringify({databaseId:'b',type,config:{}})),
+  f.db.prepare(`INSERT INTO records(id,collection,data,field_ts,seq,space_id) VALUES('view-block','blocks','{"pageId":"p","type":"view","databaseId":"b","viewId":"v"}','{}',41,'space-core')`),
+ ]);
+ const snapshot=await call('dashboard_snapshot',{pageId:'p'}),records=snapshot.blocks.find((b:{id:string})=>b.id==='view-block').records;
+ expect(records).toHaveLength(2);for(const record of records)expect(record.url).toBe(`http://localhost/boards/b/tasks/${record.id}`);
 });

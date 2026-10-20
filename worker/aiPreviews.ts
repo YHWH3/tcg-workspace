@@ -146,7 +146,14 @@ aiPreviewApi.get('/:id',async c=>{
 aiPreviewApi.post('/:id/decision',async c=>{
  const u=c.get('user'),p=await previewFor(c.env,u.id,c.req.param('id'),false),body=await c.req.json().catch(()=>null);
  if(!body||!['approve','cancel'].includes(body.decision)||body.argsHash!==p.args_hash)throw new PreviewError('invalid_decision',400);
- if(p.expires_at<=Date.now())throw new PreviewError('preview_expired',410);
+ if(body.decision==='approve'&&p.expires_at<=Date.now())throw new PreviewError('preview_expired',410);
+ // Cancellation fences approved and in-flight work at the next transaction.
+ // Already committed batches remain journaled for explicit recovery/undo.
+ if(body.decision==='cancel'){
+  const cancelled=await c.env.DB.prepare("UPDATE ai_previews SET status='cancelled',lease_id=NULL,lease_until=NULL WHERE id=? AND user_id=? AND status IN('pending','approved','executing')").bind(p.id,u.id).run();
+  if(!cancelled.meta.changes)throw new PreviewError('preview_already_decided');
+  return c.json({ok:true,status:'cancelled'});
+ }
  const result=await c.env.DB.prepare(`UPDATE ai_previews SET status=?,approved_at=?,approved_session=? WHERE id=? AND user_id=? AND status='pending' AND expires_at>?`).bind(body.decision==='approve'?'approved':'cancelled',Date.now(),u.tokenHash,p.id,u.id,Date.now()).run();
  if(!result.meta.changes)throw new PreviewError('preview_already_decided');
  return c.json({ok:true,status:body.decision==='approve'?'approved':'cancelled'});

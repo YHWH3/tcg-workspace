@@ -1,5 +1,5 @@
 import {Hono} from 'hono';
-import {requireAuth,type Env,type AuthUser} from './auth';
+import {requireAuth,loadPrefs,kindAllowed,type Env,type AuthUser} from './auth';
 import {withReadGate} from './readAccess';
 import {getRecs,SELECT,toRow,type RawRow} from './records';
 import {notify} from './notifications';
@@ -31,9 +31,22 @@ export async function buildDigest(env:Env,uid:string,now=Date.now()){
 export async function runWeeklyDigests(env:Env,now=Date.now()){
  const due=(await env.DB.prepare(`SELECT id FROM users u WHERE disabled_at IS NULL AND NOT EXISTS(SELECT 1 FROM ai_digest_runs d WHERE d.user_id=u.id AND d.week=? AND (d.delivered=1 OR d.attempts>=8 OR d.retry_at>?)) ORDER BY id LIMIT 1`).bind(week(now),now).all<{id:string}>()).results;
  for(const user of due){if(!hasD1Budget(env.DB,28))break;try {await env.DB.prepare("INSERT OR IGNORE INTO ai_digest_runs(user_id,week,record_ids,created_at) VALUES(?,?,'[]',?)").bind(user.id,week(now),now).run();const digest=await buildDigest(env,user.id,now);
-  await env.DB.prepare('UPDATE ai_digest_runs SET record_ids=? WHERE user_id=? AND week=?').bind(JSON.stringify(digest.records.map(r=>r.id)),user.id,digest.week).run();
-  if(digest.records.length)await notify(env,{targetType:'record',targetId:digest.records[0].id,userId:user.id,kind:'automation',title:'Your weekly review is ready',body:'Open AI workflows to review current authorized work and deadlines.',url:'/ai',groupKey:'weekly-digest:'+digest.week,dedupeKey:'weekly-digest:'+digest.week+':'+user.id});
-  await env.DB.prepare('UPDATE ai_digest_runs SET delivered=1 WHERE user_id=? AND week=?').bind(user.id,digest.week).run();
+  if(digest.accessChanged)throw new Error('digest_access_changed');
+  await env.DB.prepare('UPDATE ai_digest_runs SET record_ids=? WHERE user_id=? AND week=?').bind(JSON.stringify([...new Set([...digest.records.map(r=>r.id),...digest.pendingApprovals.map(r=>r.id)])]),user.id,digest.week).run();
+  const target=digest.records[0]??digest.pendingApprovals[0];
+  const outcome=!target?'no_content':!kindAllowed(await loadPrefs(env.DB,user.id),'automation')?'preferences_off':null;
+  if(outcome){
+   // `delivered` is the legacy terminal-processing flag. Outcome distinguishes
+   // actual delivery from intentional suppression; no retained content is purged.
+   await env.DB.prepare('UPDATE ai_digest_runs SET delivered=1,outcome=? WHERE user_id=? AND week=?').bind(outcome,user.id,digest.week).run();
+  }else{
+   // Reuse the notification kernel's current-recipient/target transaction fence.
+   // A failure or raced revocation must not acknowledge delivery separately.
+   await notify(env,{targetType:'record',targetId:target!.id,userId:user.id,kind:'automation',title:'Your weekly review is ready',body:'Open AI workflows to review current authorized work, deadlines and approvals.',url:'/ai',groupKey:'weekly-digest:'+digest.week,dedupeKey:'weekly-digest:'+digest.week+':'+user.id},[
+    env.DB.prepare("UPDATE ai_digest_runs SET delivered=1,outcome='delivered' WHERE user_id=? AND week=?").bind(user.id,digest.week),
+   ]);
+   if(!await env.DB.prepare('SELECT delivered FROM ai_digest_runs WHERE user_id=? AND week=?').bind(user.id,digest.week).first<number>('delivered'))throw new Error('digest_delivery_unavailable');
+  }
   }catch(error){if(error instanceof D1BudgetExhausted)throw error;await env.DB.prepare('UPDATE ai_digest_runs SET attempts=attempts+1,retry_at=? WHERE user_id=? AND week=? AND delivered=0').bind(now+3600000,user.id,week(now)).run();}
  }
 }

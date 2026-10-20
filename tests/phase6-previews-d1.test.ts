@@ -82,3 +82,58 @@ it('group recovery includes committed partial previews and fences their continua
  const first=await executePreview(withD1Budget(env(),25),'alice',p.previewId,p.argsHash);expect(first.completed).toBe(false);expect(first.processed).toBeGreaterThan(0);
  const response=await aiPreviewApi.request('/workflows/partial-workflow/undo',{method:'POST',headers:f.auth('alice')},f.env,f.ctx);expect(response.status).toBe(200);const body=await response.json() as {results:{ok:boolean}[]};expect(body.results).toHaveLength(1);expect(body.results[0].ok).toBe(true);await expect(executePreview(env(),'alice',p.previewId,p.argsHash)).rejects.toThrow();expect(await f.db.prepare("SELECT COUNT(*) n FROM records WHERE id LIKE 'partial%' AND COALESCE(json_extract(data,'$.deleted'),0)!=1").first('n')).toBe(0);
 });
+
+// P6-R03: each barrier is tied to a real D1 checkpoint transaction, never a timer.
+it.each(['reduced','membership-removed'])('P6-R03 refuses approved work after %s',async mode=>{
+ if(mode==='membership-removed')await f.db.batch([f.db.prepare("UPDATE spaces SET default_access='private' WHERE id='space-core'"),f.db.prepare("INSERT INTO space_members(space_id,user_id,role) VALUES('space-core','alice','editor')")]);
+ const p=await propose();await decision(p.previewId,p.argsHash);
+ if(mode==='reduced'){const {reduceConnection}=await import('../worker/connectorAccess');expect(await reduceConnection(f.env,'alice','c',[],1)).toBe(true);}else await f.db.prepare("DELETE FROM space_members WHERE space_id='space-core' AND user_id='alice'").run();
+ await expect(executePreview(env(),'alice',p.previewId,p.argsHash)).rejects.toThrow();
+ expect(await f.db.prepare("SELECT seq FROM records WHERE id='p'").first('seq')).toBe(1);expect(await f.db.prepare('SELECT COUNT(*) n FROM ai_preview_done').first('n')).toBe(0);
+});
+it('P6-R03 human cancellation after the first committed batch prevents the next transaction',async()=>{
+ const p=await proposePreview(env(),'alice','meeting_to_actions',{},Array.from({length:150},(_,i)=>({id:'cancel'+i,collection:'pages' as const,patch:{title:'Cancel '+i}})));await decision(p.previewId,p.argsHash);
+ let commits=0,cancelStatus=0;const original=f.db;
+ const raced=new Proxy(original,{get(t,k){if(k==='batch')return async(stmts:D1PreparedStatement[])=>{const checkpoint=stmts.some(s=>String((s as unknown as {statement:string}).statement).includes('INSERT OR IGNORE INTO ai_preview_done'));if(checkpoint&&commits===1){cancelStatus=(await decision(p.previewId,p.argsHash,'alice','cancel')).status;}const result=await t.batch(stmts);if(checkpoint)commits++;return result;};const v=Reflect.get(t,k);return typeof v==='function'?v.bind(t):v;}});
+ await expect(executePreview({...env(),DB:raced,READ_GATE:undefined},'alice',p.previewId,p.argsHash)).rejects.toThrow();expect(cancelStatus).toBe(200);expect(commits).toBe(1);
+ expect(await original.prepare('SELECT COUNT(*) n FROM ai_preview_done WHERE preview_id=?').bind(p.previewId).first('n')).toBe(50);expect(await original.prepare('SELECT status FROM ai_previews WHERE id=?').bind(p.previewId).first('status')).toBe('cancelled');
+ await expect(executePreview(env(),'alice',p.previewId,p.argsHash)).rejects.toThrow();
+});
+it('P6-R03 interruption after a committed checkpoint resumes with complete nonduplicate attribution',async()=>{
+ const p=await proposePreview(env(),'alice','meeting_to_actions',{},Array.from({length:150},(_,i)=>({id:'lost'+i,collection:'pages' as const,patch:{title:'Lost '+i}})));await decision(p.previewId,p.argsHash);let commits=0;
+ const raced=new Proxy(f.db,{get(t,k){if(k==='batch')return async(stmts:D1PreparedStatement[])=>{const checkpoint=stmts.some(s=>String((s as unknown as {statement:string}).statement).includes('INSERT OR IGNORE INTO ai_preview_done'));if(checkpoint&&commits===1)throw new Error('controlled worker interruption after checkpoint');const result=await t.batch(stmts);if(checkpoint)commits++;return result;};const v=Reflect.get(t,k);return typeof v==='function'?v.bind(t):v;}});
+ await expect(executePreview({...env(),DB:raced,READ_GATE:undefined},'alice',p.previewId,p.argsHash)).rejects.toThrow();expect(commits).toBe(1);
+ expect(await f.db.prepare('SELECT COUNT(*) n FROM ai_preview_done WHERE preview_id=?').bind(p.previewId).first('n')).toBe(50);
+ expect(await f.db.prepare('SELECT status FROM ai_previews WHERE id=?').bind(p.previewId).first('status')).toBe('executing');
+ const done=await executePreview(env(),'alice',p.previewId,p.argsHash);expect(done.completed).toBe(true);expect(await f.db.prepare('SELECT COUNT(*) n FROM changeset_items WHERE changeset_id=?').bind(done.changesetId).first('n')).toBe(150);
+ expect(await f.db.prepare('SELECT COUNT(DISTINCT record_id) n FROM changeset_items WHERE changeset_id=?').bind(done.changesetId).first('n')).toBe(150);expect(await f.db.prepare('SELECT user_id FROM changesets WHERE id=?').bind(done.changesetId).first('user_id')).toBe('alice');
+});
+it('P6-R03 transaction barrier gives a racing executor no duplicate write authority',async()=>{
+ const p=await propose();await decision(p.previewId,p.argsHash);let entered!:()=>void,release!:()=>void;const ready=new Promise<void>(r=>{entered=r;}),barrier=new Promise<void>(r=>{release=r;});let blocked=false;
+ const raced=new Proxy(f.db,{get(t,k){if(k==='batch')return async(stmts:D1PreparedStatement[])=>{if(!blocked&&stmts.some(s=>String((s as unknown as {statement:string}).statement).includes('INSERT OR IGNORE INTO ai_preview_done'))){blocked=true;entered();await barrier;}return t.batch(stmts);};const v=Reflect.get(t,k);return typeof v==='function'?v.bind(t):v;}});
+ const first=executePreview({...env(),DB:raced,READ_GATE:undefined},'alice',p.previewId,p.argsHash);await ready;
+ try{await expect(executePreview(env(),'alice',p.previewId,p.argsHash)).rejects.toThrow('preview_busy');}finally{release();}
+ const result=await first;expect(result.completed).toBe(true);expect(await f.db.prepare('SELECT COUNT(*) n FROM changeset_items WHERE changeset_id=?').bind(result.changesetId).first('n')).toBe(1);
+});
+it('P6-R03 completed replay after connector revocation discloses no payload and never executes again',async()=>{
+ const p=await propose();await decision(p.previewId,p.argsHash);const first=await executePreview(env(),'alice',p.previewId,p.argsHash);const rev=await f.db.prepare("SELECT seq FROM records WHERE id='p'").first('seq');await f.db.prepare("UPDATE ai_connections SET revoked_at=1 WHERE id='c'").run();
+ await expect(executePreview(env(),'alice',p.previewId,p.argsHash)).rejects.toThrow('preview_connection_changed');expect(await f.db.prepare("SELECT seq FROM records WHERE id='p'").first('seq')).toBe(rev);expect(await f.db.prepare('SELECT COUNT(*) n FROM changeset_items WHERE changeset_id=?').bind(first.changesetId).first('n')).toBe(1);
+});
+it('P6-R03 undo of a committed partial journal fences every pending continuation',async()=>{
+ const {undoChangeset}=await import('../worker/changesets');const {userByToken}=await import('../worker/auth');
+ const p=await proposePreview(env(),'alice','meeting_to_actions',{},Array.from({length:150},(_,i)=>({id:'undo-pending'+i,collection:'pages' as const,patch:{title:'Undo '+i}})));await decision(p.previewId,p.argsHash);
+ const first=await executePreview(withD1Budget(env(),25),'alice',p.previewId,p.argsHash);expect(first.completed).toBe(false);expect(first.processed).toBeGreaterThan(0);
+ const undone=await undoChangeset(f.env,(await userByToken(f.db,f.token('alice')))!,first.changesetId,f.ctx);expect(undone.ok).toBe(true);await expect(executePreview(env(),'alice',p.previewId,p.argsHash)).rejects.toThrow();expect(await f.db.prepare("SELECT COUNT(*) n FROM records WHERE id LIKE 'undo-pending%' AND COALESCE(json_extract(data,'$.deleted'),0)!=1").first('n')).toBe(0);
+});
+it('P6-R03 another user cannot execute a possessed preview ID',async()=>{const p=await propose();await decision(p.previewId,p.argsHash);await expect(executePreview({...f.env,CONNECTOR:{id:'c',version:1}},'bob',p.previewId,p.argsHash)).rejects.toThrow('not_found');expect(await f.db.prepare("SELECT seq FROM records WHERE id='p'").first('seq')).toBe(1);});
+it.each(['scope-reduced','connector-revoked','session-revoked','record-changed'])('P6-R03 fences %s immediately before the record/checkpoint transaction',async mode=>{
+ const p=await propose();await decision(p.previewId,p.argsHash);let injected=false;
+ const raced=new Proxy(f.db,{get(t,k){if(k==='batch')return async(stmts:D1PreparedStatement[])=>{if(!injected&&stmts.some(s=>String((s as unknown as {statement:string}).statement).includes('INSERT OR IGNORE INTO ai_preview_done'))){injected=true;
+  if(mode==='scope-reduced')await t.prepare("UPDATE ai_connections SET spaces_json='[]',version=version+1 WHERE id='c'").run();
+  if(mode==='connector-revoked')await t.prepare("UPDATE ai_connections SET revoked_at=1 WHERE id='c'").run();
+  if(mode==='session-revoked')await t.prepare("DELETE FROM sessions WHERE user_id='alice'").run();
+  if(mode==='record-changed')await applyChanges(f.env,'alice',[{id:'p',collection:'pages',patch:{title:'Concurrent human'},ts:0}],{serverTs:true});
+ }return t.batch(stmts);};const v=Reflect.get(t,k);return typeof v==='function'?v.bind(t):v;}});
+ await expect(executePreview({...env(),DB:raced,READ_GATE:undefined},'alice',p.previewId,p.argsHash)).rejects.toThrow();expect(injected).toBe(true);
+ expect(await f.db.prepare('SELECT COUNT(*) n FROM ai_preview_done').first('n')).toBe(0);expect(await f.db.prepare('SELECT COUNT(*) n FROM changeset_items').first('n')).toBe(0);expect(await f.db.prepare("SELECT json_extract(data,'$.title') title FROM records WHERE id='p'").first('title')).toBe(mode==='record-changed'?'Concurrent human':'Before');
+});
