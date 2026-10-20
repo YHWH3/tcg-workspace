@@ -104,7 +104,13 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
   await check(names[12],async()=>{
    await fixture.sql(`DELETE FROM ai_digest_runs; UPDATE records SET data=json_remove(data,'$.dueDate'),updated_at=0 WHERE collection='tasks'; INSERT INTO approvals(id,target_type,target_id,requested_by,approver_id,status,created_at) VALUES('weekly-approval','page','ai_source','${admin.user.id}','${admin.user.id}','pending',1);`);
    const digest=await api('/api/ai/digest');assert.equal(digest.data.records.length,0);assert.ok(digest.data.pendingApprovals.some(a=>a.id==='ai_source'));
-   const scheduled=await fetch(fixture.base+'/cdn-cgi/handler/scheduled?'+new URLSearchParams({cron:'*/15 * * * *',time:String(6*900000)}),{method:'POST'});assert.equal(scheduled.status,200);await scheduled.text();
+   // bootstrap creates two users with random UUIDs. The bounded scheduler
+   // processes one eligible user per invocation in ID order, not Admin first.
+   // Two invocations reach both users; a third verifies same-week deduplication.
+   for(let tick=0;tick<3;tick++){
+    const scheduled=await fetch(fixture.base+'/cdn-cgi/handler/scheduled?'+new URLSearchParams({cron:'*/15 * * * *',time:String((6+tick*9)*900000)}),{method:'POST'});assert.equal(scheduled.status,200);await scheduled.text();
+   }
+   const runs=await fixture.sql(`SELECT u.username,d.delivered,d.outcome FROM users u LEFT JOIN ai_digest_runs d ON d.user_id=u.id ORDER BY u.username;`);const terminal=runs.flatMap(r=>r.results??[]);assert.deepEqual(terminal.map(r=>({username:r.username,delivered:r.delivered,outcome:r.outcome})),[{username:'admin',delivered:1,outcome:'delivered'},{username:'bob',delivered:1,outcome:'no_content'}],JSON.stringify(runs));
    const rows=await fixture.sql(`SELECT COUNT(*) AS n FROM notifications WHERE user_id='${admin.user.id}' AND group_key LIKE 'weekly-digest:%';`);assert.ok(JSON.stringify(rows).includes('"n":1'),JSON.stringify(rows));
    await page.goto(fixture.base+'/ai');await page.getByRole('heading',{name:'Pending approvals',exact:true}).waitFor();await page.getByRole('link',{name:'Changed after proposal',exact:true}).tap();assert.ok(page.url().includes('/inbox'));
   });

@@ -42,3 +42,10 @@ it('dead-letters delivery after eight failed attempts without a false delivered 
  await approval();await f.db.prepare("CREATE TRIGGER fail_weekly BEFORE INSERT ON notifications BEGIN SELECT RAISE(ABORT,'persistent failure'); END").run();for(let i=0;i<9;i++)await runWeeklyDigests(f.env,now+i*3600001);
  const row=await f.db.prepare("SELECT attempts,delivered,outcome FROM ai_digest_runs WHERE user_id='alice'").first();expect(row).toMatchObject({attempts:8,delivered:0,outcome:'pending'});expect(await count()).toBe(0);
 });
+
+it('bounded scheduler reaches the approval recipient after an earlier-ID empty user',async()=>{
+ await approval();await f.db.prepare("INSERT INTO users(id,username,name,role) VALUES('000-first','empty-first','Empty first','member')").run();
+ await runWeeklyDigests(f.env,now);expect(await count()).toBe(0);expect(await f.db.prepare("SELECT outcome FROM ai_digest_runs WHERE user_id='000-first'").first('outcome')).toBe('no_content');
+ await runWeeklyDigests(f.env,now);expect(await count()).toBe(1);expect(await f.db.prepare("SELECT outcome FROM ai_digest_runs WHERE user_id='alice'").first('outcome')).toBe('delivered');
+ await runWeeklyDigests(f.env,now);expect(await count()).toBe(1);
+});
