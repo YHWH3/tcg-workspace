@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes, type ComponentType } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { X, type LucideIcon } from 'lucide-react';
 import { cn, initials } from './utils';
@@ -137,6 +137,8 @@ export function Popover({
   adaptive?: boolean;
   label?: string;
 }) {
+  const nativeTrigger = isValidElement<ButtonHTMLAttributes<HTMLButtonElement>>(trigger) &&
+    (trigger.type === 'button' || trigger.type === Button || trigger.type === IconButton);
   const [internal, setInternal] = useState(false);
   const isOpen = open ?? internal;
   const setOpen = (v: boolean) => {
@@ -188,7 +190,7 @@ export function Popover({
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey, true);
       // Return focus to the trigger (or whatever had focus).
-      (triggerRef.current?.isConnected ? triggerRef.current : prevFocus?.isConnected ? prevFocus : null)?.focus();
+      (triggerRef.current?.isConnected ? triggerRef.current.querySelector<HTMLElement>('button') ?? triggerRef.current : prevFocus?.isConnected ? prevFocus : null)?.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, sheetMode]);
@@ -206,17 +208,17 @@ export function Popover({
     <div ref={ref} className="relative inline-block">
       <span
         ref={triggerRef}
-        role="button"
-        tabIndex={0}
-        aria-haspopup="true"
-        aria-expanded={isOpen}
+        role={nativeTrigger ? undefined : "button"}
+        tabIndex={nativeTrigger ? undefined : 0}
+        aria-haspopup={nativeTrigger ? undefined : true}
+        aria-expanded={nativeTrigger ? undefined : isOpen}
         onClick={(e) => { e.stopPropagation(); setOpen(!isOpen); }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setOpen(!isOpen); }
+          if (!nativeTrigger && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); setOpen(!isOpen); }
         }}
         className="inline-flex rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
       >
-        {trigger}
+        {nativeTrigger ? cloneElement(trigger, { 'aria-haspopup': true, 'aria-expanded': isOpen }) : trigger}
       </span>
       {isOpen && sheetMode ? (
         <Overlay onClose={() => setOpen(false)} label={label} className="flex flex-col justify-end">
@@ -491,7 +493,7 @@ export function EmptyState({ icon: Icon, title, body, action }: { icon?: LucideI
     <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
       {Icon && <Icon size={28} className="text-neutral-300 dark:text-neutral-600" />}
       <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{title}</p>
-      {body && <p className="max-w-xs text-xs text-neutral-400">{body}</p>}
+      {body && <p className="max-w-xs text-xs text-neutral-500 dark:text-neutral-400">{body}</p>}
       {action && <div className="mt-2">{action}</div>}
     </div>
   );

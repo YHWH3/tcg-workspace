@@ -67,7 +67,7 @@ function SyncIndicator({ heldOnly = false }: { heldOnly?: boolean }) {
   }
   if (status === 'syncing') {
     return (
-      <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-neutral-400">
+      <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400">
         <RefreshCw size={13} className="animate-spin" />
         <span>Syncing…</span>
       </div>
@@ -86,7 +86,7 @@ function SyncIndicator({ heldOnly = false }: { heldOnly?: boolean }) {
     );
   }
   return (
-    <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-neutral-400">
+    <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400">
       <Check size={13} />
       <span>Synced</span>
     </div>
@@ -166,7 +166,7 @@ function UserMenu() {
           <div>
             <div className="border-b border-neutral-100 px-3 py-2.5 dark:border-neutral-800">
               <p className="truncate text-sm font-medium">{user.name}</p>
-              <p className="truncate text-xs text-neutral-400">
+              <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
                 @{user.username} · {user.role}
               </p>
             </div>
@@ -209,7 +209,7 @@ function TabLink({ item }: { item: NonNullable<AppModule['navItem']> }) {
       to={item.path}
       end={item.path === '/'}
       className={({ isActive }) =>
-        cn('flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] transition-colors', isActive ? 'text-neutral-900 dark:text-white' : 'text-neutral-400')
+        cn('flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] transition-colors', isActive ? 'text-neutral-900 dark:text-white' : 'text-neutral-500 dark:text-neutral-400')
       }
     >
       <item.icon size={20} strokeWidth={1.8} />
@@ -473,11 +473,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             onNavigate?.();
             paletteStore.set(true);
           }}
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-neutral-200/80 px-2.5 py-1.5 text-sm text-neutral-400 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/50"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-neutral-200/80 px-2.5 py-1.5 text-sm text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/50"
         >
           <Search size={15} />
           <span className="flex-1 text-left">Search</span>
-          <kbd className="text-[10px] text-neutral-300 dark:text-neutral-600">⌘K</kbd>
+          <kbd className="text-[10px] text-neutral-500 dark:text-neutral-400">⌘K</kbd>
         </button>
         <NavLink
           to="/capture"
@@ -587,7 +587,7 @@ export function Shell() {
             <NavLink
               to="/settings"
               className={({ isActive }) =>
-                cn('flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px]', isActive ? 'text-neutral-900 dark:text-white' : 'text-neutral-400')
+                cn('flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px]', isActive ? 'text-neutral-900 dark:text-white' : 'text-neutral-500 dark:text-neutral-400')
               }
             >
               <Settings size={20} strokeWidth={1.8} />

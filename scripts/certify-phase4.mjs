@@ -23,7 +23,7 @@ const results=[],controller=new AbortController();let interrupted=false;
 for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{interrupted=true;controller.abort();});
 const expectedIds=['prerequisites','dependencies','lockfile','whitespace','migrations','harness','typecheck','unit','build','d1','security','performance-evidence','source-integrity'];
 if(mode!=='quick')expectedIds.push('browsers','smoke','mcp-base','mcp-multiuser','mcp-phase1','mcp-phase2','mcp-phase3','mcp-phase4','v4','v6','v7','v8','v9','phase5-sync','phase5-workflows','phase5-mcp');
-if(phase6&&mode!=='quick')expectedIds.push('phase6-workflows');
+if(phase6&&mode!=='quick')expectedIds.push('phase6-workflows','release-preflight','release-rehearsal','release-ui');
 if(mode==='extended')expectedIds.push('d1-stress-1','d1-stress-2');
 const sleepGuard=preventIdleSleep();
 const network=configureCertificationNetwork();
@@ -74,7 +74,7 @@ function runnerEvidence(path,runner) {
     return {pass:report.results.filter(r=>r.status==='PASS').length,fail:report.results.filter(r=>r.status==='FAIL').length||1,notRun:report.results.filter(r=>r.status==='NOT RUN'&&!r.external).length,allMandatoryAssertionsExecuted:false,results:report.results,browserVersions:report.browserVersions??{},validationError:String(error)};
   }
 }
-async function integration(id,script,{smoke=false,selfFixture=false,args=[]}={}) {
+async function integration(id,script,{smoke=false,selfFixture=false,skipBuild=true,args=[]}={}) {
   if(!buildOkay||interrupted){record(id,{command:['node',script],startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),durationMs:0,exitCode:null,error:interrupted?'Certification interrupted':'Production build prerequisite failed'},{pass:0,fail:0,notRun:1,allMandatoryAssertionsExecuted:false},{status:'NOT RUN'});return;}
   let fixture;const out=join(directory,id);mkdirSync(out,{recursive:true});
   try {
@@ -83,7 +83,7 @@ async function integration(id,script,{smoke=false,selfFixture=false,args=[]}={})
     const env={CERT_ARTIFACT_DIR:out,CERT_RESULT_PATH:join(out,'results.json'),CERT_FIXTURE_ID:fixture?.directory??id,CERT_FIXTURE_PORT:String(port),CERT_FILE_FIXTURES:join(out,'files')};
     if(id==='v4'){mkdirSync(env.CERT_FILE_FIXTURES,{recursive:true});const {default:sharp}=await import('sharp');const colors=['#db3746','#37a86a','#336ddd','#e7b638','#8248aa'];await sharp({create:{width:500,height:100,channels:3,background:colors[0]}}).composite(colors.slice(1).map((color,i)=>({input:Buffer.from(`<svg width="100" height="100"><rect width="100" height="100" fill="${color}"/></svg>`),left:(i+1)*100,top:0}))).png().toFile(join(env.CERT_FILE_FIXTURES,'photo.png'));writeFileSync(join(env.CERT_FILE_FIXTURES,'doc.pdf'),'%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF');}
     if(fixture){Object.assign(env,{PHASE4_FIXTURE_CONFIG:fixture.config,PHASE4_FIXTURE_STATE:fixture.state,PHASE4_BASE:fixture.base,PHASE3_BASE:fixture.base,V6_BASE:fixture.base,V7_BASE:fixture.base,V8_BASE:fixture.base});if(!smoke)await bootstrap(fixture.base);}
-    const command=smoke?['bash',script,fixture.base]:['node',script,...(fixture?[fixture.base,'--no-spawn']:['--skip-build']),...args];
+    const command=smoke?['bash',script,fixture.base]:['node',script,...(fixture?[fixture.base,'--no-spawn']:skipBuild?['--skip-build']:[]),...args];
     const row=await stage(id,command,{env,fixtureId:fixture?.directory??`self:${port}`,adapter:output=>smoke?validateSmoke(output,readFileSync(join(cwd,script),'utf8')):runnerEvidence(env.CERT_RESULT_PATH,script.split('/').at(-1).replace('.mjs',''))});
     if(fixture){json(join(out,'fixture.json'),{id:fixture.directory,config:readJson(fixture.config),state:fixture.state,base:fixture.base,sourceSha:startingSha,disposable:true});const schema=await fixture.sql("SELECT name,sql FROM sqlite_master WHERE type IN ('table','index','trigger') ORDER BY name;");json(join(out,'schema.json'),schema);}
     return row;
@@ -129,7 +129,12 @@ try {
     await integration('phase5-sync','scripts/verify-phase5-sync.mjs',{selfFixture:true});
     await integration('phase5-workflows','scripts/verify-phase5-workflows.mjs',{selfFixture:true});
     await integration('phase5-mcp','scripts/verify-phase5-mcp.mjs',{selfFixture:true});
-    if(phase6)await integration('phase6-workflows','scripts/verify-phase6.mjs',{selfFixture:true});
+    if(phase6){
+      await integration('phase6-workflows','scripts/verify-phase6.mjs',{selfFixture:true});
+      await integration('release-preflight','scripts/release-preflight.mjs',{selfFixture:true,skipBuild:false});
+      await integration('release-rehearsal','scripts/release-rehearsal.mjs',{selfFixture:true,skipBuild:false});
+      await integration('release-ui','scripts/verify-release-ui.mjs',{selfFixture:true});
+    }
   }
   if(mode==='extended')for(let i=1;i<=2;i++){const path=join(directory,`d1-stress-${i}.json`);await stage(`d1-stress-${i}`,['npm','test','--',...d1Files,'--reporter=default','--reporter=json',`--outputFile=${path}`],{adapter:()=>validateVitest(readJson(path),d1Files)});}
   await internal('performance-evidence',()=>{

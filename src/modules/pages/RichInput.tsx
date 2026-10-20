@@ -339,6 +339,7 @@ export const RichInput = forwardRef<
         ref={edRef}
         contentEditable={!props.disabled}
         role="textbox"
+        aria-label={props.placeholder || "Block content"}
         aria-multiline="true"
         spellCheck={false}
         suppressContentEditableWarning

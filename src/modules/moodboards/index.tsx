@@ -19,7 +19,7 @@ function MoodboardsSection() {
   return (
     <div className="px-2 pt-3">
       <div className="mb-0.5 flex items-center justify-between px-2.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">Mood boards</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Mood boards</span>
         <IconButton className="h-5 w-5" aria-label="New mood board" onClick={async () => navigate(`/moodboards/${await createMoodboard()}`)}>
           <Plus size={13} />
         </IconButton>

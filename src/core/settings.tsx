@@ -114,7 +114,7 @@ function ProfileSection({ user }: { user: PublicUser | null }) {
           {busy ? <Spinner size={13} /> : 'Save'}
         </Button>
         {saved && <span className="text-xs text-emerald-600 dark:text-emerald-400">Saved</span>}
-        <span className="text-xs text-neutral-400">@{user.username}</span>
+        <span className="text-xs text-neutral-500 dark:text-neutral-400">@{user.username}</span>
       </div>
     </Section>
   );
