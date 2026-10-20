@@ -82,17 +82,6 @@ textarea {
   margin-top: var(--vvo, 0px);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .anim-fade,
-  .anim-slide-up,
-  .anim-slide-right,
-  .anim-slide-left,
-  .anim-slide-bottom,
-  .anim-pulse {
-    animation: none;
-  }
-}
-
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -169,4 +158,16 @@ textarea {
 }
 .snap-x-cols > * {
   scroll-snap-align: start;
+}
+
+/* Keep this after motion declarations so equal-specificity rules cannot override it. */
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade,
+  .anim-slide-up,
+  .anim-slide-right,
+  .anim-slide-left,
+  .anim-slide-bottom,
+  .anim-pulse {
+    animation: none;
+  }
 }

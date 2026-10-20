@@ -1,7 +1,7 @@
 {
   "name": "workspace",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0-rc.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -19,7 +19,10 @@
     "certify:phase4:full": "node scripts/certify-phase4.mjs --extended",
     "certify:phase5": "node scripts/certify-phase4.mjs",
     "certify:phase6": "node scripts/certify-phase4.mjs --phase6",
-    "certify:phase6:quick": "node scripts/certify-phase4.mjs --phase6 --quick"
+    "certify:phase6:quick": "node scripts/certify-phase4.mjs --phase6 --quick",
+    "release:preflight": "node scripts/release-preflight.mjs",
+    "release:rehearse": "node scripts/release-rehearsal.mjs",
+    "release:ui": "node scripts/verify-release-ui.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",
@@ -40,6 +43,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@cloudflare/vite-plugin": "1.63.2",
     "@modelcontextprotocol/sdk": "1.32.1",
     "@tailwindcss/vite": "4.3.3",
@@ -48,6 +52,7 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
     "fake-indexeddb": "^6.2.5",
+    "json5": "2.2.3",
     "playwright": "1.63.0",
     "sharp": "0.35.5",
     "tailwindcss": "4.3.3",

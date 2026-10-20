@@ -578,7 +578,7 @@ function Handle({ onDragStart }: BlockItemProps) {
       draggable
       onDragStart={onDragStart}
       className="mt-1.5 hidden h-5 w-4 shrink-0 cursor-grab items-center justify-center rounded text-neutral-300 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-neutral-100 hover:text-neutral-500 sm:flex dark:text-neutral-600 dark:hover:bg-neutral-800"
-      aria-label="Drag to reorder"
+      title="Drag to reorder"
     >
       <GripVertical size={14} />
     </span>

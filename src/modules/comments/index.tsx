@@ -72,7 +72,7 @@ export function CommentThread({ targetType, targetId, compact }: { targetType: C
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className={cn('flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto', compact ? 'px-4 py-3' : 'py-1')}>
-        {comments.length === 0 && <p className="py-4 text-center text-xs text-neutral-400">No comments yet</p>}
+        {comments.length === 0 && <p className="py-4 text-center text-xs text-neutral-500 dark:text-neutral-400">No comments yet</p>}
         {comments.map((c) => {
           const author = resolveUser(c.authorId ?? null, users, me);
           return <CommentItem key={c.id} comment={c} isOwn={c.authorId === me?.id} authorName={author?.name ?? 'Someone'} authorColor={author?.color} />;

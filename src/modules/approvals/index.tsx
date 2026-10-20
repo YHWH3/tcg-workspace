@@ -103,7 +103,7 @@ export function ApprovalsSection({ targetType, targetId }: { targetType: Approva
         </div>
       )}
 
-      {!error && rows !== null && rows.length === 0 && !gatedAttempt && <p className="text-xs text-neutral-400">No approvals on this {targetType}.</p>}
+      {!error && rows !== null && rows.length === 0 && !gatedAttempt && <p className="text-xs text-neutral-500 dark:text-neutral-400">No approvals on this {targetType}.</p>}
 
       {requestOpen && (
         <RequestDialog

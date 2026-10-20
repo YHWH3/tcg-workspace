@@ -129,7 +129,7 @@ export function PagesTree() {
   return (
     <div className="px-2">
       <div className="mb-1 flex items-center justify-between px-2">
-        <span className="text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">Pages</span>
+        <span className="text-[11px] font-semibold tracking-wide text-neutral-500 dark:text-neutral-400 uppercase">Pages</span>
         <Popover
           align="right"
           trigger={
