@@ -377,7 +377,9 @@ await ui.keyboard.press('Escape').catch(() => {});
 // settings → AI connectors
 await ui.goto(`${BASE}/settings`);
 await ui.waitForSelector('text=AI connectors', { timeout: 8000 });
-check('AI connectors section renders', await ui.locator('text=/Connected apps|Setup steps/').first().isVisible());
+const connectorsVisible = await ui.locator('text=/Connected apps|Setup steps/').first()
+  .waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false);
+check('AI connectors section renders', connectorsVisible, 'Connector list/setup content did not become visible within 8000ms');
 const grantsVisible = await ui.locator('text=MCP Verify').first().waitFor({ timeout: 8000 }).then(() => true).catch(() => false);
 check('grant listed (MCP Verify)', grantsVisible);
 await ui.locator('section:has-text("AI connectors")').screenshot({ path: `${SHOTS}/settings-ai-connectors.png` }).catch(async () => ui.screenshot({ path: `${SHOTS}/settings-ai-connectors.png` }));
