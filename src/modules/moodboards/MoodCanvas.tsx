@@ -67,6 +67,11 @@ const geomOf = (item: MoodItem): DragGeom => ({
   h: Number(item.h ?? 100),
 });
 
+/** Pointer coordinates are single-precision floats in some engines; a drag from a
+ * fractional start point otherwise persists offsets like 20.0000152. Quantize
+ * world-space deltas to 1/1000 unit (invisible at any supported zoom). */
+const quantize = (n: number) => Math.round(n * 1000) / 1000;
+
 export function MoodCanvas() {
   const { boardId = '' } = useParams();
   const mobile = useIsMobile();
@@ -356,8 +361,8 @@ export function MoodCanvas() {
       gesture.current = { kind: 'move', ids, primary: g.id, origs, startX: g.startX, startY: g.startY, started: true };
       movedSinceDown.current = true;
     } else if (g.kind === 'move') {
-      const dx = (e.clientX - g.startX) / view.z;
-      const dy = (e.clientY - g.startY) / view.z;
+      const dx = quantize((e.clientX - g.startX) / view.z);
+      const dy = quantize((e.clientY - g.startY) / view.z);
       setDrafts((d) => {
         const next = { ...d };
         for (const [id, o] of g.origs) next[id] = { ...o, x: o.x + dx, y: o.y + dy };
@@ -365,8 +370,8 @@ export function MoodCanvas() {
       });
       movedSinceDown.current = true;
     } else if (g.kind === 'resize') {
-      const dx = (e.clientX - g.startX) / view.z;
-      const dy = (e.clientY - g.startY) / view.z;
+      const dx = quantize((e.clientX - g.startX) / view.z);
+      const dy = quantize((e.clientY - g.startY) / view.z);
       setDrafts((d) => {
         const o = g.orig;
         const w = Math.max(40, o.w + dx);
