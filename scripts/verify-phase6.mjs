@@ -122,7 +122,15 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
   });
   await check(names[8],async()=>{
    const cfg=await api('/api/ai/config');assert.equal(cfg.data.provider,'none');const search=await api('/api/search?q=soil&mode=hybrid');assert.equal(search.data.semantic,'disabled');
-   await page.goto(fixture.base+'/ai');await page.getByRole('heading',{name:'AI workflows',exact:true}).waitFor();await context.setOffline(true);await page.evaluate(()=>window.dispatchEvent(new Event('offline')));await page.getByText(/Reconnect to verify current access|Checking access|offline|No connection/i).first().waitFor();await context.setOffline(false);
+   await page.goto(fixture.base+'/ai');await page.getByRole('heading',{name:'AI workflows',exact:true}).waitFor();await context.setOffline(true);await page.evaluate(()=>window.dispatchEvent(new Event('offline')));// A failed in-flight pull can replace the inner AI screen with the outer
+   // account/access gate. Both must conceal content; neither permits execution.
+   await page.getByText(/Reconnect to verify current access|Checking access|Access check required|offline|No connection/i).first().waitFor();
+   await page.getByRole('heading',{name:'AI workflows',exact:true}).waitFor({state:'hidden'});
+   assert.equal(await page.getByRole('button',{name:'Copy instructions',exact:true}).count(),0);
+   assert.equal(await page.getByRole('button',{name:'Resume execution',exact:true}).count(),0);
+   assert.equal(await page.getByRole('button',{name:'Approve exact changes',exact:true}).count(),0);
+   assert.ok(!(await page.locator('body').innerText()).includes('UNRELATED_VAULT_SECRET'));
+   await context.setOffline(false);
   });
  }catch(e){console.error('FAIL ['+engine+'] '+e.message);if(!reporter.results.some(r=>r.engine===engine&&r.status==='FAIL'))reporter.record(engine,'none','setup','FAIL',e);}
  finally{await client?.close().catch(()=>{});await context?.close().catch(()=>{});await browser?.close().catch(()=>{});await fixture?.stop().catch(()=>{});}
