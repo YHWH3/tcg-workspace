@@ -3,8 +3,7 @@ import {hybridSearch} from './aiSemantic';
 import {registerSuggestionTools} from './aiSuggestions';
 import {registerAiWorkflows} from './aiWorkflows';
 import {registerAssistantTools,type ToolHandler} from './mcpAssistantTools';
-import {capabilityOf,isEmbeddedAllowed} from '../shared/aiCapabilities';
-import {hasWritableSpace} from './capability';
+import {isEmbeddedAllowed} from '../shared/aiCapabilities';
 import {proposePreview,executePreview,previewUrl,PreviewError,type PreviewOp} from './aiPreviews';
 import {registerReadTools} from './mcpReadTools';
 import { loadConnection } from './connectorAccess';
@@ -262,10 +261,6 @@ interface Ctx {
   /** Embedded Workspace Assistant call (worker/assistant/*): every write becomes a
    * frozen preview for human approval; human-only tools are refused. */
   assistant?: { provider: string; model: string };
-  /** False when the caller can write no space (guest/viewer-only/connector
-   * scope): write-classified tools are hidden from discovery. Hiding is not an
-   * authorization check — every handler still revalidates. */
-  writable?: boolean;
 }
 
 type Resolution = { id: string } | { ambiguous: { id: string; title?: string; name?: string }[] } | { missing: true };
@@ -596,7 +591,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   // Each helper authorizes its own read; the tool can still retain earlier values
   // while awaiting later reads. Revalidate the explicitly observed record set at
   // serialization. Never infer dependencies from response strings.
-  const toolHandlers = new Map<string, ToolHandler>(), registeredTools = new Map<string, { disable?: () => void } | undefined>();
+  const toolHandlers = new Map<string, ToolHandler>();
   server.registerTool = new Proxy(server.registerTool, {
     apply(register, receiver, args) {
       const [name, metadata, handler] = args;
@@ -618,9 +613,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         return result;
       };
       toolHandlers.set(name, wrapped as ToolHandler);
-      const registered = Reflect.apply(register, receiver, [name, metadata, wrapped]);
-      registeredTools.set(name, registered as { disable?: () => void } | undefined);
-      return registered;
+      return Reflect.apply(register, receiver, [name, metadata, wrapped]);
     },
   });
 
@@ -4375,7 +4368,6 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   registerSuggestionTools(server,ctx);
   registerApprovalTools(server,reg,ctx);
   registerAssistantTools(server,ctx,toolHandlers);
-  if (ctx.writable === false) for (const [name, tool] of registeredTools) if (capabilityOf(name).kind !== 'read') tool?.disable?.();
   return server;
 }
 
@@ -4445,9 +4437,13 @@ export const mcpApiHandler = {
       return new Response(JSON.stringify({error:'connector_reauthorization_required'}),{status:403,headers:{'content-type':'application/json'}});
     }
     request = await normalizePromptGetRequest(request);
-    const writable = await hasWritableSpace(env.DB, props.userId, env.CONNECTOR?.id);
+    // External hosts keep the certified Phase 5 contract: the full tool list is
+    // advertised and every handler returns its own authorization result. Hosts
+    // cache tools/list per connection, so hiding writes would strand a grant
+    // upgraded mid-session. Permission-filtered discovery is applied to the
+    // embedded assistant (worker/assistant/bridge.ts) and /api/assistant/capabilities.
     return createMcpHandler(
-      (mcpCtx: McpRequestContext) => createWorkspaceServer({ ...ctxFor(env, ctx, mcpCtx, props), writable }),
+      (mcpCtx: McpRequestContext) => createWorkspaceServer(ctxFor(env, ctx, mcpCtx, props)),
       { route: '/mcp' },
     )(request, env, ctx);
   },

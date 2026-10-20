@@ -12,9 +12,9 @@ import {AI_ACTIONS} from '../shared/aiActions';
 import {AI_WORKFLOWS} from '../shared/aiWorkflows';
 
 const db={prepare(){return {bind(){return this;},first:async()=>null,all:async()=>({results:[]}),run:async()=>({meta:{}})};},batch:async()=>[]};
-function build(writable?:boolean){
+function build(_writable?:boolean){
  reg.tools.clear();reg.prompts.length=0;reg.resources.length=0;
- createWorkspaceServer({env:{DB:db} as never,ectx:{waitUntil(){}} as never,userId:'u',userRole:'admin',origin:'http://x',userByKey:new Map(),userNameById:new Map(),pageTitleById:new Map(),recordTitleById:new Map(),recordIdByTitle:new Map(),pageIdByTitle:new Map(),cachesReady:false,warnings:[],cs:null,toolName:'',writable} as never);
+ createWorkspaceServer({env:{DB:db} as never,ectx:{waitUntil(){}} as never,userId:'u',userRole:'admin',origin:'http://x',userByKey:new Map(),userNameById:new Map(),pageTitleById:new Map(),recordTitleById:new Map(),recordIdByTitle:new Map(),pageIdByTitle:new Map(),cachesReady:false,warnings:[],cs:null,toolName:''} as never);
 }
 describe('shared capability registry',()=>{
  it('classifies every registered tool and nothing else',()=>{
@@ -29,9 +29,8 @@ describe('shared capability registry',()=>{
  it('keeps approval, execution, undo and publication human-only',()=>{
   for(const id of ['execute_preview','decide_approval','request_approval','undo_change','publish_page','share_moodboard'])expect(isEmbeddedAllowed(id)).toBe(false);
  });
- it('hides every non-read tool from discovery when the caller can write nowhere, and none otherwise',()=>{
-  build(false);for(const [name,t] of reg.tools)expect([name,t.disabled]).toEqual([name,capabilityOf(name).kind!=='read']);
-  build(true);expect([...reg.tools.values()].some(t=>t.disabled)).toBe(false);
+ it('never disables external handlers or listings (certified Phase 5 discovery contract)',()=>{
+  build(false);expect([...reg.tools.values()].some(t=>t.disabled)).toBe(false);
  });
  it('registers resources plus workflow and contextual-action prompts from the shared catalogs',()=>{
   build();

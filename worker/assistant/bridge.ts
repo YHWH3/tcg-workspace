@@ -25,7 +25,7 @@ export interface Bridge {
 
 export async function openBridge(env:Env,ectx:ExecutionContext,id:BridgeIdentity):Promise<Bridge>{
  const writable=await hasWritableSpace(env.DB,id.userId);
- const server=createWorkspaceServer({env,ectx,userId:id.userId,userRole:id.userRole,clientName:`Workspace Assistant (${id.provider}/${id.model})`.slice(0,120),origin:id.origin,userByKey:new Map(),userNameById:new Map(),pageTitleById:new Map(),recordTitleById:new Map(),recordIdByTitle:new Map(),pageIdByTitle:new Map(),cachesReady:false,warnings:[],cs:null,toolName:'',assistant:{provider:id.provider,model:id.model},writable});
+ const server=createWorkspaceServer({env,ectx,userId:id.userId,userRole:id.userRole,clientName:`Workspace Assistant (${id.provider}/${id.model})`.slice(0,120),origin:id.origin,userByKey:new Map(),userNameById:new Map(),pageTitleById:new Map(),recordTitleById:new Map(),recordIdByTitle:new Map(),pageIdByTitle:new Map(),cachesReady:false,warnings:[],cs:null,toolName:'',assistant:{provider:id.provider,model:id.model}});
  const [clientSide,serverSide]=InMemoryTransport.createLinkedPair();
  await server.connect(serverSide);
  const client=new Client({name:'workspace-assistant',version:'1.0.0'});
@@ -33,7 +33,7 @@ export async function openBridge(env:Env,ectx:ExecutionContext,id:BridgeIdentity
  return {
   async listTools(){
    const out:ToolSpec[]=[];let cursor:string|undefined;
-   do{const page=await client.listTools(cursor?{cursor}:undefined);for(const t of page.tools)if(isEmbeddedAllowed(t.name))out.push({name:t.name,description:(t.description??'').slice(0,600),parameters:(t.inputSchema??{type:'object'}) as Record<string,unknown>});cursor=page.nextCursor;}while(cursor);
+   do{const page=await client.listTools(cursor?{cursor}:undefined);for(const t of page.tools)if(isEmbeddedAllowed(t.name)&&(writable||capabilityOf(t.name).kind==='read'))out.push({name:t.name,description:(t.description??'').slice(0,600),parameters:(t.inputSchema??{type:'object'}) as Record<string,unknown>});cursor=page.nextCursor;}while(cursor);
    return out;
   },
   async call(name,args){

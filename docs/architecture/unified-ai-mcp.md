@@ -26,7 +26,14 @@ Branch `feature/unified-ai-mcp`, based on the 1.0.0 release candidate `5b07263`.
 
 ### Dynamic discovery
 
-`hasWritableSpace` (worker/capability.ts) returns false when the caller can write no space: a guest, viewer-only access, or a connector scope without edit rights. In that case every non-read tool is disabled in `tools/list`. This applies to external MCP and to the embedded bridge. Hiding a tool is not authorization; every handler still revalidates.
+`hasWritableSpace` (worker/capability.ts) returns false when the caller can write no space: a guest, viewer-only access, or a connector scope without edit rights. In that case the **embedded assistant** offers the model only read tools (bridge.ts), and `GET /api/assistant/capabilities` marks writes unavailable.
+
+**External MCP keeps the certified Phase 5 contract:** the full tool list is advertised, and each handler returns its own authorization result. Two reasons:
+
+- MCP hosts cache `tools/list` per connection, so hiding writes would strand a grant upgraded mid-session. `verify-phase5-mcp` exercises exactly that viewer → editor flow.
+- `disable()` would also turn domain refusals into protocol errors.
+
+Hiding a tool is never authorization; every handler revalidates.
 
 ### Universal MCP additions (worker/mcpAssistantTools.ts)
 
