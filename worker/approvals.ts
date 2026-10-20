@@ -4,12 +4,15 @@
 // MCP tools. Approvals live in the server-controlled `approvals` D1 table —
 // generic sync can never mint one.
 
+import { createReadGate } from './readAccess';
 import { Hono } from 'hono';
 import type { Mutation } from '../shared/types';
 import { notify } from './notifications';
+import { mergeRecord } from './merge';
+import { healTimestamps } from '../shared/clock';
 import { requireAuth, type Env, type AuthUser } from './auth';
 import {
-  MAX_APPROVAL_NOTE, fnv1a, gateMatches, isDecision,
+  MAX_APPROVAL_NOTE, fnv1a, gateTransition, isDecision,
   normalizeApprovalRequest, parseGate, requestKeyFor, requiredApproverId,
   type ApprovalDecision, type ApprovalGate,
 } from '../shared/approvals';
@@ -61,56 +64,90 @@ export async function findApprovedApproval(
 }
 
 /** Enforce board `approvalGate` on every write pathway. Called from
- * applyChanges after mutation validation. A status write into a gated stage
- * without a matching approved decision is stripped from the patch and reported
- * as `approval_required`; other fields in the same change still apply. */
+ * applyChanges after mutation validation, BEFORE planning. A write that would
+ * enter a gated stage (by status or by board) or re-pin its approver without a
+ * matching approved decision has the offending keys stripped from its patch and
+ * is reported as `approval_required`; other fields in the same change still
+ * apply. The merge is folded exactly as the real merge will apply it (same
+ * `mergeRecord`, stored field timestamps, request order), and an absent
+ * `boardId` resolves to `board-default` — so this pre-check and the
+ * transactional guard in `flushPlans` agree, and a policy refusal can only ever
+ * be an item-wise rejection, never a batch abort.
+ *
+ * `existing` lets applyChanges share the rows it already read; direct callers
+ * (unit tests) may omit it and the guard reads what it needs. */
 export async function guardStageWrites(
   env: { DB: D1Database },
   incoming: Mutation[],
-  reject: (id: unknown, collection: unknown, reason: string) => void
+  reject: (id: unknown, collection: unknown, reason: string) => void,
+  opts: {
+    /** Stored rows the caller already read (applyChanges shares its one read). */
+    existing?: Map<string, { data: string; field_ts?: string; updated_at?: number | null }>;
+    /** Merged board configurations from this same write, including boards created
+     * in it — persisted rows alone miss a gate introduced later in an atomic batch. */
+    proposedBoards?: ReadonlyMap<string, Record<string, unknown>>;
+    now?: number;
+  } = {},
 ): Promise<void> {
-  const stageWrites = incoming.filter(
-    (ch) => ch.collection === 'tasks' && ch.patch && typeof ch.patch.status === 'string'
-  );
-  if (!stageWrites.length) return;
+  const { existing, proposedBoards, now = Date.now() } = opts;
+  const touchesGate = (ch: Mutation) =>
+    ch.collection === 'tasks' && !!ch.patch &&
+    ('status' in ch.patch || 'boardId' in ch.patch || Object.keys(ch.patch).some((k) => k.startsWith('p_')));
+  const relevant = incoming.filter(touchesGate);
+  if (!relevant.length) return;
 
-  const ids = [...new Set(stageWrites.map((c) => c.id))];
-  const rows = await fetchRecordData(env.DB, ids);
-
-  const boardIds = new Set<string>();
-  const boardOf = new Map<string, string>();
-  for (const ch of stageWrites) {
-    const bid =
-      typeof ch.patch.boardId === 'string'
-        ? ch.patch.boardId
-        : (rows.get(ch.id)?.boardId as string | undefined);
-    if (bid) {
-      boardOf.set(ch.id, bid);
-      boardIds.add(bid);
+  const stored = new Map<string, { data: Record<string, unknown>; field_ts: Record<string, number> }>();
+  const parse = (id: string, raw: { data: string; field_ts?: string; updated_at?: number | null }) => {
+    try {
+      // Same timestamp healing as the real merge, so the pre-check predicts
+      // exactly which fields of this write will win.
+      stored.set(id, {
+        data: JSON.parse(raw.data) as Record<string, unknown>,
+        field_ts: raw.field_ts ? healTimestamps(JSON.parse(raw.field_ts) as Record<string, number>, now, raw.updated_at) : {},
+      });
+    } catch {
+      /* unparseable row — treated as absent for gate purposes */
     }
+  };
+  if (existing) {
+    for (const ch of incoming) {
+      const row = ch.collection === 'tasks' ? existing.get(ch.id) : undefined;
+      if (row && !stored.has(ch.id)) parse(ch.id, row);
+    }
+  } else {
+    for (const [id, data] of await fetchRecordData(env.DB, [...new Set(relevant.map((c) => c.id))])) stored.set(id, { data, field_ts: {} });
+  }
+
+  const boardIds = new Set<string>(['board-default']);
+  for (const ch of relevant) {
+    if (typeof ch.patch.boardId === 'string' && ch.patch.boardId) boardIds.add(ch.patch.boardId);
+    const sb = stored.get(ch.id)?.data.boardId;
+    if (typeof sb === 'string' && sb) boardIds.add(sb);
   }
   const boards = await fetchRecordData(env.DB, [...boardIds]);
+  for (const [id, data] of proposedBoards ?? []) if (boardIds.has(id)) boards.set(id, data);
 
-  for (const ch of stageWrites) {
-    const to = ch.patch.status as string;
-    const board = boards.get(boardOf.get(ch.id) ?? '');
-    const gate = parseGate(board);
-    if (!gateMatches(gate, to)) continue;
-
-    const merged = rows.get(ch.id) ?? {};
-    const requiredApprover = gate.approverField
-      ? requiredApproverId(gate, {
-          ...merged,
-          [`p_${gate.approverField}`]: ch.patch[`p_${gate.approverField}`] ?? merged[`p_${gate.approverField}`],
-        })
-      : undefined;
-
-    const ok = (!gate.approverField||!!requiredApprover) && await findApprovedApproval(env.DB, ch.id, to, requiredApprover);
-    if (!ok) {
-      reject(ch.id, ch.collection, 'approval_required');
-      // Strip the forbidden transition; other fields in the patch still merge.
-      delete ch.patch.status;
+  const state = new Map<string, { data: Record<string, unknown>; field_ts: Record<string, number> }>();
+  for (const ch of incoming) {
+    if (ch.collection !== 'tasks' || !ch.patch) continue;
+    const before = state.get(ch.id) ?? stored.get(ch.id) ?? { data: {}, field_ts: {} };
+    let merged = mergeRecord(before, { patch: ch.patch, ts: ch.ts });
+    if (touchesGate(ch)) {
+      const boardId = typeof merged.data.boardId === 'string' && merged.data.boardId ? merged.data.boardId : 'board-default';
+      const gate = parseGate(boards.get(boardId));
+      const { required, strip } = gateTransition(gate, before.data, merged.data);
+      if (required && gate) {
+        const requiredApprover = gate.approverField ? requiredApproverId(gate, merged.data) : undefined;
+        const ok = (!gate.approverField || !!requiredApprover) && (await findApprovedApproval(env.DB, ch.id, gate.stageId, requiredApprover));
+        if (!ok) {
+          reject(ch.id, ch.collection, 'approval_required');
+          // Strip the forbidden transition; other fields in the patch still merge.
+          for (const key of strip) delete ch.patch[key];
+          merged = mergeRecord(before, { patch: ch.patch, ts: ch.ts });
+        }
+      }
     }
+    state.set(ch.id, { data: merged.data, field_ts: merged.field_ts });
   }
 }
 
@@ -137,6 +174,18 @@ export interface ApprovalRow {
 
 /** Wire shape — rev is created_at ms so callers can CAS a decide on the row
  * they read (approvals have no records.seq). */
+/** Phase 5: an approval's notes and its target's title are copies of record context. A
+ * participant who can no longer read the target sees the request without them. */
+export function restrictedApprovalJson(r: ApprovalRow) {
+  return { ...approvalJson({ ...r, note: null, decided_note: null }), targetTitle: 'Restricted item', restricted: true };
+}
+
+/** Which approval targets the viewer may read now (legacy: all). */
+export async function readableTargets(db: D1Database, viewerId: string, rows: readonly ApprovalRow[]): Promise<(r: ApprovalRow) => boolean> {
+  const decision = await createReadGate(db, viewerId).decide(rows.map((r) => r.target_id));
+  return (r) => !decision.enabled || decision.readable.has(r.target_id);
+}
+
 export function approvalJson(r: ApprovalRow, extra: { targetTitle?: string; url?: string } = {}) {
   return {
     id: r.id,
@@ -298,13 +347,14 @@ export async function userExists(db: D1Database, userId: string): Promise<boolea
  * (target live, approver a real user). Returns the failure or normalized input. */
 export async function validateApprovalRequest(
   db: D1Database,
-  _requestedBy: string,
+  requestedBy: string,
   body: unknown,
 ): Promise<{ error: string } | { targetType: string; targetId: string; stageId?: string; approverId: string; note?: string; requestId?: string; meta: { title: string; url: string; boardId?: string } }> {
   const v = normalizeApprovalRequest(body as Parameters<typeof normalizeApprovalRequest>[0]);
   if ('error' in v) return v;
   const meta = await loadTargetMeta(db, v.targetType, v.targetId);
-  if (!meta) return { error: 'target not found' };
+  // Unreadable and nonexistent targets are the same answer (permissions enabled).
+  if (!meta || !(await createReadGate(db, requestedBy).canRead(v.targetId))) return { error: 'target not found' };
   if (!(await userExists(db, v.approverId))) return { error: 'approver not found' };
   return { ...v, meta };
 }
@@ -325,13 +375,15 @@ approvalsApi.get('/', async (c) => {
     status: status && ['pending', 'approved', 'rejected', 'cancelled'].includes(status) ? status : undefined,
     limit: Number(c.req.query('limit')) || undefined,
   });
+  const readable = await readableTargets(c.env.DB, user.id, rows);
   const metas = new Map<string, { title: string; url: string } | null>();
   for (const r of rows) {
     const k = `${r.target_type}:${r.target_id}`;
-    if (!metas.has(k)) metas.set(k, await loadTargetMeta(c.env.DB, r.target_type, r.target_id));
+    if (readable(r) && !metas.has(k)) metas.set(k, await loadTargetMeta(c.env.DB, r.target_type, r.target_id));
   }
   return c.json({
     approvals: rows.map((r) => {
+      if (!readable(r)) return restrictedApprovalJson(r);
       const m = metas.get(`${r.target_type}:${r.target_id}`);
       return approvalJson(r, { targetTitle: m?.title ?? r.target_id, url: m?.url });
     }),
@@ -388,7 +440,9 @@ approvalsApi.post('/:id/decide', async (c) => {
   if (out.outcome === 'not_approver') return c.json({ error: 'not your approval to decide' }, 403);
   if (out.outcome === 'stale_rev') return c.json({ error: 'conflict', approval: approvalJson(out.row!) }, 409);
   if (out.outcome === 'already_decided') return c.json({ error: 'already decided', approval: approvalJson(out.row!) }, 409);
-  const meta = await loadTargetMeta(c.env.DB, out.row!.target_type, out.row!.target_id);
+  // The approver sees the target's title only while they can read it.
+  const visible = await createReadGate(c.env.DB, user.id).canRead(out.row!.target_id);
+  const meta = visible ? await loadTargetMeta(c.env.DB, out.row!.target_type, out.row!.target_id) : null;
   {
     await notify(c.env, {
       userId: out.row!.requested_by,
@@ -403,7 +457,7 @@ approvalsApi.post('/:id/decide', async (c) => {
       dedupeKey:`approval_decided:${out.row!.id}`,
     });
   }
-  return c.json({ approval: approvalJson(out.row!, { targetTitle: meta?.title, url: meta?.url }), replayed: out.replayed === true });
+  return c.json({ approval: visible ? approvalJson(out.row!, { targetTitle: meta?.title, url: meta?.url }) : restrictedApprovalJson(out.row!), replayed: out.replayed === true });
 });
 
 approvalsApi.post('/:id/cancel', async (c) => {

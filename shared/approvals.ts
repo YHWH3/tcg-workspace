@@ -55,6 +55,36 @@ export function gateMatches(gate: ApprovalGate | null, toStatus: unknown): gate 
   return !!gate && gate.stageId === toStatus;
 }
 
+/**
+ * Does moving a record from `before` to `after` need an approved decision?
+ * The one definition of the gate's transition rule — the pre-check in
+ * `guardStageWrites` and the transactional SQL guard in `flushPlans` both
+ * implement exactly this predicate. A record that is IN the gated stage after
+ * the write is gated when the write
+ *   - changed its status (entering the stage),
+ *   - changed its board (entering a gated board with the status it carries), or
+ *   - changed the pinned approver field (a prior approval must not be reused
+ *     under a different approver).
+ * An unrelated edit to a record already sitting in the stage is never gated:
+ * the gate controls entry, not editing. `strip` lists the patch keys whose
+ * removal makes the write acceptable.
+ */
+export function gateTransition(
+  gate: ApprovalGate | null,
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): { required: boolean; strip: string[] } {
+  if (!gate || after.status !== gate.stageId) return { required: false, strip: [] };
+  const strip: string[] = [];
+  if ((after.status ?? null) !== (before.status ?? null)) strip.push('status');
+  if ((after.boardId ?? null) !== (before.boardId ?? null)) strip.push('boardId');
+  if (gate.approverField) {
+    const key = `p_${gate.approverField}`;
+    if ((after[key] ?? null) !== (before[key] ?? null)) strip.push(key);
+  }
+  return { required: strip.length > 0, strip };
+}
+
 /** The user id the gate pins approval to — record.p_<approverField>. Returns
  * undefined when the gate has no approverField (any member's approval counts). */
 export function requiredApproverId(gate: ApprovalGate | null, recordData: Record<string, unknown>): string | undefined {

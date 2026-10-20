@@ -3,6 +3,10 @@
 // collection, so generic sync can never mint, mark-read, or leak a row.
 // Every query below is bound to the session user's own rows.
 
+import { levelSql } from './capability';
+import { loadScopeGraph, scopeParentsSql } from './recordAccess';
+import { scopeResolver } from '../shared/recordScope';
+import { createReadGate } from './readAccess';
 import { Hono } from 'hono';
 import type { SemanticEvent } from '../shared/events';
 import type { EventSource } from './events';
@@ -53,6 +57,7 @@ export interface GroupItem {
   actorId?: string;
   at: number;
   summary: string;
+  targetId?: string;
 }
 
 /** Append one item to a group's `items` JSON array, capped at ITEMS_CAP most
@@ -84,27 +89,44 @@ export function reminderKind(date: string, today: string, leadDays: number): 'du
  * existing row (count++, fresh title/body, items append capped at 20) —
  * never a pile of near-identical rows. */
 export async function notify(env: { DB: D1Database }, n: NewNotification, transaction: D1PreparedStatement[] = []): Promise<void> {
-  const user=await env.DB.prepare('SELECT id FROM users WHERE id=?').bind(n.userId).first();
+  const user=await env.DB.prepare('SELECT id,(SELECT enabled FROM access_state WHERE id=1) enabled FROM users WHERE id=? AND disabled_at IS NULL').bind(n.userId).first<{id:string;enabled:number}>();
   if(!user) return;
   const prefs = await loadPrefs(env.DB, n.userId);
   if (!kindAllowed(prefs, n.kind)) return;
+  // Capture the ownership graph, then fence its revisions and the recipient's
+  // current memberships inside the SAME insert statement. No private copy is
+  // persisted if a move/revoke lands after preflight.
+  let guard=`EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at IS NULL)`,guardBinds:unknown[]=[n.userId];
+  if(user.enabled===1){
+    if(!n.targetId)return;
+    const graph=await loadScopeGraph(env.DB,[n.targetId]);let scope;
+    try{scope=scopeResolver(graph.records)(n.targetId);}catch{return;}
+    if(scope.serviceOnly||scope.ancestorDeleted||graph.records.get(n.targetId)?.data.deleted===true)return;
+    guard+=` AND (SELECT enabled FROM access_state WHERE id=1)=1 AND NOT EXISTS(SELECT 1 FROM json_each(?) scope WHERE ${levelSql('?', 'scope.value')}<1)
+      AND NOT EXISTS(SELECT 1 FROM json_each(?) rev WHERE NOT EXISTS(SELECT 1 FROM records r WHERE r.id=rev.key AND r.seq=rev.value))`;
+    guardBinds.push(JSON.stringify(scope.readSpaceIds),n.userId,JSON.stringify(Object.fromEntries([...graph.records].map(([id,r])=>[id,r.rev]))));
+  }else guard+=' AND (SELECT enabled FROM access_state WHERE id=1)=0';
+  if(user.enabled===1 && !await env.DB.prepare(`SELECT 1 WHERE ${guard}`).bind(...guardBinds).first())return;
   const now = Date.now();
   let id: string | undefined;
   if (n.groupKey) {
     const existing = await env.DB.prepare(
       `SELECT id, items, group_count,read_at FROM notifications
-       WHERE user_id = ? AND group_key = ? AND created_at > ?
+       WHERE user_id = ? AND group_key = ? AND created_at > ? AND target_id IS ?
        ORDER BY (read_at IS NULL) DESC,created_at DESC LIMIT 1`,
     )
-      .bind(n.userId, n.groupKey, now - GROUP_WINDOW_MS)
+      .bind(n.userId, n.groupKey, now - GROUP_WINDOW_MS,n.targetId??null)
       .first<{ id: string; items: string | null; group_count: number;read_at:number|null }>();
-    id=existing&&existing.read_at===null?existing.id:`ntf_${fnv1a64hex(JSON.stringify([n.userId,n.kind,n.groupKey,Math.floor(now/GROUP_WINDOW_MS),existing?.id??'',existing?.read_at??'']))}`;
+    id=existing&&existing.read_at===null?existing.id:`ntf_${fnv1a64hex(JSON.stringify([n.userId,n.kind,n.groupKey,n.targetId??'',Math.floor(now/GROUP_WINDOW_MS),existing?.id??'',existing?.read_at??'']))}`;
   }
   id ??= n.dedupeKey ? `ntf_${fnv1a64hex(n.userId+'|'+n.dedupeKey)}` : `ntf_${crypto.randomUUID().replace(/-/g,'')}`;
   const key=n.dedupeKey ? n.userId+'|'+n.dedupeKey : crypto.randomUUID();
-  const item=JSON.stringify({actorId:n.actorId,at:now,summary:n.body??n.title});
+  const item=JSON.stringify({actorId:n.actorId,at:now,summary:n.body??n.title,targetId:n.targetId});
   await env.DB.batch([
-    env.DB.prepare('INSERT OR IGNORE INTO notification_deliveries(delivery_key,notification_id,created_at) VALUES(?,?,?)').bind(key,id,now),
+    // Abort the whole batch on a raced authority change: caller checkpoints must
+    // never commit when delivery was refused by the insert fence.
+    env.DB.prepare(`SELECT CASE WHEN ${guard} THEN 1 ELSE json_extract('{','$') END`).bind(...guardBinds),
+    env.DB.prepare(`INSERT OR IGNORE INTO notification_deliveries(delivery_key,notification_id,created_at) SELECT ?,?,? WHERE ${guard}`).bind(key,id,now,...guardBinds),
     env.DB.prepare(
     `INSERT INTO notifications (id, user_id, kind, actor_id, target_type, target_id, title, body, url, group_key, group_count, items, read_at, created_at)
      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, json_array(json(?)), NULL, ? WHERE changes()=1
@@ -280,6 +302,7 @@ interface NotifRow {
   items: string | null;
   read_at: number | null;
   created_at: number;
+  currently_visible?: number;
 }
 
 function serialize(r: NotifRow) {
@@ -309,17 +332,36 @@ function serialize(r: NotifRow) {
   };
 }
 
+/** Current server-derived audiences, also used for badge/read mutations. Hidden
+ * historical rows remain retained; they do not create public badge/count signals. */
+function notificationVisibleSql(alias='notifications') {
+ return `((SELECT enabled FROM access_state WHERE id=1)=0 OR EXISTS(SELECT 1 FROM records target
+ WHERE target.id=${alias}.target_id AND COALESCE(json_extract(target.data,'$.deleted'),0)!=1
+ AND ${levelSql(`${alias}.user_id`,'target.space_id')}>=1
+ AND (target.peer_space_id IS NULL OR ${levelSql(`${alias}.user_id`,'target.peer_space_id')}>=1)
+ AND NOT EXISTS(WITH RECURSIVE ancestry(id,collection,data) AS (
+   SELECT target.id,target.collection,target.data
+   UNION
+   SELECT p.id,p.collection,p.data FROM ancestry child JOIN records p
+     ON p.id IN (SELECT value FROM json_each(${scopeParentsSql('child')}))
+   LIMIT 5001
+ ) SELECT 1 FROM ancestry WHERE COALESCE(json_extract(data,'$.deleted'),0)=1
+   OR (collection='files' AND json_extract(data,'$.parentType')='form-pending')
+   OR ${levelSql(`${alias}.user_id`,"(SELECT space_id FROM records WHERE id=ancestry.id)")}<1
+   OR (SELECT COUNT(*) FROM ancestry)>5000)))`;
+}
+
 /** Unread count honoring the user's quietDigest pref (quiet kinds still land
  * in the Inbox but don't count against the badge). */
 export async function unreadBadge(db: D1Database, userId: string, prefs: UserPrefs): Promise<number> {
   if (prefs.quietDigest) {
     const row = await db
-      .prepare(`SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND read_at IS NULL AND kind IN (${URGENT_KINDS.map(() => '?').join(',')})`)
+      .prepare(`SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND read_at IS NULL AND ${notificationVisibleSql()} AND kind IN (${URGENT_KINDS.map(() => '?').join(',')})`)
       .bind(userId, ...URGENT_KINDS)
       .first<{ c: number }>();
     return row?.c ?? 0;
   }
-  const row = await db.prepare('SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND read_at IS NULL').bind(userId).first<{ c: number }>();
+  const row = await db.prepare(`SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND read_at IS NULL AND ${notificationVisibleSql()}`).bind(userId).first<{ c: number }>();
   return row?.c ?? 0;
 }
 
@@ -333,18 +375,28 @@ notificationsApi.get('/', async (c) => {
   const limit = Math.min(LIST_CAP, Math.max(1, Number(c.req.query('limit')) || DEFAULT_LIMIT));
   const before = Number(c.req.query('before')) || 0;
   const userId = c.get('user').id;
-  let sql = `SELECT * FROM notifications WHERE user_id = ?`;
+  let cursor:{userId:string;at:number;id:string}|null=null;
+  if(c.req.query('cursor')){try{cursor=JSON.parse(atob(c.req.query('cursor')!));if(!cursor||cursor.userId!==userId||!Number.isSafeInteger(cursor.at)||typeof cursor.id!=='string'||!cursor.id.length||cursor.id.length>128)throw new Error();}catch{return c.json({error:'invalid_cursor'},400);}}
+  let sql = `SELECT *,${notificationVisibleSql()} AS currently_visible FROM notifications WHERE user_id = ?`;
   const binds: (string | number)[] = [userId];
-  if (before > 0) {
+  if(cursor){sql+=' AND (created_at < ? OR (created_at = ? AND id < ?))';binds.push(cursor.at,cursor.at,cursor.id);}
+  else if (before > 0) {
     sql += ' AND created_at < ?';
     binds.push(before);
   }
-  sql += ' ORDER BY created_at DESC LIMIT ?';
+  sql += ' ORDER BY created_at DESC,id DESC LIMIT ?';
   binds.push(limit + 1);
   const { results } = await c.env.DB.prepare(sql).bind(...binds).all<NotifRow>();
   const page = results.slice(0, limit);
+  // Stored title/body/items are historical copies of record content. While permissions are
+  // enabled each is shown only if the recipient can read its target NOW; otherwise a neutral
+  // "Restricted item" row keeps the inbox order without the copy (design review §5).
+  const decision = await createReadGate(c.env.DB, userId).decide(page.map((r) => r.target_id).filter((id): id is string => !!id));
+  const shown = (r: NotifRow) => !decision.enabled || (r.currently_visible===1 && !!r.target_id && decision.readable.has(r.target_id));
+  const safeSerialize=(r:NotifRow)=>{const value=serialize(r);if(decision.enabled && value.items.some(i=>i.targetId!==r.target_id))return {...value,title:'Activity on an accessible item',body:null,items:[],groupCount:1};return value;};
   return c.json({
-    notifications: page.map(serialize),
+    notifications: page.map((r) => (shown(r) ? safeSerialize(r) : { ...serialize({ ...r, title: 'Restricted item', body: null, url: null, items: null }), actorId:null,targetType:null,groupKey:null,groupCount:0,targetId: null, restricted: true })),
+    nextCursor:results.length>limit?btoa(JSON.stringify({userId,at:page[page.length-1].created_at,id:page[page.length-1].id})):null,
     nextBefore: results.length > limit ? page[page.length - 1].created_at : null,
   });
 });
@@ -357,19 +409,19 @@ notificationsApi.get('/badge', async (c) => {
 
 notificationsApi.post('/:id/read', async (c) => {
   const user = c.get('user');
-  const res = await c.env.DB.prepare('UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL')
+  const res = await c.env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL AND ${notificationVisibleSql()}`)
     .bind(Date.now(), c.req.param('id'), user.id)
     .run();
   if (!(res.meta.changes ?? 0)) {
     // Either not their row, unknown id, or already read — distinguish only own-row.
-    const row = await c.env.DB.prepare('SELECT id FROM notifications WHERE id = ? AND user_id = ?').bind(c.req.param('id'), user.id).first();
+    const row = await c.env.DB.prepare(`SELECT id FROM notifications WHERE id = ? AND user_id = ? AND ${notificationVisibleSql()}`).bind(c.req.param('id'), user.id).first();
     if (!row) return c.json({ error: 'not found' }, 404);
   }
   return c.json({ ok: true });
 });
 
 notificationsApi.post('/read-all', async (c) => {
-  const res = await c.env.DB.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL')
+  const res = await c.env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL AND ${notificationVisibleSql()}`)
     .bind(Date.now(), c.get('user').id)
     .run();
   return c.json({ ok: true, updated: res.meta.changes ?? 0 });

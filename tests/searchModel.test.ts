@@ -1,0 +1,7 @@
+import {it,expect} from 'vitest';
+import {prefixMatch,mergeSearch,SearchEpoch,localSearchVisibility} from '../src/core/searchModel';
+it('shares Unicode word-prefix semantics and does not match substrings',()=>{expect(prefixMatch('jalapeno cult','Jalapeño cultivar')).toBe(true);expect(prefixMatch('ulk','Bulk')).toBe(false);});
+it('deduplicates local/server results, retaining current server metadata',()=>{const base={id:'r',type:'page',title:'old',url:'/pages/r'};expect(mergeSearch([{...base,source:'local'}],[{...base,title:'current',source:'server'}])).toEqual([{...base,title:'current',source:'server'}]);});
+it('invalidates in-flight work across queries, account replacement and authority changes',()=>{const epoch=new SearchEpoch(),one=epoch.begin();expect(epoch.current(one)).toBe(true);const two=epoch.begin();expect(epoch.current(one)).toBe(false);expect(epoch.current(two)).toBe(true);epoch.invalidate();expect(epoch.current(two)).toBe(false);});
+
+it('uses canonical ancestry for cached search, excluding archived/deleted or missing parents and allowing restoration',()=>{const parent={id:'parent',collection:'pages',data:{archived:true}},child={id:'child',collection:'pages',data:{parentId:'parent'}};expect(localSearchVisibility([parent,child])('child')).toBe(false);expect(localSearchVisibility([{...parent,data:{archived:false}},child])('child')).toBe(true);expect(localSearchVisibility([{...parent,data:{deleted:true}},child])('child')).toBe(false);expect(localSearchVisibility([child])('child')).toBe(false);});

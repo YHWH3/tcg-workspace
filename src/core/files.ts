@@ -1,3 +1,5 @@
+import {reserveDownloadedCache} from './cacheBudget';
+import { PERMISSION_PROTOCOL } from '../../shared/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { authStore } from './auth';
@@ -7,8 +9,11 @@ import { db, type BlobRow, type BlobState, type LocalRow } from './db';
 import { mutate, syncStore } from './sync/engine';
 import { createStore, useStore } from './store';
 import { uuid } from './utils';
+import { accessClientStore } from './accessClient';
 
 import { kindOf } from '../../shared/filekinds';
+import { thumbnailParentId } from '../../shared/fileOwnership';
+import { renderableBlob } from './renderable';
 import { driveEmbed } from './drive';
 export type { FileKind, ParentType } from '../../shared/filekinds';
 import type { FileKind, ParentType } from '../../shared/filekinds';
@@ -232,7 +237,10 @@ export async function deleteFile(fileId: string): Promise<void> {
   const meta = await db.files.get(fileId);
   await mutate('files', fileId, { deleted: true });
   const ids = [fileId, meta?.thumbId as string | undefined].filter(Boolean) as string[];
-  if (meta?.thumbId) await mutate('files', String(meta.thumbId), { deleted: true });
+  // In permission-aware sync a thumbnail without its own canonical row inherits cleanup
+  // from the main tombstone. Do not create an orphan metadata tombstone that
+  // the server must reject. Preserve the legacy protocol's historical queue.
+  if (meta?.thumbId && (accessClientStore.get().manifest?.protocol !== PERMISSION_PROTOCOL || await db.files.get(String(meta.thumbId)))) await mutate('files', String(meta.thumbId), { deleted: true });
   await db.blobs.bulkDelete(ids);
 }
 
@@ -249,11 +257,14 @@ export function useBlobState(fileId: string | undefined): BlobState | undefined 
 
 /* ---------- upload queue (called from the sync engine) ---------- */
 
-async function putChunk(fileId: string, idx: number, data: Blob): Promise<void> {
+async function putChunk(fileId: string, idx: number, data: Blob, assertCurrent: () => void): Promise<void> {
+  assertCurrent();
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(`/api/files/${fileId}/chunks/${idx}`, { method: 'PUT', headers, body: await data.arrayBuffer() });
+  const body = await data.arrayBuffer(); assertCurrent();
+  const res = await fetch(`/api/files/${fileId}/chunks/${idx}`, { method: 'PUT', headers, body });
+  assertCurrent();
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new ApiError(res.status, body?.error ?? `HTTP ${res.status}`);
@@ -261,19 +272,31 @@ async function putChunk(fileId: string, idx: number, data: Blob): Promise<void> 
 }
 
 /** Upload pending blobs chunk-by-chunk (resumable), complete, then transcribe voice memos. */
-export async function uploadPendingBlobs(): Promise<void> {
+export async function uploadPendingBlobs(checkSession: () => void = () => {}): Promise<void> {
+  const uid = localStorage.getItem('ws_uid'), token = getToken(), epoch = accessClientStore.get().epoch;
+  const assertCurrent = () => {
+    checkSession();
+    if (localStorage.getItem('ws_uid') !== uid || getToken() !== token || accessClientStore.get().epoch !== epoch) throw new Error('media_access_changed');
+  };
+  assertCurrent();
   const pending = await db.blobs.where('state').equals('pending').toArray();
   for (const row of pending) {
     try {
-      if ((await db.files.get(row.id))?.deleted) { await db.blobs.delete(row.id); continue; }
+      assertCurrent();
+      const file = await db.files.get(row.id); assertCurrent();
+      if (file?.deleted) { await db.blobs.delete(row.id); continue; }
       const total = chunkCount(row.blob.size);
       for (let i = row.uploadedChunks; i < total; i++) {
-        await putChunk(row.id, i, chunkSlice(row.blob, i));
+        await putChunk(row.id, i, chunkSlice(row.blob, i), assertCurrent);
+        assertCurrent();
         await db.blobs.update(row.id, { uploadedChunks: i + 1 });
       }
+      assertCurrent();
       await api(`/api/files/${row.id}/complete`, { method: 'POST', body: { mime: row.blob.type, size: row.blob.size, chunks: total } });
+      assertCurrent();
       await db.blobs.update(row.id, { state: 'uploaded' });
     } catch (e) {
+      assertCurrent();
       if (e instanceof ApiError && (e.status === 410 || e.status === 413 || e.status === 507)) {
         await db.blobs.update(row.id, { state: 'failed', error: e.message });
         toast(`Upload failed: ${e.message}`, 'error');
@@ -283,22 +306,25 @@ export async function uploadPendingBlobs(): Promise<void> {
       throw e; // transient → abort the pass; next sync retries
     }
   }
-  await transcribePending();
+  await transcribePending(assertCurrent);
 }
 
 /** After a successful upload, transcribe audio attachments flagged pending. */
-async function transcribePending(): Promise<void> {
+async function transcribePending(assertCurrent: () => void): Promise<void> {
   const all = (await db.files.toArray()) as FileRow[];
   for (const f of all) {
+    assertCurrent();
     if (f.deleted || f.transcriptState !== 'pending') continue;
     const blob = await db.blobs.get(f.id);
     if (!blob || blob.state !== 'uploaded') continue;
     try {
       const { text } = await api<{ text: string }>(`/api/files/${f.id}/transcribe`, { method: 'POST', body: {} });
+      assertCurrent();
       await mutate('files', f.id, { transcript: text, transcriptState: 'done' });
       if (f.parentType === 'task' && f.parentId) await applyTranscriptToTask(String(f.parentId), text);
       else if (f.parentType === 'block' && f.parentId) await applyTranscriptToBlock(f, text);
     } catch (e) {
+      assertCurrent(); // access interruptions never consume transcription attempts
       // Permanent errors (bad input, too large) fail immediately; transient
       // errors (network, auth, AI 5xx) stay 'pending' and retry — but cap the
       // attempts so a file Whisper can't handle doesn't retry forever.
@@ -333,6 +359,38 @@ async function applyTranscriptToBlock(file: FileRow, text: string): Promise<void
 
 /* ---------- useFileUrl ---------- */
 
+interface MediaAccess { uid: string | null; token: string | null; epoch: number }
+export function captureMediaAccess(): MediaAccess { return { uid: localStorage.getItem('ws_uid'), token: getToken(), epoch: accessClientStore.get().epoch }; }
+function mediaAccessCurrent(access: MediaAccess) {
+  const current = accessClientStore.get();
+  return localStorage.getItem('ws_uid') === access.uid && getToken() === access.token && current.epoch === access.epoch
+    && (current.manifest?.protocol !== PERMISSION_PROTOCOL || current.status === 'ready' || current.status === 'offline');
+}
+class MediaAccessChanged extends Error {}
+
+/** A completed response is not permission to repopulate an evicted cache. */
+export async function cacheDownloadedFile(fileId: string, blob: Blob, access: MediaAccess, stillMounted: () => boolean): Promise<boolean> {
+  const current = () => mediaAccessCurrent(access) && stillMounted();
+  if (!current()) return false;
+  try {
+    return await db.transaction('rw', [db.files, db.blobs,db.mediaCache,db.meta,db.outbox], async () => {
+      let file = await db.files.get(fileId);
+      const parentId = thumbnailParentId(fileId);
+      if (!file && parentId) {
+        const parent = await db.files.get(parentId);
+        if (parent?.thumbId === fileId) file = parent;
+      }
+      if (!file || file.deleted || !current()) return false;
+      const original=await db.blobs.get(fileId);
+      if(original&&original.state!=='cached')return true;
+      if(!await reserveDownloadedCache(db,fileId,blob.size))return false;
+      await db.blobs.put({ id: fileId, blob, state: 'cached', uploadedChunks: 0, mime: blob.type });
+      if (!current()) throw new MediaAccessChanged();
+      return true;
+    });
+  } catch (error) { if (error instanceof MediaAccessChanged) return false; throw error; }
+}
+
 /**
  * Object URL for a file's blob. Local Dexie copy wins; if absent and online,
  * downloads with the bearer token and caches it. Returns undefined while the
@@ -349,13 +407,17 @@ export function useFileUrl(fileId: string | undefined, preferId?: string | undef
   useEffect(() => {
     let revoke: string | undefined;
     let cancelled = false;
+    const access = captureMediaAccess();
     setMissing(false);
     (async () => {
       if (!target) return;
       const row = await db.blobs.get(target);
       if (cancelled) return;
       if (row) {
-        revoke = URL.createObjectURL(row.blob);
+        if(row.state==='cached'&&mediaAccessCurrent(access))await db.mediaCache.update(target,{lastUsed:Date.now()});
+        const safe = await renderableBlob(row.blob);
+        if (cancelled) return;
+        revoke = URL.createObjectURL(safe);
         setUrl(revoke);
         return;
       }
@@ -370,9 +432,9 @@ export function useFileUrl(fileId: string | undefined, preferId?: string | undef
           return;
         }
         const blob = await res.blob();
-        await db.blobs.put({ id: target, blob, state: 'cached', uploadedChunks: 0, mime: blob.type });
-        if (cancelled) return;
-        revoke = URL.createObjectURL(blob);
+        const cached = await cacheDownloadedFile(target, blob, access, () => !cancelled);
+        if (!cached || cancelled) return;
+        revoke = URL.createObjectURL(await renderableBlob(blob));
         setUrl(revoke);
       } catch {
         setMissing(true);

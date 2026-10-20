@@ -1,3 +1,4 @@
+import {HistoryButton} from '../History';
 /**
  * RecordDetail — generic record page body for both tasks and records.
  * Section order (spec §4.4): title → stage/builtins → all fields (incl.
@@ -93,7 +94,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           {String(board.icon ?? '')} {String(board.name ?? '')}
         </span>
         <span className="flex-1" />
-        <PresenceStack path={`/boards/${board.id}/tasks/${rec.id}`} />
+        <PresenceStack path={`/boards/${board.id}/tasks/${rec.id}`} /><HistoryButton recordId={rec.id}/>
         <Popover
           align="right"
           trigger={

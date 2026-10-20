@@ -6,6 +6,37 @@ import { promisify } from 'node:util';
 import { dirname, join } from 'node:path';
 import { tmpdir, platform } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { setDefaultResultOrder, getDefaultResultOrder } from 'node:dns';
+
+/** Prefer IPv4 for certification and its owned Node children (npm and Miniflare)
+ * when IPv6 routes reset connections. Preserve address fallback, TLS checks and
+ * existing Node options; no OS settings or production Worker behavior change. */
+export function configureCertificationNetwork(env=process.env) {
+  setDefaultResultOrder('ipv4first');
+  const flag='--dns-result-order=ipv4first',existing=(env.NODE_OPTIONS??'').trim();
+  if(!existing.endsWith(flag))env.NODE_OPTIONS=`${existing} ${flag}`.trim();
+  return {dnsResultOrder:getDefaultResultOrder(),scope:'certification and owned Node children'};
+}
+
+/** Local fixture reads can race a closed keep-alive socket after Wrangler CLI
+ * fixture updates. Retry one transport failure only for GET/HEAD. Never retry a
+ * write or an HTTP error, and never hide a repeatedly unavailable server. */
+export async function fetchFixtureApi(url,init={},fetchImpl=fetch) {
+  const target=new URL(url);
+  if(target.username||target.password)throw new Error('Fixture API URL must not contain credentials');
+  localOrigin(target.origin);
+  // Wrangler CLI updates can outlast the server's idle-socket timeout. These
+  // local test requests need a fresh socket, especially POST security probes
+  // which must never be replayed automatically after an ambiguous failure.
+  const headers=new Headers(init.headers);headers.set('Connection','close');
+  const method=(init.method??'GET').toUpperCase(),attempts=['GET','HEAD'].includes(method)?2:1;
+  for(let attempt=1;attempt<=attempts;attempt++) {
+    try{return await fetchImpl(url,{...init,headers});}catch(error){
+      if(attempt===attempts)throw new Error(`Fixture API ${method} ${target.pathname} transport failed after ${attempt} attempt${attempt===1?'':'s'} (${error?.cause?.code??error?.code??error?.name??'unknown'})`,{cause:error});
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+  }
+}
 
 /** A temporary assertion, tied to this process; never changes power settings.
  * macOS may still suspend on explicit lid closure. Such interrupted runs fail. */

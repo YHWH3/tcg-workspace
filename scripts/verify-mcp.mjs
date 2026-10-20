@@ -6,6 +6,7 @@ import {verifyOAuthSecurity} from './phase4-oauth-security.mjs';
 // Usage: node scripts/verify-mcp.mjs [base]   default http://localhost:8788
 import { createCertificationReporter, localOrigin } from './certification-report.mjs';
 import { assertionManifests } from './certification-manifests.mjs';
+import { fetchFixtureApi } from './certification/core.mjs';
 const certification = createCertificationReporter('verify-mcp', assertionManifests['verify-mcp']);
 import { chromium } from 'playwright';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -71,7 +72,7 @@ const api = async (path, { method = 'GET', token, body, form, raw, cookie } = {}
   if (cookie) headers.Cookie = cookie;
   if (body) headers['Content-Type'] = 'application/json';
   if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  const res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
+  const res = await fetchFixtureApi(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
   if (raw) return res;
   const text = await res.text();
   let data = null;
@@ -421,26 +422,42 @@ await verifyOAuthSecurity({api,check,BASE,USER,PASS});
 console.log('\n== deleted user token ==');
 // Snapshot a spare user's row, delete it, expect 401, restore it.
 const secondToken = accessToken; // token is bound to USER; delete USER and restore
-const { execFileSync } = await import('node:child_process');
+const { execFile } = await import('node:child_process');
+const { promisify } = await import('node:util');
+const execFileAsync = promisify(execFile);
 const d1Args = ['wrangler', 'd1', 'execute', 'workspace-db', '--local', '--config', configPath, '--persist-to', statePath];
-const d1 = (args) => execFileSync('npx', [...d1Args, ...args], { cwd: process.cwd() }).toString();
-const rowJson = d1(['--json', '--command', `SELECT * FROM users WHERE username='${USER}'`]);
+const d1 = async (args) => (await execFileAsync('npx', [...d1Args, ...args], { cwd: process.cwd(), timeout: 180_000 })).stdout;
+// A disabled principal must be refused at REST, consent and every MCP request,
+// even if its issued OAuth grant still exists. These are disposable users only.
+try {
+  await d1(['--command', `UPDATE users SET disabled_at=1 WHERE username='${USER}'`]);
+  const disabledMcp = await api('/mcp', { method: 'POST', token: accessToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
+  check('disabled user OAuth token rejected', disabledMcp.status === 401, `status=${disabledMcp.status}`);
+  const disabledLogin = await api('/api/auth/login', { method: 'POST', body: { username: USER, password: PASS } });
+  check('disabled user password login rejected', disabledLogin.status === 401, `status=${disabledLogin.status}`);
+  const disabledDance = await authorize();
+  const disabledHandle = disabledDance.html.match(/name="handle" value="([^"]+)"/)?.[1];
+  const disabledPath = `/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: 'http://localhost:8123/cb', state: disabledDance.state, code_challenge: b64url(crypto.createHash('sha256').update(disabledDance.verifier).digest()), code_challenge_method: 'S256', resource, scope: 'mcp' })}`;
+  const disabledConsent = await api(disabledPath, { method: 'POST', cookie: disabledDance.cookie, form: { handle: disabledHandle, username: USER, password: PASS, decision: 'allow' } });
+  check('disabled user OAuth consent rejected', disabledConsent.status === 401 && !disabledConsent.headers.get('location'), `status=${disabledConsent.status}`);
+} finally { await d1(['--command', `UPDATE users SET disabled_at=NULL WHERE username='${USER}'`]); }
+const rowJson = await d1(['--json', '--command', `SELECT * FROM users WHERE username='${USER}'`]);
 const rows = JSON.parse(rowJson);
 const row = Array.isArray(rows) ? rows[0]?.results?.[0] : rows.results?.[0];
-d1(['--command', `DELETE FROM users WHERE username='${USER}'`]);
+await d1(['--command', `DELETE FROM users WHERE username='${USER}'`]);
 await new Promise((r) => setTimeout(r, 400));
 const dead = await api('/mcp', { method: 'POST', token: accessToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
 check('token with deleted user → 401', dead.status === 401, `status=${dead.status}`);
 if (row) {
   const cols = Object.keys(row).join(', ');
   const vals = Object.values(row).map((v) => (v === null ? 'NULL' : `'${String(v).replaceAll("'", "''")}'`)).join(', ');
-  d1(['--command', `INSERT INTO users (${cols}) VALUES (${vals})`]);
+  await d1(['--command', `INSERT INTO users (${cols}) VALUES (${vals})`]);
   const back = await api('/api/auth/login', { method: 'POST', body: { username: USER, password: PASS } });
   check('restored user can log in again', !!back.data.token);
 }
 const sessionProbe=await api('/api/auth/login',{method:'POST',body:{username:USER,password:PASS}});
 const sessionHash=crypto.createHash('sha256').update(sessionProbe.data.token).digest('hex');
-d1(['--command',`UPDATE sessions SET expires_at=0 WHERE token_hash='${sessionHash}'`]);
+await d1(['--command',`UPDATE sessions SET expires_at=0 WHERE token_hash='${sessionHash}'`]);
 check('security: expired workspace session is rejected',(await api('/api/me',{token:sessionProbe.data.token})).status===401);
 const recoveredSession=await api('/api/auth/login',{method:'POST',body:{username:USER,password:PASS}});
 check('security: expired workspace session recovers by login',recoveredSession.status===200&&!!recoveredSession.data.token);

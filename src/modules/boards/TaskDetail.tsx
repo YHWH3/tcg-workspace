@@ -1,3 +1,4 @@
+import {HistoryButton} from '../../core/History';
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Archive, ArchiveRestore, ImagePlus, Paperclip, Trash2, X } from 'lucide-react';
@@ -97,7 +98,7 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
           <span>{String(board?.icon ?? '🗂️')}</span> {String(board?.name ?? 'Board')}
         </span>
         <div className="flex items-center gap-1">
-          <PresenceStack path={`/boards/${taskBoardId(task)}/tasks/${task.id}`} />
+          <PresenceStack path={`/boards/${taskBoardId(task)}/tasks/${task.id}`} /><HistoryButton recordId={task.id}/>
           <IconButton aria-label={isArchived(task) ? 'Unarchive task' : 'Archive task'} onClick={() => void setTaskField(task.id, archivePatch(!isArchived(task)))}>
             {isArchived(task) ? <ArchiveRestore size={15} /> : <Archive size={15} />}
           </IconButton>

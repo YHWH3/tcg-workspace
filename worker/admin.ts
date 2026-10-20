@@ -3,13 +3,14 @@ import { inviteCode, requireAdmin, requireAuth, MAX_USERS } from './auth';
 import type { Env, AuthUser } from './auth';
 import type { PublicUser } from '../shared/types';
 import { maintainDateIndex } from './events';
+import { revokeAllGrants } from './ratelimit';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 admin.use('*', requireAuth);
 
 admin.get('/users', async (c) => {
   const { results } = await c.env.DB
-    .prepare('SELECT id, username, name, role, color, created_at FROM users ORDER BY created_at')
+    .prepare(`SELECT id, username, name, role, color, created_at FROM users WHERE id=? OR COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest' ORDER BY created_at`).bind(c.get('user').id,c.get('user').id)
     .all<PublicUser & { created_at: number }>();
   return c.json({ users: results.map(({ created_at: _created_at, ...u }) => u), seatsTotal: MAX_USERS });
 });
@@ -54,28 +55,29 @@ admin.patch('/users/:id', requireAdmin, async (c) => {
   return c.json({ ok: true });
 });
 
-// Phase 4 §5 (Workstream B): one-shot backfill after migration 0007 — resync
-// date_index for every tasks row. Safe to re-run (delete + insert per record).
-// Doc-mandated path (other admin routes keep the historical /api/<x> shape).
+// Phase 4 §5 (Workstream B): backfill after migration 0007 — resync date_index
+// for every tasks row. Safe to re-run (delete + insert per record). Paginated by
+// a keyset cursor: one request handles a bounded page (a request has a fixed D1
+// call budget, and the previous single call silently stopped at 5,000 rows).
+// Repeat with `?after=<next>` until `next` is null.
+const REINDEX_PAGE = 400;
 admin.post('/admin/reindex-dates', requireAdmin, async (c) => {
+  const after = c.req.query('after') ?? '';
   const { results } = await c.env.DB
-    .prepare(`SELECT id, data FROM records WHERE collection = 'tasks' LIMIT 5000`)
+    .prepare(`SELECT id, data FROM records WHERE collection = 'tasks' AND id > ? ORDER BY id LIMIT ?`)
+    .bind(after, REINDEX_PAGE)
     .all<{ id: string; data: string }>();
-  let reindexed = 0;
-  for (let i = 0; i < results.length; i += 200) {
-    const applied = results.slice(i, i + 200).map((r) => {
-      let data: Record<string, unknown> = {};
-      try {
-        data = JSON.parse(r.data) as Record<string, unknown>;
-      } catch {
-        /* keep empty — maintainDateIndex will just clear its rows */
-      }
-      return { id: r.id, collection: 'tasks', created: false, fields: [] as string[], before: {}, after: data };
-    });
-    await maintainDateIndex(c.env, applied, true);
-    reindexed += applied.length;
-  }
-  return c.json({ ok: true, reindexed });
+  const applied = results.map((r) => {
+    let data: Record<string, unknown> = {};
+    try {
+      data = JSON.parse(r.data) as Record<string, unknown>;
+    } catch {
+      /* keep empty — maintainDateIndex will just clear its rows */
+    }
+    return { id: r.id, collection: 'tasks', created: false, fields: [] as string[], before: {}, after: data };
+  });
+  if (applied.length) await maintainDateIndex(c.env, applied, true);
+  return c.json({ ok: true, reindexed: applied.length, next: results.length === REINDEX_PAGE ? results[results.length - 1].id : null });
 });
 
 admin.delete('/users/:id', requireAdmin, async (c) => {
@@ -92,5 +94,16 @@ admin.delete('/users/:id', requireAdmin, async (c) => {
     c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target),
     c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(target),
   ]);
+  if (target) await revokeAllGrants(c.env, target);
   return c.json({ ok: true });
+});
+
+// Phase 5 search index recovery: mark a keyset page of documents dirty and rebuild one chunk.
+// Repeat with `?after=<next>` until `next` is null; the cron drains the rest. The index is
+// derived data: rebuilding never changes records.
+admin.post('/admin/reindex-search', requireAdmin, async (c) => {
+  const { enqueueSearchRebuild, processSearchDirty } = await import('./search');
+  const queued = await enqueueSearchRebuild(c.env, c.req.query('after') ?? '');
+  const rebuilt = await processSearchDirty(c.env);
+  return c.json({ ok: true, queued: queued.queued, rebuilt, next: queued.next });
 });

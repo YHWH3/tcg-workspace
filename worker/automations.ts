@@ -5,6 +5,7 @@
 // Replay-safe via automation_runs.event_key UNIQUE; automation-sourced events
 // never re-trigger (the processOutbox depth-1 loop guard).
 
+import { createReadGate, withReadGate } from './readAccess';
 import { Hono } from 'hono';
 import type { SemanticEvent } from '../shared/events';
 import type { EventSource } from './events';
@@ -30,7 +31,8 @@ import type { ViewCtx } from '../shared/views';
 import { coerceFieldValue, fieldsOf, type FieldDef } from '../shared/fields';
 import { addDays, todayUtc } from '../shared/recurrence';
 import { linkId } from '../shared/linkid';
-import { planTemplateInstantiation, type RecSnapshot } from '../shared/templates';
+import { planTemplateInstantiation } from '../shared/templates';
+import { loadTemplateSnapshot } from './templateSnapshot';
 import { fnv1a64hex } from '../shared/linkid';
 import type { Mutation } from '../shared/types';
 import { completedRecords, executionOptions, executionFence, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
@@ -174,7 +176,7 @@ async function planActions(
       case 'create_from_template': {
         if (!a.templateId) throw new Error(`action ${i}: templateId required`);
         let templateIndex=0;
-        const plan = planTemplateInstantiation(await loadSnapshot(env), {
+        const plan = planTemplateInstantiation(await loadTemplateSnapshot(env, a.templateId), {
           templateId: a.templateId,
           variables: Object.fromEntries(Object.entries(a.vars ?? {}).map(([k, v]) => [k, String(render(v) ?? '')])),
           actorId: ctx.userId,
@@ -258,15 +260,6 @@ async function planActions(
   }
   if (ops.length > MAX_ACTION_RECORDS) throw new Error(`too many writes (${ops.length} > ${MAX_ACTION_RECORDS})`);
   return { ops, side, memberIds };
-}
-
-async function loadSnapshot(env: Env): Promise<RecSnapshot> {
-  const [pages, blocks, boards, tasks, views, links] = await Promise.all([
-    listCollection(env, 'pages'), listCollection(env, 'blocks'), listCollection(env, 'boards'),
-    listCollection(env, 'tasks'), listCollection(env, 'views'), listCollection(env, 'links'),
-  ]);
-  const map = (rs: { id: string; data: Record<string, unknown> }[]) => Object.fromEntries(rs.map((r) => [r.id, r.data]));
-  return { pages: map(pages), blocks: map(blocks), boards: map(boards), tasks: map(tasks), views: map(views), links: map(links) };
 }
 
 /** Synthetic `record.field_changed` event for a date_offset hit (cron §5.4 contract). */
@@ -727,6 +720,8 @@ export const automationsApi = new Hono<{ Bindings: Env; Variables: { user: AuthU
 automationsApi.use('*', requireAuth);
 
 automationsApi.get('/:id/runs', async (c) => {
+  // Run history (status/error) belongs to readers of the automation (permissions enabled).
+  if (!(await createReadGate(c.env.DB, c.get('user').id).canRead(c.req.param('id')))) return c.json({ runs: [] });
   const { results } = await c.env.DB.prepare(
     'SELECT id, automation_id, event_key, changeset_id, status, error, created_at FROM automation_runs WHERE automation_id = ? ORDER BY created_at DESC LIMIT 50'
   ).bind(c.req.param('id')).all();
@@ -734,7 +729,7 @@ automationsApi.get('/:id/runs', async (c) => {
 });
 
 automationsApi.get('/:id/validate', async (c) => {
-  const rec = await getRec(c.env, c.req.param('id'));
+  const rec = await getRec(withReadGate(c.env, c.get('user').id), c.req.param('id'));
   if (!rec || rec.collection !== 'automations') return c.json({ error: 'not found' }, 404);
   const cfg = rec.data as AutomationConfig;
   const errors = validateAutomation(cfg, await loadValidationCtx(c.env, cfg, [], true));

@@ -21,6 +21,7 @@ let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let syncDebounce: ReturnType<typeof setTimeout> | undefined;
 let started = false;
+let listenersInstalled = false;
 
 /** True while the live socket is connected (engine polls slower then). */
 export function liveConnected(): boolean {
@@ -47,6 +48,7 @@ async function onChanged(): Promise<void> {
 }
 
 function connect(): void {
+  if (!started) return;
   const token = getToken();
   if (!token || ws) return;
   const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/live`;
@@ -112,7 +114,10 @@ export function startPresence(): void {
   if (started) return;
   started = true;
   connect();
+  if (listenersInstalled) return;
+  listenersInstalled = true;
   document.addEventListener('visibilitychange', () => {
+    if (!started) return;
     if (document.visibilityState === 'hidden') {
       // Stop burning the socket while the tab is in the background.
       hiddenTimer = setTimeout(teardown, 60000);
@@ -121,4 +126,11 @@ export function startPresence(): void {
       if (!ws) connect();
     }
   });
+}
+
+/** Stop old credentials and clear presence immediately on account/access lock. */
+export function stopPresence(): void {
+  started = false;
+  clearTimeout(reconnectTimer); clearTimeout(hiddenTimer); clearTimeout(syncDebounce);
+  teardown();
 }

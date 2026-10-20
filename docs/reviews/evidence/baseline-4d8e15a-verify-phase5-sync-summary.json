@@ -1,0 +1,575 @@
+{
+  "commit": "4d8e15af1727dafc41cb9c60a7c66e2a00c8de52",
+  "script": "scripts/verify-phase5-sync.mjs",
+  "note": "Sanitized from the runner result JSON (stack traces and local paths removed). Raw results were kept under the git-ignored .artifacts/ directory.",
+  "runs": {
+    "A (CERT_ARTIFACT_DIR set; all engines)": {
+      "status": "FAIL",
+      "summary": {
+        "pass": 17,
+        "fail": 14,
+        "notRun": 0,
+        "blocking": 14,
+        "total": 31
+      },
+      "allMandatoryAssertionsExecuted": false,
+      "browserVersions": {
+        "chromium": "153.0.8010.12",
+        "firefox": "155.0",
+        "webkit": "26.6"
+      },
+      "results": [
+        {
+          "engine": "chromium",
+          "test": "legacy Core startup remains functional",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "startup gates cached views until current access is checked",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "offline edit survives browser close and is quarantined after revocation",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "regrant restores canonical content without replaying held work",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "another tab reconciles revocation before cached content reuse",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "access failure gates content and keyboard retry recovers",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "held-work review is redacted and explicit discard preserves D1",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "account replacement locks the old tab without clearing the new token",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "session controls confirm remote revocation and current-device signout",
+          "status": "FAIL",
+          "error": "tracing.start: Tracing has been already started"
+        },
+        {
+          "engine": "chromium",
+          "test": "engine execution",
+          "status": "FAIL",
+          "error": "tracing.start: Tracing has been already started"
+        },
+        {
+          "engine": "firefox",
+          "test": "legacy Core startup remains functional",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "startup gates cached views until current access is checked",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "offline edit survives browser close and is quarantined after revocation",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "regrant restores canonical content without replaying held work",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "another tab reconciles revocation before cached content reuse",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "access failure gates content and keyboard retry recovers",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "held-work review is redacted and explicit discard preserves D1",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "account replacement locks the old tab without clearing the new token",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "session controls confirm remote revocation and current-device signout",
+          "status": "FAIL",
+          "error": "tracing.start: Tracing has been already started"
+        },
+        {
+          "engine": "firefox",
+          "test": "engine execution",
+          "status": "FAIL",
+          "error": "tracing.start: Tracing has been already started"
+        },
+        {
+          "engine": "webkit",
+          "test": "legacy Core startup remains functional",
+          "status": "PASS"
+        },
+        {
+          "engine": "system",
+          "test": "unhandledRejection",
+          "status": "FAIL",
+          "error": "route.continue: Route is already handled!"
+        },
+        {
+          "engine": "webkit",
+          "test": "startup gates cached views until current access is checked",
+          "status": "FAIL",
+          "error": "locator.waitFor: Target page, context or browser has been closed"
+        },
+        {
+          "engine": "system",
+          "test": "runner completion",
+          "status": "FAIL",
+          "error": "Runner terminated before its completion checkpoint"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/offline edit survives browser close and is quarantined after revocation",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/regrant restores canonical content without replaying held work",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/another tab reconciles revocation before cached content reuse",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/access failure gates content and keyboard retry recovers",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/held-work review is redacted and explicit discard preserves D1",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/account replacement locks the old tab without clearing the new token",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/session controls confirm remote revocation and current-device signout",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        }
+      ]
+    },
+    "B (standalone; all engines)": {
+      "status": "FAIL",
+      "summary": {
+        "pass": 18,
+        "fail": 10,
+        "notRun": 0,
+        "blocking": 10,
+        "total": 28
+      },
+      "allMandatoryAssertionsExecuted": false,
+      "browserVersions": {
+        "chromium": "153.0.8010.12",
+        "firefox": "155.0",
+        "webkit": "26.6"
+      },
+      "results": [
+        {
+          "engine": "chromium",
+          "test": "legacy Core startup remains functional",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "startup gates cached views until current access is checked",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "offline edit survives browser close and is quarantined after revocation",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "regrant restores canonical content without replaying held work",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "another tab reconciles revocation before cached content reuse",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "access failure gates content and keyboard retry recovers",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "held-work review is redacted and explicit discard preserves D1",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "account replacement locks the old tab without clearing the new token",
+          "status": "PASS"
+        },
+        {
+          "engine": "chromium",
+          "test": "session controls confirm remote revocation and current-device signout",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "legacy Core startup remains functional",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "startup gates cached views until current access is checked",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "offline edit survives browser close and is quarantined after revocation",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "regrant restores canonical content without replaying held work",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "another tab reconciles revocation before cached content reuse",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "access failure gates content and keyboard retry recovers",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "held-work review is redacted and explicit discard preserves D1",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "account replacement locks the old tab without clearing the new token",
+          "status": "PASS"
+        },
+        {
+          "engine": "firefox",
+          "test": "session controls confirm remote revocation and current-device signout",
+          "status": "PASS"
+        },
+        {
+          "engine": "webkit",
+          "test": "legacy Core startup remains functional",
+          "status": "FAIL",
+          "error": "Expected values to be strictly equal: | + actual - expected | + ''"
+        },
+        {
+          "engine": "webkit",
+          "test": "engine execution",
+          "status": "FAIL",
+          "error": "Expected values to be strictly equal: | + actual - expected | + ''"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/startup gates cached views until current access is checked",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/offline edit survives browser close and is quarantined after revocation",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/regrant restores canonical content without replaying held work",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/another tab reconciles revocation before cached content reuse",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/access failure gates content and keyboard retry recovers",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/held-work review is redacted and explicit discard preserves D1",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/account replacement locks the old tab without clearing the new token",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/session controls confirm remote revocation and current-device signout",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        }
+      ]
+    },
+    "WebKit-only repeat 1": {
+      "status": "PASS",
+      "summary": {
+        "pass": 9,
+        "fail": 0,
+        "notRun": 0,
+        "blocking": 0,
+        "total": 9
+      },
+      "allMandatoryAssertionsExecuted": true,
+      "browserVersions": {
+        "webkit": "26.6"
+      },
+      "results": [
+        {
+          "engine": "webkit",
+          "test": "legacy Core startup remains functional",
+          "status": "PASS"
+        },
+        {
+          "engine": "webkit",
+          "test": "startup gates cached views until current access is checked",
+          "status": "PASS"
+        },
+        {
+          "engine": "webkit",
+          "test": "offline edit survives browser close and is quarantined after revocation",
+          "status": "PASS"
+        },
+        {
+          "engine": "webkit",
+          "test": "regrant restores canonical content without replaying held work",
+          "status": "PASS"
+        },
+        {
+          "engine": "webkit",
+          "test": "another tab reconciles revocation before cached content reuse",
+          "status": "PASS"
+        },
+        {
+          "engine": "webkit",
+          "test": "access failure gates content and keyboard retry recovers",
+          "status": "PASS"
+        },
+        {
+          "engine": "webkit",
+          "test": "held-work review is redacted and explicit discard preserves D1",
+          "status": "PASS"
+        },
+        {
+          "engine": "webkit",
+          "test": "account replacement locks the old tab without clearing the new token",
+          "status": "PASS"
+        },
+        {
+          "engine": "webkit",
+          "test": "session controls confirm remote revocation and current-device signout",
+          "status": "PASS"
+        }
+      ]
+    },
+    "WebKit-only repeat 2": {
+      "status": "FAIL",
+      "summary": {
+        "pass": 0,
+        "fail": 10,
+        "notRun": 0,
+        "blocking": 10,
+        "total": 10
+      },
+      "allMandatoryAssertionsExecuted": false,
+      "browserVersions": {
+        "webkit": "26.6"
+      },
+      "results": [
+        {
+          "engine": "webkit",
+          "test": "legacy Core startup remains functional",
+          "status": "FAIL",
+          "error": "Expected values to be strictly equal: | + actual - expected | + ''"
+        },
+        {
+          "engine": "webkit",
+          "test": "engine execution",
+          "status": "FAIL",
+          "error": "Expected values to be strictly equal: | + actual - expected | + ''"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/startup gates cached views until current access is checked",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/offline edit survives browser close and is quarantined after revocation",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/regrant restores canonical content without replaying held work",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/another tab reconciles revocation before cached content reuse",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/access failure gates content and keyboard retry recovers",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/held-work review is redacted and explicit discard preserves D1",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/account replacement locks the old tab without clearing the new token",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/session controls confirm remote revocation and current-device signout",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        }
+      ]
+    },
+    "WebKit-only repeat 3": {
+      "status": "FAIL",
+      "summary": {
+        "pass": 0,
+        "fail": 10,
+        "notRun": 0,
+        "blocking": 10,
+        "total": 10
+      },
+      "allMandatoryAssertionsExecuted": false,
+      "browserVersions": {
+        "webkit": "26.6"
+      },
+      "results": [
+        {
+          "engine": "webkit",
+          "test": "legacy Core startup remains functional",
+          "status": "FAIL",
+          "error": "Expected values to be strictly equal: | + actual - expected | + ''"
+        },
+        {
+          "engine": "webkit",
+          "test": "engine execution",
+          "status": "FAIL",
+          "error": "Expected values to be strictly equal: | + actual - expected | + ''"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/startup gates cached views until current access is checked",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/offline edit survives browser close and is quarantined after revocation",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/regrant restores canonical content without replaying held work",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/another tab reconciles revocation before cached content reuse",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/access failure gates content and keyboard retry recovers",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/held-work review is redacted and explicit discard preserves D1",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/account replacement locks the old tab without clearing the new token",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        },
+        {
+          "engine": "system",
+          "test": "webkit/session controls confirm remote revocation and current-device signout",
+          "status": "FAIL",
+          "error": "Mandatory suite checkpoint did not execute"
+        }
+      ]
+    }
+  }
+}

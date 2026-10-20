@@ -4,6 +4,7 @@
 // waitUntil; the cron sweeper recovers unprocessed rows. All semantic events
 // derive from successfully applied changes — never from client intentions.
 
+import { processSearchDirty } from './search';
 import { deriveEvents, type SemanticEvent, type AppliedLike } from '../shared/events';
 import type { AppliedChange } from './sync';
 import { notificationsForEvent, notify } from './notifications';
@@ -97,6 +98,10 @@ export async function processOutbox(env: { DB: D1Database }, outboxId: string): 
     await env.DB.prepare('UPDATE event_outbox SET processed_at=?,last_error=NULL,lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?')
       .bind(Date.now(), outboxId,lease)
       .run();
+    // Search freshness: rebuild one bounded chunk of dirty documents (the triggers already
+    // marked this write's documents). Best effort — the cron drains whatever remains, and
+    // queries match dirty documents live in the meantime.
+    if(hasD1Budget(env.DB,8)) await processSearchDirty(env).catch(()=>{});
   } catch (err) {
     if(err instanceof D1BudgetExhausted) {
       await d1CleanupDatabase(env.DB).prepare('UPDATE event_outbox SET attempts=MAX(0,attempts-1),last_error=?,lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?').bind(err.message,outboxId,lease).run();
@@ -123,10 +128,12 @@ export async function maintainDateIndex(env: { DB: D1Database }, applied: Applie
   }
   // Read and rebuild inside the same transaction. No stale JS snapshot can
   // overwrite a concurrent deadline edit, and sparse events are harmless.
-  for (const id of ids) {
-    await env.DB.batch([
-      env.DB.prepare('DELETE FROM date_index WHERE record_id=?').bind(id),
-      env.DB.prepare(`INSERT OR IGNORE INTO date_index(record_id,field_key,date)
+  // Many records share one binding call: each call spends the invocation's
+  // D1 budget, so one batch per record could never finish a board with more
+  // than ~40 tasks (the event retried the same prefix forever).
+  const rebuild = (id: string): D1PreparedStatement[] => [
+    env.DB.prepare('DELETE FROM date_index WHERE record_id=?').bind(id),
+    env.DB.prepare(`INSERT OR IGNORE INTO date_index(record_id,field_key,date)
         SELECT id, field_key, value FROM (
           SELECT t.id, 'dueDate' AS field_key, json_extract(t.data,'$.dueDate') AS value
           FROM records t LEFT JOIN records b ON b.id=COALESCE(json_extract(t.data,'$.boardId'),'board-default') AND b.collection='boards'
@@ -139,10 +146,16 @@ export async function maintainDateIndex(env: { DB: D1Database }, applied: Applie
           WHERE t.id=? AND t.collection='tasks' AND json_extract(f.value,'$.type')='date'
             AND COALESCE(json_extract(t.data,'$.deleted'),0)!=1 AND COALESCE(json_extract(t.data,'$.archived'),0)!=1
             AND COALESCE(json_extract(b.data,'$.deleted'),0)!=1 AND COALESCE(json_extract(b.data,'$.archived'),0)!=1
-        ) WHERE typeof(value)='text' AND length(value)=10 AND value GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(value)=value`).bind(id,id),
-    ]);
+        ) WHERE typeof(value)='text' AND length(value)=10 AND value GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(value)=value`).bind(id, id),
+  ];
+  const all = [...ids];
+  for (let i = 0; i < all.length; i += REINDEX_IDS_PER_BATCH) {
+    await env.DB.batch(all.slice(i, i + REINDEX_IDS_PER_BATCH).flatMap(rebuild));
   }
 }
+
+/** Records rebuilt per D1 binding call (two statements each). */
+const REINDEX_IDS_PER_BATCH = 50;
 
 // Re-exported for fan-out implementers.
 export { notify };

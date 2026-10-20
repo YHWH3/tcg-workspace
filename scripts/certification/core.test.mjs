@@ -8,6 +8,53 @@ import { runCommand, validateReport, validateVitest, validateSmoke, decision, fr
 const dir=mkdtempSync(join(tmpdir(),'tcg-cert-harness-'));
 const child=(code,options={})=>runCommand([process.execPath,'-e',code],{timeoutMs:5000,logPath:join(dir,Math.random()+'.log'),...options});
 const report=()=>({schemaVersion:1,runner:'fixture',sourceSha:'sha',mandatoryAssertionsExecuted:true,results:[{engine:'chromium',viewport:'compact',test:'assertion',status:'PASS',error:null}],summary:{pass:1,fail:0}});
+test('local API read retries a transport reset but returns the actual authorization response',async()=>{
+  const {fetchFixtureApi}=await import('./core.mjs');let calls=0;
+  const response=await fetchFixtureApi('http://127.0.0.1:8788/api/me',{},async()=>{
+    if(++calls===1)throw new TypeError('fetch failed',{cause:{code:'ECONNRESET'}});
+    return new Response('denied',{status:401});
+  });
+  assert.equal(calls,2);assert.equal(response.status,401);
+});
+test('local fixture requests use a fresh connection after external D1 CLI updates',async()=>{
+  const {fetchFixtureApi}=await import('./core.mjs');
+  await fetchFixtureApi('http://localhost:8788/mcp',{method:'POST',headers:{Authorization:'Bearer fixture-only'}},async(_,init)=>{
+    const headers=new Headers(init.headers);assert.equal(headers.get('connection'),'close');assert.equal(headers.get('authorization'),'Bearer fixture-only');
+    return new Response('denied',{status:401});
+  });
+});
+test('local API writes and HTTP failures are never retried',async()=>{
+  const {fetchFixtureApi}=await import('./core.mjs');let calls=0;
+  await assert.rejects(fetchFixtureApi('http://localhost:8788/token',{method:'POST'},async()=>{calls++;throw new Error('reset');}),/1 attempt/);
+  assert.equal(calls,1);calls=0;
+  const response=await fetchFixtureApi('http://localhost:8788/api/me',{},async()=>{calls++;return new Response('failure',{status:500});});
+  assert.equal(calls,1);assert.equal(response.status,500);
+});
+test('repeated local API transport failure stays failed with safe cause diagnostics',async()=>{
+  const {fetchFixtureApi}=await import('./core.mjs');let calls=0;
+  await assert.rejects(fetchFixtureApi('http://localhost:8788/api/me?token=not-for-logs',{},async()=>{calls++;throw new TypeError('fetch failed',{cause:{code:'UND_ERR_SOCKET'}});}),error=>{
+    assert.match(error.message,/GET \/api\/me.*2 attempts.*UND_ERR_SOCKET/);assert.doesNotMatch(error.message,/not-for-logs/);return true;
+  });assert.equal(calls,2);
+});
+test('local API retry cannot request a remote or credentialed origin',async()=>{
+  const {fetchFixtureApi}=await import('./core.mjs');let calls=0;
+  for(const url of ['https://example.com/api/me','http://secret@localhost:8788/api/me'])await assert.rejects(fetchFixtureApi(url,{},async()=>{calls++;return new Response();}));
+  assert.equal(calls,0);
+});
+test('certification prefers IPv4 in owned Node children without changing existing options or TLS',async()=>{
+  const dns=await import('node:dns');const before=dns.getDefaultResultOrder();
+  try {
+    const {configureCertificationNetwork}=await import('./core.mjs');
+    const env={NODE_OPTIONS:'--no-warnings --dns-result-order=ipv6first'};
+    const evidence=configureCertificationNetwork(env);
+    assert.equal(evidence.dnsResultOrder,'ipv4first');assert.equal(dns.getDefaultResultOrder(),'ipv4first');
+    assert.ok(env.NODE_OPTIONS.startsWith('--no-warnings --dns-result-order=ipv6first'));
+    const once=env.NODE_OPTIONS;configureCertificationNetwork(env);assert.equal(env.NODE_OPTIONS,once);
+    assert.equal(env.NODE_TLS_REJECT_UNAUTHORIZED,undefined);
+    const result=await child('console.log(require("node:dns").getDefaultResultOrder())',{env});
+    assert.equal(result.exitCode,0);assert.match(result.output,/ipv4first/);
+  } finally {dns.setDefaultResultOrder(before);}
+});
 test('successful process captures exit, timing, durable log',async()=>{const r=await child('console.log("success")');assert.equal(r.exitCode,0);assert.equal(r.error,null);assert.match(readFileSync(r.logPath,'utf8'),/success/);});
 test('exit 1 never passes',async()=>{const r=await child('process.exit(1)');assert.equal(r.exitCode,1);assert.match(r.error,/exited 1/);});
 test('throw before assertions never passes',async()=>{const r=await child('throw new Error("before assertions")');assert.equal(r.exitCode,1);assert.match(r.output,/before assertions/);assert.ok(r.error);});

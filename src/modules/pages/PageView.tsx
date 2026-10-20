@@ -1,3 +1,5 @@
+import {MoveSpaceButton} from '../../core/MoveSpace';
+import {HistoryButton} from '../../core/History';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, Navigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -59,7 +61,9 @@ function EmojiPicker({ onPick }: { onPick: (e: string) => void }) {
 export function PageView() {
   const { pageId } = useParams();
   const navigate = useNavigate();
-  const page = useLiveQuery(() => (pageId ? db.pages.get(pageId) : undefined), [pageId]) as PageRow | undefined;
+  // Distinguish an unresolved query from an evicted/missing row. Revocation
+  // must produce an actionable empty state rather than an endless blank view.
+  const page = useLiveQuery(async () => pageId ? (await db.pages.get(pageId)) ?? null : null, [pageId]) as PageRow | null | undefined;
   const [title, setTitle] = useState('');
   const [focused, setFocused] = useState(false);
   const debouncedRename = useRef(debounce((id: string, t: string) => void renamePage(id, t), 400));
@@ -87,7 +91,7 @@ export function PageView() {
         </div>
         <div className="flex items-center gap-1">
           <PresenceStack path={`/pages/${page.id}`} />
-          <SharePopover pageId={page.id} />
+          {!page.parentId&&<MoveSpaceButton root={page}/>}<HistoryButton recordId={page.id}/><SharePopover pageId={page.id} />
           <Popover
           align="right"
           trigger={

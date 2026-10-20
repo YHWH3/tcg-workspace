@@ -1,0 +1,120 @@
+{
+  "commit": "4d8e15a",
+  "note": "draft protocol: global generation + materialized snapshots",
+  "results": [
+    {
+      "records": 500,
+      "logout": {
+        "rowsRead": 5,
+        "rowsWritten": 3,
+        "statements": 3,
+        "calls": 3,
+        "generationBumped": 1,
+        "staleStatus": 409
+      },
+      "snapshotCreate": {
+        "rowsRead": 3025,
+        "rowsWritten": 1505,
+        "statements": 19,
+        "calls": 9
+      },
+      "snapshotRead": {
+        "rowsRead": 5023,
+        "rowsWritten": 0,
+        "statements": 18,
+        "calls": 9,
+        "pages": 1
+      },
+      "softDeletePush": {
+        "rowsRead": 33,
+        "rowsWritten": 18,
+        "statements": 14,
+        "calls": 7,
+        "status": 200,
+        "generationBumped": 1
+      },
+      "pruneOldPlusCreateNew": {
+        "rowsRead": 4527,
+        "rowsWritten": 2006,
+        "statements": 19,
+        "calls": 9
+      }
+    },
+    {
+      "records": 1000,
+      "logout": {
+        "rowsRead": 5,
+        "rowsWritten": 3,
+        "statements": 3,
+        "calls": 3,
+        "generationBumped": 1,
+        "staleStatus": 409
+      },
+      "snapshotCreate": {
+        "rowsRead": 6025,
+        "rowsWritten": 3005,
+        "statements": 19,
+        "calls": 9
+      },
+      "snapshotRead": {
+        "rowsRead": 10047,
+        "rowsWritten": 0,
+        "statements": 36,
+        "calls": 18,
+        "pages": 2
+      },
+      "softDeletePush": {
+        "rowsRead": 33,
+        "rowsWritten": 18,
+        "statements": 14,
+        "calls": 7,
+        "status": 200,
+        "generationBumped": 1
+      },
+      "pruneOldPlusCreateNew": {
+        "rowsRead": 9027,
+        "rowsWritten": 4006,
+        "statements": 19,
+        "calls": 9
+      }
+    },
+    {
+      "records": 2000,
+      "logout": {
+        "rowsRead": 5,
+        "rowsWritten": 3,
+        "statements": 3,
+        "calls": 3,
+        "generationBumped": 1,
+        "staleStatus": 409
+      },
+      "snapshotCreate": {
+        "rowsRead": 12025,
+        "rowsWritten": 6005,
+        "statements": 19,
+        "calls": 9
+      },
+      "snapshotRead": {
+        "rowsRead": 20095,
+        "rowsWritten": 0,
+        "statements": 72,
+        "calls": 36,
+        "pages": 4
+      },
+      "softDeletePush": {
+        "rowsRead": 33,
+        "rowsWritten": 18,
+        "statements": 14,
+        "calls": 7,
+        "status": 200,
+        "generationBumped": 1
+      },
+      "pruneOldPlusCreateNew": {
+        "rowsRead": 18027,
+        "rowsWritten": 8006,
+        "statements": 19,
+        "calls": 9
+      }
+    }
+  ]
+}

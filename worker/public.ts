@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from './auth';
-import { ID_RE, concatRows, svgHeaders, type FileRow } from './files';
+import { ID_RE, concatRows, servedFile, type FileRow } from './files';
 import {
   allowedCanvasFiles,
   allowedFileIds,
@@ -16,6 +16,7 @@ import {
   type PubMoodItem,
   type PubPage,
 } from './publicAccess';
+import { inPinnedSpace, publicScope, type PublicScope } from './shareAccess';
 
 export const publicApi = new Hono<{ Bindings: Env }>();
 
@@ -25,6 +26,7 @@ interface ShareRow {
   token: string;
   page_id: string;
   target_type: string;
+  space_id: string | null;
 }
 
 interface PageRec extends PubPage {
@@ -33,7 +35,15 @@ interface PageRec extends PubPage {
 }
 
 async function shareFor(db: D1Database, token: string, targetType: 'page' | 'moodboard'): Promise<ShareRow | null> {
-  return db.prepare('SELECT token, page_id, target_type FROM shares WHERE token = ? AND target_type = ?').bind(token, targetType).first<ShareRow>();
+  return db.prepare('SELECT token, page_id, target_type, space_id FROM shares WHERE token = ? AND target_type = ?').bind(token, targetType).first<ShareRow>();
+}
+
+/** The share row AND its public capability (null: inactive, indistinguishable from unknown). */
+async function activeShare(db: D1Database, token: string, targetType: 'page' | 'moodboard'): Promise<{ share: ShareRow; scope: PublicScope } | null> {
+  const share = await shareFor(db, token, targetType);
+  if (!share) return null;
+  const scope = await publicScope(db, share);
+  return scope ? { share, scope } : null;
 }
 
 /** All pages (id/title/icon/parent/deleted) + the set of ids inside the share tree. */
@@ -98,20 +108,33 @@ async function taskCovers(db: D1Database, boardIds: string[]): Promise<(string |
 }
 
 /** Compute the set of file ids this share may serve (with thumbs expanded). */
-async function allowedFiles(db: D1Database, tree: Set<string>): Promise<{ allowed: Set<string>; files: PubFileMeta[] }> {
+async function allowedFiles(db: D1Database, tree: Set<string>, scope: PublicScope): Promise<{ allowed: Set<string>; files: PubFileMeta[] }> {
   const blocks = (await blocksFor(db, [...tree])).map(toPubBlock);
-  const boardIds = [...new Set(blocks.filter((b) => !b.deleted && b.type === 'tasks' && b.boardId).map((b) => String(b.boardId)))];
-  const covers = await taskCovers(db, boardIds);
+  const embedded = [...new Set(blocks.filter((b) => !b.deleted && b.type === 'tasks' && b.boardId).map((b) => String(b.boardId)))];
+  const pinnedBoards = await inPinnedSpace(db, scope, embedded);
+  const covers = await taskCovers(db, embedded.filter((id) => pinnedBoards.has(id)));
   const base = allowedFileIds(blocks, tree, covers);
   const { results } = await db
     .prepare(`SELECT id, json_extract(data, '$.thumbId') AS thumbId FROM records WHERE collection = 'files'`)
     .all<PubFileMeta>();
-  return { allowed: expandThumbs(base, results), files: results };
+  return { allowed: await pinnedFiles(db, scope, expandThumbs(base, results), results), files: results };
+}
+
+/** Files (and their thumbnails, through their main file) that resolve to the pinned space. */
+async function pinnedFiles(db: D1Database, scope: PublicScope, allowed: Set<string>, files: PubFileMeta[]): Promise<Set<string>> {
+  if (!scope.restrict) return allowed;
+  const rows = new Set(files.map((f) => f.id)), mainOf = new Map<string, string>();
+  for (const f of files) if (f.thumbId && allowed.has(f.id)) mainOf.set(f.thumbId, f.id);
+  // A thumbnail without its own row is judged through the main file that owns it.
+  const owner = (id: string) => (rows.has(id) ? id : mainOf.get(id) ?? id);
+  const pinned = await inPinnedSpace(db, scope, [...new Set([...allowed].map(owner))]);
+  return new Set([...allowed].filter((id) => pinned.has(owner(id))));
 }
 
 publicApi.get('/:token', async (c) => {
-  const share = await shareFor(c.env.DB, c.req.param('token'), 'page');
-  if (!share) return c.json({ error: 'inactive' }, 404);
+  const active = await activeShare(c.env.DB, c.req.param('token'), 'page');
+  if (!active) return c.json({ error: 'inactive' }, 404);
+  const { share } = active;
   const { pages, tree } = await pageTree(c.env.DB, share.page_id);
   const root = pages.find((p) => p.id === share.page_id);
   const nodes = pages.filter((p) => tree.has(p.id)).map((p) => ({ id: p.id, title: p.title ?? 'Untitled', icon: p.icon ?? '', parentId: p.parentId ?? null }));
@@ -119,8 +142,9 @@ publicApi.get('/:token', async (c) => {
 });
 
 publicApi.get('/:token/pages/:pageId', async (c) => {
-  const share = await shareFor(c.env.DB, c.req.param('token'), 'page');
-  if (!share) return c.json({ error: 'inactive' }, 404);
+  const active = await activeShare(c.env.DB, c.req.param('token'), 'page');
+  if (!active) return c.json({ error: 'inactive' }, 404);
+  const { share, scope } = active;
   const pageId = c.req.param('pageId');
   const { pages, tree } = await pageTree(c.env.DB, share.page_id);
   if (!canServePage(pageId, tree)) return c.json({ error: 'not found' }, 404);
@@ -148,7 +172,8 @@ publicApi.get('/:token/pages/:pageId', async (c) => {
     const data = b.data;
     const mentions: { kind: string; id: string; label: string; inTree: boolean }[] = [];
     for (const m of String(data.text ?? '').matchAll(MENTION_RE)) {
-      if (m[1] === 'page') mentions.push({ kind: 'page', id: m[2], label: pageTitle.get(m[2]) ?? 'Untitled', inTree: tree.has(m[2]) });
+      // A page outside the shared tree is not part of the capability: never its title.
+      if (m[1] === 'page') mentions.push({ kind: 'page', id: m[2], label: tree.has(m[2]) ? pageTitle.get(m[2]) ?? 'Untitled' : 'Restricted item', inTree: tree.has(m[2]) });
       else mentions.push({ kind: 'user', id: m[2], label: userName.get(m[2]) ?? 'Someone', inTree: false });
     }
     return {
@@ -165,7 +190,7 @@ publicApi.get('/:token/pages/:pageId', async (c) => {
   });
 
   // Files referenced by blocks → whitelisted metadata (no uploader/user data).
-  const fileIds = [...new Set(live.map((b) => String(b.data.fileId ?? '')).filter(Boolean))];
+  const fileIds = [...await inPinnedSpace(c.env.DB, scope, [...new Set(live.map((b) => String(b.data.fileId ?? '')).filter(Boolean))])];
   const files: Record<string, unknown> = {};
   if (fileIds.length > 0) {
     const { results } = await c.env.DB
@@ -180,9 +205,12 @@ publicApi.get('/:token/pages/:pageId', async (c) => {
 
   // Tasks blocks → minimal task info, no people.
   const taskBlocks: Record<string, unknown> = {};
+  const embeddedBoards = await inPinnedSpace(c.env.DB, scope, [...new Set(live.filter((b) => b.data.type === 'tasks' && b.data.boardId).map((b) => String(b.data.boardId)))]);
   for (const b of live) {
     if (b.data.type !== 'tasks' || !b.data.boardId) continue;
     const boardId = String(b.data.boardId);
+    // An embedded database in another space is not part of this capability.
+    if (!embeddedBoards.has(boardId)) { taskBlocks[b.id] = []; continue; }
     const boardRow = await c.env.DB.prepare(`SELECT data FROM records WHERE collection = 'boards' AND id = ?`).bind(boardId).first<{ data: string }>();
     const cols = boardRow ? ((JSON.parse(boardRow.data).columns ?? []) as { id: string; name: string; color?: string }[]) : [];
     const colName = new Map(cols.map((col) => [col.id, col.name]));
@@ -210,24 +238,24 @@ publicApi.get('/:token/pages/:pageId', async (c) => {
 });
 
 publicApi.get('/:token/files/:fileId', async (c) => {
-  const share = await shareFor(c.env.DB, c.req.param('token'), 'page');
-  if (!share) return c.json({ error: 'inactive' }, 404);
+  const active = await activeShare(c.env.DB, c.req.param('token'), 'page');
+  if (!active) return c.json({ error: 'inactive' }, 404);
+  const { share, scope } = active;
   const fileId = c.req.param('fileId');
   if (!ID_RE.test(fileId)) return c.json({ error: 'invalid file id' }, 400);
   const { tree } = await pageTree(c.env.DB, share.page_id);
-  const { allowed, files } = await allowedFiles(c.env.DB, tree);
+  const { allowed, files } = await allowedFiles(c.env.DB, tree, scope);
   if (!canServeFile(fileId, allowed, files)) return c.json({ error: 'not found' }, 404);
   const meta = await c.env.DB.prepare('SELECT mime, complete FROM files WHERE id = ?').bind(fileId).first<FileRow>();
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
   const { results } = await c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(fileId).all<{ data: unknown }>();
-  const out = concatRows(results);
-  return new Response(out, {
+  const served = servedFile(meta.mime, concatRows(results));
+  return new Response(served.body, {
     headers: {
-      'Content-Type': meta.mime ?? 'application/octet-stream',
-      'Content-Length': String(out.byteLength),
+      'Content-Length': String(served.body.byteLength),
       // Token-scoped media must respect revocation/deletion — never immutable.
       'Cache-Control': 'no-store',
-      ...svgHeaders(meta.mime),
+      ...served.headers,
     },
   });
 });
@@ -281,8 +309,9 @@ async function cardInfo(db: D1Database, ref: { type?: unknown; id?: unknown }, b
 }
 
 publicApi.get('/canvas/:token', async (c) => {
-  const share = await shareFor(c.env.DB, c.req.param('token'), 'moodboard');
-  if (!share) return c.json({ error: 'inactive' }, 404);
+  const active = await activeShare(c.env.DB, c.req.param('token'), 'moodboard');
+  if (!active) return c.json({ error: 'inactive' }, 404);
+  const { share, scope } = active;
   if (!canServeBoardShare(share, share.page_id)) return c.json({ error: 'inactive' }, 404);
   const board = await c.env.DB
     .prepare(`SELECT data FROM records WHERE collection = 'moodboards' AND id = ? AND COALESCE(json_extract(data, '$.deleted'), 0) = 0`)
@@ -294,18 +323,21 @@ publicApi.get('/canvas/:token', async (c) => {
   const items = await canvasItems(c.env.DB, share.page_id);
   const boards = new Map<string, Map<string, string>>();
   const out: Record<string, unknown>[] = [];
+  const refOf = (data: Record<string, unknown>) => ((data.ref as { type?: unknown; id?: unknown }) ?? { type: 'record', id: data.taskId });
+  // A card naming a record or page in another space shows no title or stage.
+  const pinnedCards = await inPinnedSpace(c.env.DB, scope, items.filter((it) => it.data.type === 'card').map((it) => String(refOf(it.data).id ?? '')).filter(Boolean));
   for (const it of items) {
     const data = it.data;
     data.id = it.row.id;
     let card: PubCanvasCard | null = null;
-    if (data.type === 'card') card = await cardInfo(c.env.DB, (data.ref as { type?: unknown; id?: unknown }) ?? { type: 'record', id: data.taskId }, boards);
+    if (data.type === 'card') card = pinnedCards.has(String(refOf(data).id ?? '')) ? await cardInfo(c.env.DB, refOf(data), boards) : { title: null, stage: null };
     out.push(publicCanvasItem(data, card));
   }
 
   const { results: files } = await c.env.DB
     .prepare(`SELECT id, json_extract(data, '$.thumbId') AS thumbId FROM records WHERE collection = 'files'`)
     .all<PubFileMeta>();
-  const allowed = allowedCanvasFiles(items.map((i) => i.row).map((r) => ({ id: r.id, ...JSON.parse(r.data) } as PubMoodItem)), share.page_id, files);
+  const allowed = await pinnedFiles(c.env.DB, scope, allowedCanvasFiles(items.map((i) => i.row).map((r) => ({ id: r.id, ...JSON.parse(r.data) } as PubMoodItem)), share.page_id, files), files);
   const meta: Record<string, unknown> = {};
   if (allowed.size) {
     const { results } = await c.env.DB
@@ -322,8 +354,9 @@ publicApi.get('/canvas/:token', async (c) => {
 });
 
 publicApi.get('/canvas/:token/files/:fileId', async (c) => {
-  const share = await shareFor(c.env.DB, c.req.param('token'), 'moodboard');
-  if (!share) return c.json({ error: 'inactive' }, 404);
+  const active = await activeShare(c.env.DB, c.req.param('token'), 'moodboard');
+  if (!active) return c.json({ error: 'inactive' }, 404);
+  const { share, scope } = active;
   // Same live-board check as the metadata route: a soft-deleted board must
   // take its media down with it (R1).
   if (!canServeBoardShare(share, share.page_id)) return c.json({ error: 'inactive' }, 404);
@@ -339,18 +372,17 @@ publicApi.get('/canvas/:token/files/:fileId', async (c) => {
     .prepare(`SELECT id, json_extract(data, '$.thumbId') AS thumbId FROM records WHERE collection = 'files'`)
     .all<PubFileMeta>();
   const pubItems = items.map((i) => ({ id: i.row.id, ...i.data } as PubMoodItem));
-  const allowed = allowedCanvasFiles(pubItems, share.page_id, files);
+  const allowed = await pinnedFiles(c.env.DB, scope, allowedCanvasFiles(pubItems, share.page_id, files), files);
   if (!canServeFile(fileId, allowed, files)) return c.json({ error: 'not found' }, 404);
   const meta = await c.env.DB.prepare('SELECT mime, complete FROM files WHERE id = ?').bind(fileId).first<FileRow>();
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
   const { results } = await c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(fileId).all<{ data: unknown }>();
-  const out = concatRows(results);
-  return new Response(out, {
+  const served = servedFile(meta.mime, concatRows(results));
+  return new Response(served.body, {
     headers: {
-      'Content-Type': meta.mime ?? 'application/octet-stream',
-      'Content-Length': String(out.byteLength),
+      'Content-Length': String(served.body.byteLength),
       'Cache-Control': 'no-store',
-      ...svgHeaders(meta.mime),
+      ...served.headers,
     },
   });
 });

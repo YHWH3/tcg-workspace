@@ -1,3 +1,4 @@
+import { PERMISSION_PROTOCOL } from '../../../shared/protocol';
 import { isCollection, type Collection } from '../../../shared/collections';
 import type { Mutation, PulledRecord, PublicUser } from '../../../shared/types';
 import { api, ApiError, getToken } from '../api';
@@ -8,8 +9,10 @@ import { rebaseRecord, type PendingChange } from './rebase';
 import { authStore, dropSession } from '../auth';
 import { assertSameAccount } from '../accountSwitch';
 import type { OutboxEntry } from '../db';
-import { liveConnected, startPresence } from '../live';
+import { liveConnected, startPresence, stopPresence } from '../live';
 import { countDrafts, ensurePersistentStorage, reconcileDraft } from '../drafts';
+import { accessClientStore, assertClientMutationReady, failClientAccess, lockClientAccess, prepareOfflineAccess, prepareOnlineAccess } from '../accessClient';
+import type { ReconciledAccess } from './reconcileAccess';
 
 export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'idle' | 'rejected';
 
@@ -21,10 +24,11 @@ interface SyncState {
   pendingMedia: number;
   /** Server- or locally-rejected outbox writes, retained until resolved. */
   rejected: number;
+  quarantined: number;
   lastSyncedAt: number | null;
 }
 
-export const syncStore = createStore<SyncState>({ status: 'idle', pending: 0, pendingMedia: 0, rejected: 0, lastSyncedAt: null });
+export const syncStore = createStore<SyncState>({ status: 'idle', pending: 0, pendingMedia: 0, rejected: 0, quarantined: 0, lastSyncedAt: null });
 export const onlineStore = createStore(typeof navigator === 'undefined' ? true : navigator.onLine);
 
 const PUSH_CHUNK = 500;
@@ -52,11 +56,12 @@ async function updatePending() {
   const n = all.filter((e) => (e.state ?? 'pending') === 'pending').length;
   const rej = all.length - n;
   const media = await db.blobs.where('state').anyOf('pending', 'failed').count();
+  const quarantined = await db.accessQuarantine.count();
   syncStore.set((s) => {
     // Rejected rows are unsynced work — never allow 'synced' while any
     // remain; clear the flag once they're retried/exported (review S3).
-    const status = rej > 0 && s.status === 'synced' ? 'rejected' : rej === 0 && s.status === 'rejected' ? 'synced' : s.status;
-    return s.pending === n && s.pendingMedia === media && s.rejected === rej && s.status === status ? s : { ...s, status, pending: n, pendingMedia: media, rejected: rej };
+    const status = (rej + quarantined) > 0 && s.status === 'synced' ? 'rejected' : (rej + quarantined) === 0 && s.status === 'rejected' ? 'synced' : s.status;
+    return s.pending === n && s.pendingMedia === media && s.rejected === rej && s.quarantined === quarantined && s.status === status ? s : { ...s, status, pending: n, pendingMedia: media, rejected: rej, quarantined };
   });
 }
 
@@ -78,7 +83,7 @@ export async function seedRecord(collection: Collection, id: string, data: Recor
     const fieldTs: Record<string, number> = {};
     for (const field of Object.keys(data)) fieldTs[field] = 1;
     await table.put({ id, ...data, _ts: fieldTs });
-    await db.outbox.add({ id, collection, patch: data, ts: 1 });
+    await db.outbox.add({ id, collection, patch: data, ts: 1, createIntent: true });
   });
 }
 
@@ -113,6 +118,7 @@ async function seedBuiltins(): Promise<void> {
 /** Local write API: apply patch to the local row + enqueue for sync, in one tx. */
 export async function mutate(collection: Collection, id: string, patch: Record<string, unknown>): Promise<void> {
   sameAccount();
+  assertClientMutationReady();
   const table = db.collection(collection);
   const ts = hlc.next();
   await db.transaction('rw', table, db.outbox, async () => {
@@ -122,7 +128,7 @@ export async function mutate(collection: Collection, id: string, patch: Record<s
     for (const field of Object.keys(patch)) fieldTs[field] = ts;
     row._ts = fieldTs;
     await table.put(row);
-    await db.outbox.add({ id, collection, patch, ts });
+    await db.outbox.add({ id, collection, patch, ts, createIntent: !existing });
   });
   void updatePending();
   scheduleSync();
@@ -159,6 +165,25 @@ export function planPushOutcome(entries: OutboxEntry[], rejectedItems: { id: str
   return { acked, refused };
 }
 
+/** An HTTP 200 alone never acknowledges pending work. Require a complete,
+ * internally consistent disposition for exactly this submitted chunk. */
+function validatePushReply(value: unknown, entries: OutboxEntry[]): { id: string; collection: string; reason: string }[] {
+  if (!value || typeof value !== 'object') throw new Error('invalid_push_reply');
+  const reply = value as { ok?: unknown; rejected?: unknown; rejectedItems?: unknown };
+  if (reply.ok !== true || !Number.isSafeInteger(reply.rejected) || (reply.rejected as number) < 0
+      || !Array.isArray(reply.rejectedItems) || reply.rejectedItems.length !== reply.rejected
+      || reply.rejectedItems.length > entries.length) throw new Error('invalid_push_reply');
+  const available = new Map<string, number>();
+  for (const entry of entries) { const key = `${entry.collection}:${entry.id}`; available.set(key, (available.get(key) ?? 0) + 1); }
+  for (const item of reply.rejectedItems) {
+    if (!item || typeof item.id !== 'string' || typeof item.collection !== 'string' || typeof item.reason !== 'string' || !item.reason) throw new Error('invalid_push_reply');
+    const key = `${item.collection}:${item.id}`, remaining = available.get(key) ?? 0;
+    if (!remaining) throw new Error('invalid_push_reply');
+    available.set(key, remaining - 1);
+  }
+  return reply.rejectedItems;
+}
+
 /** Entries retained as rejected (never pushed, never dropped silently). */
 export async function rejectedEntries(): Promise<OutboxEntry[]> {
   return (await db.outbox.toArray()).filter((e) => e.state === 'rejected');
@@ -180,8 +205,9 @@ export async function serializeRejected(): Promise<{ exportedAt: number; entries
   return { exportedAt: Date.now(), entries: rej.map(({ autoId: _autoId, ...e }) => e) };
 }
 
-async function pushOutbox(): Promise<boolean> {
+async function pushOutbox(access: ReconciledAccess, assertCurrent: () => void): Promise<boolean> {
   for (;;) {
+    assertCurrent();
     // Pending only — rejected rows stay retained until retried/exported.
     const entries = (await db.outbox.orderBy('autoId').toArray()).filter((e) => (e.state ?? 'pending') === 'pending').slice(0, PUSH_CHUNK);
     if (entries.length === 0) return true;
@@ -196,25 +222,46 @@ async function pushOutbox(): Promise<boolean> {
     const good = entries.filter(validOutboxEntry);
     if (good.length === 0) continue;
     const changes: Mutation[] = good.map((e) => ({ id: e.id, collection: e.collection, patch: e.patch, ts: e.ts }));
-    const res = await api<{ ok: boolean; rejected: number; rejectedItems?: { id: string; collection: string; reason: string }[] }>('/api/sync/push', { method: 'POST', body: { changes } });
+    const res = await api<{ ok: boolean; accessEtag?: string; rejected: number; rejectedItems?: { id: string; collection: string; reason: string }[] }>('/api/sync/push', { method: 'POST', body: { changes, ...(access.protocol === PERMISSION_PROTOCOL ? { protocol: PERMISSION_PROTOCOL } : {}) } });
+    assertCurrent();
     // Only acknowledged entries are deleted — server-rejected items stay
     // recoverable locally (they were never claimed as synced).
-    const { acked, refused } = planPushOutcome(good, res.rejectedItems ?? []);
-    await db.outbox.bulkDelete(acked.map((e) => e.autoId!).filter((n) => n !== undefined));
-    if (refused.length) await db.outbox.bulkPut(refused);
+    const { acked, refused } = planPushOutcome(good, validatePushReply(res, good));
+    if (access.protocol === PERMISSION_PROTOCOL && (typeof res.accessEtag !== 'string' || !res.accessEtag)) throw new Error('invalid_push_reply');
+    await db.transaction('rw', db.outbox, async () => {
+      assertCurrent();
+      await db.outbox.bulkDelete(acked.map((e) => e.autoId!).filter((n) => n !== undefined));
+      if (refused.length) await db.outbox.bulkPut(refused);
+      assertCurrent();
+    });
     await updatePending();
+    if (access.protocol === PERMISSION_PROTOCOL && res.accessEtag !== access.etag) throw new Error('reauthorization_required');
     if (entries.length < PUSH_CHUNK) return true;
   }
 }
 
-async function pullRemote(): Promise<boolean> {
+async function pullRemote(access: ReconciledAccess, assertCurrent: () => void): Promise<boolean> {
+  if (access.protocol === PERMISSION_PROTOCOL) return true;
   let cursor = (await getMeta<number>(CURSOR_KEY)) ?? 0;
   for (;;) {
-    const res = await api<{ records: PulledRecord[]; cursor: number; hasMore: boolean }>(
+    assertCurrent();
+    const res = await api<{ protocol?: number; generation?: number; records: PulledRecord[]; cursor: number; hasMore: boolean }>(
       `/api/sync/pull?since=${cursor}&limit=${PULL_LIMIT}`,
     );
-    if (res.records.length > 0) {
-      await db.transaction('rw', db.tables, async () => {
+    assertCurrent();
+    if (!res || !Array.isArray(res.records) || res.records.length > PULL_LIMIT || typeof res.hasMore !== 'boolean'
+        || !Number.isSafeInteger(res.cursor) || res.cursor < cursor || (res.hasMore && res.cursor <= cursor)) throw new Error('invalid_sync_page');
+    const seen = new Set<string>();
+    for (const record of res.records) {
+      if (!record || typeof record.id !== 'string' || !record.id || record.id.length > 64 || seen.has(record.id)
+          || !isCollection(record.collection) || !record.data || typeof record.data !== 'object' || Array.isArray(record.data)
+          || !record.field_ts || typeof record.field_ts !== 'object' || Array.isArray(record.field_ts)
+          || Object.values(record.field_ts).some(value => typeof value !== 'number' || !Number.isFinite(value))
+          || !Number.isSafeInteger(record.seq) || record.seq <= cursor || record.seq > res.cursor) throw new Error('invalid_sync_record');
+      seen.add(record.id);
+    }
+    await db.transaction('rw', db.tables, async () => {
+        assertCurrent();
         // Read pending entries inside the tx: a mutate() that lands between the
         // read and the write must not be clobbered by stale server data.
         const byId = new Map<string, PendingChange[]>();
@@ -226,7 +273,7 @@ async function pullRemote(): Promise<boolean> {
         for (const rec of res.records) {
           if (!isCollection(rec.collection)) continue;
           const rebased = rebaseRecord({ data: rec.data, field_ts: rec.field_ts }, byId.get(rec.id) ?? []);
-          const row = { id: rec.id, ...rebased.data, _ts: rebased.field_ts };
+          const row = { ...rebased.data, id: rec.id, _ts: rebased.field_ts, _serverRev: rec.seq, ...(rec.spaceId ? { _spaceId: rec.spaceId } : {}) };
           await db.collection(rec.collection).put(row);
           // Settle draft candidates against the reconciled value: matching
           // fields are confirmed and dropped; fields a remote write won keep
@@ -234,19 +281,21 @@ async function pullRemote(): Promise<boolean> {
           await reconcileDraft(rec.collection, rec.id, rebased.data, rebased.field_ts);
           for (const ts of Object.values(rec.field_ts)) hlc.observe(ts);
         }
-      });
-      cursor = res.cursor;
-      await setMeta(CURSOR_KEY, cursor);
-    }
+        // Invisible gaps advance too. Cursor and records commit atomically.
+        await setMeta(CURSOR_KEY, res.cursor);
+        assertCurrent();
+    });
+    cursor = res.cursor;
     if (!res.hasMore) return true;
   }
 }
 
 async function refreshUsers(): Promise<void> {
   try {
+    const uid=authStore.get().user?.id,token=getToken(),epoch=accessClientStore.get().epoch;
+    const current=()=>{sameAccount();if(authStore.get().user?.id!==uid||getToken()!==token||accessClientStore.get().epoch!==epoch)throw new Error('directory_access_changed');};
     const { users } = await api<{ users: PublicUser[] }>('/api/users');
-    await db.users.clear();
-    await db.users.bulkPut(users);
+    await db.transaction('rw',db.users,async()=>{current();await db.users.clear();await db.users.bulkPut(users);current();});
   } catch {
     /* non-fatal */
   }
@@ -262,32 +311,57 @@ export async function syncNow(): Promise<void> {
   } catch {
     // Stale tab under a replaced identity: stop syncing entirely.
     syncStore.set((s) => ({ ...s, status: 'error' }));
+    failClientAccess('account_changed');
     return;
   }
   if (!getToken() || !navigator.onLine) {
+    const userId = authStore.get().user?.id;
+    if (getToken() && !navigator.onLine && userId) await prepareOfflineAccess(userId);
     syncStore.set((s) => ({ ...s, status: getToken() && !navigator.onLine ? 'offline' : s.status }));
     return;
   }
   running = true;
   syncStore.set((s) => ({ ...s, status: 'syncing' }));
+  const token = getToken();
+  let epoch: number | null = null;
+  const assertCurrent = () => {
+    sameAccount(); if (getToken() !== token) throw new Error('session_changed');
+    if (epoch !== null && accessClientStore.get().epoch !== epoch) throw new Error('reauthorization_required');
+  };
   try {
-    await pushOutbox();
-    await pullRemote();
-    await seedBuiltins();
-    await refreshUsers();
+    const userId = authStore.get().user?.id;
+    if (!userId) throw new Error('unauthenticated');
+    const access = await prepareOnlineAccess(userId, assertCurrent);
+    epoch = accessClientStore.get().epoch;
+    if (access.protocol === 1) startPresence();
+    else stopPresence(); // scoped presence waits for the server ACL integration
+    await pushOutbox(access, assertCurrent);
+    if (access.protocol === PERMISSION_PROTOCOL) {
+      epoch = null; await prepareOnlineAccess(userId, assertCurrent); epoch = accessClientStore.get().epoch;
+    } else await pullRemote(access, assertCurrent);
+    // Guest/read-only clients must never manufacture Core seed writes. The
+    // server bootstrap will provision built-ins for scoped workspaces.
+    if (access.protocol === 1) { await seedBuiltins(); await refreshUsers(); }
     // Chunked blob uploads run after metadata sync (dynamic import avoids a cycle).
     const { uploadPendingBlobs } = await import('../files');
-    await uploadPendingBlobs();
+    assertCurrent(); await uploadPendingBlobs(assertCurrent); assertCurrent();
     await updatePending();
     // Rejected rows mean work was NOT accepted — 'synced' must never be
     // reported while any remain (review S3).
-    syncStore.set((s) => ({ ...s, status: s.rejected > 0 ? 'rejected' : 'synced', lastSyncedAt: Date.now() }));
+    syncStore.set((s) => ({ ...s, status: s.rejected + s.quarantined > 0 ? 'rejected' : 'synced', lastSyncedAt: Date.now() }));
     if (!persistenceRequested) {
       persistenceRequested = true;
       // Best-effort durability hint after real storage use (platform §3).
       void ensurePersistentStorage();
     }
   } catch (e) {
+    // An old request may fail after another tab signs in. Its 401 applies to
+    // the captured session, never the replacement credentials in localStorage.
+    if (localStorage.getItem('ws_uid') !== TAB_UID || getToken() !== token) {
+      stopPresence(); failClientAccess(localStorage.getItem('ws_uid') !== TAB_UID ? 'account_changed' : 'session_changed');
+      syncStore.set(s => ({ ...s, status: 'error' })); return;
+    }
+    failClientAccess(e instanceof Error && e.message === 'session_changed' ? 'session_changed' : 'access_check_failed');
     if (e instanceof ApiError && e.status === 401) {
       // Signed out server-side: keep outbox + local data, drop the session.
       dropSession();
@@ -316,7 +390,7 @@ export async function flushAndCountPending(): Promise<number> {
   } catch {
     /* best effort */
   }
-  return (await db.outbox.count()) + (await db.blobs.where('state').anyOf('pending', 'failed').count());
+  return (await db.outbox.count()) + (await db.blobs.where('state').anyOf('pending', 'failed').count()) + (await db.accessQuarantine.count());
 }
 
 /**
@@ -324,16 +398,17 @@ export async function flushAndCountPending(): Promise<number> {
  * unsent record writes, pending/failed uploads, and unsent draft envelopes.
  */
 export async function countLocalPending(): Promise<{ records: number; rejected: number; media: number; drafts: number }> {
-  const [all, media, drafts] = await Promise.all([
+  const [all, media, drafts, quarantined] = await Promise.all([
     db.outbox.toArray(),
     db.blobs.where('state').anyOf('pending', 'failed').count(),
     countDrafts(),
+    db.accessQuarantine.count(),
   ]);
   // EVERY outbox row is unacknowledged server-side (pending, rejected, any
   // future state) — sign-out and account-switch protection must count them
   // all, not just 'pending' (review R2: rejected-only users were wiped).
   const rejected = all.filter((e) => (e.state ?? 'pending') === 'rejected').length;
-  return { records: all.length, rejected, media, drafts };
+  return { records: all.length + quarantined, rejected: rejected + quarantined, media, drafts };
 }
 
 export function startSyncEngine() {
@@ -347,9 +422,10 @@ export function startSyncEngine() {
     if (authed && !wasAuthed) void syncNow();
     wasAuthed = authed;
   });
-  void startPresence();
+  window.addEventListener('storage', handleAccessStorageChange);
   window.addEventListener('online', () => {
     onlineStore.set(true);
+    lockClientAccess('reconnecting');
     void syncNow();
   });
   window.addEventListener('offline', () => onlineStore.set(false));
@@ -372,4 +448,22 @@ export function startSyncEngine() {
     }
   }, 5000);
   void timer;
+}
+
+/** Storage events never confer permission and never clear another account's
+ * token. They immediately gate this tab, then request current server authority. */
+export function handleAccessStorageChange(event: Pick<StorageEvent, 'key' | 'newValue'>): void {
+  if (!event.key || ['ws_uid', 'ws_token', 'ws_user'].includes(event.key)) {
+    try { sameAccount(); } catch { stopPresence(); failClientAccess('account_changed'); return; }
+    stopPresence(); lockClientAccess('session_changed');
+    if (!getToken()) { dropSession(); failClientAccess('session_changed'); return; }
+    void syncNow(); return;
+  }
+  if (event.key === 'ws_access_update') {
+    try {
+      const hint = JSON.parse(event.newValue ?? 'null') as { userId?: string } | null;
+      if (hint?.userId !== TAB_UID) return;
+      sameAccount(); stopPresence(); lockClientAccess('permissions_changed'); void syncNow();
+    } catch { /* invalid hints are ignored, never permissions */ }
+  }
 }

@@ -1,7 +1,12 @@
+import {catalogApi} from './catalog';
+import {usageApi} from './usage';
+import {historyApi} from './history';
 import { Hono } from 'hono';
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
-import { auth, me, userByToken } from './auth';
+import { auth, me, sessionsApi, userByToken } from './auth';
 import { sync } from './sync';
+import { accessApi } from './syncAccess';
+import { spacesApi } from './spacesApi';
 import { admin } from './admin';
 import { files } from './files';
 import { shares } from './shares';
@@ -13,14 +18,18 @@ import { notificationsApi } from './notifications';
 import { approvalsApi } from './approvals';
 import { formsApi, publicFormsApi } from './forms';
 import { automationsApi } from './automations';
+import { searchApi } from './searchApi';
 import { runScheduled } from './reminders';
 import {withD1Budget,D1BudgetExhausted} from './d1budget';
+import { browserHardening } from './headers';
 import type { Env, AuthUser } from './auth';
+import { accessEnabled } from './readAccess';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 // API state must not survive account switches or public-form disable/re-enable
 // through HTTP caches. The service worker separately excludes these routes.
 app.use('/api/*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
+app.use('*',browserHardening);
 
 app.onError((err, c) => {
   if(err instanceof D1BudgetExhausted)return c.json({error:'processing_budget',retryable:true},503);
@@ -43,7 +52,7 @@ app.get('/api/live', async (c) => {
   const stub = c.env.LIVE.get(c.env.LIVE.idFromName('workspace'));
   const res = await stub.fetch(
     new Request('https://live-room/ws', {
-      headers: { Upgrade: 'websocket', 'x-user-id': user.id },
+      headers: { Upgrade: 'websocket', 'x-user-id': user.id, 'x-session-hash': user.tokenHash, ...((await accessEnabled(c.env.DB)) ? { 'x-scoped': '1' } : {}) },
     }),
   );
   const ws = res.webSocket;
@@ -57,16 +66,23 @@ app.get('/api/live', async (c) => {
 
 app.route('/api/auth', auth);
 app.route('/api/me', me);
+app.route('/api/sessions', sessionsApi);
 app.route('/api/sync', sync);
+app.route('/api/access', accessApi);
+app.route('/api/spaces', spacesApi);
 app.route('/api/files', files);
 app.route('/api/shares', shares);
 app.route('/api/public', publicApi);
 app.route('/api/oauth', oauthGrants);
 app.route('/api/changes', changesApi);
+app.route('/api/history',historyApi);
+app.route('/api/admin/usage',usageApi);
+app.route('/api/catalog',catalogApi);
 app.route('/api/notifications', notificationsApi);
 app.route('/api/approvals', approvalsApi);
 app.route('/api/forms', formsApi);
 app.route('/api/automations', automationsApi);
+app.route('/api/search', searchApi);
 app.route('/api/public/forms', publicFormsApi);
 app.route('/api', admin);
 

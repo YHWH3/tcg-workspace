@@ -4,6 +4,8 @@
 import { applyChanges, type AppliedChange, type ApplyResult } from './sync';
 import type { Env } from './auth';
 import type { ChangesetCtx } from './changesets';
+import { gateRows } from './readAccess';
+import { levelSql } from './capability';
 
 export interface RecRow {
   id: string;
@@ -15,7 +17,7 @@ export interface RecRow {
   updatedAt: number | null;
 }
 
-interface RawRow {
+export interface RawRow {
   id: string;
   collection: string;
   data: string;
@@ -25,15 +27,18 @@ interface RawRow {
   updated_at: number | null;
 }
 
-function toRow(r: RawRow): RecRow {
+export function toRow(r: RawRow): RecRow {
   return { id: r.id, collection: r.collection, data: JSON.parse(r.data) as Record<string, unknown>, fieldTs: JSON.parse(r.field_ts) as Record<string, number>, rev: r.seq, updatedBy: r.updated_by, updatedAt: r.updated_at };
 }
 
-const SELECT = 'id, collection, data, field_ts, seq, updated_by, updated_at';
+export const SELECT = 'id, collection, data, field_ts, seq, updated_by, updated_at';
+
+/* Every helper below applies the request's read gate when the environment carries one
+ * (user-visible reads: MCP, member routes). Service callers pass the plain environment. */
 
 export async function getRec(env: Env, id: string): Promise<RecRow | null> {
   const row = await env.DB.prepare(`SELECT ${SELECT} FROM records WHERE id = ?`).bind(id).first<RawRow>();
-  return row ? toRow(row) : null;
+  return row ? (await gateRows(env, [toRow(row)]))[0] ?? null : null;
 }
 
 export async function getRecs(env: Env, ids: string[]): Promise<Map<string, RecRow>> {
@@ -44,7 +49,8 @@ export async function getRecs(env: Env, ids: string[]): Promise<Map<string, RecR
     const { results } = await env.DB.prepare(`SELECT ${SELECT} FROM records WHERE id IN (${chunk.map(() => '?').join(',')})`).bind(...chunk).all<RawRow>();
     for (const r of results) out.set(r.id, toRow(r));
   }
-  return out;
+  if (!env.READ_GATE) return out;
+  return new Map((await gateRows(env, [...out.values()])).map((row) => [row.id, row]));
 }
 
 const JSON_FIELD_RE = /^[A-Za-z0-9_]+$/;
@@ -55,7 +61,7 @@ export async function listBy(env: Env, collection: string, jsonField: string, va
   let sql = `SELECT ${SELECT} FROM records WHERE collection = ? AND json_extract(data, '$.${jsonField}') = ?`;
   if (!opts.includeDeleted) sql += ` AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`;
   const { results } = await env.DB.prepare(sql).bind(collection, value as string | number).all<RawRow>();
-  return results.map(toRow);
+  return gateRows(env, results.map(toRow));
 }
 
 /** WHERE data.boardId IS NULL (boardless default board) — json_extract returns NULL for absent keys. */
@@ -63,15 +69,59 @@ export async function listDefaultBoardTasks(env: Env): Promise<RecRow[]> {
   const { results } = await env.DB
     .prepare(`SELECT ${SELECT} FROM records WHERE collection = 'tasks' AND json_extract(data, '$.boardId') IS NULL AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`)
     .all<RawRow>();
-  return results.map(toRow);
+  return gateRows(env, results.map(toRow));
 }
 
+/** Default row ceiling of whole-collection reads. */
+export const COLLECTION_READ_LIMIT = 5000;
+
+/**
+ * Whole-collection read, capped at `limit` rows (default 5,000, no stable
+ * order). Callers that need EXACT answers must not use it — use a targeted
+ * read (`listBy`, `listLinksByKind`, a recursive closure). A capped read is
+ * never silent: it logs a structured `collection_read_truncated` warning with
+ * the collection and ceiling, so the condition is observable in Worker logs
+ * instead of surfacing as wrong results.
+ */
 export async function listCollection(env: Env, collection: string, opts: { includeDeleted?: boolean; limit?: number } = {}): Promise<RecRow[]> {
+  const limit = opts.limit ?? COLLECTION_READ_LIMIT;
+  // A gated whole-collection read first narrows to the caller's readable spaces in SQL
+  // (records.space_id is only a prefilter; the gate below still decides every row).
+  const scoped = env.READ_GATE ? await env.READ_GATE.enabled() : false;
   let sql = `SELECT ${SELECT} FROM records WHERE collection = ?`;
   if (!opts.includeDeleted) sql += ` AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`;
+  if (scoped) sql += ` AND space_id IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1)`;
   sql += ' LIMIT ?';
-  const { results } = await env.DB.prepare(sql).bind(collection, opts.limit ?? 5000).all<RawRow>();
-  return results.map(toRow);
+  const { results } = await env.DB.prepare(sql).bind(...(scoped ? [collection, env.READ_GATE!.userId, limit + 1] : [collection, limit + 1])).all<RawRow>();
+  if (results.length > limit) {
+    console.warn(JSON.stringify({ message: 'collection_read_truncated', collection, limit }));
+    return gateRows(env, results.slice(0, limit).map(toRow));
+  }
+  return gateRows(env, results.map(toRow));
+}
+
+/**
+ * Every live link of one kind ('blocks' dependencies, 'relation', 'related'),
+ * exact and uncapped. Dependency-cycle checks and relation reads must see ALL
+ * edges of their kind: a whole-collection read silently drops rows past its
+ * ceiling, and a dropped edge defeats cycle detection (a Phase 1 invariant).
+ */
+export async function listLinksByKind(env: Env, kind: 'blocks' | 'relation' | 'related'): Promise<RecRow[]> {
+  const { results } = await env.DB
+    .prepare(`SELECT ${SELECT} FROM records WHERE collection = 'links' AND json_extract(data, '$.kind') = ? AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`)
+    .bind(kind)
+    .all<RawRow>();
+  return gateRows(env, results.map(toRow));
+}
+
+/** Links touching one record, via the fromId/toId expression indexes. */
+export async function listLinksTouching(env: Env, id: string): Promise<RecRow[]> {
+  const [from, to] = await env.DB.batch<RawRow>([
+    env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection = 'links' AND json_extract(data, '$.fromId') = ? AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).bind(id),
+    env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection = 'links' AND json_extract(data, '$.toId') = ? AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).bind(id),
+  ]);
+  const seen = new Set<string>();
+  return gateRows(env, [...from.results, ...to.results].filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true))).map(toRow));
 }
 
 /**
@@ -116,4 +166,68 @@ export async function casUpdate(
     }
   }
   return { conflict: true };
+}
+
+/** Live links touching any of `ids` (optionally one kind), in one binding call — the
+ * targeted alternative to a whole-kind scan for per-record reads. Gated like the rest. */
+export async function listLinksFor(env: Env, ids: string[], kind?: 'blocks' | 'relation' | 'related'): Promise<RecRow[]> {
+  if (!ids.length) return [];
+  const { results } = await env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection = 'links'
+      AND (json_extract(data, '$.fromId') IN (SELECT value FROM json_each(?)) OR json_extract(data, '$.toId') IN (SELECT value FROM json_each(?)))
+      AND COALESCE(json_extract(data, '$.deleted'), 0) != 1${kind ? " AND json_extract(data, '$.kind') = ?" : ''}`)
+    .bind(...[JSON.stringify(ids), JSON.stringify(ids), ...(kind ? [kind] : [])]).all<RawRow>();
+  return gateRows(env, results.map(toRow));
+}
+
+/** Live root pages (no parent), for sibling ordering and root title lookups. */
+export async function listRootPages(env: Env): Promise<RecRow[]> {
+  const { results } = await env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection = 'pages'
+      AND (json_extract(data, '$.parentId') IS NULL OR json_extract(data, '$.parentId') = '') AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`).all<RawRow>();
+  return gateRows(env, results.map(toRow));
+}
+
+export interface ScanKey { o: string; id: string }
+export interface ScanPage { rows: RecRow[]; next: ScanKey | null }
+
+/**
+ * One page of a collection (or of one database's records) in a total order — (order key as
+ * text, id), or id alone — with the request's gate applied window by window. The returned
+ * `next` is the last SCANNED key, so a page shortened by the gate or by `keep` never skips
+ * or repeats rows. At most `maxScan` rows are examined per call; `next` is non-null whenever
+ * rows may remain (the caller reports that explicitly, never as "no more").
+ */
+export async function scanCollection(env: Env, collection: string, opts: {
+  limit: number; after?: ScanKey | null; by?: 'order' | 'id'; boardId?: string; maxScan?: number;
+  keep?: (rows: RecRow[]) => RecRow[] | Promise<RecRow[]>;
+}): Promise<ScanPage> {
+  const by = opts.by ?? 'order', maxScan = opts.maxScan ?? 2000, window = Math.min(500, Math.max(opts.limit * 2, 50));
+  const scoped = env.READ_GATE ? await env.READ_GATE.enabled() : false;
+  const key = by === 'order' ? "COALESCE(CAST(json_extract(data,'$.order') AS TEXT),'')" : "''";
+  const out: RecRow[] = [];
+  let after = opts.after ?? null, scanned = 0;
+  while (out.length < opts.limit && scanned < maxScan) {
+    let sql = `SELECT ${SELECT}, ${key} AS scan_key FROM records WHERE collection = ? AND COALESCE(json_extract(data, '$.deleted'), 0) != 1`;
+    const binds: unknown[] = [collection];
+    if (opts.boardId !== undefined) {
+      sql += opts.boardId === 'board-default' ? ` AND (json_extract(data,'$.boardId') = ? OR json_extract(data,'$.boardId') IS NULL)` : ` AND json_extract(data,'$.boardId') = ?`;
+      binds.push(opts.boardId);
+    }
+    if (scoped) { sql += ` AND space_id IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1)`; binds.push(env.READ_GATE!.userId); }
+    if (after) { sql += ` AND (${key} > ? OR (${key} = ? AND id > ?))`; binds.push(after.o, after.o, after.id); }
+    sql += ` ORDER BY ${key}, id LIMIT ?`; binds.push(window);
+    const { results } = await env.DB.prepare(sql).bind(...binds).all<RawRow & { scan_key: string }>();
+    if (!results.length) return { rows: out, next: null };
+    scanned += results.length;
+    const rows = results.map(toRow);
+    let kept = await gateRows(env, rows);
+    if (opts.keep) kept = await opts.keep(kept);
+    const keptIds = new Set(kept.map((r) => r.id));
+    for (let i = 0; i < rows.length; i++) {
+      after = { o: results[i].scan_key, id: results[i].id };
+      if (keptIds.has(rows[i].id)) out.push(kept.find((r) => r.id === rows[i].id)!);
+      if (out.length === opts.limit) return { rows: out, next: i < rows.length - 1 || results.length === window ? after : null };
+    }
+    if (results.length < window) return { rows: out, next: null };
+  }
+  return { rows: out, next: after };
 }

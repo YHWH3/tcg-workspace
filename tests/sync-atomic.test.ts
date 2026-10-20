@@ -37,6 +37,9 @@ class FakeD1 {
 
   exec(sql: string, binds: unknown[]): { rows?: Row[]; changes: number } {
     this.seen.push(sql.slice(0, 60));
+    // This focused fixture exercises the legacy Core path. Activated ACL and
+    // real SQLite transaction fences are tested in phase5-writes-d1.test.ts.
+    if (sql === 'SELECT enabled FROM access_state WHERE id=1') return { rows: [{ enabled: 0 } as unknown as Row], changes: 0 };
     // Atomic expectation guard (must precede the generic SELECT branches).
     if (/JOIN json_each\(\?\)/.test(sql)) {
       const expectMap = JSON.parse(String(binds[0])) as Record<string, number>;
@@ -51,7 +54,8 @@ class FakeD1 {
       const previous = JSON.parse(String(binds[3]));
       const board = this.rows.get(next.boardId ?? 'board-default');
       const gate = board?.collection === 'boards' ? parseGate(JSON.parse(board.data)) : null;
-      if (gate && next.status === gate.stageId && (next.status !== previous.status || next.boardId !== previous.boardId || gate.approverField)) {
+      const pinned = gate?.approverField ? `p_${gate.approverField}` : null;
+      if (gate && next.status === gate.stageId && (next.status !== previous.status || next.boardId !== previous.boardId || (pinned && next[pinned] !== previous[pinned]))) {
         // This fixture has no approvals. A matching gate must fail, never
         // be treated as a harmless SELECT merely to satisfy the parser.
         throw new Error('malformed JSON');
@@ -62,6 +66,9 @@ class FakeD1 {
       const rows = binds.map((id) => this.rows.get(String(id))).filter((r): r is Row => !!r);
       return { rows, changes: 0 };
     }
+    // This focused fake models record merge/CAS, not the historical delta table.
+    // Exact atomic history persistence/faults are covered on real D1 separately.
+    if (/^INSERT INTO record_history/.test(sql)) return { rows: [], changes: 0 };
     if (/INSERT INTO records/.test(sql)) {
       const [id, collection, data, fieldTs, userId, now, baseSeq] = binds as [string, string, string, string, string, number, number];
       const row = this.rows.get(id);
@@ -107,10 +114,11 @@ class FakeD1 {
   }
 
   async batch(stmts: D1PreparedStatement[]): Promise<D1Result<unknown>[]> {
-    this.batchWrites.push(stmts.map(s => this.statements.get(s)!).filter(s => /INSERT INTO records/.test(s.sql)).map(s => String(s.binds[0])));
+    const writes = stmts.map(s => this.statements.get(s)!).filter(s => /INSERT INTO records/.test(s.sql)).map(s => String(s.binds[0]));
+    if (writes.length) this.batchWrites.push(writes);
     // The null callback runs before the snapshot → the raced write is part
     // of the state the transaction sees (it landed before the batch began).
-    this.interleave?.(null, this);
+    if (writes.length) this.interleave?.(null, this);
     const snapshot = new Map([...this.rows].map(([k, v]) => [k, { ...v }]));
     const maxSeq = this.maxSeq;
     const out: D1Result<unknown>[] = [];
