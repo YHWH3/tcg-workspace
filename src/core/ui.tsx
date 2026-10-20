@@ -470,14 +470,16 @@ export function AdaptiveDialog({ children, onClose, title, guard }: OverlayProps
   );
 }
 
-export function Sheet({ children, onClose, side = 'right', label, guard }: { children: ReactNode; onClose: () => void; side?: 'right' | 'left' | 'bottom'; label?: string; guard?: () => boolean }) {
+export function Sheet({ children, onClose, side = 'right', label, guard }: { children: ReactNode; onClose: () => void; side?: 'right' | 'left' | 'bottom' | 'full'; label?: string; guard?: () => boolean }) {
   const anim = side === 'right' ? 'anim-slide-right' : side === 'left' ? 'anim-slide-left' : 'anim-slide-bottom';
   const pos =
     side === 'right'
       ? 'ml-auto h-full w-full sm:w-[420px] sm:max-w-[92vw] border-l pr-safe'
       : side === 'left'
         ? 'mr-auto h-full w-[280px] max-w-[85vw] border-r pl-safe'
-        : 'mt-auto h-[92%] w-full rounded-t-2xl border-t pb-safe';
+        : side === 'full'
+          ? 'h-full w-full p-safe'
+          : 'mt-auto h-[92%] w-full rounded-t-2xl border-t pb-safe';
   return (
     <Overlay onClose={onClose} guard={guard} label={label ?? 'Panel'} className="flex h-full flex-col">
       <div className={cn(anim, 'flex flex-col overflow-hidden border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950', pos)}>

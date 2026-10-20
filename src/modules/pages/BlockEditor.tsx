@@ -468,6 +468,7 @@ function BlockItem(props: BlockItemProps) {
 
   return (
     <div
+      data-block-id={block.id}
       className={cn('group relative flex items-start gap-0.5 rounded-md', props.dragOver && 'border-t-2 border-blue-400')}
       onDragOver={(e) => {
         e.preventDefault();

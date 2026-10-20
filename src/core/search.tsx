@@ -2,7 +2,8 @@ import {onlineStore} from './sync/engine';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {useNavigate} from 'react-router';
 import {useLiveQuery} from 'dexie-react-hooks';
-import {Search} from 'lucide-react';
+import {Search,Sparkles} from 'lucide-react';
+import {openAssistant} from './assistant/store';
 import {db} from './db';
 import {createStore,useStore} from './store';
 import {accessClientStore} from './accessClient';
@@ -61,6 +62,7 @@ function SearchDialog(){
   <div className="my-3 flex flex-wrap gap-2"><label>Type<select aria-label="Search type" value={type} onChange={e=>setType(e.target.value)} className="block rounded border p-2 dark:bg-neutral-900"><option value="">All types</option>{['page','task','board','moodboard','comment','file','mooditem'].map(t=><option key={t}>{t}</option>)}</select></label>
   <label>Space<select aria-label="Search space" value={space} onChange={e=>setSpace(e.target.value)} className="block rounded border p-2 dark:bg-neutral-900"><option value="">All accessible spaces</option>{spaces.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></label>
   <label>Database<input aria-label="Search database ID" value={database} onChange={e=>setDatabase(e.target.value)} placeholder="Optional database ID" className="block max-w-full rounded border p-2 dark:bg-neutral-900"/></label></div>
+  <button type="button" data-testid="palette-ask-ai" aria-keyshortcuts="Control+J Meta+J" className="mb-2 flex min-h-11 w-full items-center gap-2 rounded border border-dashed border-neutral-300 p-3 text-left text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900" onClick={()=>{const q=query.trim();paletteStore.set(false);if(q)openAssistant({context:[],actionId:'search_answer',prompt:q,autoSend:false});else openAssistant();}}><Sparkles size={15} className="shrink-0 text-violet-500" aria-hidden="true"/><span className="min-w-0 flex-1 break-words">{query.trim()?`Ask AI: “${query.trim()}”`:'Ask AI…'}</span><kbd className="text-[10px] text-neutral-500">⌘J</kbd></button>
   <p role="status" className="text-sm">{status}{current?.reply?.indexPending?' · Index update pending':''}</p>
   {current?.error&&<div role="alert"><p>{current.error}</p><Button onClick={()=>retry(i=>i+1)}>Retry search</Button></div>}
   <div id="workspace-search-results" role="listbox" aria-label="Search results" className="min-h-0 flex-1 overflow-y-auto py-2">{hits.map((h,i)=><button role="option" id={`workspace-search-${i}`} aria-selected={selected===i} key={h.id} onClick={()=>go(h)} onFocus={()=>setSelected(i)} className={`my-1 block min-h-11 w-full rounded border p-3 text-left ${selected===i?'border-blue-500':'border-transparent'}`}><span className="block break-words">{h.title}</span><span className="block text-xs text-neutral-500">{h.type} · {h.source==='local'?'Cached local result':'Server result'}</span>{h.snippet&&<span className="block break-words text-sm">{h.snippet}</span>}</button>)}

@@ -5,6 +5,8 @@ import { Archive, ArchiveRestore, CheckSquare, LayoutGrid, List, ListPlus, MoreH
 import { authStore } from '../../core/auth';
 import { useIsMobile } from '../../core/mobile';
 import { PresenceStack } from '../../core/presence';
+import { AskAiMenu } from '../../core/assistant/AskAiMenu';
+import { useAssistantContext } from '../../core/assistant/store';
 import { FieldsEditor } from './FieldsEditor';
 import { GateEditor, GateMoveHost, noteGatedMove } from './GateMove'; // P4-D gate UX
 import { FieldChips, useFieldFilterOptions } from './FieldValue';
@@ -42,6 +44,7 @@ export function BoardPage() {
   const { boardId = '', taskId } = useParams();
   const navigate = useNavigate();
   const board = useBoard(boardId);
+  useAssistantContext(board ? { kind: 'database', id: board.id } : null);
   const tasks = useTasks();
   const users = useUsers();
   const me = useStore(authStore).user?.id;
@@ -126,6 +129,7 @@ export function BoardPage() {
             </div>
           )}
           <div className="ml-auto flex items-center gap-1">
+            <AskAiMenu modules={['databases']} refs={{ database: { kind: 'database', id: board.id } }} compact />
             <MoveSpaceButton root={board}/><PresenceStack path={`/boards/${board.id}`} />
             {mobile ? (
               <IconButton aria-label="New task" onClick={async () => navigate(`/boards/${board.id}/tasks/${await createTask(board.id)}`)}>

@@ -254,6 +254,9 @@ async function runRetention(env: { DB: D1Database }, now: number): Promise<void>
     ),
   ];
   await db.batch(stmts).catch(() => {});
+  // Embedded assistant conversations past their user-selected retention (bounded).
+  const { retentionStatements } = await import('./assistant/store');
+  await db.batch(retentionStatements(db, now)).catch(() => {});
   // Per-space eviction facts past the retention window; their space's floor is raised in the same batch.
   await pruneSpaceEvents(env, now).catch(() => {});
 

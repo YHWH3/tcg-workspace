@@ -19,6 +19,7 @@ import { useStore } from './store';
 import { AdaptiveDialog, Avatar, Button, Field, Input, Spinner } from './ui';
 import { cn } from './utils';
 import { Sessions } from './Sessions';
+import { AssistantSettings } from './assistant/AssistantSettings';
 
 interface InviteRow {
   code: string;
@@ -44,6 +45,7 @@ export function SettingsPage() {
       <div className="flex flex-col gap-5">
         <ProfileSection user={user} />
         <Section title="Spaces and guests"><Spaces/></Section>
+        <div id="ai-assistant" className="scroll-mt-4"><Section title="AI assistant"><AssistantSettings /></Section></div>
         <AIConnectorsSection />
         <RecentAIChangesSection />
         <TemplateGallerySection />

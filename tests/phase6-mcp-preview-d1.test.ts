@@ -1,7 +1,7 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {openAuditFixture,type AuditFixture} from './audit-fixture';
 const handlers=vi.hoisted(()=>new Map<string,(a:Record<string,unknown>)=>Promise<{content:{text:string}[];isError?:boolean}>>());
-vi.mock('@modelcontextprotocol/server',()=>({McpServer:class{registerTool(n:string,_m:unknown,f:never){handlers.set(n,f);}registerPrompt(){}}}));
+vi.mock('@modelcontextprotocol/server',()=>({McpServer:class{registerTool(n:string,_m:unknown,f:never){handlers.set(n,f);}registerPrompt(){}registerResource(){}},ResourceTemplate:class{}}));
 vi.mock('agents/mcp/server',()=>({createMcpHandler:vi.fn()}));
 vi.mock('../worker/events',async o=>({...await o<typeof import('../worker/events')>(),scheduleOutbox:vi.fn()}));
 import {createWorkspaceServer} from '../worker/mcp';

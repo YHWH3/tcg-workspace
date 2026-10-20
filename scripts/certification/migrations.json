@@ -122,5 +122,9 @@
   {
     "name": "0031_phase6_digest_outcome.sql",
     "sha256": "a6eed938b184557cc1efe4bcc439f618f5f710eb08246d16fa79c6f42107c2ac"
+  },
+  {
+    "name": "0032_assistant_conversations.sql",
+    "sha256": "8979e22b1a6019b8a7a3d6b20aa84b5528fb3c01f8f4d4dab7ca38a6953bfb85"
   }
 ]

@@ -9,7 +9,7 @@ import type {Env} from '../worker/auth';
 // Capture registration only. All tool handlers, writes, CAS, journal, parsing
 // and D1 are the production implementations. The full MCP gate covers wire/OAuth.
 const tools=vi.hoisted(()=>new Map<string,(args:Record<string,unknown>)=>Promise<{content:{text:string}[];isError?:boolean}>>());
-vi.mock('@modelcontextprotocol/server',()=>({McpServer:class{registerTool(name:string,_meta:unknown,fn:never){tools.set(name,fn);}registerPrompt(){}}}));
+vi.mock('@modelcontextprotocol/server',()=>({McpServer:class{registerTool(name:string,_meta:unknown,fn:never){tools.set(name,fn);}registerPrompt(){}registerResource(){}},ResourceTemplate:class{}}));
 vi.mock('agents/mcp/server',()=>({createMcpHandler:vi.fn()}));
 vi.mock('../worker/events',async original=>({...await original<typeof import('../worker/events')>(),scheduleOutbox:vi.fn()}));
 import {beginChangeset} from '../worker/changesets';

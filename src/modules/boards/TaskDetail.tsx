@@ -9,6 +9,8 @@ import { AudioPlayer, FileImage, FilePreview, Lightbox } from '../../core/fileui
 import { RecordButton } from '../../core/recorder';
 import { useIsMobile } from '../../core/mobile';
 import { PresenceStack } from '../../core/presence';
+import { AskAiMenu } from '../../core/assistant/AskAiMenu';
+import { useAssistantContext } from '../../core/assistant/store';
 import { Avatar, IconButton, Select, Sheet } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { useStore } from '../../core/store';
@@ -30,6 +32,7 @@ export function TaskDetail({ taskId, onClose }: { taskId: string; onClose: () =>
 
 function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }) {
   const task = useLiveQuery(() => db.tasks.get(taskId), [taskId]) as TaskRow | undefined;
+  useAssistantContext(task && !task.deleted ? { kind: 'record', id: task.id } : null);
   const users = useUsers();
   const boards = useBoards();
   const files = useAttachments(taskId);
@@ -98,7 +101,9 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
           <span>{String(board?.icon ?? '🗂️')}</span> {String(board?.name ?? 'Board')}
         </span>
         <div className="flex items-center gap-1">
-          <PresenceStack path={`/boards/${taskBoardId(task)}/tasks/${task.id}`} /><HistoryButton recordId={task.id}/>
+          <PresenceStack path={`/boards/${taskBoardId(task)}/tasks/${task.id}`} />
+          <AskAiMenu modules={['tasks']} refs={{ record: { kind: 'record', id: task.id } }} compact />
+          <HistoryButton recordId={task.id}/>
           <IconButton aria-label={isArchived(task) ? 'Unarchive task' : 'Archive task'} onClick={() => void setTaskField(task.id, archivePatch(!isArchived(task)))}>
             {isArchived(task) ? <ArchiveRestore size={15} /> : <Archive size={15} />}
           </IconButton>

@@ -8,6 +8,8 @@ import { db } from '../../core/db';
 import { addFile, toast, useFileUrl } from '../../core/files';
 import { useIsMobile } from '../../core/mobile';
 import { PresenceStack } from '../../core/presence';
+import { AskAiMenu } from '../../core/assistant/AskAiMenu';
+import { useAssistantContext } from '../../core/assistant/store';
 import { mutate } from '../../core/sync/engine';
 import { Popover } from '../../core/ui';
 import { SharePopover } from '../pages/Share';
@@ -70,6 +72,7 @@ export function MoodCanvas() {
   const mobile = useIsMobile();
   const nav = useNavigate();
   const board = useLiveQuery(() => db.moodboards.get(boardId), [boardId]);
+  useAssistantContext(boardId && board && !board.deleted ? { kind: 'moodboard', id: boardId } : null);
   const items = useMoodItems(boardId);
   const boards = useBoards();
   const dbs = useBoardsLite();
@@ -795,6 +798,7 @@ export function MoodCanvas() {
           onChange={(e) => void mutate('moodboards', boardId, { title: e.target.value })}
         />
         <PresenceStack path={`/moodboards/${boardId}`} />
+        <AskAiMenu modules={['moodboards']} refs={{ moodboard: { kind: 'moodboard', id: boardId } }} compact />
         <SharePopover moodboardId={boardId} />
       </div>
 
