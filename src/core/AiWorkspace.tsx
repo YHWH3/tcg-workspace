@@ -35,7 +35,7 @@ function AiReviewContent(){
  const conflict=review?.changes.some(c=>c.conflict),expired=!!review&&review.expiresAt<=Date.now();
  return <div className="mx-auto w-full max-w-4xl space-y-4 p-4 sm:p-6"><Link className="inline-block min-h-10 underline" to="/ai">AI workflows</Link><h1 className="text-2xl font-semibold">Review proposed changes</h1><div role="status">{notice}</div>{error&&<div role="alert">{error} <Button onClick={()=>void load()}>Retry</Button></div>}{review&&<>
  {review.changesetId&&<p className="break-all text-sm">Changeset: {review.changesetId} · <Link to="/settings" className="underline">History and undo</Link></p>}
- <p className="break-words">Operation: <strong>{review.tool}</strong> · {review.status}</p>{previewImpactText(review.impact).map(line=><p key={line}>{line}</p>)}
+ <p className="break-words">Operation: <strong>{review.tool}</strong> · {review.status}</p>{review.status==='completed'?<p>Impact counts are unavailable in the completed summary. Open changeset history for authorized details.</p>:previewImpactText(review.impact).map(line=><p key={line}>{line}</p>)}
  {review.impact.irreversible&&<p role="alert" className="font-semibold text-red-600">Attachment deletion permanently reclaims its bytes. Undo cannot recover those bytes.</p>}
  {review.impact.warnings.map(w=><p key={w} className="text-sm">{w}</p>)}
  {(conflict||expired)&&<p role="alert">{expired?'This proposal expired.':'Records changed since this proposal was created.'} Ask for a fresh preview.</p>}
