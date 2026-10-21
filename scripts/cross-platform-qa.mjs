@@ -31,17 +31,18 @@ function save(){writeFileSync(join(output,'results.json'),JSON.stringify({source
 async function test(platform,name,fn){const at=Date.now();try{const evidence=await fn();results.push({platform,name,status:'PASS',exitCode:0,durationMs:Date.now()-at,evidence});console.log(`PASS [${platform}] ${name}`);}catch(e){results.push({platform,name,status:e.code==='EXTERNAL_GUI'?'BLOCKED':'FAIL',exitCode:e.code==='EXTERNAL_GUI'?2:1,durationMs:Date.now()-at,error:e.message});console.error(`FAIL [${platform}] ${name}: ${e.message}`);if(diagnosticPage&&!diagnosticPage.isClosed()){const key=platform+'-'+results.length;await diagnosticPage.screenshot({path:join(output,key+'-failure.png')}).catch(()=>{});writeFileSync(join(output,key+'-failure.txt'),await diagnosticPage.locator('body').innerText().catch(()=>''));}}save();}
 async function api(path,{token,method='GET',body}={}){const r=await fetch(fixture.base+path,{method,headers:{...(token?{Authorization:`Bearer ${token}`}:{}) ,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(30000)});return {status:r.status,data:await r.json()};}
 async function pull(token){const result=await api('/api/sync/pull?since=0',{token});assert.equal(result.status,200);return result.data.records;}
-async function login(page){await page.goto(fixture.base+'/pages/qa-page');await page.getByRole('textbox',{name:'Username',exact:true}).fill('admin');await page.getByLabel('Password',{exact:true}).fill('password123');await page.getByRole('form',{name:'Sign in form',exact:true}).getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();}
+async function login(page,touch=false){await page.goto(fixture.base+'/pages/qa-page');await page.getByRole('textbox',{name:'Username',exact:true}).fill('admin');await page.getByLabel('Password',{exact:true}).fill('password123');if(touch)await page.getByLabel('Password',{exact:true}).press('Enter');else await page.getByRole('form',{name:'Sign in form',exact:true}).getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();}
 async function offline(context,platform,value){if(platform==='mac-webkit')networkGate.setAvailable(!value);else await context.setOffline(value);}
-async function journey(context,platform,token){
- const page=context.pages()[0]??await context.newPage();diagnosticPage=page;page.setDefaultTimeout(20000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
+async function journey(context,platform,token,androidDevice){
+ const page=context.pages()[0]??await context.newPage();diagnosticPage=page;page.setDefaultTimeout(20000);const errors=[];page.on('pageerror',e=>{errors.push({name:e.name,message:e.message,stack:e.stack});writeFileSync(join(output,platform+'-page-errors.json'),JSON.stringify(errors,null,2));});
  await test(platform,'Secure-origin login, headers, OAuth resource and live socket',async()=>{
-  await login(page);assert.equal(await page.evaluate(()=>isSecureContext),true);
+  await login(page,platform.startsWith('android-'));assert.equal(await page.evaluate(()=>isSecureContext),true);
   const challenge=await page.request.get(fixture.base+'/mcp');assert.equal(challenge.status(),401);const resource=challenge.headers()['www-authenticate']?.match(/resource_metadata="([^"]+)"/)?.[1];assert.ok(resource?.startsWith(fixture.base+'/'));const meta=await page.request.get(resource);assert.equal(meta.status(),200);assert.equal((await meta.json()).resource,fixture.base+'/mcp');
   const headers=(await page.request.get(fixture.base+'/')).headers();assert.equal(headers['x-content-type-options'],'nosniff');
   const socket=await page.evaluate(()=>new Promise(resolve=>{const ws=new WebSocket(location.origin.replace(/^http/,'ws')+'/api/live',['ws-auth',localStorage.getItem('ws_token')]);const timer=setTimeout(()=>{ws.close();resolve(false)},10000);ws.onopen=()=>{clearTimeout(timer);ws.close();resolve(true)};ws.onerror=()=>{clearTimeout(timer);resolve(false)};}));assert.equal(socket,true,'Real TLS WebSocket upgrades');
   return {url:page.url(),secureContext:true,oauthResource:fixture.base+'/mcp',webSocket:true};
  });
+ if(androidDevice){await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration())?.active);await androidInteractions(context,platform,token,androidDevice);diagnosticPage=page;await page.bringToFront();}
  await test(platform,'Interrupted required-asset installation retains the complete active shell',async()=>{
   await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration())?.active);await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   const swPath=join(fixture.directory,'client','sw.js'),indexPath=join(fixture.directory,'client','index.html'),sw=readFileSync(swPath,'utf8'),index=readFileSync(indexPath,'utf8');
@@ -89,11 +90,53 @@ async function journey(context,platform,token){
  });
  if(platform!=='mac-chrome')await page.close();
 }
+async function androidInteractions(context,platform,token,device){
+ // A CDP-created background tab cannot exercise the native IME. Open the
+ // route with a real Android VIEW intent, then adopt its visible browser tab.
+ const nativeUrl=fixture.base+'/boards/board-default/tasks/qa-task?qa='+Date.now();
+ await device.shell('am start -a android.intent.action.VIEW -d '+nativeUrl+' -p com.android.chrome');
+ const page=await eventually(async()=>{for(const candidate of context.pages()){if(candidate.url().startsWith(fixture.base+'/boards/board-default/tasks/qa-task')&&await candidate.evaluate(()=>document.visibilityState==='visible').catch(()=>false))return candidate;}return false;},{timeout:20000});
+ diagnosticPage=page;page.setDefaultTimeout(20000);
+ const ime=async()=>String(await device.shell('dumpsys input_method'));
+ const shown=text=>/mInputShown=true|inputShown=true|mIsInputViewShown=true/.test(text);
+ await test(platform,'Task edit and keyboard-open simulated assistant approval persist exactly once',async()=>{
+  await page.getByRole('textbox',{name:'Task title',exact:true}).waitFor();
+  const text='Android task café '+Date.now(),description=page.getByRole('textbox',{name:'Task description',exact:true});await description.fill(text);await description.press('Tab');
+  await eventually(async()=>(await pull(token)).find(r=>r.id==='qa-task')?.data?.description===text);await page.reload({waitUntil:'domcontentloaded'});await description.waitFor();assert.equal(await description.inputValue(),text);
+  await page.goto(fixture.base+'/pages/qa-page',{waitUntil:'domcontentloaded'});await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();await page.getByTestId('assistant-toggle').filter({visible:true}).first().tap();
+  const panel=page.getByTestId('assistant-panel');await panel.waitFor();await panel.getByTestId('assistant-provider-select').selectOption('simulated');
+  const title='Android approved '+Date.now(),input=panel.getByTestId('assistant-input');await input.tap();await input.fill('/tool create_page '+JSON.stringify({title}));await panel.getByTestId('assistant-send').tap();
+  const card=panel.getByTestId('assistant-approval-card').last();await card.waitFor();await input.tap();const approve=card.getByTestId('assistant-approve');await approve.scrollIntoViewIfNeeded();
+  const keyboard=await eventually(async()=>{const state=await ime();return shown(state)?state:false},{timeout:10000});writeFileSync(join(output,platform+'-approval-ime.txt'),keyboard);assert.equal(shown(keyboard),true,'Actual Android IME must be shown, not a substituted viewport');
+  assert.equal(await approve.evaluate(el=>{const r=el.getBoundingClientRect(),v=visualViewport;return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))&&r.y+r.height/2<(v?.height??innerHeight)+(v?.offsetTop??0)}),true,'Keyboard-open approval receives the intended tap');
+  await page.screenshot({path:join(output,platform+'-approval-keyboard.png')});writeFileSync(join(output,platform+'-approval-keyboard-native.png'),await device.screenshot());await approve.tap();await panel.getByText(/Changeset/i).last().waitFor();
+  await eventually(async()=>(await pull(token)).filter(r=>r.collection==='pages'&&r.data?.title===title).length===1);await panel.getByRole('button',{name:'Close assistant',exact:true}).tap();
+  return {taskReloaded:true,taskText:text,approvalTitle:title,proposalCount:1,actualIme:true,provider:'SIMULATED'};
+ });
+ await test(platform,'Canvas item-list nudge, actual browser touch pan and pinch',async()=>{
+  await page.goto(fixture.base+'/moodboards/qa-mood',{waitUntil:'domcontentloaded'});const canvas=page.getByTestId('mood-canvas');await canvas.waitFor();
+  const mode=page.getByTestId('mode-toggle');if((await mode.getAttribute('title')).startsWith('Edit'))await mode.tap();await page.getByRole('button',{name:'Fit to content',exact:true}).tap();
+  const x=Number((await pull(token)).find(r=>r.id==='qa-note').data.x);await page.getByRole('button',{name:'Item list',exact:true}).tap();await page.getByRole('button',{name:'Nudge right',exact:true}).tap();
+  await eventually(async()=>Number((await pull(token)).find(r=>r.id==='qa-note')?.data?.x)===x+10);await page.getByRole('button',{name:'Close item list',exact:true}).tap();
+  const note=page.locator('[data-mooditem="qa-note"]'),before=await note.boundingBox(),box=await canvas.boundingBox();assert.ok(before&&box);
+  const cdp=await context.newCDPSession(page),center={x:box.x+box.width/2,y:box.y+box.height/2};
+  try{
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[center]});
+   for(const dx of [20,40,60])await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...center,x:center.x-dx}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+   await eventually(async()=>Math.abs((await note.boundingBox()).x-before.x)>30,{timeout:5000});const panned=await note.boundingBox();assert.ok(Math.abs(panned.width-before.width)<2);
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{...center,x:center.x-20},{...center,x:center.x+20}]});
+   for(const dx of [30,40,55])await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...center,x:center.x-dx},{...center,x:center.x+dx}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+   await eventually(async()=>(await note.boundingBox()).width>panned.width+5,{timeout:5000});assert.equal(Number((await pull(token)).find(r=>r.id==='qa-note').data.x),x+10,'Browse gestures must not mutate item position');
+   await page.screenshot({path:join(output,platform+'-canvas-gestures.png')});return {nudgePersisted:true,pan:true,pinch:true,method:'CDP touch streams in real Android Chrome; not physical fingers'};
+  }finally{await cdp.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]}).catch(()=>{});await cdp.detach();}
+ });
+ await page.close();
+}
 try{
  fixture=await startFixture({port:await freePort(),build:!process.argv.includes('--skip-build'),artifactDirectory:join(output,'fixture'),tls:useTls?tls:undefined});
  networkGate=await createNetworkGate(fixture.base,useTls?tls:undefined);fixture.base=networkGate.base;
  const signup=await api('/api/auth/signup',{method:'POST',body:{username:'admin',name:'Synthetic QA Admin',password:'password123'}});assert.equal(signup.status,200);const admin=signup.data;
- assert.ok(admin.token);const seeded=await api('/api/sync/push',{token:admin.token,method:'POST',body:{changes:[{id:'qa-page',collection:'pages',patch:{title:'Cross-platform QA',order:'a0'},ts:Date.now()},{id:'qa-block',collection:'blocks',patch:{pageId:'qa-page',type:'p',text:'QA fixture body',order:'a0'},ts:Date.now()}]}});assert.equal(seeded.status,200);assert.ok(!seeded.data.rejected);
+ assert.ok(admin.token);const seeded=await api('/api/sync/push',{token:admin.token,method:'POST',body:{changes:[{id:'qa-page',collection:'pages',patch:{title:'Cross-platform QA',order:'a0'},ts:Date.now()},{id:'qa-block',collection:'blocks',patch:{pageId:'qa-page',type:'p',text:'QA fixture body',order:'a0'},ts:Date.now()},{id:'qa-task',collection:'tasks',patch:{boardId:'board-default',title:'Android task fixture',status:'todo',order:'a0'},ts:Date.now()},{id:'qa-mood',collection:'moodboards',patch:{title:'Android canvas fixture',order:'a0'},ts:Date.now()},{id:'qa-note',collection:'mooditems',patch:{boardId:'qa-mood',type:'note',text:'Android canvas note',x:100,y:100,w:220,h:140,z:1},ts:Date.now()}]}});assert.equal(seeded.status,200);assert.ok(!seeded.data.rejected);assert.deepEqual(seeded.data.rejectedItems??[],[]);
  const only=process.argv.find(a=>a.startsWith('--only='))?.slice(7)??'chromium,firefox,webkit,chrome';
  for(const name of only.split(',').filter(n=>n!=='android')){
   const type={chromium,firefox,webkit,chrome:chromium}[name];assert.ok(type,'Unknown browser');let browser;
@@ -130,12 +173,31 @@ try{
  if(only.split(',').includes('android')){
   const adb=process.env.ANDROID_ADB??'/Users/trinity/Library/Android/sdk/platform-tools/adb',serial=process.env.QA_ANDROID_SERIAL;
   assert.ok(serial?.startsWith('emulator-'),'Explicit disposable emulator serial required');execFileSync(adb,['-s',serial,'reverse',`tcp:${new URL(fixture.base).port}`,`tcp:${new URL(fixture.base).port}`]);
-  const device=(await _android.devices()).find(d=>d.serial()===serial);assert.ok(device,'Owned Android emulator must be connected');
+  let device=(await _android.devices()).find(d=>d.serial()===serial);assert.ok(device,'Owned Android emulator must be connected');
+  await device.shell('settings put secure show_ime_with_hard_keyboard 1');
   const version=String(await device.shell('getprop ro.build.version.release')).trim();writeFileSync(join(output,'android-device.json'),JSON.stringify({serial,version,model:device.model(),physical:false}));
   try{for(const [name,size,density] of [['small','720x1280','320'],['large','1080x2400','420'],['tablet','1600x2560','240']]){
-   await device.shell(`wm size ${size}`);await device.shell(`wm density ${density}`);await device.shell('pm clear com.android.chrome');
-   const context=await device.launchBrowser({args:[`--ignore-certificate-errors-spki-list=${spki}`],ignoreHTTPSErrors:true});try{
-    await journey(context,`android-${version}-chrome-${name}`,admin.token);writeFileSync(join(output,`android-${name}.png`),await device.screenshot());
+   await device.close();
+   for(const args of [['wm','size',size],['wm','density',density],['pm','clear','com.android.chrome']])execFileSync(adb,['-s',serial,'shell',...args],{timeout:10000,stdio:'ignore'});
+   await eventually(async()=>{try{if(execFileSync(adb,['-s',serial,'get-state'],{encoding:'utf8',timeout:3000}).trim()!=='device')return false;device=(await _android.devices()).find(d=>d.serial()===serial);return !!device}catch{return false}},{timeout:30000});
+   writeFileSync(join(output,`android-${name}-display.txt`),execFileSync(adb,['-s',serial,'shell','wm','size'],{encoding:'utf8'})+'\n'+execFileSync(adb,['-s',serial,'shell','wm','density'],{encoding:'utf8'}));
+   const context=await device.launchBrowser({hasTouch:true,args:[`--ignore-certificate-errors-spki-list=${spki}`],ignoreHTTPSErrors:true});try{
+    // The browser DOM can respond behind Chrome's native first-run modal.
+    // Inspect a fresh hierarchy and decline notifications before claiming real
+    // touch/IME acceptance. Never grant a permission or adopt a personal profile.
+    const setupDump=execFileSync(adb,['-s',serial,'shell','uiautomator','dump','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8',timeout:15000});
+    assert.ok(setupDump.includes('dumped'),'Fresh Chrome setup hierarchy required');
+    const setup=execFileSync(adb,['-s',serial,'shell','cat','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8'});
+    writeFileSync(join(output,`android-${name}-setup.xml`),setup);
+    if(setup.includes('Chrome notifications make things easier')){
+     const button=[...setup.matchAll(/<node\b[^>]*>/g)].map(m=>m[0]).find(n=>n.includes('text="No thanks"')&&n.includes('clickable="true"'));
+     const bounds=button?.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);assert.ok(bounds,'Observed decline-notifications button required');
+     execFileSync(adb,['-s',serial,'shell','input','tap',String((Number(bounds[1])+Number(bounds[3]))/2),String((Number(bounds[2])+Number(bounds[4]))/2)]);
+     const afterDump=execFileSync(adb,['-s',serial,'shell','uiautomator','dump','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8',timeout:15000});assert.ok(afterDump.includes('dumped'));
+     const after=execFileSync(adb,['-s',serial,'shell','cat','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8'});writeFileSync(join(output,`android-${name}-setup-after.xml`),after);
+     assert.ok(!after.includes('Chrome notifications make things easier'),'Native setup must be dismissed before page interactions');
+    }
+    await journey(context,`android-${version}-chrome-${name}`,admin.token,(name==='small'||name==='tablet')?device:undefined);writeFileSync(join(output,`android-${name}.png`),await device.screenshot());
     if(name==='small'&&process.argv.includes('--android-pwa'))await test('android-chrome','Native Home Screen PWA installation and standalone launch',async()=>{
      const page=await context.newPage();diagnosticPage=page;await page.goto(fixture.base+'/pages/qa-page');await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();let step=0;
      const native=()=>{const dumped=execFileSync(adb,['-s',serial,'shell','uiautomator','dump','/sdcard/tcg-pwa-qa.xml'],{timeout:15000,encoding:'utf8'});assert.ok(dumped.includes('dumped'),'Fresh native hierarchy required');const xml=execFileSync(adb,['-s',serial,'shell','cat','/sdcard/tcg-pwa-qa.xml'],{encoding:'utf8'});writeFileSync(join(output,`android-pwa-${++step}.xml`),xml);return xml;};
@@ -151,7 +213,7 @@ try{
      await app.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();return {standalone:true,accountRetained:await app.evaluate(()=>!!localStorage.getItem('ws_uid'))};
     });
    }finally{await context.close();}
-  }}finally{await device.close();execFileSync(adb,['-s',serial,'reverse','--remove',`tcp:${new URL(fixture.base).port}`]);}
+  }}finally{await device.close().catch(()=>{});try{execFileSync(adb,['-s',serial,'reverse','--remove',`tcp:${new URL(fixture.base).port}`]);}catch(e){writeFileSync(join(output,'android-cleanup-error.txt'),e.message);}}
  }
  assert.equal(fingerprint(root),source.fingerprint,'Source unchanged during qualification');
 }finally{await networkGate?.stop();await fixture?.stop();save();}

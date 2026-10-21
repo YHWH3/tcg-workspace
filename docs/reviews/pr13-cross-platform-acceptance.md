@@ -26,7 +26,7 @@ Run commands from the authoritative worktree after committing all source and con
 
 ```bash
 npm run certify:ai
-CROSS_QA_ARTIFACT_DIR=.artifacts/cross-platform/final-desktop node scripts/cross-platform-qa.mjs --skip-build --pwa
+CROSS_QA_ARTIFACT_DIR=.artifacts/cross-platform/final-desktop node scripts/cross-platform-qa.mjs --skip-build --pwa --native-zoom
 APPLE_ARTIFACT_DIR=.artifacts/pr13-apple/final-cross-platform node scripts/apple-safari.mjs --https --skip-build
 APPLE_ARTIFACT_DIR=.artifacts/pr13-apple/final-cross-platform-repetitions node scripts/apple-safari.mjs --https --skip-build --devices=1BDCB883-27F6-43E6-82A1-40FA4F2F8C19,FB5D2F9F-F78A-474D-A22D-8BE5BE343302 --repetitions=2
 FIREFOX_ANDROID_APK=.artifacts/cross-platform/firefox-158.0.2-arm64.apk GECKODRIVER_BIN=.artifacts/cross-platform/geckodriver CROSS_QA_ARTIFACT_DIR=.artifacts/cross-platform/final-android node scripts/android-qa.mjs
@@ -80,3 +80,13 @@ A separate Android diagnostic retained CDP target metadata and native activity s
 ### Required-asset fault injection follow-up
 
 All 25 primary cases on clean `1f51e3b` passed, including all server-persistence checks. A separate required-entry 503 injection then confirmed R13-X03: an incomplete service worker activated and its offline shell rendered no body content. The partially completed `repeated-1f51e3b` matrix was stopped as superseded before source edits, with owned fixtures/clones cleaned and interruption evidence preserved. It is not a completed repetition certificate. This additional correction requires a new clean source qualification; no `1f51e3b` result certifies the changed installer. The failure test is now part of every desktop/Android platform journey and uses only an explicitly scoped loopback asset fault, never a production request.
+
+## Android interaction qualification
+
+The additional compact and tablet Chrome cases edit a task, check the saved description through the server and reload it, submit a simulated assistant proposal, require Android's actual IME to be visible, hit-test the approval control and verify exactly one resulting page. Canvas cases verify a server-persisted item-list nudge, independent touch pan and pinch, and no record movement from Browse gestures. CDP supplies touch streams to real Chrome on the owned Android emulator; this is neither desktop viewport emulation nor physical-finger testing. Larger-phone geometry retains the HTTPS/service-worker/offline foundation cases. Firefox retains its separate actual Android browser sign-in/edit/reload acceptance.
+
+Development runs 1–5 are retained. Initial interaction failures exposed a disabled Playwright touch flag, stale emulator connections after display changes, a background CDP tab, and a native Chrome notification-onboarding dialog covering a responsive DOM. The harness now reconnects between layouts, opens an actual native VIEW-intent tab, adopts its visible browser page, and declines the observed native notification prompt before testing. It saves fresh before/after native hierarchies. These are harness corrections, not evidence of application authorization or keyboard defects. A blind Back key was removed after native activity logs showed it closing the tab; sign-in uses the ordinary Enter-key form submission path on Android to avoid desktop mouse hit testing during IME reflow. Keyboard visibility is awaited from Android input-method state, not assumed immediately after a tap. Actual IME visibility remains a required assertion; a viewport resize cannot replace it. Final acceptance comes from the clean-source results, including any remaining failures.
+
+The five-device `e45b986` HTTPS Safari primary matrix passed all 25 native cases and server persistence checks after the atomic-installer correction. Its result is preserved at `.artifacts/pr13-apple/final-atomic/`. Later test-harness source changes still require a new exact-commit primary matrix and repetitions; the earlier pass is not relabelled as certification of a later SHA.
+
+The fifth Android diagnostic completed 16 Chrome application checks and two shipping Firefox checks with no application assertion failure. The owner command returned exit 2 because native Home Screen installation remained BLOCKED, not PASS. This dirty-source diagnostic is retained at `.artifacts/cross-platform/android-interactions-development-5/`; it does not replace final clean-source qualification.
