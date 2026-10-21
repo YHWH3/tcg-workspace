@@ -172,6 +172,9 @@ export class OpenAIClient {
   async consume(stream, requestId, onDelta) {
     let text = '';
     let completed = null;
+    // With store:false the terminal response.completed event can carry an empty
+    // `output`; the items are delivered by response.output_item.done events.
+    const items = [];
     try {
       for await (const { data } of parseSse(stream)) {
         if (data === '[DONE]') continue;
@@ -180,6 +183,9 @@ export class OpenAIClient {
         switch (ev.type) {
           case 'response.output_text.delta':
             if (typeof ev.delta === 'string') { text += ev.delta; onDelta?.(ev.delta); }
+            break;
+          case 'response.output_item.done':
+            if (ev.item && typeof ev.item === 'object') items.push(ev.item);
             break;
           case 'response.completed':
             completed = ev.response ?? { output: [] };
@@ -203,6 +209,7 @@ export class OpenAIClient {
     if (!completed) {
       throw new ResponsesError({ requestId, kind: 'stream_ended', message: 'The stream ended without response.completed; treating as failed.' });
     }
-    return { output: Array.isArray(completed.output) ? completed.output : [], text, requestId };
+    const output = Array.isArray(completed.output) && completed.output.length ? completed.output : items;
+    return { output, text, requestId };
   }
 }

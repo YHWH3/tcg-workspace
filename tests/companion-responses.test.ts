@@ -4,7 +4,7 @@ import { ChatGPTAuth } from '../companion/lib/siwc.mjs';
 import { CompanionStore } from '../companion/lib/store.mjs';
 import { OpenAIClient, buildResponsesBody } from '../companion/lib/openai.mjs';
 import { UNSUPPORTED_RESPONSES_FIELDS } from '../companion/lib/constants.mjs';
-import { assistantMsg, completed, json, makeWorld, sseResponse, tempDir, textDelta } from '../companion/test-support/fixtures.mjs';
+import { assistantMsg, completed, fnCall, json, makeWorld, sseResponse, tempDir, textDelta } from '../companion/test-support/fixtures.mjs';
 
 async function ready() {
   const world = makeWorld();
@@ -45,6 +45,14 @@ describe('request body', () => {
 });
 
 describe('stream outcomes', () => {
+  it('collects function calls from output_item.done when store:false leaves completed.output empty (observed on a real account)', async () => {
+    const { world, openai, label } = await ready();
+    const call = fnCall('search', { query: 'Soil sensor' });
+    world.responsesHandler = () => sseResponse([{ type: 'response.output_item.added', item: { ...call, arguments: '' } }, { type: 'response.function_call_arguments.delta', delta: '{"query"' }, { type: 'response.output_item.done', item: call }, completed([])]);
+    const r = await openai.stream(req(label));
+    expect(r.output).toEqual([call]);
+  });
+
   it('stream ending without response.completed is a failure', async () => {
     const { world, openai, label } = await ready();
     world.responsesHandler = () => sseResponse([textDelta('partial')]);
