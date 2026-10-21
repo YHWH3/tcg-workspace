@@ -10,6 +10,7 @@ import {accessClientStore} from './accessClient';
 import {authStore} from './auth';
 import {api,ApiError,getToken} from './api';
 import {Sheet,Button} from './ui';
+import {useIsMobile} from './mobile';
 import {prefixMatch,mergeSearch,SearchEpoch,localSearchVisibility,type PaletteHit} from './searchModel';
 export const paletteStore=createStore(false);
 interface Reply {results:Omit<PaletteHit,'source'>[];nextCursor:string|null;hasMore:boolean;indexPending:boolean}
@@ -17,6 +18,8 @@ export function CommandPalette(){const open=useStore(paletteStore);return open?<
 function SearchDialog(){
  const navigate=useNavigate(),access=useStore(accessClientStore),auth=useStore(authStore),online=useStore(onlineStore);
  const [query,setQuery]=useState(''),[type,setType]=useState(''),[space,setSpace]=useState(''),[database,setDatabase]=useState('');
+ const compact=useIsMobile();
+ const [showFilters,setShowFilters]=useState(false);
  const [revision,retry]=useState(0),[selected,setSelected]=useState(0);
  const [remote,setRemote]=useState<{key:string;reply:Reply|null;state:string;error?:string}>({key:'',reply:null,state:'Loading'});
  const sequence=useRef(new SearchEpoch()),input=useRef<HTMLInputElement>(null);
@@ -59,9 +62,10 @@ function SearchDialog(){
  const status=!ready?'Checking permissions — results hidden':(access.status==='offline'||!online)?'Offline — cached local results':current?.state??(query.trim()?'Loading':'Type to search');
  return <Sheet label="Search workspace" onClose={()=>paletteStore.set(false)} side="bottom"><div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col p-4">
   <div className="flex items-center gap-2"><Search size={18}/><label className="flex-1">Search workspace<input ref={input} role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls="workspace-search-results" aria-activedescendant={hits[selected]?`workspace-search-${selected}`:undefined} aria-label="Search workspace" placeholder="Search pages, records, comments and files…" value={query} onChange={e=>setQuery(e.target.value)} className="mt-1 w-full rounded border p-2 text-base dark:bg-neutral-900" onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();setSelected(i=>Math.min(i+1,Math.max(0,hits.length-1)));}if(e.key==='ArrowUp'){e.preventDefault();setSelected(i=>Math.max(i-1,0));}if(e.key==='Enter'&&hits[selected]){e.preventDefault();go(hits[selected]);}}}/></label><Button onClick={()=>paletteStore.set(false)}>Close</Button></div>
-  <div className="my-3 flex flex-wrap gap-2"><label>Type<select aria-label="Search type" value={type} onChange={e=>setType(e.target.value)} className="block rounded border p-2 dark:bg-neutral-900"><option value="">All types</option>{['page','task','board','moodboard','comment','file','mooditem'].map(t=><option key={t}>{t}</option>)}</select></label>
+  {compact&&<Button className="my-2 min-h-11 self-start" aria-expanded={showFilters} aria-controls="workspace-search-filters" onClick={()=>setShowFilters(v=>!v)}>Filters{(type||space||database)?" · Active":""}</Button>}
+  <div id="workspace-search-filters" hidden={compact&&!showFilters} className={compact&&!showFilters?"hidden":"my-3 flex flex-wrap gap-2"}><label>Type<select aria-label="Search type" value={type} onChange={e=>setType(e.target.value)} className="block rounded border p-2 dark:bg-neutral-900"><option value="">All types</option>{['page','task','board','moodboard','comment','file','mooditem'].map(t=><option key={t}>{t}</option>)}</select></label>
   <label>Space<select aria-label="Search space" value={space} onChange={e=>setSpace(e.target.value)} className="block rounded border p-2 dark:bg-neutral-900"><option value="">All accessible spaces</option>{spaces.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></label>
-  <label>Database<input aria-label="Search database ID" value={database} onChange={e=>setDatabase(e.target.value)} placeholder="Optional database ID" className="block max-w-full rounded border p-2 dark:bg-neutral-900"/></label></div>
+  <label>Database<input aria-label="Search database ID" value={database} onChange={e=>setDatabase(e.target.value)} placeholder="Optional database ID" className="block max-w-full rounded border p-2 text-base dark:bg-neutral-900"/></label></div>
   <button type="button" data-testid="palette-ask-ai" aria-keyshortcuts="Control+J Meta+J" className="mb-2 flex min-h-11 w-full items-center gap-2 rounded border border-dashed border-neutral-300 p-3 text-left text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900" onClick={()=>{const q=query.trim();paletteStore.set(false);if(q)openAssistant({context:[],actionId:'search_answer',prompt:q,autoSend:false});else openAssistant();}}><Sparkles size={15} className="shrink-0 text-violet-500" aria-hidden="true"/><span className="min-w-0 flex-1 break-words">{query.trim()?`Ask AI: “${query.trim()}”`:'Ask AI…'}</span><kbd className="text-[10px] text-neutral-500">⌘J</kbd></button>
   <p role="status" className="text-sm">{status}{current?.reply?.indexPending?' · Index update pending':''}</p>
   {current?.error&&<div role="alert"><p>{current.error}</p><Button onClick={()=>retry(i=>i+1)}>Retry search</Button></div>}

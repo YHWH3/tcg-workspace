@@ -25,7 +25,7 @@ try{
  fixture=await startFixture({port:await freePort(),build:!process.argv.includes('--skip-build'),artifactDirectory:join(output,'fixture')});
  process.env.CERT_FIXTURE_ID=fixture.fixtureId;
  const {admin}=await bootstrap(fixture.base);
- await push(fixture.base,admin.token,[{id:'release-ui-page',collection:'pages',patch:{title:'Release acceptance journal',order:'a0'}},{id:'release-ui-body',collection:'blocks',patch:{pageId:'release-ui-page',type:'paragraph',text:'Field observations: multilingual recovery café 日本語 — source evidence remains editable.',order:'a0'}}]);
+ await push(fixture.base,admin.token,[{id:'release-ui-page',collection:'pages',patch:{title:'Release acceptance journal',order:'a0'}},{id:'release-ui-body',collection:'blocks',patch:{pageId:'release-ui-page',type:'paragraph',text:'Field observations: multilingual recovery café 日本語 — source evidence remains editable.',order:'a0'}},{id:'release-ui-task',collection:'tasks',patch:{title:'Release accessibility task',boardId:'board-default',order:'a0'}}]);
  await fixture.sql('UPDATE access_state SET enabled=1 WHERE id=1');
  for(const [engine,type]of selected){
   let browser;
@@ -34,6 +34,14 @@ try{
    for(const width of widths){
     const size=`${width}x900`,name='core release UI',started=performance.now();let context,page;const errors=[],accessibility=[];
     try{
+     // Safari autozooms focused form controls below 16px. Check the shared
+     // unauthenticated input surface as well as the already signed-in shell.
+     const loginContext=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block'});
+     try{const loginPage=await loginContext.newPage();await loginPage.goto(fixture.base);await loginPage.getByRole('textbox',{name:'Username',exact:true}).waitFor();
+      const fontSizes=await loginPage.locator('input').evaluateAll(nodes=>nodes.map(e=>Number.parseFloat(getComputedStyle(e).fontSize)));
+      assert.ok(fontSizes.length>=2,'Login exposes username and password controls');
+      if(width<640)assert.ok(fontSizes.every(size=>size>=16),`Compact input text must prevent Safari autozoom: ${fontSizes}`);
+     }finally{await loginContext.close();}
      context=await browser.newContext({viewport:{width,height:900},hasTouch:true,serviceWorkers:'block',reducedMotion:'reduce'});
      await context.addInitScript(a=>{localStorage.setItem('ws_token',a.token);localStorage.setItem('ws_uid',a.user.id);localStorage.setItem('ws_user',JSON.stringify(a.user));},admin);
      page=await context.newPage();page.setDefaultTimeout(20000);page.on('pageerror',e=>errors.push(e.message));
@@ -45,14 +53,25 @@ try{
      const trigger=page.getByRole('button',{name:/^Search/}).first();await trigger.focus();await trigger.press('Enter');
      const input=page.getByRole('combobox',{name:'Search workspace',exact:true});await input.waitFor();await input.fill('Release acceptance');
      await eventually(async()=>await page.getByRole('listbox',{name:'Search results',exact:true}).getByRole('option').filter({hasText:'Release acceptance journal'}).count()>0);
+     if(width<768){
+      const filters=page.getByRole('button',{name:/^Filters/});assert.equal(await filters.getAttribute('aria-expanded'),'false');
+      await filters.tap();assert.equal(await filters.getAttribute('aria-expanded'),'true');await page.getByRole('combobox',{name:'Search type',exact:true}).waitFor();await filters.tap();
+      const previousHeight=await page.evaluate(()=>{const style=document.documentElement.style;const old=style.getPropertyValue('--vvh');style.setProperty('--vvh','362px');return old;});
+      const resultBox=await page.getByRole('listbox',{name:'Search results',exact:true}).boundingBox();assert.ok(resultBox&&resultBox.height>=66,`Keyboard-height search must show a touch-sized result, got ${JSON.stringify(resultBox)}`);
+      await page.evaluate(old=>document.documentElement.style.setProperty('--vvh',old),previousHeight);
+     }
      await reflow('search');assert.ok(await page.evaluate(()=>[...document.querySelectorAll('.anim-fade,.anim-slide-bottom')].every(e=>getComputedStyle(e).animationName==='none')),'Reduced motion must disable overlay animations');await input.press('ArrowDown');await input.press('Tab');assert.equal(await page.evaluate(()=>!!document.activeElement?.closest('[role="dialog"]')),true,'Search focus must remain inside dialog');
      await page.keyboard.press('Shift+Tab');assert.equal(await page.evaluate(()=>!!document.activeElement?.closest('[role="dialog"]')),true);
      await audit('search');await screenshot('search');await page.keyboard.press('Escape');await input.waitFor({state:'hidden'});assert.equal(await trigger.evaluate(e=>e===document.activeElement),true,'Search must restore trigger focus');
      await trigger.tap();await input.fill('Release acceptance');await eventually(async()=>await page.getByRole('listbox',{name:'Search results',exact:true}).getByRole('option').filter({hasText:'Release acceptance journal'}).count()>0);await page.getByRole('listbox',{name:'Search results',exact:true}).getByRole('option').filter({hasText:'Release acceptance journal'}).first().tap();await input.waitFor({state:'hidden'});assert.ok(page.url().endsWith('/pages/release-ui-page'));
+     await page.goto(fixture.base+'/boards/board-default/tasks/release-ui-task');await page.getByRole('textbox',{name:'Task title',exact:true}).waitFor();
+     for(const name of ['Board','Stage','Priority','Assignee'])await page.getByRole('combobox',{name,exact:true}).waitFor();
+     await page.getByLabel('Due date',{exact:true}).waitFor();await page.getByRole('combobox',{name:'Priority',exact:true}).selectOption('high');assert.equal(await page.getByRole('combobox',{name:'Priority',exact:true}).inputValue(),'high');
+     await reflow('task detail');await audit('task-detail');await screenshot('task-detail');
      await page.goto(fixture.base+'/settings');await page.getByRole('heading',{name:'Settings',exact:true}).waitFor();await page.getByRole('heading',{name:'AI connectors',exact:true}).waitFor();await reflow('settings');await audit('settings');await screenshot('settings');
      await page.goto(fixture.base+'/ai');await page.getByRole('heading',{name:'AI workflows',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Copy instructions',exact:true}).count(),7);await page.getByRole('heading',{name:'Optional AI and budget',exact:true}).waitFor();await reflow('AI workflows');await audit('ai');await screenshot('ai');
      await page.goto(fixture.base+'/inbox');await page.getByRole('heading',{name:'Inbox',exact:true}).waitFor();await reflow('Inbox');await audit('inbox');
-     if(width===320||width===1440){await page.emulateMedia({colorScheme:'dark'});for(const [surface,path,heading]of [['page','/pages/release-ui-page',null],['settings','/settings','Settings'],['ai','/ai','AI workflows'],['inbox','/inbox','Inbox']]){await page.goto(fixture.base+path);if(heading)await page.getByRole('heading',{name:heading,exact:true}).waitFor();else await page.getByPlaceholder('Untitled',{exact:true}).waitFor();await reflow(surface+' dark');await audit(surface+'-dark');await screenshot(surface+'-dark');}}
+     if(width===320||width===1440){await page.emulateMedia({colorScheme:'dark'});for(const [surface,path,heading]of [['page','/pages/release-ui-page',null],['task-detail','/boards/board-default/tasks/release-ui-task',null],['settings','/settings','Settings'],['ai','/ai','AI workflows'],['inbox','/inbox','Inbox']]){await page.goto(fixture.base+path);if(heading)await page.getByRole('heading',{name:heading,exact:true}).waitFor();else if(surface==='task-detail')await page.getByRole('textbox',{name:'Task title',exact:true}).waitFor();else await page.getByPlaceholder('Untitled',{exact:true}).waitFor();await reflow(surface+' dark');await audit(surface+'-dark');await screenshot(surface+'-dark');}}
      assert.deepEqual(errors,[],'No uncaught browser errors');
      assert.deepEqual(accessibility,[],'Automated applicable WCAG A/AA rules must pass');
      reporter.record(engine,size,name,'PASS',null,{durationMs:Math.round(performance.now()-started),permissionMode:'ENABLED'});console.log(`PASS [${engine}/${size}] ${name}`);

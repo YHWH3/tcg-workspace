@@ -101,10 +101,10 @@ export function ItemList({ items, frames, sel, onSel, onFocus, onClose, onConnec
               <span className="min-w-0 flex-1 truncate text-xs">{itemTitle(i)}</span>
             </button>
             <div className="mt-1 flex flex-wrap gap-1">
-              <button className={ob} title="Nudge left" onClick={() => nudge(i, -10, 0)}>←</button>
-              <button className={ob} title="Nudge up" onClick={() => nudge(i, 0, -10)}>↑</button>
-              <button className={ob} title="Nudge down" onClick={() => nudge(i, 0, 10)}>↓</button>
-              <button className={ob} title="Nudge right" onClick={() => nudge(i, 10, 0)}>→</button>
+              <button className={ob} title="Nudge left" aria-label="Nudge left" onClick={() => nudge(i, -10, 0)}>←</button>
+              <button className={ob} title="Nudge up" aria-label="Nudge up" onClick={() => nudge(i, 0, -10)}>↑</button>
+              <button className={ob} title="Nudge down" aria-label="Nudge down" onClick={() => nudge(i, 0, 10)}>↓</button>
+              <button className={ob} title="Nudge right" aria-label="Nudge right" onClick={() => nudge(i, 10, 0)}>→</button>
               <button className={ob} title="Shrink 10%" onClick={() => resize(i, 0.9)}>−</button>
               <button className={ob} title="Grow 10%" onClick={() => resize(i, 1.1)}>+</button>
               <button className={ob} title="Bring to front" onClick={() => zEdge(i, 'front')}><BringToFront size={11} /></button>

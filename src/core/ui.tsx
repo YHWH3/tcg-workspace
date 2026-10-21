@@ -75,7 +75,7 @@ export function IconButton({ className, ...props }: ButtonHTMLAttributes<HTMLBut
 
 /* ---------- Inputs ---------- */
 const inputCls =
-  'w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 transition-shadow focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600 dark:focus:ring-white/10';
+  'w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-base sm:text-sm text-neutral-900 placeholder:text-neutral-400 transition-shadow focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600 dark:focus:ring-white/10';
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(inputCls, className)} {...props} />;

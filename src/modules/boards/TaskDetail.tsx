@@ -97,7 +97,7 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
   return (
     <>
       <div className="flex items-center justify-between border-b border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-        <span className="flex items-center gap-1.5 text-xs font-medium text-neutral-400">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
           <span>{String(board?.icon ?? '🗂️')}</span> {String(board?.name ?? 'Board')}
         </span>
         <div className="flex items-center gap-1">
@@ -135,6 +135,7 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
           <textarea
             value={title}
             rows={1}
+            aria-label="Task title"
             placeholder="Task title"
             className="w-full resize-none overflow-hidden bg-transparent text-lg font-semibold outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
             onFocus={() => setEditingTitle(true)}
@@ -148,16 +149,17 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
             }}
           />
           <div className="mt-3 grid grid-cols-[88px_1fr] items-center gap-y-2.5 text-sm">
-            <span className="text-xs text-neutral-400">Board</span>
-            <Select value={board?.id ?? ''} onChange={(e) => void moveTaskToBoard(task.id, e.target.value)} className="py-1.5">
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">Board</span>
+            <Select aria-label="Board" value={board?.id ?? ''} onChange={(e) => void moveTaskToBoard(task.id, e.target.value)} className="py-1.5">
               {boards.map((b) => (
                 <option key={b.id} value={b.id}>
                   {String(b.icon ?? '')} {String(b.name ?? '')}
                 </option>
               ))}
             </Select>
-            <span className="text-xs text-neutral-400">Stage</span>
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">Stage</span>
             <Select
+              aria-label="Stage"
               value={curCol}
               onChange={(e) => {
                 noteGatedMove(board, task.id, e.target.value); // P4-D: gated stage → request dialog
@@ -171,16 +173,16 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
                 </option>
               ))}
             </Select>
-            <span className="text-xs text-neutral-400">Priority</span>
-            <Select value={task.priority ?? 'none'} onChange={(e) => void setTaskField(task.id, { priority: e.target.value as TaskRow['priority'] })} className="py-1.5">
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">Priority</span>
+            <Select aria-label="Priority" value={task.priority ?? 'none'} onChange={(e) => void setTaskField(task.id, { priority: e.target.value as TaskRow['priority'] })} className="py-1.5">
               {PRIORITIES.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
                 </option>
               ))}
             </Select>
-            <span className="text-xs text-neutral-400">Assignee</span>
-            <Select value={String(task.assigneeId ?? '')} onChange={(e) => void setTaskField(task.id, { assigneeId: e.target.value || null })} className="py-1.5">
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">Assignee</span>
+            <Select aria-label="Assignee" value={String(task.assigneeId ?? '')} onChange={(e) => void setTaskField(task.id, { assigneeId: e.target.value || null })} className="py-1.5">
               <option value="">Unassigned</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
@@ -188,24 +190,26 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
                 </option>
               ))}
             </Select>
-            <span className="text-xs text-neutral-400">Due date</span>
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">Due date</span>
             <input
               type="date"
+              aria-label="Due date"
               value={String(task.dueDate ?? '')}
               onChange={(e) => void setTaskField(task.id, { dueDate: e.target.value || null })}
-              className={cn('w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10', overdue && 'border-red-300 text-red-600 dark:border-red-800 dark:text-red-400')}
+              className={cn('w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10', overdue && 'border-red-300 text-red-600 dark:border-red-800 dark:text-red-400')}
             />
             {fieldsOf(board).map((f) => (
               <FieldRow key={f.id} field={f} task={task} />
             ))}
           </div>
           <div className="mt-4">
-            <span className="mb-1 block text-xs text-neutral-400">Description</span>
+            <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">Description</span>
             <textarea
               value={desc}
               rows={4}
+              aria-label="Task description"
               placeholder="Add details…"
-              className="-m-1 w-full resize-none overflow-hidden rounded-lg bg-transparent p-1 text-sm leading-6 outline-none placeholder:text-neutral-300 focus:bg-neutral-50 dark:placeholder:text-neutral-600 dark:focus:bg-neutral-900/60"
+              className="-m-1 w-full resize-none overflow-hidden rounded-lg bg-transparent p-1 text-base sm:text-sm leading-6 outline-none placeholder:text-neutral-300 focus:bg-neutral-50 dark:placeholder:text-neutral-600 dark:focus:bg-neutral-900/60"
               onChange={(e) => {
                 setDesc(e.target.value);
                 debouncedDesc.current(task.id, e.target.value);

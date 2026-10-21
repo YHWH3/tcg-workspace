@@ -587,7 +587,7 @@ async function canvasSuite(page, E, V, uid) {
     const row = options.filter({ hasText: 'seed note two' }).first();
     if (!(await row.count())) return false;
     const before = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
-    await row.locator('button[title="Nudge right"]').dispatchEvent('click');
+    await row.getByRole('button',{name:'Nudge right',exact:true}).dispatchEvent('click');
     await sleep(300);
     const after = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
     return after && before && after.x === before.x + 10;
