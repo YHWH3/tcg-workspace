@@ -232,7 +232,7 @@ describe('embedded assistant authorization (actual D1, permissions ENABLED)',()=
  });
  it('fails closed on incomplete dependency coverage instead of silently trusting a truncated set',async()=>{
   await setup();await spaces();const c=await conversation();
-  await f.db.batch(appendStatements(f.env,c.id,'alice',[{role:'assistant',content:{text:'CANARY_OVERFLOW'},sourceIds:Array.from({length:MAX_ASSISTANT_SOURCES+1},(_,i)=>`source-${i}`)}],30));
+  await f.db.batch(appendStatements(f.env,c.id,'alice',[{role:'assistant',content:{text:'CANARY_OVERFLOW',principalRole:'member'},sourceIds:Array.from({length:MAX_ASSISTANT_SOURCES+1},(_,i)=>`source-${i}`)}],30));
   const original=await loadMessages(f.env,c.id,'alice');expect(original[0].content.sourceCoverageIncomplete).toBe(true);expect(original[0].sourceIds).toHaveLength(MAX_ASSISTANT_SOURCES);
   const shown=await visibleMessages(f.env,'alice',original);expect((shown.rows[0].content as {redacted?:boolean}).redacted).toBe(true);expect(JSON.stringify(shown.rows)).not.toContain('CANARY_OVERFLOW');
   // Retained original data remains intact; redaction is not a purge.
@@ -243,6 +243,48 @@ describe('embedded assistant authorization (actual D1, permissions ENABLED)',()=
   await f.db.prepare("INSERT INTO assistant_messages(id,conversation_id,user_id,seq,role,content_json,source_ids,created_at) VALUES('legacy',?,'alice',1,'assistant',?, '[]',?)").bind(c.id,JSON.stringify({text:'CANARY_LEGACY'}),Date.now()).run();
   const detail=(await req(`/conversations/${c.id}`,undefined,'alice','GET')).json as {messages:{redacted?:boolean;text:string}[]};
   expect(detail.messages[0].redacted).toBe(true);expect(JSON.stringify(detail)).not.toContain('CANARY_LEGACY');
+ });
+ it('withholds retained directory output and uncited replies after member-to-guest downgrade',async()=>{
+  await setup();await spaces();await f.db.prepare("DELETE FROM records").run();await f.db.prepare("UPDATE users SET name='ALICE_DIRECTORY_CANARY' WHERE id='alice'").run();
+  const c=await conversation('bob');let generation=0;
+  vi.spyOn(PROVIDERS.simulated,'stream').mockImplementation(async function*(_env,request){
+   if(generation++===0){yield {type:'tool_call',id:'directory-read',name:'workspace_overview',arguments:'{}'};}
+   else{expect(JSON.stringify(request.turns)).toContain('ALICE_DIRECTORY_CANARY');yield {type:'text',delta:'ALICE_DIRECTORY_CANARY can help with this project.'};}yield {type:'done'};
+  });
+  await drive((await req(`/conversations/${c.id}/messages`,{text:'Who is here?',provider:'simulated'},'bob')).events,'bob');
+  const before=(await req(`/conversations/${c.id}`,undefined,'bob','GET')).json;
+  expect(JSON.stringify(before)).toContain('ALICE_DIRECTORY_CANARY');
+  await f.db.prepare("UPDATE users SET workspace_role='guest' WHERE id='bob'").run();
+  const after=(await req(`/conversations/${c.id}`,undefined,'bob','GET')).json;
+  expect(JSON.stringify(after)).not.toContain('ALICE_DIRECTORY_CANARY');
+  let transmitted='';vi.spyOn(PROVIDERS.simulated,'stream').mockImplementation(async function*(_env,request){transmitted=JSON.stringify(request.turns);yield {type:'text',delta:'No directory data.'};yield {type:'done'};});
+  await drive((await req(`/conversations/${c.id}/messages`,{text:'Continue safely',provider:'simulated'},'bob')).events,'bob');
+  expect(transmitted).not.toContain('ALICE_DIRECTORY_CANARY');
+ });
+ it('rejects a pending call after a principal-role change even with no record dependencies',async()=>{
+  await setup();await spaces();await f.db.prepare('DELETE FROM records').run();const c=await conversation('bob');
+  vi.spyOn(PROVIDERS.simulated,'stream').mockImplementation(async function*(){yield {type:'tool_call',id:'role-pending',name:'create_page',arguments:JSON.stringify({title:'Directory draft',markdown:'ALICE_DIRECTORY_CANARY'})};yield {type:'done'};});
+  const end=stepEnd((await req(`/conversations/${c.id}/messages`,{text:'Draft',provider:'simulated'},'bob')).events)!;
+  await f.db.prepare("UPDATE users SET workspace_role='guest' WHERE id='bob'").run();
+  const result=await req(`/runs/${end.runId}/continue`,{step:end.step},'bob');expect(errorOf(result.events)?.code).toBe('access_changed');
+  expect(await count('SELECT COUNT(*) n FROM ai_previews')).toBe(0);
+ });
+ it('does not stamp a new role onto directory content read before a concurrent downgrade',async()=>{
+  await setup();await spaces();await f.db.prepare('DELETE FROM records').run();const c=await conversation('bob');
+  vi.spyOn(PROVIDERS.simulated,'stream').mockImplementation(async function*(){yield {type:'tool_call',id:'role-race',name:'workspace_overview',arguments:'{}'};yield {type:'done'};});
+  const end=stepEnd((await req(`/conversations/${c.id}/messages`,{text:'Read directory',provider:'simulated'},'bob')).events)!;
+  // Deterministic barrier: another transaction downgrades the caller after the
+  // directory bytes have been read, before the original request can retain them.
+  let interrupted=false;
+  const wrap=(statement:D1PreparedStatement):D1PreparedStatement=>new Proxy(statement,{get(target,key){
+   if(key==='bind')return (...values:Parameters<D1PreparedStatement['bind']>)=>wrap(target.bind(...values));
+   if(key==='all')return async()=>{const result=await target.all();if(!interrupted){interrupted=true;await f.db.prepare("UPDATE users SET workspace_role='guest' WHERE id='bob'").run();}return result;};
+   const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
+  }});
+  f.env.DB=new Proxy(f.db,{get(target,key){if(key==='prepare')return (sql:string)=>/^SELECT id,username,name FROM users WHERE/.test(sql)?wrap(target.prepare(sql)):target.prepare(sql);const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});
+  const result=await req(`/runs/${end.runId}/continue`,{step:end.step},'bob');
+  expect(interrupted).toBe(true);expect(errorOf(result.events)?.code).toBe('access_changed');
+  expect(await count("SELECT COUNT(*) n FROM assistant_messages WHERE role='tool'")).toBe(0);
  });
  it('hides write capabilities when the caller can write nowhere',async()=>{
   await setup();await spaces();await f.db.batch([f.db.prepare("UPDATE space_members SET role='viewer' WHERE user_id='alice'"),f.db.prepare("UPDATE users SET workspace_role='guest' WHERE id='alice'")]);

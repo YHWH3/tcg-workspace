@@ -18,8 +18,8 @@ export const assistantApi=new Hono<C>();
 assistantApi.use('*',requireAuth);
 
 async function stepUser(env:Env,u:AuthUser):Promise<StepUser>{
- const role=await env.DB.prepare("SELECT CASE WHEN COALESCE(workspace_role,role) IN('owner','admin') THEN 'admin' ELSE 'member' END r FROM users WHERE id=?").bind(u.id).first<string>('r');
- return {id:u.id,role:role==='admin'?'admin':'member',tokenHash:u.tokenHash};
+ const principal=await env.DB.prepare("SELECT COALESCE(workspace_role,role) principalRole,CASE WHEN COALESCE(workspace_role,role) IN('owner','admin') THEN 'admin' ELSE 'member' END r FROM users WHERE id=?").bind(u.id).first<{principalRole:string;r:string}>();
+ return {id:u.id,role:principal?.r==='admin'?'admin':'member',principalRole:principal?.principalRole??'',tokenHash:u.tokenHash};
 }
 function sse(c:import('hono').Context<C>,run:(io:{emit(e:AssistantEvent):Promise<void>;signal:AbortSignal})=>Promise<unknown>){
  c.header('Cache-Control','no-store');

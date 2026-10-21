@@ -11,6 +11,8 @@ import {createReadGate} from '../readAccess';
 export const MAX_ASSISTANT_SOURCES=1000;
 export interface StoredContent {
  sourceCoverage?:1;sourceCoverageIncomplete?:boolean;
+ /** Exact principal role captured BEFORE the content was consumed. */
+ principalRole?:string;
  text:string;provider?:string;model?:string;context?:ContextRef[];
  /** Resolved, untrusted context payload sent to the model (user messages). */
  contextPayload?:string;
@@ -21,7 +23,7 @@ export interface StoredContent {
  sources?:SourceRef[];approval?:AssistantMessage['approval'];incomplete?:boolean;error?:string;
 }
 export interface MessageRow {id:string;role:'user'|'assistant'|'tool';seq:number;created_at:number;content:StoredContent;sourceIds:string[]}
-export interface RunRow {id:string;conversation_id:string;user_id:string;session_hash:string;provider:string;model:string;status:RunStatus;step:number;pending:{id:string;name:string;arguments:string;sourceIds?:string[];sourceCoverage?:1}[];context:ContextRef[];action_id:string|null;cancel_requested:number;input_chars:number;output_chars:number}
+export interface RunRow {id:string;conversation_id:string;user_id:string;session_hash:string;provider:string;model:string;status:RunStatus;step:number;pending:{id:string;name:string;arguments:string;sourceIds?:string[];sourceCoverage?:1;principalRole?:string}[];context:ContextRef[];action_id:string|null;cancel_requested:number;input_chars:number;output_chars:number}
 
 const DAY=86_400_000;
 export async function retentionDays(env:Env,userId:string){return (await env.DB.prepare('SELECT retention_days FROM assistant_settings WHERE user_id=?').bind(userId).first<number>('retention_days'))??DEFAULT_RETENTION_DAYS;}
@@ -55,7 +57,10 @@ export function appendStatements(env:Env,conversationId:string,userId:string,mes
 
 /** Revalidate stored messages against current access. Unreadable → redacted. */
 export async function visibleMessages(env:Env,userId:string,rows:MessageRow[]):Promise<{rows:MessageRow[];readable:Set<string>}>{
- const covered=rows.filter(r=>r.content.sourceCoverage===1&&!r.content.sourceCoverageIncomplete);
+ // Record IDs do not cover identity-directory data. Bind retained copies to
+ // the principal role under which they were read, including member→guest.
+ const principalRole=await env.DB.prepare('SELECT COALESCE(workspace_role,role) r FROM users WHERE id=? AND disabled_at IS NULL').bind(userId).first<string>('r');
+ const covered=rows.filter(r=>r.content.sourceCoverage===1&&!r.content.sourceCoverageIncomplete&&r.content.principalRole===principalRole);
  const ids=[...new Set(covered.flatMap(r=>r.sourceIds))];
  // Never truncate a security decision. Excessive retained dependencies fail
  // closed without unbounded graph queries; users can start a narrower thread.
@@ -65,8 +70,8 @@ export async function visibleMessages(env:Env,userId:string,rows:MessageRow[]):P
  return {readable,rows:rows.map(r=>{
   // Pre-fix model/tool payloads did not have complete dependency coverage.
   // Retain the original data, but do not disclose or resend unprovable copies.
-  const legacy=r.content.sourceCoverage!==1&&(r.role!=='user'||!!r.content.contextPayload);
-  const hidden=legacy||r.content.sourceCoverageIncomplete||(overflow&&r.sourceIds.length>0)||r.sourceIds.some(id=>!readable.has(id));
+  const legacy=(r.content.sourceCoverage!==1||!r.content.principalRole)&&(r.role!=='user'||!!r.content.contextPayload);
+  const hidden=legacy||r.content.sourceCoverageIncomplete||(!!r.content.principalRole&&r.content.principalRole!==principalRole)||(overflow&&r.sourceIds.length>0)||r.sourceIds.some(id=>!readable.has(id));
   return hidden?{...r,content:{text:'',redacted:true} as StoredContent&{redacted:true}}:r;
  })};
 }

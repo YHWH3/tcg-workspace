@@ -22,7 +22,7 @@ import {credentialViews,loadCredential} from './credentials';
 import {MAX_ASSISTANT_SOURCES,appendStatements,getConversation,loadMessages,loadRun,retentionDays,visibleMessages,type MessageRow,type StoredContent,type RunRow} from './store';
 import {createReadGate} from '../readAccess';
 
-export interface StepUser {id:string;role:'admin'|'member';tokenHash:string}
+export interface StepUser {id:string;role:'admin'|'member';principalRole:string;tokenHash:string}
 export interface StepIO {emit(ev:AssistantEvent):Promise<void>;signal:AbortSignal;origin:string;ectx:ExecutionContext}
 
 const MAX_TOOL_CALLS_PER_SEGMENT=4,MAX_TOOL_PAYLOAD=6000,MAX_CONTEXT_PAYLOAD=12000,MAX_HISTORY_CHARS=60000;
@@ -31,7 +31,7 @@ const ID_RE=/^[A-Za-z0-9_:.-]{1,64}$/;
 const fail=async(io:StepIO,code:AssistantErrorCode,message:string,retryable=false)=>io.emit({type:'error',code,message,retryable});
 
 export async function sessionActive(env:Env,user:StepUser){
- return !!(await env.DB.prepare('SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL').bind(user.tokenHash,user.id,Date.now()).first());
+ return !!(await env.DB.prepare('SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL AND COALESCE(u.workspace_role,u.role)=?').bind(user.tokenHash,user.id,Date.now(),user.principalRole).first());
 }
 
 export function validateSend(body:unknown):SendMessageBody|string{
@@ -139,7 +139,7 @@ export async function startRun(env:Env,user:StepUser,conversationId:string,body:
   let resolved={payload:'',sourceIds:[] as string[],sources:[] as SourceRef[],incomplete:false,denied:0};
   if(needsContext){const bridge=await openBridge(env,io.ectx,{userId:user.id,userRole:user.role,origin:io.origin,provider:body.provider,model:prov.model});try{resolved=await resolveContext(env,bridge,user,body.context!,io.origin);}finally{await bridge.close();}}
   if(!(await sessionActive(env,user)))return fail(io,'unauthenticated','Your session ended.');
-  userMessage={id:crypto.randomUUID(),role:'user',content:{text:body.text,context:body.context,contextPayload:resolved.payload||undefined,sources:resolved.sources,incomplete:resolved.incomplete||undefined,error:resolved.denied?`${resolved.denied} context item(s) were unavailable and were not attached.`:undefined},sourceIds:resolved.sourceIds};
+  userMessage={id:crypto.randomUUID(),role:'user',content:{text:body.text,principalRole:user.principalRole,context:body.context,contextPayload:resolved.payload||undefined,sources:resolved.sources,incomplete:resolved.incomplete||undefined,error:resolved.denied?`${resolved.denied} context item(s) were unavailable and were not attached.`:undefined},sourceIds:resolved.sourceIds};
  }
  // A crashed/abandoned run must not block the conversation forever.
  await env.DB.prepare("UPDATE assistant_runs SET status='failed',error_code='stale',updated_at=? WHERE conversation_id=? AND user_id=? AND status IN('running','awaiting_continue') AND updated_at<?").bind(now,conversationId,user.id,now-120_000).run();
@@ -174,7 +174,7 @@ async function finish(env:Env,run:RunRow,status:'completed'|'failed'|'cancelled'
 }
 
 async function cancelledOrRevoked(env:Env,user:StepUser,run:RunRow){
- const r=await env.DB.prepare(`SELECT r.cancel_requested c,(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL) live FROM assistant_runs r WHERE r.id=?`).bind(user.tokenHash,user.id,Date.now(),run.id).first<{c:number;live:number|null}>();
+ const r=await env.DB.prepare(`SELECT r.cancel_requested c,(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL AND COALESCE(u.workspace_role,u.role)=?) live FROM assistant_runs r WHERE r.id=?`).bind(user.tokenHash,user.id,Date.now(),user.principalRole,run.id).first<{c:number;live:number|null}>();
  return !r?'cancelled':r.c?'cancelled':!r.live?'revoked':null;
 }
 
@@ -205,8 +205,8 @@ async function modelSegment(env:Env,user:StepUser,run:RunRow,io:StepIO){
  const known=new Map(visible.flatMap(r=>(r.content.sources??[])).map(s=>[s.id,s]));
  const sources=cited.map(id=>known.get(id)??{id,type:'record'});
  const toolViews:ToolCallView[]=calls.map(c=>({id:c.id,name:c.name,capability:c.name,kind:capabilityOf(c.name).kind,argsSummary:c.arguments.slice(0,200),status:'pending'}));
- const content:StoredContent={text,provider:run.provider,model:run.model,calls:calls.length?calls:undefined,toolCalls:toolViews.length?toolViews:undefined,sources,error:error?.code};
- const pending=error||halted?[]:calls.map(c=>({...c,sourceIds:dependencies,sourceCoverage:1 as const}));
+ const content:StoredContent={text,principalRole:user.principalRole,provider:run.provider,model:run.model,calls:calls.length?calls:undefined,toolCalls:toolViews.length?toolViews:undefined,sources,error:error?.code};
+ const pending=error||halted?[]:calls.map(c=>({...c,sourceIds:dependencies,sourceCoverage:1 as const,principalRole:user.principalRole}));
  const status=halted==='cancelled'?'cancelled':halted==='revoked'?'failed':error?'failed':pending.length?'awaiting_continue':'completed';
  if(halted==='revoked'){await finish(env,run,'failed','access_changed');return fail(io,'access_changed','Your session ended; the reply was not saved.');}
  await env.DB.batch([...appendStatements(env,run.conversation_id,user.id,[{id:messageId,role:'assistant',content,sourceIds:dependencies}],retention),
@@ -226,7 +226,7 @@ async function dispatchTool(env:Env,user:StepUser,run:RunRow,io:StepIO){
  const inherited=call.sourceIds??[];
  const sourceGate=createReadGate(env.DB,user.id);
  const decision=inherited.length>MAX_ASSISTANT_SOURCES?null:inherited.length?await sourceGate.decide(inherited):{readable:new Set<string>()};
- if(call.sourceCoverage!==1||!decision||inherited.some(id=>!decision.readable.has(id))){await finish(env,run,'failed','access_changed');return fail(io,'access_changed','Source access changed; the pending action was not run.');}
+ if(call.sourceCoverage!==1||call.principalRole!==user.principalRole||!decision||inherited.some(id=>!decision.readable.has(id))){await finish(env,run,'failed','access_changed');return fail(io,'access_changed','Source access changed; the pending action was not run.');}
  const view:ToolCallView={id:call.id,name:call.name,capability:call.name,kind:capabilityOf(call.name).kind,argsSummary:call.arguments.slice(0,200),status:'running'};
  await io.emit({type:'tool',messageId:call.id,call:view});
  let args:Record<string,unknown>|null=null;try{const v=JSON.parse(call.arguments||'{}');if(v&&typeof v==='object'&&!Array.isArray(v))args=v as Record<string,unknown>;}catch{/* invalid */}
@@ -250,10 +250,10 @@ async function dispatchTool(env:Env,user:StepUser,run:RunRow,io:StepIO){
  view.status=approval?'awaiting_approval':ok?'done':'error';
  view.resultSummary=approval?'Proposal ready for your review.':ok?summarize(json,resultText):undefined;
  view.error=ok||approval?undefined:String(json?.error??'Tool failed').slice(0,200);
- const toolMessage={id:crypto.randomUUID(),role:'tool' as const,content:{text:view.resultSummary??view.error??'',toolCallId:call.id,toolName:call.name,contextPayload:payload,toolCalls:[view],sources,approval,incomplete:truncated||undefined} satisfies StoredContent,sourceIds:real};
+ const toolMessage={id:crypto.randomUUID(),role:'tool' as const,content:{text:view.resultSummary??view.error??'',principalRole:user.principalRole,toolCallId:call.id,toolName:call.name,contextPayload:payload,toolCalls:[view],sources,approval,incomplete:truncated||undefined} satisfies StoredContent,sourceIds:real};
  // An approval ends this reply; unexecuted sibling calls get explicit results so
  // every provider transcript stays well-formed.
- const skipped=approval?rest.map(c=>({id:crypto.randomUUID(),role:'tool' as const,content:{text:'Not executed: waiting for human approval of an earlier proposal.',toolCallId:c.id,toolName:c.name,contextPayload:'<tool_result trust="system">Not executed: waiting for human approval of an earlier proposal.</tool_result>'} satisfies StoredContent,sourceIds:[] as string[]})):[];
+ const skipped=approval?rest.map(c=>({id:crypto.randomUUID(),role:'tool' as const,content:{text:'Not executed: waiting for human approval of an earlier proposal.',principalRole:user.principalRole,toolCallId:c.id,toolName:c.name,contextPayload:'<tool_result trust="system">Not executed: waiting for human approval of an earlier proposal.</tool_result>'} satisfies StoredContent,sourceIds:[] as string[]})):[];
  const status=halted==='cancelled'?'cancelled':approval?'awaiting_approval':'awaiting_continue';
  await env.DB.batch([...appendStatements(env,run.conversation_id,user.id,[toolMessage,...skipped],retention),
   env.DB.prepare('UPDATE assistant_runs SET status=?,pending_json=?,step=step+1,updated_at=? WHERE id=?').bind(status,JSON.stringify(approval||halted?[]:rest),Date.now(),run.id)]);
