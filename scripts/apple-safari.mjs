@@ -122,9 +122,11 @@ try{
    if(bootedHere)run('xcrun',['simctl','boot',device.udid]);
    run('xcrun',['simctl','bootstatus',device.udid,'-b'],{timeout:120000});
    if(useTls)run('xcrun',['simctl','keychain',device.udid,'add-root-cert',tls.cert]);
-   // XCTest opens the exact URL synchronously in every setUp; never trust an old Safari tab.
+   // Each case cold-starts Safari. The 180s bound includes two observed 60s
+   // XCTest animation-completion waits plus assertions; the outer 600s remains.
+   // Never retry a failed case or remove its assertions.
    const logStart=readFileSync(join(output,'fixture','worker.log'),'utf8').length;
-   const child=await xcodeTest(['test','-project',join(project,'SafariTests.xcodeproj'),'-scheme','SafariTests','-destination',`platform=iOS Simulator,id=${device.udid}`,'-derivedDataPath',join(project,'DerivedData'),'-resultBundlePath',join(dir,'Safari.xcresult'),'-parallel-testing-enabled','NO','-test-timeouts-enabled','YES','-default-test-execution-time-allowance','120','-maximum-test-execution-time-allowance','180','CODE_SIGNING_ALLOWED=NO',...(onlyTest?[`-only-testing:SafariTests/SafariTests/${onlyTest}`]:[])],join(dir,'xcodebuild.log'));exitCode=child.status;
+   const child=await xcodeTest(['test','-project',join(project,'SafariTests.xcodeproj'),'-scheme','SafariTests','-destination',`platform=iOS Simulator,id=${device.udid}`,'-derivedDataPath',join(project,'DerivedData'),'-resultBundlePath',join(dir,'Safari.xcresult'),'-parallel-testing-enabled','NO','-test-timeouts-enabled','YES','-default-test-execution-time-allowance','180','-maximum-test-execution-time-allowance','180','CODE_SIGNING_ALLOWED=NO',...(onlyTest?[`-only-testing:SafariTests/SafariTests/${onlyTest}`]:[])],join(dir,'xcodebuild.log'));exitCode=child.status;
    if(child.error)throw child.error;
    try{run('xcrun',['xcresulttool','export','attachments','--path',join(dir,'Safari.xcresult'),'--output-path',join(dir,'screenshots')]);}catch{}
    try{for(const item of ['summary','tests'])writeFileSync(join(dir,`test-${item}.json`),run('xcrun',['xcresulttool','get','test-results',item,'--path',join(dir,'Safari.xcresult'),'--format','json']));}catch{}

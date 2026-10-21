@@ -1,7 +1,7 @@
 import XCTest
 final class SafariTests: XCTestCase {
  let app = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
- override func setUpWithError() throws { continueAfterFailure=false; XCUIDevice.shared.orientation = .portrait; app.open(URL(string:"__FIXTURE_BASE____FIXTURE_ENTRY__")!); let close=app.webViews.buttons["Close assistant"]; if close.exists {close.tap()} }
+ override func setUpWithError() throws { continueAfterFailure=false; app.terminate(); XCUIDevice.shared.orientation = .portrait; app.open(URL(string:"__FIXTURE_BASE____FIXTURE_ENTRY__")!); let close=app.webViews.buttons["Close assistant"]; if close.exists {close.tap()} }
  func dismissKeyboardIntro() {let next=app.buttons["Continue"];if next.exists && next.isHittable {next.tap()}}
  func enter(_ text:String,into field:XCUIElement) {field.tap();dismissKeyboardIntro();if !app.keyboards.firstMatch.waitForExistence(timeout:3) {field.tap()};app.typeText(text);XCTAssertTrue((field.value as? String ?? "").contains(text),"Native typed text must reach the intended field before submitting")}
  func sendMessage() {let send=app.webViews.buttons["Send message"];XCTAssertTrue(send.waitForExistence(timeout:15));let ready=XCTNSPredicateExpectation(predicate:NSPredicate(format:"enabled == true"),object:send);XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:15),.completed,"Wait for prior stream and draft state before sending");send.tap()}
