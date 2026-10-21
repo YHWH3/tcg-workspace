@@ -1,8 +1,9 @@
 import XCTest
 final class SafariTests: XCTestCase {
  let app = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
- override func setUpWithError() throws { continueAfterFailure=false; XCUIDevice.shared.orientation = .portrait; app.activate() }
+ override func setUpWithError() throws { continueAfterFailure=false; XCUIDevice.shared.orientation = .portrait; app.activate(); let close=app.webViews.buttons["Close assistant"]; if close.exists {close.tap()} }
  func dismissKeyboardIntro() {let next=app.buttons["Continue"];if next.exists && next.isHittable {next.tap()}}
+ func sendMessage() {let send=app.webViews.buttons["Send message"];XCTAssertTrue(send.waitForExistence(timeout:15));let ready=XCTNSPredicateExpectation(predicate:NSPredicate(format:"enabled == true"),object:send);XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:15),.completed,"Wait for prior stream and draft state before sending");send.tap()}
  func shot(_ name:String) {let a=XCTAttachment(screenshot: app.screenshot());a.name=name;a.lifetime = .keepAlways;add(a)}
  func login(requirePage:Bool=true) {
   let user=app.webViews.textFields["Username"]
@@ -35,11 +36,11 @@ final class SafariTests: XCTestCase {
   XCTAssertTrue(app.webViews.staticTexts.matching(NSPredicate(format:"label CONTAINS %@", "Simulated provider")).firstMatch.waitForExistence(timeout:10),"Only simulated fixture provider may be used")
   let composer=app.webViews.textViews["Message the assistant"]
   XCTAssertTrue(composer.waitForExistence(timeout:10));composer.tap();composer.typeText("Summarize this page")
-  app.webViews.buttons["Send message"].tap()
+  sendMessage()
   let reply=app.webViews.staticTexts.matching(NSPredicate(format:"label CONTAINS %@", "authorized sources")).firstMatch
   XCTAssertTrue(reply.waitForExistence(timeout:25));shot("06-sourced-assistant-keyboard")
   composer.tap();composer.typeText("/tool create_page {\"title\":\"Apple simulator proposed page\"}")
-  app.webViews.buttons["Send message"].tap()
+  sendMessage()
   let approve=app.webViews.buttons["Approve & execute"]
   XCTAssertTrue(approve.waitForExistence(timeout:25));shot("07-human-approval-preview")
   if !approve.isHittable {app.webViews.firstMatch.swipeUp()}

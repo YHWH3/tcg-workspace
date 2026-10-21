@@ -6,8 +6,13 @@ import {execFileSync,spawnSync} from 'node:child_process';
 import {mkdirSync,mkdtempSync,copyFileSync,writeFileSync,unlinkSync,readFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {startFixture,bootstrap,push,pull,eventually} from './phase4-fixture.mjs';
+import {startFixture,bootstrap,api,pull,eventually} from './phase4-fixture.mjs';
 import {freePort,fingerprint} from './certification/core.mjs';
+async function fixturePush(base,token,changes){
+ const result=await api(base,'/api/sync/push',{token,method:'POST',headers:{Connection:'close'},body:{changes:changes.map(change=>({ts:Date.now(),...change}))}});
+ if(result.status!==200||result.data.rejected)throw new Error(`Apple fixture push failed (${result.status})`);
+ return result;
+}
 const root=resolve(import.meta.dirname,'..');
 const output=resolve(process.env.APPLE_ARTIFACT_DIR??join(root,'.artifacts/pr13-apple',new Date().toISOString().replaceAll(':','-')));mkdirSync(output,{recursive:true});
 const run=(file,args,opts={})=>execFileSync(file,args,{cwd:root,encoding:'utf8',timeout:30000,...opts});
@@ -30,7 +35,7 @@ let fixture;const results=[];
 try{
  fixture=await startFixture({port:await freePort(),build:!process.argv.includes('--skip-build'),artifactDirectory:join(output,'fixture')});
  const {admin}=await bootstrap(fixture.base);
- await push(fixture.base,admin.token,[
+ await fixturePush(fixture.base,admin.token,[
   {id:'apple-page',collection:'pages',patch:{title:'Apple Safari acceptance',order:'a0'}},
   {id:'apple-block',collection:'blocks',patch:{pageId:'apple-page',type:'p',text:'Safari fixture text: café 中文 🚀. Edit this paragraph and verify persistence.',order:'a0'}},
   {id:'apple-task',collection:'tasks',patch:{title:'Safari task fixture',boardId:'board-default',status:'todo',order:'a0'}},
@@ -47,7 +52,7 @@ try{
   try{
    const marker=`${device.udid.slice(0,8)}-${Date.now().toString(36)}`;
    const pageMarker=`Safari edit café ${marker}`,taskMarker=`Safari property edit café ${marker}`,proposalTitle=`Apple simulator proposed page ${marker}`;
-   await push(fixture.base,admin.token,[{id:'apple-block',collection:'blocks',patch:{text:'Safari fixture text: café 中文 🚀. Edit this paragraph and verify persistence.'}},{id:'apple-task',collection:'tasks',patch:{description:''}},{id:'apple-note',collection:'mooditems',patch:{x:100,y:100}}]);
+   await fixturePush(fixture.base,admin.token,[{id:'apple-block',collection:'blocks',patch:{text:'Safari fixture text: café 中文 🚀. Edit this paragraph and verify persistence.'}},{id:'apple-task',collection:'tasks',patch:{description:''}},{id:'apple-note',collection:'mooditems',patch:{x:100,y:100}}]);
    const swift=readFileSync(join(root,'scripts/apple-safari/SafariTests.swift'),'utf8').replaceAll('Safari edit café',pageMarker).replaceAll('Safari property edit café',taskMarker).replaceAll('Apple simulator proposed page',proposalTitle);
    const before=await pull(fixture.base,admin.token);if(before.some(r=>r.collection==='pages'&&r.data?.title===proposalTitle))throw new Error('Proposal fixture title must not already exist');
    writeFileSync(join(project,'Tests/SafariTests.swift'),swift);
