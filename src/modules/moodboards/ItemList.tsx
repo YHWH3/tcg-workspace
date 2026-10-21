@@ -79,12 +79,13 @@ export function ItemList({ items, frames, sel, onSel, onFocus, onClose, onConnec
         </button>
       </div>
       {connectFrom && <p className="bg-emerald-50 px-3 py-1 text-[11px] text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">Connect: pick the second item</p>}
-      <div role="listbox" aria-label="Canvas items" aria-multiselectable className="min-h-0 flex-1 overflow-y-auto p-1.5">
+      <div role="list" aria-label="Canvas items" className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {shown.length === 0 && <p className="p-3 text-sm text-neutral-400">No items.</p>}
         {shown.map((i) => (
-          <div key={i.id} role="option" aria-selected={sel.has(i.id)} className={`mb-1 rounded-lg border p-1.5 ${sel.has(i.id) ? 'border-blue-400 bg-blue-50/60 dark:border-blue-600 dark:bg-blue-950/40' : 'border-neutral-200 dark:border-neutral-800'}`}>
+          <div key={i.id} role="listitem" className={`mb-1 rounded-lg border p-1.5 ${sel.has(i.id) ? 'border-blue-400 bg-blue-50/60 dark:border-blue-600 dark:bg-blue-950/40' : 'border-neutral-200 dark:border-neutral-800'}`}>
             <button
               className="flex w-full items-center gap-2 text-left"
+              aria-pressed={sel.has(i.id)}
               onClick={(e) => {
                 if (connectFrom) {
                   pickConnect(i);

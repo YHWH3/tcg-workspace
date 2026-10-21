@@ -79,7 +79,7 @@ export function Board({ board, tasks }: { board: BoardRow; tasks: TaskRow[] }) {
           ) : (
             <button
               onClick={() => setAddingCol(true)}
-              className="flex w-64 items-center gap-1.5 rounded-xl border border-dashed border-neutral-300 px-3 py-2.5 text-xs font-medium text-neutral-400 transition-colors hover:border-neutral-400 hover:text-neutral-600 sm:w-72 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:text-neutral-300"
+              className="flex w-64 items-center gap-1.5 rounded-xl border border-dashed border-neutral-300 px-3 py-2.5 text-xs font-medium text-neutral-600 dark:text-neutral-400 transition-colors hover:border-neutral-400 hover:text-neutral-600 sm:w-72 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:text-neutral-300"
             >
               <Plus size={14} /> Add stage
             </button>
@@ -150,7 +150,7 @@ function Column({ board, col, tasks }: { board: BoardRow; col: BoardColumn; task
           }}
         />
       ) : (
-        <button onClick={() => setAdding(true)} className="mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300">
+        <button onClick={() => setAdding(true)} className="mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-neutral-600 dark:text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300">
           <Plus size={13} /> Add task
         </button>
       )}
@@ -162,7 +162,7 @@ function SortableCard({ task, board, cols, col }: { task: TaskRow; board: BoardR
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={cn(isDragging && 'opacity-40')}>
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} role="group" tabIndex={-1} className={cn(isDragging && 'opacity-40')}>
       <div className="relative">
         <TaskCard task={task} board={board} />
         <span className="absolute right-1.5 top-1.5 opacity-0 transition-opacity group-hover:opacity-100 [.group:hover_&]:opacity-100">

@@ -565,7 +565,7 @@ async function canvasSuite(page, E, V, uid) {
     else {
       const il = page.locator('button[title="Item list"]');
       await il.dispatchEvent('click'); await sleep(400);
-      const row = page.locator('[role="option"][aria-selected="true"]').first();
+      const row = page.locator('[data-testid="mood-itemlist"] [role="listitem"]:has(button[aria-pressed="true"])').first();
       if (await row.count()) await row.locator('button[title="Bring to front"]').dispatchEvent('click');
     }
     await sleep(400);
@@ -579,9 +579,9 @@ async function canvasSuite(page, E, V, uid) {
 
   /* ---- ItemList: pointer-free ops ---- */
   const itemListOk = await (async () => {
-    if (!(await page.locator('[role="listbox"]').count())) await page.locator('button[title="Item list"]').dispatchEvent('click');
+    if (!(await page.locator('[data-testid="mood-itemlist"] [role="list"]').count())) await page.locator('button[title="Item list"]').dispatchEvent('click');
     await sleep(500);
-    const options = page.locator('[role="listbox"] [role="option"]');
+    const options = page.locator('[data-testid="mood-itemlist"] [role="listitem"]');
     const count = await options.count();
     if (count < 5) return false;
     const row = options.filter({ hasText: 'seed note two' }).first();
@@ -595,7 +595,7 @@ async function canvasSuite(page, E, V, uid) {
   N('canvas: ItemList nudge button works without pointer drag', itemListOk ? 'PASS' : 'FAIL');
 
   const itemListResize = await (async () => {
-    const row = page.locator('[role="listbox"] [role="option"]').filter({ hasText: 'seed note two' }).first();
+    const row = page.locator('[data-testid="mood-itemlist"] [role="listitem"]').filter({ hasText: 'seed note two' }).first();
     if (!(await row.count())) return false;
     const before = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
     await row.locator('button[title="Grow 10%"]').dispatchEvent('click');
@@ -606,7 +606,7 @@ async function canvasSuite(page, E, V, uid) {
   N('canvas: ItemList grow button resizes without pointer drag', itemListResize ? 'PASS' : 'FAIL');
 
   const itemListZ = await (async () => {
-    const row = page.locator('[role="listbox"] [role="option"]').filter({ hasText: 'seed note two' }).first();
+    const row = page.locator('[data-testid="mood-itemlist"] [role="listitem"]').filter({ hasText: 'seed note two' }).first();
     if (!(await row.count())) return false;
     const before = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
     await row.locator('button[title="Reorder z +1"]').dispatchEvent('click');
@@ -617,15 +617,15 @@ async function canvasSuite(page, E, V, uid) {
   N('canvas: ItemList z-order buttons work', itemListZ ? 'PASS' : 'FAIL');
 
   const itemListDelete = await (async () => {
-    // create a throwaway note then delete via ItemList (it is auto-selected → its row is aria-selected)
+    // create a throwaway note then delete via ItemList (it is auto-selected → its selection button is aria-pressed)
     await addViaMenu(page, 'Sticky note');
     const fresh = (await boardItems(page, uid, MB)).filter((i) => i.type === 'note' && !before.has(i.id)).pop();
     if (!fresh) return 'no-fresh';
     await canvas(page).press('Escape'); // clear editing so the fresh item is selectable
     await selectItemEl(page, fresh.id);
-    if (!(await page.locator('[role="listbox"]').count())) await page.locator('button[title="Item list"]').dispatchEvent('click');
+    if (!(await page.locator('[data-testid="mood-itemlist"] [role="list"]').count())) await page.locator('button[title="Item list"]').dispatchEvent('click');
     await sleep(500);
-    const row = page.locator('[role="listbox"] [role="option"][aria-selected="true"]').first();
+    const row = page.locator('[data-testid="mood-itemlist"] [role="listitem"]:has(button[aria-pressed="true"])').first();
     if (!(await row.count())) return 'no-selected-row';
     await row.locator('button[title="Delete"]').dispatchEvent('click');
     await sleep(600);

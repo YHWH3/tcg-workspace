@@ -81,7 +81,7 @@ export function BoardPage() {
           </h1>
           <div className="flex rounded-lg bg-neutral-100 p-0.5 text-xs dark:bg-neutral-800">
             {(['board', 'list'] as const).map((v) => (
-              <button key={v} onClick={() => setView(v)} aria-label={`${v} view`} className={cn('flex items-center gap-1 rounded-md px-2.5 py-1 font-medium capitalize transition-colors', view === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-500')}>
+              <button key={v} onClick={() => setView(v)} aria-label={`${v} view`} className={cn('flex items-center gap-1 rounded-md px-2.5 py-1 font-medium capitalize transition-colors', view === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-600 dark:text-neutral-300')}>
                 {v === 'board' ? <LayoutGrid size={13} /> : <List size={13} />}
                 <span className="hidden sm:inline">{v}</span>
               </button>
@@ -94,7 +94,7 @@ export function BoardPage() {
                 ['mine', 'Mine'],
               ] as const
             ).map(([v, label]) => (
-              <button key={v} onClick={() => setFilter(v)} className={cn('rounded-md px-2.5 py-1 font-medium transition-colors', filter === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-500')}>
+              <button key={v} onClick={() => setFilter(v)} className={cn('rounded-md px-2.5 py-1 font-medium transition-colors', filter === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-600 dark:text-neutral-300')}>
                 {label}
               </button>
             ))}
