@@ -5,7 +5,8 @@ import {openAuditFixture,type AuditFixture} from './audit-fixture';
 vi.mock('../worker/events',async o=>({...await o<typeof import('../worker/events')>(),scheduleOutbox:vi.fn()}));
 import {assistantApi} from '../worker/assistant/api';
 import {aiPreviewApi} from '../worker/aiPreviews';
-import {retentionStatements} from '../worker/assistant/store';
+import {MAX_ASSISTANT_SOURCES,appendStatements,loadMessages,visibleMessages,retentionStatements} from '../worker/assistant/store';
+import {PROVIDERS} from '../worker/assistant/providers';
 import {saveCredential,loadCredential} from '../worker/assistant/credentials';
 import {withD1Budget,D1BudgetExhausted} from '../worker/d1budget';
 import {sha256Hex} from '../worker/password';
@@ -151,6 +152,97 @@ describe('embedded assistant authorization (actual D1, permissions ENABLED)',()=
   await f.db.prepare("DELETE FROM space_members WHERE space_id='lab' AND user_id='alice'").run();
   const detail=(await req(`/conversations/${c.id}`,undefined,'alice','GET')).json as {messages:{redacted?:boolean;text:string;sources?:unknown[]}[]};
   expect(detail.messages.every(m=>m.redacted)).toBe(true);expect(JSON.stringify(detail)).not.toContain('Lab notes');
+ });
+ it('redacts an uncited paraphrase when any consumed source is revoked',async()=>{
+  await setup();await spaces();const c=await conversation();
+  await f.db.prepare(`INSERT INTO records(id,collection,data,field_ts,seq,space_id) VALUES('lab-secret','blocks','{"pageId":"lab1","type":"p","text":"CANARY_UNCITED","order":"a0"}','{}',12,'lab')`).run();
+  vi.spyOn(PROVIDERS.simulated,'stream').mockImplementation(async function*(_env,request){
+   expect(JSON.stringify(request.turns)).toContain('CANARY_UNCITED');
+   yield {type:'text',delta:'The confidential uncited laboratory roadmap is CANARY_UNCITED.'};yield {type:'done'};
+  });
+  await drive((await req(`/conversations/${c.id}/messages`,{text:'Summarize lab without citations',provider:'simulated',context:[{kind:'page',id:'lab1'}]})).events);
+  await f.db.prepare("DELETE FROM space_members WHERE space_id='lab' AND user_id='alice'").run();
+  const detail=(await req(`/conversations/${c.id}`,undefined,'alice','GET')).json as {messages:{redacted?:boolean;text:string}[]};
+  expect(detail.messages.every(m=>m.redacted)).toBe(true);
+  expect(JSON.stringify(detail)).not.toContain('CANARY_UNCITED');
+ });
+ it('never resends redacted historical function arguments to the provider',async()=>{
+  await setup();await spaces();const c=await conversation();
+  const spy=vi.spyOn(PROVIDERS.simulated,'stream').mockImplementation(async function*(){
+   yield {type:'text',delta:'From [lab1].'};
+   yield {type:'tool_call',id:'call-secret',name:'create_page',arguments:JSON.stringify({title:'Draft',spaceId:'lab',markdown:'CANARY_TOOL_ARGUMENT'})};yield {type:'done'};
+  });
+  await drive((await req(`/conversations/${c.id}/messages`,{text:'Draft using lab',provider:'simulated',context:[{kind:'page',id:'lab1'}]})).events);
+  await f.db.prepare("DELETE FROM space_members WHERE space_id='lab' AND user_id='alice'").run();
+  let transcript='';spy.mockImplementation(async function*(_env,request){transcript=JSON.stringify(request.turns);yield {type:'text',delta:'No retained content.'};yield {type:'done'};});
+  await drive((await req(`/conversations/${c.id}/messages`,{text:'Continue safely',provider:'simulated'})).events);
+  expect(transcript).not.toContain('CANARY_TOOL_ARGUMENT');
+  expect(transcript).not.toContain('Lab notes');
+ });
+ it('keeps only complete function exchanges when one sibling result loses authorization',async()=>{
+  await setup();await spaces();const c=await conversation();
+  const provider=vi.spyOn(PROVIDERS.simulated,'stream').mockImplementation(async function*(){
+   yield {type:'tool_call',id:'private-read',name:'get_page',arguments:JSON.stringify({pageId:'lab1'})};
+   yield {type:'tool_call',id:'public-read',name:'get_board',arguments:JSON.stringify({boardId:'b1'})};yield {type:'done'};
+  });
+  let end=stepEnd((await req(`/conversations/${c.id}/messages`,{text:'Read both',provider:'simulated'})).events)!;
+  // Dispatch the two calls, then revoke one result before the next model segment.
+  for(let i=0;i<2;i++)end=stepEnd((await req(`/runs/${end.runId}/continue`,{step:end.step})).events)!;
+  await f.db.prepare("DELETE FROM space_members WHERE space_id='lab' AND user_id='alice'").run();
+  let turns:import('../worker/assistant/providers').ChatTurn[]=[];
+  provider.mockImplementation(async function*(_env,request){turns=request.turns;yield {type:'text',delta:'Public information only.'};yield {type:'done'};});
+  const result=await req(`/runs/${end.runId}/continue`,{step:end.step});expect(errorOf(result.events)).toBeUndefined();
+  expect(turns.flatMap(t=>t.toolCalls?.map(c=>c.id)??[])).toEqual(['public-read']);
+  expect(turns.filter(t=>t.role==='tool').map(t=>t.toolCallId)).toEqual(['public-read']);
+  expect(JSON.stringify(turns)).not.toContain('Lab notes');
+  const callIndex=turns.findIndex(t=>t.toolCalls?.length);expect(turns[callIndex+1].role).toBe('tool');
+ });
+ it('blocks a queued action derived from a source revoked before its next dispatch',async()=>{
+  await setup();await spaces();const c=await conversation();
+  vi.spyOn(PROVIDERS.simulated,'stream').mockImplementation(async function*(){
+   yield {type:'tool_call',id:'pending-derived',name:'create_page',arguments:JSON.stringify({title:'Derived draft',spaceId:'space-core',markdown:'restricted material'})};yield {type:'done'};
+  });
+  const first=stepEnd((await req(`/conversations/${c.id}/messages`,{text:'Draft from lab',provider:'simulated',context:[{kind:'page',id:'lab1'}]})).events)!;
+  const pending=stepEnd((await req(`/runs/${first.runId}/continue`,{step:first.step})).events)!;
+  expect(pending.next).toBe('continue');
+  await f.db.prepare("DELETE FROM space_members WHERE space_id='lab' AND user_id='alice'").run();
+  const result=await req(`/runs/${pending.runId}/continue`,{step:pending.step});
+  expect(errorOf(result.events)?.code).toBe('access_changed');
+  expect(await count('SELECT COUNT(*) n FROM ai_previews')).toBe(0);
+  expect(await count('SELECT COUNT(*) n FROM changesets')).toBe(0);
+ });
+ it('retains no reply if source authority changes during generation',async()=>{
+  await setup();await spaces();const c=await conversation();
+  vi.spyOn(PROVIDERS.simulated,'stream').mockImplementation(async function*(){
+   yield {type:'text',delta:'An authorized in-flight fragment.'};
+   await f.db.prepare("DELETE FROM space_members WHERE space_id='lab' AND user_id='alice'").run();
+   yield {type:'done'};
+  });
+  const result=await drive((await req(`/conversations/${c.id}/messages`,{text:'Summarize',provider:'simulated',context:[{kind:'page',id:'lab1'}]})).events);
+  expect(errorOf(result)?.code).toBe('access_changed');
+  expect(await count("SELECT COUNT(*) n FROM assistant_messages WHERE role='assistant'")).toBe(0);
+ });
+ it('uses the canonical read gate evidence beyond the old 200 candidate limit',async()=>{
+  await setup();await spaces();
+  await f.db.batch(Array.from({length:225},(_,i)=>f.db.prepare("INSERT INTO records(id,collection,data,field_ts,seq,space_id) VALUES(?,?,?,'{}',?,?)")
+   .bind(`lab-block-${i}`,'blocks',JSON.stringify({pageId:'lab1',type:'p',text:`line ${i}`,order:`a${i.toString().padStart(3,'0')}`}),100+i,'lab')));
+  const {openBridge}=await import('../worker/assistant/bridge');
+  const bridge=await openBridge(withD1Budget({...f.env},45),f.ctx,{userId:'alice',userRole:'member',origin:'http://localhost',provider:'simulated',model:'sim-1'});
+  try{const result=await bridge.call('get_page',{pageId:'lab1'});expect(result.ok).toBe(true);expect(result.sourceIds).toHaveLength(226);expect(result.sourceIds).toContain('lab-block-224');}finally{await bridge.close();}
+ });
+ it('fails closed on incomplete dependency coverage instead of silently trusting a truncated set',async()=>{
+  await setup();await spaces();const c=await conversation();
+  await f.db.batch(appendStatements(f.env,c.id,'alice',[{role:'assistant',content:{text:'CANARY_OVERFLOW'},sourceIds:Array.from({length:MAX_ASSISTANT_SOURCES+1},(_,i)=>`source-${i}`)}],30));
+  const original=await loadMessages(f.env,c.id,'alice');expect(original[0].content.sourceCoverageIncomplete).toBe(true);expect(original[0].sourceIds).toHaveLength(MAX_ASSISTANT_SOURCES);
+  const shown=await visibleMessages(f.env,'alice',original);expect((shown.rows[0].content as {redacted?:boolean}).redacted).toBe(true);expect(JSON.stringify(shown.rows)).not.toContain('CANARY_OVERFLOW');
+  // Retained original data remains intact; redaction is not a purge.
+  expect((await loadMessages(f.env,c.id,'alice'))[0].content.text).toBe('CANARY_OVERFLOW');
+ });
+ it('withholds legacy model output that has no complete dependency contract',async()=>{
+  await setup();await spaces();const c=await conversation();
+  await f.db.prepare("INSERT INTO assistant_messages(id,conversation_id,user_id,seq,role,content_json,source_ids,created_at) VALUES('legacy',?,'alice',1,'assistant',?, '[]',?)").bind(c.id,JSON.stringify({text:'CANARY_LEGACY'}),Date.now()).run();
+  const detail=(await req(`/conversations/${c.id}`,undefined,'alice','GET')).json as {messages:{redacted?:boolean;text:string}[]};
+  expect(detail.messages[0].redacted).toBe(true);expect(JSON.stringify(detail)).not.toContain('CANARY_LEGACY');
  });
  it('hides write capabilities when the caller can write nowhere',async()=>{
   await setup();await spaces();await f.db.batch([f.db.prepare("UPDATE space_members SET role='viewer' WHERE user_id='alice'"),f.db.prepare("UPDATE users SET workspace_role='guest' WHERE id='alice'")]);

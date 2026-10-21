@@ -19,7 +19,7 @@ import {capabilityOf} from '../../shared/aiCapabilities';
 import {openBridge,selectTools,type Bridge} from './bridge';
 import {PROVIDERS,type ChatTurn,type ProviderEvent} from './providers';
 import {credentialViews,loadCredential} from './credentials';
-import {appendStatements,getConversation,loadMessages,loadRun,retentionDays,visibleMessages,type MessageRow,type StoredContent,type RunRow} from './store';
+import {MAX_ASSISTANT_SOURCES,appendStatements,getConversation,loadMessages,loadRun,retentionDays,visibleMessages,type MessageRow,type StoredContent,type RunRow} from './store';
 import {createReadGate} from '../readAccess';
 
 export interface StepUser {id:string;role:'admin'|'member';tokenHash:string}
@@ -61,19 +61,6 @@ async function providerFor(env:Env,user:StepUser,id:ProviderId,model?:string){
 }
 
 /* ---------- ID / source extraction ---------- */
-function collectIds(value:unknown,out:Set<string>,depth=0){
- if(out.size>=200||depth>6||value==null)return;
- if(Array.isArray(value)){for(const v of value.slice(0,200))collectIds(v,out,depth+1);return;}
- if(typeof value==='object')for(const [k,v] of Object.entries(value as Record<string,unknown>)){
-  if(typeof v==='string'&&ID_RE.test(v)&&/^(id|recordId|pageId|taskId|boardId|databaseId|moodboardId|docId|targetId|sourceId)$/.test(k))out.add(v);
-  else collectIds(v,out,depth+1);
- }
-}
-/** Only ids that are real records count as sources (and are revalidated later). */
-async function existingRecordIds(env:Env,ids:Iterable<string>):Promise<string[]>{
- const list=[...new Set(ids)].slice(0,200);if(!list.length)return [];
- return (await env.DB.prepare('SELECT id FROM records WHERE id IN(SELECT value FROM json_each(?))').bind(JSON.stringify(list)).all<{id:string}>()).results.map(r=>r.id);
-}
 function sourcesFrom(json:unknown,ids:string[],origin:string):SourceRef[]{
  const meta=new Map<string,{title?:string;url?:string;type?:string;rev?:number}>();
  const walk=(v:unknown,d=0)=>{if(d>6||v==null)return;if(Array.isArray(v)){v.slice(0,200).forEach(x=>walk(x,d+1));return;}if(typeof v!=='object')return;const o=v as Record<string,unknown>;const id=['id','recordId','pageId','taskId','docId'].map(k=>o[k]).find(x=>typeof x==='string') as string|undefined;if(id&&!meta.has(id))meta.set(id,{title:typeof o.title==='string'?o.title.slice(0,120):typeof o.name==='string'?o.name.slice(0,120):undefined,url:typeof o.url==='string'&&o.url.startsWith(origin)?o.url:undefined,type:typeof o.collection==='string'?o.collection:typeof o.type==='string'?o.type:undefined,rev:typeof o.rev==='number'?o.rev:typeof o.sourceRev==='number'?o.sourceRev:undefined});for(const x of Object.values(o))walk(x,d+1);};
@@ -95,8 +82,7 @@ async function resolveContext(env:Env,bridge:Bridge,user:StepUser,refs:ContextRe
   if(!r.ok){denied++;continue;}
   let text=r.text;if(text.length>MAX_CONTEXT_PAYLOAD){text=text.slice(0,MAX_CONTEXT_PAYLOAD);incomplete=true;}
   if(r.json&&(r.json.truncated===true||r.json.hasMore===true))incomplete=true;
-  const ids=new Set<string>();if('id' in ref)ids.add(ref.id);collectIds(r.json,ids);
-  const real=await existingRecordIds(env,ids);real.forEach(i=>sourceIds.add(i));
+  const real=r.sourceIds;real.forEach(i=>sourceIds.add(i));
   sources.push(...sourcesFrom(r.json,real,origin));
   blocks.push(`<workspace_context kind="${ref.kind}" tool="${call[0]}" trust="untrusted">\n${text}\n</workspace_context>`);
  }
@@ -121,11 +107,19 @@ function systemPrompt(actionId:string|null){
  ].filter(Boolean).join('\n');
 }
 function turnsFrom(rows:MessageRow[]):ChatTurn[]{
- const turns:ChatTurn[]=rows.map(r=>{
+ const visible=rows.filter(r=>!(r.content as StoredContent&{redacted?:boolean}).redacted);
+ const declared=new Set(visible.filter(r=>r.role==='assistant').flatMap(r=>r.content.calls?.map(c=>c.id)??[]));
+ const paired=new Set(visible.filter(r=>r.role==='tool'&&r.content.toolCallId&&declared.has(r.content.toolCallId)).map(r=>r.content.toolCallId!));
+ const turns:ChatTurn[]=rows.flatMap((r):ChatTurn[]=>{
   const c=r.content as StoredContent&{redacted?:boolean};
-  if(r.role==='user')return {role:'user',text:c.redacted?'[message withheld: source access changed]':[c.text,c.contextPayload].filter(Boolean).join('\n\n')};
-  if(r.role==='assistant')return {role:'assistant',text:c.redacted?'[reply withheld: source access changed]':c.text,toolCalls:c.calls};
-  return {role:'tool',toolCallId:c.toolCallId,name:c.toolName,text:c.redacted?'[result withheld: source access changed]':c.contextPayload??c.text};
+  // Drop raw function arguments too, and turn redacted tool outputs into
+  // omit redacted/unpaired results so no orphan function exchange or user
+  // placeholder between sibling results reaches a provider.
+  if(c.redacted)return r.role==='tool'?[]:[{role:r.role==='assistant'?'assistant':'user',text:'[message withheld: source access changed]'}];
+  if(r.role==='user')return [{role:'user',text:[c.text,c.contextPayload].filter(Boolean).join('\n\n')}];
+  if(r.role==='assistant')return [{role:'assistant',text:c.text,toolCalls:c.calls?.filter(call=>paired.has(call.id))}];
+  if(!c.toolCallId||!paired.has(c.toolCallId))return [];
+  return [{role:'tool',toolCallId:c.toolCallId,name:c.toolName,text:c.contextPayload??c.text}];
  });
  let total=turns.reduce((n,t)=>n+(t.text?.length??0),0);
  while(total>MAX_HISTORY_CHARS&&turns.length>1){const t=turns.shift()!;total-=t.text?.length??0;while(turns.length>1&&turns[0].role!=='user'){total-=turns[0].text?.length??0;turns.shift();}}
@@ -188,6 +182,7 @@ async function modelSegment(env:Env,user:StepUser,run:RunRow,io:StepIO){
  const retention=await retentionDays(env,user.id);
  const rows=await loadMessages(env,run.conversation_id,user.id);
  const {rows:visible,readable}=await visibleMessages(env,user.id,rows);
+ const dependencies=[...new Set(visible.filter(r=>!(r.content as StoredContent&{redacted?:boolean}).redacted).flatMap(r=>r.sourceIds))];
  const bridge=await openBridge(env,io.ectx,{userId:user.id,userRole:user.role,origin:io.origin,provider:run.provider,model:run.model});
  let tools;try{
   const action=run.action_id?aiAction(run.action_id):undefined;
@@ -203,16 +198,18 @@ async function modelSegment(env:Env,user:StepUser,run:RunRow,io:StepIO){
   else if(ev.type==='error'){error=ev;break;}
  }
  const halted=await cancelledOrRevoked(env,user,run);
+ const current=dependencies.length?await createReadGate(env.DB,user.id).decide(dependencies):null;
+ if(current&&dependencies.some(id=>!current.readable.has(id))){await finish(env,run,'failed','access_changed');return fail(io,'access_changed','Source access changed; the reply was not retained.');}
  // Citations: only ids the conversation actually read and that are still readable.
  const cited=[...new Set([...text.matchAll(/\[([A-Za-z0-9_:.-]{2,64})\]/g)].map(m=>m[1]))].filter(id=>readable.has(id));
  const known=new Map(visible.flatMap(r=>(r.content.sources??[])).map(s=>[s.id,s]));
  const sources=cited.map(id=>known.get(id)??{id,type:'record'});
  const toolViews:ToolCallView[]=calls.map(c=>({id:c.id,name:c.name,capability:c.name,kind:capabilityOf(c.name).kind,argsSummary:c.arguments.slice(0,200),status:'pending'}));
  const content:StoredContent={text,provider:run.provider,model:run.model,calls:calls.length?calls:undefined,toolCalls:toolViews.length?toolViews:undefined,sources,error:error?.code};
- const pending=error||halted?[]:calls;
+ const pending=error||halted?[]:calls.map(c=>({...c,sourceIds:dependencies,sourceCoverage:1 as const}));
  const status=halted==='cancelled'?'cancelled':halted==='revoked'?'failed':error?'failed':pending.length?'awaiting_continue':'completed';
  if(halted==='revoked'){await finish(env,run,'failed','access_changed');return fail(io,'access_changed','Your session ended; the reply was not saved.');}
- await env.DB.batch([...appendStatements(env,run.conversation_id,user.id,[{id:messageId,role:'assistant',content,sourceIds:cited}],retention),
+ await env.DB.batch([...appendStatements(env,run.conversation_id,user.id,[{id:messageId,role:'assistant',content,sourceIds:dependencies}],retention),
   env.DB.prepare('UPDATE assistant_runs SET status=?,error_code=?,pending_json=?,step=step+1,output_chars=output_chars+?,updated_at=? WHERE id=?').bind(status,error?.code??null,JSON.stringify(pending),text.length,Date.now(),run.id)]);
  await io.emit({type:'message',message:{id:messageId,role:'assistant',text,createdAt:Date.now(),provider:run.provider,model:run.model,toolCalls:toolViews.length?toolViews:undefined,sources}});
  if(sources.length)await io.emit({type:'sources',messageId,sources});
@@ -224,22 +221,29 @@ async function modelSegment(env:Env,user:StepUser,run:RunRow,io:StepIO){
 async function dispatchTool(env:Env,user:StepUser,run:RunRow,io:StepIO){
  const retention=await retentionDays(env,user.id);
  const [call,...rest]=run.pending;
+ // A model may have built its arguments from a now-revoked source even when
+ // its target is a different, still-writable space. Revalidate before dispatch.
+ const inherited=call.sourceIds??[];
+ const sourceGate=createReadGate(env.DB,user.id);
+ const decision=inherited.length>MAX_ASSISTANT_SOURCES?null:inherited.length?await sourceGate.decide(inherited):{readable:new Set<string>()};
+ if(call.sourceCoverage!==1||!decision||inherited.some(id=>!decision.readable.has(id))){await finish(env,run,'failed','access_changed');return fail(io,'access_changed','Source access changed; the pending action was not run.');}
  const view:ToolCallView={id:call.id,name:call.name,capability:call.name,kind:capabilityOf(call.name).kind,argsSummary:call.arguments.slice(0,200),status:'running'};
  await io.emit({type:'tool',messageId:call.id,call:view});
  let args:Record<string,unknown>|null=null;try{const v=JSON.parse(call.arguments||'{}');if(v&&typeof v==='object'&&!Array.isArray(v))args=v as Record<string,unknown>;}catch{/* invalid */}
- let resultText:string,json:Record<string,unknown>|null=null,ok=false;
+ let resultText:string,json:Record<string,unknown>|null=null,ok=false;let observed:string[]=[];
  if(!args){json={error:'invalid_arguments: tool arguments must be a JSON object'};resultText=JSON.stringify(json);}
  else{
   const bridge=await openBridge(env,io.ectx,{userId:user.id,userRole:user.role,origin:io.origin,provider:run.provider,model:run.model});
-  try{const r=await bridge.call(call.name,args);resultText=r.text;json=r.json;ok=r.ok;}
+  try{const r=await bridge.call(call.name,args);resultText=r.text;json=r.json;ok=r.ok;observed=r.sourceIds;}
   catch{resultText=JSON.stringify({error:'tool_failed'});}
   finally{await bridge.close();}
  }
  const halted=await cancelledOrRevoked(env,user,run);
  if(halted==='revoked'){await finish(env,run,'failed','access_changed');return fail(io,'access_changed','Your session ended; the tool result was discarded.');}
- const ids=new Set<string>();collectIds(json,ids);const real=await existingRecordIds(env,ids);
+ const real=[...new Set([...inherited,...observed])];
+ if(real.length<=MAX_ASSISTANT_SOURCES&&real.length){const current=await sourceGate.decide(real);if(real.some(id=>!current.readable.has(id))){await finish(env,run,'failed','access_changed');return fail(io,'access_changed','Source access changed; the result was not retained.');}}
  const sources=sourcesFrom(json,real,io.origin);
- const truncated=resultText.length>MAX_TOOL_PAYLOAD;
+ const truncated=resultText.length>MAX_TOOL_PAYLOAD||real.length>MAX_ASSISTANT_SOURCES;
  const payload=`<tool_result name="${call.name}" trust="untrusted"${truncated?' truncated="true"':''}>\n${resultText.slice(0,MAX_TOOL_PAYLOAD)}\n</tool_result>`;
  const approval:ApprovalView|undefined=json&&typeof json.previewId==='string'&&typeof json.argsHash==='string'&&(json.humanApprovalRequired===true||json.dryRun===true)
   ?{previewId:json.previewId,argsHash:json.argsHash,reviewUrl:typeof json.reviewUrl==='string'&&json.reviewUrl.startsWith(io.origin)?json.reviewUrl:`${io.origin}/ai/review/${json.previewId}`,tool:call.name,impact:json.impact as ApprovalView['impact']}:undefined;

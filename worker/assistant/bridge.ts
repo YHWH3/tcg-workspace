@@ -11,11 +11,12 @@ import {InMemoryTransport} from '@modelcontextprotocol/server';
 import type {Env} from '../auth';
 import {createWorkspaceServer} from '../mcp';
 import {hasWritableSpace} from '../capability';
+import {withReadGate} from '../readAccess';
 import {capabilityOf,isEmbeddedAllowed} from '../../shared/aiCapabilities';
 
 export interface BridgeIdentity {userId:string;userRole:'admin'|'member';origin:string;provider:string;model:string}
 export interface ToolSpec {name:string;description:string;parameters:Record<string,unknown>}
-export interface ToolOutcome {ok:boolean;text:string;json:Record<string,unknown>|null}
+export interface ToolOutcome {ok:boolean;text:string;json:Record<string,unknown>|null;sourceIds:string[]}
 
 export interface Bridge {
  listTools():Promise<ToolSpec[]>;
@@ -24,6 +25,9 @@ export interface Bridge {
 }
 
 export async function openBridge(env:Env,ectx:ExecutionContext,id:BridgeIdentity):Promise<Bridge>{
+ // Retain the same gate that the MCP handlers use: source evidence comes from
+ // authoritative reads, never guesses over arbitrary result strings.
+ env=withReadGate(env,id.userId);
  const writable=await hasWritableSpace(env.DB,id.userId);
  const server=createWorkspaceServer({env,ectx,userId:id.userId,userRole:id.userRole,clientName:`Workspace Assistant (${id.provider}/${id.model})`.slice(0,120),origin:id.origin,userByKey:new Map(),userNameById:new Map(),pageTitleById:new Map(),recordTitleById:new Map(),recordIdByTitle:new Map(),pageIdByTitle:new Map(),cachesReady:false,warnings:[],cs:null,toolName:'',assistant:{provider:id.provider,model:id.model}});
  const [clientSide,serverSide]=InMemoryTransport.createLinkedPair();
@@ -38,12 +42,12 @@ export async function openBridge(env:Env,ectx:ExecutionContext,id:BridgeIdentity
   },
   async call(name,args){
    // Fail closed before reaching the server too (defence in depth).
-   if(!isEmbeddedAllowed(name))return {ok:false,text:JSON.stringify({error:'assistant_requires_human_workspace_action'}),json:{error:'assistant_requires_human_workspace_action'}};
+   if(!isEmbeddedAllowed(name))return {ok:false,text:JSON.stringify({error:'assistant_requires_human_workspace_action'}),json:{error:'assistant_requires_human_workspace_action'},sourceIds:[]};
    const clean=Object.fromEntries(Object.entries(args??{}).filter(([k])=>k!=='previewId'));
    const result=await client.callTool({name,arguments:clean});
    const text=(result.content as {type:string;text?:string}[]|undefined)?.filter(c=>c.type==='text').map(c=>c.text??'').join('\n')??'';
    let json:Record<string,unknown>|null=null;try{const v=JSON.parse(text);if(v&&typeof v==='object'&&!Array.isArray(v))json=v as Record<string,unknown>;}catch{/* plain text */}
-   return {ok:result.isError!==true&&!(json&&typeof json.error==='string'),text,json};
+   return {ok:result.isError!==true&&!(json&&typeof json.error==='string'),text,json,sourceIds:[...env.READ_GATE!.observedIds()]};
   },
   async close(){await client.close().catch(()=>{});await server.close().catch(()=>{});},
  };

@@ -7,7 +7,10 @@ import type {AssistantMessage,ConversationSummary,ContextRef,RunStatus,SourceRef
 import {DEFAULT_RETENTION_DAYS} from '../../shared/assistantProtocol';
 import {createReadGate} from '../readAccess';
 
+// Dependency coverage is a bounded security contract, separate from visible citations.
+export const MAX_ASSISTANT_SOURCES=1000;
 export interface StoredContent {
+ sourceCoverage?:1;sourceCoverageIncomplete?:boolean;
  text:string;provider?:string;model?:string;context?:ContextRef[];
  /** Resolved, untrusted context payload sent to the model (user messages). */
  contextPayload?:string;
@@ -18,7 +21,7 @@ export interface StoredContent {
  sources?:SourceRef[];approval?:AssistantMessage['approval'];incomplete?:boolean;error?:string;
 }
 export interface MessageRow {id:string;role:'user'|'assistant'|'tool';seq:number;created_at:number;content:StoredContent;sourceIds:string[]}
-export interface RunRow {id:string;conversation_id:string;user_id:string;session_hash:string;provider:string;model:string;status:RunStatus;step:number;pending:{id:string;name:string;arguments:string}[];context:ContextRef[];action_id:string|null;cancel_requested:number;input_chars:number;output_chars:number}
+export interface RunRow {id:string;conversation_id:string;user_id:string;session_hash:string;provider:string;model:string;status:RunStatus;step:number;pending:{id:string;name:string;arguments:string;sourceIds?:string[];sourceCoverage?:1}[];context:ContextRef[];action_id:string|null;cancel_requested:number;input_chars:number;output_chars:number}
 
 const DAY=86_400_000;
 export async function retentionDays(env:Env,userId:string){return (await env.DB.prepare('SELECT retention_days FROM assistant_settings WHERE user_id=?').bind(userId).first<number>('retention_days'))??DEFAULT_RETENTION_DAYS;}
@@ -45,17 +48,27 @@ export function appendStatements(env:Env,conversationId:string,userId:string,mes
  return [
   ...messages.map(m=>env.DB.prepare(`INSERT INTO assistant_messages(id,conversation_id,user_id,seq,role,content_json,source_ids,created_at)
    SELECT ?,?,?,COALESCE((SELECT MAX(seq) FROM assistant_messages WHERE conversation_id=?),0)+1,?,?,?,? WHERE EXISTS(SELECT 1 FROM assistant_conversations WHERE id=? AND user_id=?)`)
-   .bind(m.id??crypto.randomUUID(),conversationId,userId,conversationId,m.role,JSON.stringify(m.content),JSON.stringify([...new Set(m.sourceIds??[])].slice(0,200)),now,conversationId,userId)),
+   .bind(m.id??crypto.randomUUID(),conversationId,userId,conversationId,m.role,JSON.stringify({...m.content,sourceCoverage:1,sourceCoverageIncomplete:m.content.sourceCoverageIncomplete||new Set(m.sourceIds??[]).size>MAX_ASSISTANT_SOURCES||undefined}),JSON.stringify([...new Set(m.sourceIds??[])].slice(0,MAX_ASSISTANT_SOURCES)),now,conversationId,userId)),
   env.DB.prepare('UPDATE assistant_conversations SET updated_at=?,expires_at=? WHERE id=? AND user_id=?').bind(now,now+retention*DAY,conversationId,userId),
  ];
 }
 
 /** Revalidate stored messages against current access. Unreadable → redacted. */
 export async function visibleMessages(env:Env,userId:string,rows:MessageRow[]):Promise<{rows:MessageRow[];readable:Set<string>}>{
- const ids=[...new Set(rows.flatMap(r=>r.sourceIds))];
- const decision=ids.length?await createReadGate(env.DB,userId).decide(ids):{readable:new Set<string>()};
+ const covered=rows.filter(r=>r.content.sourceCoverage===1&&!r.content.sourceCoverageIncomplete);
+ const ids=[...new Set(covered.flatMap(r=>r.sourceIds))];
+ // Never truncate a security decision. Excessive retained dependencies fail
+ // closed without unbounded graph queries; users can start a narrower thread.
+ const overflow=ids.length>MAX_ASSISTANT_SOURCES;
+ const decision=!overflow&&ids.length?await createReadGate(env.DB,userId).decide(ids):{readable:new Set<string>()};
  const readable=new Set([...decision.readable]);
- return {readable,rows:rows.map(r=>r.sourceIds.some(id=>!readable.has(id))?{...r,content:{text:'',redactedOriginalRole:r.role,toolCalls:r.content.toolCalls?.map(c=>({...c,argsSummary:'',resultSummary:undefined})),calls:r.content.calls,toolCallId:r.content.toolCallId,toolName:r.content.toolName,redacted:true} as StoredContent&{redacted:true}}:r)};
+ return {readable,rows:rows.map(r=>{
+  // Pre-fix model/tool payloads did not have complete dependency coverage.
+  // Retain the original data, but do not disclose or resend unprovable copies.
+  const legacy=r.content.sourceCoverage!==1&&(r.role!=='user'||!!r.content.contextPayload);
+  const hidden=legacy||r.content.sourceCoverageIncomplete||(overflow&&r.sourceIds.length>0)||r.sourceIds.some(id=>!readable.has(id));
+  return hidden?{...r,content:{text:'',redacted:true} as StoredContent&{redacted:true}}:r;
+ })};
 }
 export function toView(r:MessageRow):AssistantMessage{
  const c=r.content as StoredContent&{redacted?:boolean};
