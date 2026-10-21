@@ -15,11 +15,12 @@ import {createCertificationReporter} from './certification-report.mjs';
 
 const engines={chromium,firefox,webkit},only=process.argv.find(a=>a.startsWith('--only='))?.slice(7);
 if(only&&!engines[only])throw new Error('Unknown browser');
-const names=['embedded sourced answer with keyboard open/close','selection rewrite applied through editor mutate','meeting workflow proposal approved and executed with attribution','provider failure keeps workspace usable without fallback','external MCP host uses the same canonical capabilities','session revocation stops an in-flight run','mobile assistant and approval journey'];
-const reporter=createCertificationReporter('verify-assistant',(only?[only]:Object.keys(engines)).flatMap(e=>names.map(n=>e+'/'+n)));
+const names=['embedded sourced answer with keyboard open/close','selection rewrite applied through editor mutate','meeting workflow proposal approved and executed with attribution','provider failure keeps workspace usable without fallback','external MCP host uses the same canonical capabilities','session revocation stops an in-flight run','mobile assistant and approval journey','permission-enabled assistant cache clears on revocation'];
+const accessOnly=process.argv.includes('--only-access'),mandatoryNames=accessOnly?[names[7]]:names;
+const reporter=createCertificationReporter('verify-assistant',(only?[only]:Object.keys(engines)).flatMap(e=>mandatoryNames.map(n=>e+'/'+n)));
 process.env.CERT_SOURCE_SHA??=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
 const output=process.env.CERT_ARTIFACT_DIR??mkdtempSync(join(tmpdir(),'tcg-assistant-'));mkdirSync(output,{recursive:true});process.env.CERT_ARTIFACT_DIR??=output;process.env.CERT_RESULT_PATH??=join(output,'results.json');
-reporter.setMetadata('providerMode','SIMULATED fixture provider only; no real model execution');reporter.setMetadata('permissionMode','DISABLED');reporter.setMetadata('sourceFingerprint',fingerprint(process.cwd()));
+reporter.setMetadata('providerMode','SIMULATED fixture provider only; no real model execution');reporter.setMetadata('permissionMode',accessOnly?'ENABLED':'MIXED — first seven assertions DISABLED; final cache-revocation assertion ENABLED');reporter.setMetadata('sourceFingerprint',fingerprint(process.cwd()));
 let built=process.argv.includes('--skip-build');
 
 async function sse(base,token,path,body){
@@ -29,10 +30,10 @@ async function sse(base,token,path,body){
 
 for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only)){
  let fixture,browser,context,page,mcp;const dir=join(output,engine);mkdirSync(dir,{recursive:true});
- const check=async(name,viewport,fn)=>{const t=performance.now();try{await fn();reporter.record(engine,viewport,name,'PASS',null,{durationMs:Math.round(performance.now()-t)});console.log('PASS ['+engine+'] '+name);}catch(e){await page?.screenshot({path:join(dir,name.replace(/\W+/g,'-')+'.png')}).catch(()=>{});reporter.record(engine,viewport,name,'FAIL',e);console.error('FAIL ['+engine+'] '+name+': '+e.message);}};
+ const check=async(name,viewport,fn)=>{if(!mandatoryNames.includes(name))return;const t=performance.now();try{await fn();reporter.record(engine,viewport,name,'PASS',null,{durationMs:Math.round(performance.now()-t),permissionMode:name===names[7]?'ENABLED':'DISABLED'});console.log('PASS ['+engine+'] '+name);}catch(e){await page?.screenshot({path:join(dir,name.replace(/\W+/g,'-')+'.png')}).catch(()=>{});reporter.record(engine,viewport,name,'FAIL',e,{permissionMode:name===names[7]?'ENABLED':'DISABLED'});console.error('FAIL ['+engine+'] '+name+': '+e.message);}};
  try{
   fixture=await startFixture({port:await freePort(),build:!built,artifactDirectory:dir});built=true;
-  const {admin}=await bootstrap(fixture.base),token=admin.token,base=fixture.base;
+  const {admin,bob}=await bootstrap(fixture.base),token=admin.token,base=fixture.base;
   await push(base,token,[
    {id:'proj',collection:'pages',patch:{title:'Project Atlas',order:'a0'}},
    {id:'proj_b1',collection:'blocks',patch:{pageId:'proj',type:'p',text:'Atlas launch is blocked by vendor review and needs owner follow up.',order:'a0'}},
@@ -126,6 +127,37 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
    await eventually(async()=>(await pull(base,token)).some(r=>r.collection==='pages'&&r.data?.title==='Mobile draft from assistant'),{timeout:20000});
    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+1);assert.equal(overflow,false,'no page-wide horizontal overflow');
   });
+
+  await context.close();
+  await check(names[7],'390',async()=>{
+   const canary='CLIENT_PRIVATE_CANARY_'+engine,space='assistant_private_'+engine,secret='assistant_secret_'+engine,block=secret+'_block';
+   await push(base,token,[{id:secret,collection:'pages',patch:{title:canary,order:'a0'}},{id:block,collection:'blocks',patch:{pageId:secret,type:'p',text:'A confidential source for assistant cache revocation testing.',order:'a0'}}]);
+   const quote=v=>"'"+String(v).replaceAll("'","''")+"'";
+   await fixture.sql(`INSERT INTO spaces(id,name,default_access,created_at) VALUES(${quote(space)},'Assistant private','private',1);
+    INSERT INTO space_members(space_id,user_id,role) VALUES(${quote(space)},${quote(admin.user.id)},'owner'),(${quote(space)},${quote(bob.user.id)},'viewer');
+    UPDATE users SET workspace_role='guest' WHERE id=${quote(bob.user.id)};
+    UPDATE records SET space_id=${quote(space)} WHERE id IN(${quote(secret)},${quote(block)});
+    UPDATE access_state SET enabled=1 WHERE id=1;`);
+   context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:engine!=='firefox',serviceWorkers:'block'});
+   await context.addInitScript(a=>{localStorage.setItem('ws_token',a.token);localStorage.setItem('ws_uid',a.user.id);localStorage.setItem('ws_user',JSON.stringify(a.user));},bob);
+   page=await context.newPage();page.setDefaultTimeout(25000);
+   await page.goto(base+'/pages/'+secret);await page.getByPlaceholder('Untitled',{exact:true}).waitFor();
+   await openPanel();await chooseSimulated();await ask('Summarize this authorized source');
+   await panel().getByTestId('assistant-source-chip').filter({hasText:canary}).waitFor({timeout:30000});
+   const revoked=await api(base,'/api/spaces/'+space+'/members',{token,method:'POST',body:{targetUserId:bob.user.id,membership:{role:'viewer',access:'deny'},requestId:'assistant-revoke-'+engine}});assert.equal(revoked.status,200);
+   // A real foreground reconciliation fetches the new server capabilities and
+   // evicts this guest's private rows. No mocked access-store transition.
+   await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+   await page.getByText('Page not found',{exact:true}).waitFor({timeout:30000});await openPanel();
+   assert.ok(!(await panel().innerText()).includes(canary),'revoked source cannot survive the shell remount in assistant memory');
+   await panel().getByRole('button',{name:'Conversation history',exact:true}).click();
+   await panel().getByRole('button',{name:/^Summarize this authorized source /}).click();
+   await eventually(async()=>await panel().getByTestId('assistant-message-assistant').count()>0);
+   assert.ok(!(await panel().innerText()).includes(canary),'reopening history revalidates rather than reusing revoked memory');
+   assert.equal(await panel().getByTestId('assistant-source-chip').count(),0);
+   await page.screenshot({path:join(dir,'assistant-revoked-cache.png'),fullPage:true});
+  });
+
  }catch(e){console.error('FAIL ['+engine+'] '+e.message);if(!reporter.results?.some?.(r=>r.engine===engine&&r.status==='FAIL'))reporter.record(engine,'none','setup','FAIL',e);}
  finally{await mcp?.close().catch(()=>{});await context?.close().catch(()=>{});await browser?.close().catch(()=>{});await fixture?.stop().catch(()=>{});}
 }

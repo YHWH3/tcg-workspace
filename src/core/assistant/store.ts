@@ -32,6 +32,7 @@ import {
 import { aiAction } from '../../../shared/aiActions';
 import { api, ApiError, getToken } from '../api';
 import { authStore } from '../auth';
+import { accessClientStore } from '../accessClient';
 import { createStore } from '../store';
 import { cancelRun, streamRun, type StreamRequest } from './client';
 import { canTargetSelection } from './applyPlan';
@@ -145,19 +146,15 @@ function abortLocal(): void {
   controller = null;
 }
 
-/* Reset everything when the signed-in account changes. */
-authStore.subscribe(() => {
-  const uid = authStore.get().user?.id ?? null;
-  if (uid === assistantStore.get().userId) return;
-  abortLocal();
-  pendingTarget = null;
-  lastRequest = null;
-  opener = null;
-  assistantStore.set(initial(uid));
-  contextStack.length = 0;
-  assistantContextStore.set(null);
-  assistantSelectionStore.set(null);
-});
+/** Bind every asynchronous UI continuation to identity, session and access.
+ * Abort is advisory; the generation/token checks also reject late responses. */
+const accessUsable = () => ['ready', 'offline'].includes(accessClientStore.get().status);
+function currentRequest(): () => boolean {
+  const uid=assistantStore.get().userId, token=getToken();
+  const {epoch,status}=accessClientStore.get();
+  return ()=>assistantStore.get().userId===uid&&getToken()===token&&accessClientStore.get().epoch===epoch&&accessClientStore.get().status===status&&accessUsable();
+}
+let boundToken=getToken();
 
 /* ---------------- context registry ---------------- */
 
@@ -168,6 +165,29 @@ export const assistantContextStore = createStore<ContextRef | null>(null);
 /** The active page-editor selection, if any (published by the selection menu). */
 export const assistantSelectionStore = createStore<SelectionRef | null>(null);
 
+function clearSensitive(preservePlainDraft:boolean):void {
+  const s=assistantStore.get();
+  const plain=preservePlainDraft&&!s.actionId&&!s.attached.length&&!pendingTarget?s.draft:'';
+  abortLocal();pendingTarget=null;lastRequest=null;opener=null;
+  contextStack.length=0;assistantContextStore.set(null);assistantSelectionStore.set(null);
+  const hadSensitive=!!(s.messages.length||s.conversationId||s.attached.length||s.actionId||s.streaming||s.conversations?.length);
+  assistantStore.set({...initial(authStore.get().user?.id??null),draft:plain,mode:s.mode,
+    providers:s.providers,providersState:s.providersState==='loading'?'idle':s.providersState,retentionDays:s.retentionDays,
+    provider:s.provider,model:s.model,error:preservePlainDraft&&hadSensitive?{code:'access_changed',message:'Access changed. Reopen the conversation to check its current sources.',retryable:false}:null});
+}
+authStore.subscribe(()=>{
+  const uid=authStore.get().user?.id??null,token=getToken();
+  if(uid===assistantStore.get().userId&&token===boundToken)return;
+  boundToken=token;clearSensitive(false);assistantStore.set(initial(uid));
+});
+let accessSnapshot=accessClientStore.get();
+accessClientStore.subscribe(()=>{
+  const next=accessClientStore.get(),changed=next.epoch!==accessSnapshot.epoch||next.status!==accessSnapshot.status;
+  accessSnapshot=next;
+  if(changed)clearSensitive(true);
+});
+
+
 function publishContext(): void {
   assistantContextStore.set(contextStack.length ? contextStack[contextStack.length - 1].ref : null);
 }
@@ -176,11 +196,12 @@ function publishContext(): void {
 export function setAssistantContext(ref: ContextRef | null): void {
   const i = contextStack.findIndex((e) => e.token === MANUAL);
   if (i >= 0) contextStack.splice(i, 1);
-  if (ref) contextStack.push({ token: MANUAL, ref });
+  if (ref && accessUsable()) contextStack.push({ token: MANUAL, ref });
   publishContext();
 }
 
 export function pushAssistantContext(ref: ContextRef): () => void {
+  if(!accessUsable())return ()=>{};
   const token = Symbol('ctx');
   contextStack.push({ token, ref });
   publishContext();
@@ -204,6 +225,7 @@ export function useAssistantContext(ref: ContextRef | null | undefined): void {
 }
 
 export function setAssistantSelection(sel: SelectionRef | null): void {
+  if(sel&&!accessUsable())return;
   const cur = assistantSelectionStore.get();
   if (cur === sel || (cur && sel && contextKey(cur) === contextKey(sel))) return;
   assistantSelectionStore.set(sel);
@@ -262,17 +284,18 @@ function resolveProvider(providers: ProviderStatus[], uid: string | null, curren
 export async function ensureProviders(force = false): Promise<void> {
   const s = assistantStore.get();
   if (!force && (s.providersState === 'ready' || s.providersState === 'loading')) return;
-  const uid = s.userId;
+  const uid = s.userId, current=currentRequest();
+  if(!accessUsable())return;
   patch({ providersState: 'loading' });
   try {
     const r = await api<{ providers: ProviderStatus[]; retentionDays?: number }>(`${ASSISTANT_API}/providers`);
-    if (assistantStore.get().userId !== uid) return;
+    if (assistantStore.get().userId !== uid || !current()) return;
     const providers = Array.isArray(r.providers) ? r.providers : [];
     const cur = assistantStore.get();
     const sel = resolveProvider(providers, uid, cur.provider, cur.model);
     patch({ providers, providersState: 'ready', retentionDays: r.retentionDays ?? null, provider: sel.provider, model: sel.model, providerNotice: sel.notice });
   } catch {
-    if (assistantStore.get().userId !== uid) return;
+    if (assistantStore.get().userId !== uid || !current()) return;
     patch({ providersState: 'error' });
   }
 }
@@ -320,14 +343,15 @@ function clipContext(refs: ContextRef[]): ContextRef[] {
 }
 
 export function openAssistant(opts: OpenOptions = {}): void {
+  if(!accessUsable())return;
   const s = assistantStore.get();
   const active = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
   // Remember where focus returns on close — only when opening (an action picked
   // inside the open panel must not replace the original opener).
   if (opts.opener || s.mode === 'closed') opener = opts.opener ?? (active && active !== document.body ? active : null);
   const sel = assistantSelectionStore.get();
-  const current = assistantContextStore.get();
-  const raw = opts.context ?? (sel ? [sel] : current ? [current] : []);
+  const currentContext = assistantContextStore.get();
+  const raw = opts.context ?? (sel ? [sel] : currentContext ? [currentContext] : []);
   const attached = clipContext(raw);
   const action = opts.actionId ? aiAction(opts.actionId) : undefined;
   // Judge the target on the UNclipped selection: a truncated one is never applicable.
@@ -349,8 +373,10 @@ export function openAssistant(opts: OpenOptions = {}): void {
     patch({ mode, showHistory: false, attached: opts.context || s.mode === 'closed' ? attached : s.attached, ...(opts.prompt !== undefined ? { draft: opts.prompt } : {}) });
   }
   if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-testid="assistant-input"]')?.focus());
+  const current=currentRequest();
   void ensureProviders().then(() => {
     const st = assistantStore.get();
+    if (!current())return;
     if (autoSend && action && st.actionId === action.id && !(NEEDS_INPUT.has(action.id) && !opts.prompt) && canSend(st)) void sendMessage();
   });
 }
@@ -394,7 +420,7 @@ export function isOnline(): boolean {
 }
 
 export function canSend(s: AssistantState = assistantStore.get()): boolean {
-  return !s.streaming && !!s.provider && isOnline() && !!(s.draft.trim() || s.actionId);
+  return accessUsable() && !s.streaming && !!s.provider && isOnline() && !!(s.draft.trim() || s.actionId);
 }
 
 /* ---------------- conversations ---------------- */
@@ -411,19 +437,21 @@ export function newConversation(): void {
 }
 
 export async function loadConversations(): Promise<void> {
-  const uid = assistantStore.get().userId;
+  if(!accessUsable())return;
+  const uid = assistantStore.get().userId,current=currentRequest();
   patch({ conversationsState: 'loading' });
   try {
     const r = await api<{ conversations: ConversationSummary[] }>(`${ASSISTANT_API}/conversations`);
-    if (assistantStore.get().userId !== uid) return;
+    if (assistantStore.get().userId !== uid || !current()) return;
     patch({ conversations: r.conversations ?? [], conversationsState: 'ready' });
   } catch {
-    if (assistantStore.get().userId !== uid) return;
+    if (assistantStore.get().userId !== uid || !current()) return;
     patch({ conversationsState: 'error' });
   }
 }
 
 export async function openConversation(id: string): Promise<void> {
+  if(!accessUsable())return;
   const s = assistantStore.get();
   // Already showing it (including one just created by sending): never reload
   // mid-stream.
@@ -435,14 +463,14 @@ export async function openConversation(id: string): Promise<void> {
   abortLocal();
   pendingTarget = null;
   const uid = s.userId;
-  const gen = streamGen;
+  const gen = streamGen,current=currentRequest();
   patch({ ...freshConversation(), conversationId: id, loadingConversation: true, showHistory: false });
   try {
     const d = await api<ConversationDetail>(`${ASSISTANT_API}/conversations/${encodeURIComponent(id)}`);
-    if (assistantStore.get().userId !== uid || gen !== streamGen) return;
+    if (assistantStore.get().userId !== uid || gen !== streamGen || !current()) return;
     patch({ title: d.title, messages: d.messages ?? [], activeRun: d.activeRun ?? null, loadingConversation: false });
   } catch (e) {
-    if (assistantStore.get().userId !== uid || gen !== streamGen) return;
+    if (assistantStore.get().userId !== uid || gen !== streamGen || !current()) return;
     const access = e instanceof ApiError && (e.status === 403 || e.status === 404);
     patch({
       loadingConversation: false,
@@ -454,9 +482,11 @@ export async function openConversation(id: string): Promise<void> {
 }
 
 export async function renameConversation(id: string, title: string): Promise<void> {
+  if(!accessUsable())return;const current=currentRequest();
   const t = title.trim().slice(0, 120);
   if (!t) return;
   await api(`${ASSISTANT_API}/conversations/${encodeURIComponent(id)}`, { method: 'PATCH', body: { title: t } });
+  if(!current())return;
   patch((s) => ({
     title: s.conversationId === id ? t : s.title,
     conversations: s.conversations?.map((c) => (c.id === id ? { ...c, title: t } : c)) ?? null,
@@ -464,13 +494,17 @@ export async function renameConversation(id: string, title: string): Promise<voi
 }
 
 export async function deleteConversation(id: string): Promise<void> {
+  if(!accessUsable())return;const current=currentRequest();
   await api(`${ASSISTANT_API}/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if(!current())return;
   if (assistantStore.get().conversationId === id) newConversation();
   patch((s) => ({ conversations: s.conversations?.filter((c) => c.id !== id) ?? null }));
 }
 
 export async function deleteAllConversations(): Promise<number> {
+  if(!accessUsable())return 0;const current=currentRequest();
   const r = await api<{ ok: boolean; deleted?: number }>(`${ASSISTANT_API}/conversations`, { method: 'DELETE' });
+  if(!current())return r.deleted??0;
   newConversation();
   patch({ conversations: [] });
   return r.deleted ?? 0;
@@ -540,7 +574,8 @@ function applyEvent(ev: AssistantEvent, runMessages: Set<string>): void {
 
 async function runStream(req: StreamRequest, target: SelectionTarget | null): Promise<void> {
   abortLocal();
-  const gen = streamGen;
+  const gen = streamGen,current=currentRequest();
+  if(!accessUsable())return;
   const ctrl = new AbortController();
   controller = ctrl;
   const runMessages = new Set<string>();
@@ -549,10 +584,10 @@ async function runStream(req: StreamRequest, target: SelectionTarget | null): Pr
     signal: ctrl.signal,
     getToken,
     onEvent: (ev) => {
-      if (gen === streamGen) applyEvent(ev, runMessages);
+      if (gen === streamGen && current()) applyEvent(ev, runMessages);
     },
   });
-  if (gen !== streamGen) return;
+  if (gen !== streamGen || !current()) return;
   controller = null;
   const announce =
     outcome.kind === 'done'
@@ -574,7 +609,7 @@ async function runStream(req: StreamRequest, target: SelectionTarget | null): Pr
 
 export async function sendMessage(): Promise<void> {
   const s = assistantStore.get();
-  if (s.streaming) return;
+  if (s.streaming || !accessUsable()) return;
   const action = s.actionId ? aiAction(s.actionId) : undefined;
   const text = (s.draft.trim() || action?.label || '').slice(0, MAX_MESSAGE_CHARS);
   if (!text) return;
@@ -593,16 +628,16 @@ export async function sendMessage(): Promise<void> {
   pendingTarget = null;
   lastRequest = { text, attached, actionId: action?.id ?? null, target };
   let conversationId = s.conversationId;
-  const gen = streamGen;
+  const gen = streamGen,current=currentRequest();
   patch({ draft: '', actionId: null, error: null, streaming: true, announce: 'Sending…' });
   if (!conversationId) {
     try {
       const c = await api<ConversationSummary>(`${ASSISTANT_API}/conversations`, { method: 'POST', body: { title: text.slice(0, 80) } });
-      if (assistantStore.get().userId !== uid || gen !== streamGen) return;
+      if (assistantStore.get().userId !== uid || gen !== streamGen || !current()) return;
       conversationId = c.id;
       patch((st) => ({ conversationId: c.id, title: c.title, conversations: st.conversations ? [c, ...st.conversations] : st.conversations }));
     } catch (e) {
-      if (assistantStore.get().userId !== uid) return;
+      if (assistantStore.get().userId !== uid || !current()) return;
       patch({ streaming: false, draft: text, error: apiFailure(e) });
       return;
     }
@@ -632,7 +667,7 @@ function apiFailure(e: unknown): UiError {
 
 export async function regenerate(): Promise<void> {
   const s = assistantStore.get();
-  if (s.streaming || !s.conversationId) return;
+  if (s.streaming || !s.conversationId || !accessUsable()) return;
   if (!isOnline()) {
     patch({ error: { code: 'offline', message: 'You are offline. Reconnect to regenerate.', retryable: true } });
     return;
@@ -655,7 +690,7 @@ export async function regenerate(): Promise<void> {
 /** Resume a run a previous session left awaiting its next step. */
 export async function continueActiveRun(): Promise<void> {
   const s = assistantStore.get();
-  if (s.streaming || !s.activeRun || s.activeRun.status !== 'awaiting_continue') return;
+  if (!accessUsable() || s.streaming || !s.activeRun || s.activeRun.status !== 'awaiting_continue') return;
   const run = s.activeRun;
   await runStream({ path: `${ASSISTANT_API}/runs/${encodeURIComponent(run.id)}/continue`, body: { step: run.step } }, null);
 }
@@ -691,29 +726,37 @@ export const setApplyState = (messageId: string, a: ApplyState) => patch((s) => 
 const setApproval = (id: string, a: ApprovalState) => patch((s) => ({ approvals: { ...s.approvals, [id]: a } }));
 
 export async function approveAndExecute(a: ApprovalView): Promise<void> {
+  if(!accessUsable())return;const current=currentRequest();
   const id = encodeURIComponent(a.previewId);
   setApproval(a.previewId, { phase: 'busy', message: 'Approving…' });
   try {
     await api(`/api/ai/previews/${id}/decision`, { method: 'POST', body: { decision: 'approve', argsHash: a.argsHash } });
   } catch (e) {
+    if(!current())return;
     setApproval(a.previewId, { phase: 'error', message: e instanceof ApiError && e.status === 409 ? 'Records changed since this proposal. Ask for a fresh proposal.' : e instanceof ApiError && e.status === 403 ? 'Access changed. This proposal is unavailable.' : 'Approval failed. Retry, or open the full review.' });
     return;
   }
+  if(!current())return;
   setApproval(a.previewId, { phase: 'busy', message: 'Executing…' });
   try {
     const r = await api<{ completed: boolean; changesetId: string }>(`/api/ai/previews/${id}/execute`, { method: 'POST', body: { argsHash: a.argsHash } });
+    if(!current())return;
     setApproval(a.previewId, r.completed ? { phase: 'executed', changesetId: r.changesetId, message: 'Changes applied.' } : { phase: 'partial', changesetId: r.changesetId, message: 'Partially executed with durable progress. Open the full review to resume.' });
   } catch {
+    if(!current())return;
     setApproval(a.previewId, { phase: 'error', message: 'Approved, but execution did not finish. Open the full review to resume.' });
   }
 }
 
 export async function cancelApproval(a: ApprovalView): Promise<void> {
+  if(!accessUsable())return;const current=currentRequest();
   setApproval(a.previewId, { phase: 'busy', message: 'Cancelling…' });
   try {
     await api(`/api/ai/previews/${encodeURIComponent(a.previewId)}/decision`, { method: 'POST', body: { decision: 'cancel', argsHash: a.argsHash } });
+    if(!current())return;
     setApproval(a.previewId, { phase: 'cancelled', message: 'Proposal cancelled. Nothing was changed.' });
   } catch {
+    if(!current())return;
     setApproval(a.previewId, { phase: 'error', message: 'Cancel failed. Retry, or open the full review.' });
   }
 }
