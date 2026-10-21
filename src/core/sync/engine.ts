@@ -361,6 +361,19 @@ export async function syncNow(): Promise<void> {
       stopPresence(); failClientAccess(localStorage.getItem('ws_uid') !== TAB_UID ? 'account_changed' : 'session_changed');
       syncStore.set(s => ({ ...s, status: 'error' })); return;
     }
+    // navigator.onLine only describes a network interface, not reachability of
+    // this server. A transport failure may use the SAME validated offline path
+    // as airplane mode. HTTP denials/conflicts must never take this fallback.
+    if (e instanceof ApiError && e.status === 0) {
+      stopPresence();
+      const userId = authStore.get().user?.id;
+      if (userId) await prepareOfflineAccess(userId);
+      if (localStorage.getItem('ws_uid') !== TAB_UID || getToken() !== token) {
+        failClientAccess('session_changed'); syncStore.set(s => ({ ...s, status: 'error' })); return;
+      }
+      syncStore.set(s => ({ ...s, status: accessClientStore.get().status === 'offline' ? 'offline' : 'error' }));
+      return;
+    }
     failClientAccess(e instanceof Error && e.message === 'session_changed' ? 'session_changed' : 'access_check_failed');
     if (e instanceof ApiError && e.status === 401) {
       // Signed out server-side: keep outbox + local data, drop the session.

@@ -7,9 +7,10 @@ vi.mock('../src/core/files', () => ({ uploadPendingBlobs: async () => { fixture.
 let engine: typeof import('../src/core/sync/engine'), db: typeof import('../src/core/db')['db'];
 let generation: number, failAccess: boolean, pullCursor: number, pullOverride: Record<string, unknown> | null;
 let pushOverride: unknown, replaceDuringAccess: boolean;
+let accessFailure: number | 'network' | null;
 beforeEach(async () => {
   vi.resetModules(); fixture.userId = `engine-${crypto.randomUUID()}`; fixture.calls = []; fixture.authed = true; fixture.upload.mockReset(); generation = 20; failAccess = false; pullCursor = 100; pullOverride = null;
-  pushOverride = undefined; replaceDuringAccess = false;
+  pushOverride = undefined; replaceDuringAccess = false; accessFailure = null;
   vi.mocked((await import('../src/core/auth')).dropSession).mockClear();
   const values = new Map([['ws_uid', fixture.userId], ['ws_token', 'fixture-only-token']]);
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) });
@@ -19,6 +20,8 @@ beforeEach(async () => {
     const manifest = { protocol: 3, userId: fixture.userId, workspaceRole: 'member', etag: `fixture-etag-${generation}`, spaces: [{ id: 'space-core', name: 'Core', role: 'editor', exportPolicy: 'members' }] };
     let body: unknown;
     if (path === '/api/access') {
+      if (accessFailure === 'network') throw new TypeError('Transport unavailable with navigator.onLine true');
+      if (typeof accessFailure === 'number') return Response.json({ error: 'denied' }, { status: accessFailure });
       if (replaceDuringAccess) {
         localStorage.setItem('ws_uid', 'replacement-user'); localStorage.setItem('ws_token', 'replacement-token');
         return Response.json({ error: 'expired_session' }, { status: 401 });
@@ -49,6 +52,28 @@ describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
     vi.stubGlobal('navigator', { onLine: false });
     await engine.syncNow();
     expect(access.accessClientStore.get()).toMatchObject({ status: 'error', reason: 'reconnect_required' });
+  });
+
+  it('uses validated offline cache after transport failure even when navigator reports online', async () => {
+    await engine.syncNow(); fixture.calls = [];
+    await db.outbox.add({ id: 'visible', collection: 'pages', patch: { title: 'Pending offline work' }, ts: 10 });
+    accessFailure = 'network'; await engine.syncNow();
+    expect((await import('../src/core/accessClient')).accessClientStore.get().status).toBe('offline');
+    expect(engine.syncStore.get().status).toBe('offline');
+    expect(fixture.calls).toEqual(['GET /api/access']); expect(await db.outbox.count()).toBe(1);
+  });
+
+  it('does not unlock known-stale permissions during a transport outage with online navigator', async () => {
+    await engine.syncNow();
+    await db.meta.put({ key: 'access_reconciliation_required', value: { userId: fixture.userId, generation: 21 } });
+    accessFailure = 'network'; await engine.syncNow();
+    expect((await import('../src/core/accessClient')).accessClientStore.get()).toMatchObject({ status: 'error', reason: 'reconnect_required' });
+  });
+
+  it.each([401, 403])('does not treat authoritative HTTP %i as an offline permission decision', async status => {
+    await engine.syncNow(); accessFailure = status; await engine.syncNow();
+    expect((await import('../src/core/accessClient')).accessClientStore.get().status).toBe('error');
+    expect((await import('../src/core/auth')).dropSession).toHaveBeenCalledTimes(status === 401 ? 1 : 0);
   });
 
   it('locks a stale tab on storage account replacement without logging out the new account', async () => {
