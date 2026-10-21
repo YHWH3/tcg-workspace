@@ -91,8 +91,17 @@ final class SafariTests: XCTestCase {
  func test04CanvasAlternatives() throws {
   let canvas=openCanvas();shot("11-canvas")
   let note=app.webViews.staticTexts["Apple canvas note"].firstMatch;XCTAssertTrue(note.waitForExistence(timeout:8));let originalWidth=note.frame.width
-  app.webViews.buttons["Zoom in"].tap();XCTAssertGreaterThan(note.frame.width,originalWidth+1);app.webViews.buttons["Zoom out"].tap();app.webViews.buttons["Fit to content"].tap()
-  let list=app.webViews.buttons["Item list"];XCTAssertTrue(list.isHittable);list.tap();XCTAssertTrue(app.webViews.textFields["Filter items"].waitForExistence(timeout:8))
+  app.webViews.buttons["Zoom in"].press(forDuration:0.1)
+  let enlarged=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in note.frame.width > originalWidth+1 },object:nil)
+  XCTAssertEqual(XCTWaiter.wait(for:[enlarged],timeout:5),.completed,"Zoom in must change actual rendered geometry before the next control")
+  app.webViews.buttons["Zoom out"].press(forDuration:0.1)
+  let restored=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in abs(note.frame.width-originalWidth)<2 },object:nil)
+  XCTAssertEqual(XCTWaiter.wait(for:[restored],timeout:5),.completed,"Zoom out must restore geometry; a click retargeted to Zoom in cannot pass")
+  app.webViews.buttons["Fit to content"].press(forDuration:0.1)
+  // Fixture card is 220×140; text starts 12 world pixels inside its left edge.
+  let fitted=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in abs(note.frame.minX-(canvas.frame.midX-(220/2-12)*min((canvas.frame.width-80)/220,(canvas.frame.height-80)/140,2)))<4 },object:nil)
+  XCTAssertEqual(XCTWaiter.wait(for:[fitted],timeout:5),.completed,"Fit must position the fixture text at the fitted item left plus its 12px scaled inset (not center the intrinsic AX text frame)")
+  let list=app.webViews.buttons["Item list"];XCTAssertTrue(list.isHittable);list.press(forDuration:0.1);XCTAssertTrue(app.webViews.textFields["Filter items"].waitForExistence(timeout:8))
   let nudge=app.webViews.buttons["Nudge right"].firstMatch;XCTAssertTrue(nudge.exists);nudge.tap();shot("12-canvas-nondrag-controls")
   app.webViews.buttons["Close item list"].tap()
   let before=note.frame
