@@ -112,8 +112,8 @@ function turnsFrom(rows:MessageRow[]):ChatTurn[]{
  const paired=new Set(visible.filter(r=>r.role==='tool'&&r.content.toolCallId&&declared.has(r.content.toolCallId)).map(r=>r.content.toolCallId!));
  const turns:ChatTurn[]=rows.flatMap((r):ChatTurn[]=>{
   const c=r.content as StoredContent&{redacted?:boolean};
-  // Drop raw function arguments too, and turn redacted tool outputs into
-  // omit redacted/unpaired results so no orphan function exchange or user
+  // Drop raw function arguments and omit redacted/unpaired results so no
+  // orphan function exchange or user
   // placeholder between sibling results reaches a provider.
   if(c.redacted)return r.role==='tool'?[]:[{role:r.role==='assistant'?'assistant':'user',text:'[message withheld: source access changed]'}];
   if(r.role==='user')return [{role:'user',text:[c.text,c.contextPayload].filter(Boolean).join('\n\n')}];

@@ -95,7 +95,7 @@ export interface ApprovalView {
   argsHash: string;
   reviewUrl: string;
   tool: string;
-  impact?: { create: number; update: number; delete: number; irreversible?: boolean; warnings?: string[] };
+  impact?: { create: number; update: number; delete: number; content?:{create:number;update:number;delete:number};audit?:{create:number;update:number;delete:number};irreversible?: boolean; warnings?: string[] };
 }
 
 export interface AssistantMessage {

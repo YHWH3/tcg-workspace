@@ -9,9 +9,10 @@ import {accessClientStore} from './accessClient';
 import {authStore} from './auth';
 import {useStore} from './store';
 import {AI_WORKFLOWS} from '../../shared/aiWorkflows';
+import {previewImpactText,type PreviewImpact} from '../../shared/previewImpact';
 const workflows=AI_WORKFLOWS.map(w=>[w.id,w.name]);
 interface PreviewSummary {id:string;tool:string;status:string;created_at:number;expires_at:number;workflow_id:string|null;changeset_id:string}
-interface Review {changesetId?:string;id:string;tool:string;status:string;expiresAt:number;argsHash:string;impact:{create:number;update:number;delete:number;irreversible:boolean;warnings:string[]};changes:{id:string;collection:string;before:unknown;after:unknown;expectedRev:number;currentRev:number;conflict:boolean}[]}
+interface Review {changesetId?:string;id:string;tool:string;status:string;expiresAt:number;argsHash:string;impact:PreviewImpact&{irreversible:boolean;warnings:string[]};changes:{id:string;collection:string;before:unknown;after:unknown;expectedRev:number;currentRev:number;conflict:boolean}[]}
 export function AiWorkspace(){const access=useStore(accessClientStore),auth=useStore(authStore),online=useOnline();return online&&access.status==='ready'?<AiWorkspaceContent key={auth.user?.id+':'+access.epoch}/>:<p role="status" className="p-4">Reconnect to verify current access before opening AI reviews.</p>;}
 function AiWorkspaceContent(){
  const [items,setItems]=useState<PreviewSummary[]>([]),[error,setError]=useState(''),[copied,setCopied]=useState('');
@@ -34,7 +35,7 @@ function AiReviewContent(){
  const conflict=review?.changes.some(c=>c.conflict),expired=!!review&&review.expiresAt<=Date.now();
  return <div className="mx-auto w-full max-w-4xl space-y-4 p-4 sm:p-6"><Link className="inline-block min-h-10 underline" to="/ai">AI workflows</Link><h1 className="text-2xl font-semibold">Review proposed changes</h1><div role="status">{notice}</div>{error&&<div role="alert">{error} <Button onClick={()=>void load()}>Retry</Button></div>}{review&&<>
  {review.changesetId&&<p className="break-all text-sm">Changeset: {review.changesetId} · <Link to="/settings" className="underline">History and undo</Link></p>}
- <p className="break-words">Operation: <strong>{review.tool}</strong> · {review.status}</p><p>{review.impact.create} create · {review.impact.update} update · {review.impact.delete} delete</p>
+ <p className="break-words">Operation: <strong>{review.tool}</strong> · {review.status}</p>{previewImpactText(review.impact).map(line=><p key={line}>{line}</p>)}
  {review.impact.irreversible&&<p role="alert" className="font-semibold text-red-600">Attachment deletion permanently reclaims its bytes. Undo cannot recover those bytes.</p>}
  {review.impact.warnings.map(w=><p key={w} className="text-sm">{w}</p>)}
  {(conflict||expired)&&<p role="alert">{expired?'This proposal expired.':'Records changed since this proposal was created.'} Ask for a fresh preview.</p>}

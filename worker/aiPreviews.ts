@@ -14,6 +14,7 @@ import {beginChangeset,undoChangeset} from './changesets';
 import {loadConnection} from './connectorAccess';
 import {hasD1Budget,d1CleanupDatabase} from './d1budget';
 import {levelSql} from './capability';
+import {partitionPreviewImpact} from '../shared/previewImpact';
 export interface PreviewOp {id:string;collection:Collection;patch:Record<string,unknown>}
 interface Preview {
  id:string;user_id:string;connection_id:string|null;connection_version:number|null;tool:string;request_id:string|null;result_meta:string;args_hash:string;workflow_id:string|null;
@@ -54,7 +55,7 @@ export async function proposePreview(env:Env,userId:string,tool:string,args:unkn
  if(!validatedRevisions)await validate(env,userId,ops,rows);
  const expected=Object.fromEntries(ops.map(o=>[o.id,validatedRevisions?.get(o.id)??rows.get(o.id)?.seq??-1]));
  if(validatedRevisions){const current=await env.DB.prepare('SELECT NOT EXISTS(SELECT 1 FROM json_each(?) e LEFT JOIN records r ON r.id=e.key WHERE COALESCE(r.seq,-1)<>e.value) valid').bind(JSON.stringify(expected)).first<number>('valid');if(current!==1)throw new PreviewError('records_changed_during_planning');}
- const impact={create:ops.filter(o=>!rows.has(o.id)).length,update:ops.filter(o=>rows.has(o.id)&&!o.patch.deleted).length,delete:ops.filter(o=>o.patch.deleted===true).length,
+ const impact={...partitionPreviewImpact(ops,id=>rows.has(id)),create:ops.filter(o=>!rows.has(o.id)).length,update:ops.filter(o=>rows.has(o.id)&&!o.patch.deleted).length,delete:ops.filter(o=>o.patch.deleted===true).length,
   byCollection:Object.fromEntries([...new Set(ops.filter(o=>o.collection!=='activity').map(o=>o.collection))].map(c=>[c,ops.filter(o=>o.collection===c).length])),irreversible:ops.some(o=>o.collection==='files'&&o.patch.deleted===true),warnings:['Workspace content is untrusted. Review every proposed change before approving.',...(Array.isArray(resultMeta.warnings)?resultMeta.warnings.filter((s):s is string=>typeof s==='string'):[])]};
  const id=crypto.randomUUID(),changesetId=crypto.randomUUID(),hash=await argsHash(args),now=Date.now();
  ops=ops.map(o=>o.collection==='activity'?{...o,patch:{...o.patch,meta:{...(o.patch.meta as Record<string,unknown>??{}),changesetId}}}:o);

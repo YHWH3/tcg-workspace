@@ -76,6 +76,9 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
    const args={workflow:'meeting_to_actions',workflowId:'e2e-meeting',sourceIds:['meet'],destinationDatabaseId:boardId,title:'Meeting actions',items:[{title:'Prepare release checklist',inferred:false},{title:'Confirm beta scope',inferred:true}]};
    await ask('/tool propose_workflow '+JSON.stringify(args));
    const card=panel().getByTestId('assistant-approval-card').last();await card.waitFor({timeout:30000});
+   await card.getByText(/^Content items: /).waitFor();
+   await card.getByText(/^Activity\/audit rows: /).waitFor();
+   await card.getByText(/^Total planned operations: /).waitFor();
    assert.equal((await pull(base,token)).filter(r=>r.collection==='tasks'&&r.data?.title==='Prepare release checklist').length,0,'nothing written before approval');
    await card.getByTestId('assistant-approve').click();
    await eventually(async()=>(await pull(base,token)).some(r=>r.collection==='tasks'&&r.data?.title==='Prepare release checklist'&&r.data?.aiProvenance?.workflow==='meeting_to_actions'),{timeout:20000});

@@ -13,6 +13,7 @@ import {
   RefreshCw, Sparkles, Square, Trash2, Wrench, X,
 } from 'lucide-react';
 import { aiAction, actionsFor, type ActionModule } from '../../../shared/aiActions';
+import { previewImpactText } from '../../../shared/previewImpact';
 import { MAX_CONTEXT_REFS, MAX_MESSAGE_CHARS, type ApprovalView, type AssistantMessage, type ContextRef, type ProviderStatus, type SourceRef, type ToolCallView } from '../../../shared/assistantProtocol';
 import { db } from '../db';
 import { useLayoutMode } from '../mobile';
@@ -450,7 +451,7 @@ function MessageView({ m, state: s, isLastAssistant }: { m: AssistantMessage; st
   return (
     <article data-testid={`assistant-message-${m.role}`} aria-label={m.role === 'tool' ? 'Tool activity' : 'Assistant response'} className="min-w-0 space-y-2">
       {m.redacted ? (
-        <p className="rounded-lg bg-neutral-100 px-3 py-2 text-sm italic text-neutral-600 dark:bg-neutral-900 dark:text-neutral-300">Hidden: source access changed</p>
+        <p className="rounded-lg bg-neutral-100 px-3 py-2 text-sm italic text-neutral-600 dark:bg-neutral-900 dark:text-neutral-300">Hidden: source access cannot be verified</p>
       ) : (
         m.text && <RichText text={m.text} />
       )}
@@ -626,11 +627,7 @@ function ApprovalCard({ a, state: s }: { a: ApprovalView; state: AssistantState 
     <div data-testid="assistant-approval-card" role="group" aria-label="Proposed change awaiting approval" className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 text-sm dark:border-violet-900/50 dark:bg-violet-950/20">
       <p className="font-medium">Proposed change needs your approval</p>
       <p className="mt-0.5 break-all text-xs text-neutral-600 dark:text-neutral-300">Operation: {a.tool}</p>
-      {imp && (
-        <p className="mt-1 text-xs">
-          {imp.create} create · {imp.update} update · {imp.delete} delete
-        </p>
-      )}
+      {imp && previewImpactText(imp).map(line=><p key={line} className="mt-1 text-xs">{line}</p>)}
       {imp?.irreversible && (
         <p className="mt-1 flex items-start gap-1 text-xs font-semibold text-red-700 dark:text-red-400">
           <AlertTriangle size={13} className="mt-0.5 shrink-0" aria-hidden="true" /> Includes an irreversible step (attachment bytes are permanently reclaimed). Undo cannot recover them.
