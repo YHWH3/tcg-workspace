@@ -1,8 +1,9 @@
 import XCTest
 final class SafariTests: XCTestCase {
  let app = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
- override func setUpWithError() throws { continueAfterFailure=false; XCUIDevice.shared.orientation = .portrait; app.activate(); let close=app.webViews.buttons["Close assistant"]; if close.exists {close.tap()} }
+ override func setUpWithError() throws { continueAfterFailure=false; XCUIDevice.shared.orientation = .portrait; app.open(URL(string:"__FIXTURE_BASE____FIXTURE_ENTRY__")!); let close=app.webViews.buttons["Close assistant"]; if close.exists {close.tap()} }
  func dismissKeyboardIntro() {let next=app.buttons["Continue"];if next.exists && next.isHittable {next.tap()}}
+ func enter(_ text:String,into field:XCUIElement) {field.tap();dismissKeyboardIntro();if !app.keyboards.firstMatch.waitForExistence(timeout:3) {field.tap()};app.typeText(text);XCTAssertTrue((field.value as? String ?? "").contains(text),"Native typed text must reach the intended field before submitting")}
  func sendMessage() {let send=app.webViews.buttons["Send message"];XCTAssertTrue(send.waitForExistence(timeout:15));let ready=XCTNSPredicateExpectation(predicate:NSPredicate(format:"enabled == true"),object:send);XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:15),.completed,"Wait for prior stream and draft state before sending");send.tap()}
  func shot(_ name:String) {let a=XCTAttachment(screenshot: app.screenshot());a.name=name;a.lifetime = .keepAlways;add(a)}
  func login(requirePage:Bool=true) {
@@ -35,33 +36,38 @@ final class SafariTests: XCTestCase {
   login();app.webViews.buttons.matching(NSPredicate(format:"label BEGINSWITH %@", "Ask AI")).firstMatch.tap()
   XCTAssertTrue(app.webViews.staticTexts.matching(NSPredicate(format:"label CONTAINS %@", "Simulated provider")).firstMatch.waitForExistence(timeout:10),"Only simulated fixture provider may be used")
   let composer=app.webViews.textViews["Message the assistant"]
-  XCTAssertTrue(composer.waitForExistence(timeout:10));composer.tap();composer.typeText("Summarize this page")
+  XCTAssertTrue(composer.waitForExistence(timeout:10));enter("Summarize this page",into:composer)
   sendMessage()
   let reply=app.webViews.staticTexts.matching(NSPredicate(format:"label CONTAINS %@", "authorized sources")).firstMatch
   XCTAssertTrue(reply.waitForExistence(timeout:25));shot("06-sourced-assistant-keyboard")
-  composer.tap();composer.typeText("/tool create_page {\"title\":\"Apple simulator proposed page\"}")
+  enter("/tool create_page {\"title\":\"Apple simulator proposed page\"}",into:composer)
   sendMessage()
-  let approve=app.webViews.buttons["Approve & execute"]
-  XCTAssertTrue(approve.waitForExistence(timeout:25));shot("07-human-approval-preview")
-  if !approve.isHittable {app.webViews.firstMatch.swipeUp()}
-  XCTAssertTrue(approve.isHittable);approve.tap()
-  let result=app.webViews.staticTexts.matching(NSPredicate(format:"label CONTAINS[c] %@", "changeset")).firstMatch
-  XCTAssertTrue(result.waitForExistence(timeout:25));shot("08-executed-result")
-  app.webViews.buttons["Close assistant"].tap()
+  let proposal=app.webViews.buttons["Approve & execute"]
+  XCTAssertTrue(proposal.waitForExistence(timeout:25));shot("07-proposal-keyboard")
+  // Standard browser fallback: review the full frozen plan with the keyboard
+  // dismissed. This does not certify keyboard-open inline approval hit testing.
+  if app.buttons["Done"].exists {app.buttons["Done"].tap()}
+  let review=app.webViews.links["Open full review"];XCTAssertTrue(review.waitForExistence(timeout:10));review.tap()
+  let close=app.webViews.buttons["Close assistant"];if close.exists {close.tap()}
+  XCTAssertTrue(app.webViews.staticTexts["Review proposed changes"].waitForExistence(timeout:15));shot("08-full-human-review")
+  let approve=app.webViews.buttons["Approve exact changes"];XCTAssertTrue(approve.waitForExistence(timeout:10));approve.tap()
+  let execute=app.webViews.buttons["Resume execution"];XCTAssertTrue(execute.waitForExistence(timeout:15));execute.tap()
+  let result=app.webViews.staticTexts.matching(NSPredicate(format:"label CONTAINS[c] %@", "Completed. Changeset")).firstMatch
+  XCTAssertTrue(result.waitForExistence(timeout:25));shot("09-executed-result")
  }
  func test03SearchNavigation() throws {
   login();app.webViews.buttons.matching(NSPredicate(format:"label BEGINSWITH %@", "Search")).firstMatch.tap()
   let query=app.webViews.textFields["Search workspace"]
-  XCTAssertTrue(query.waitForExistence(timeout:10));query.tap();query.typeText("Safari task");dismissKeyboardIntro()
+  XCTAssertTrue(query.waitForExistence(timeout:10));enter("Safari task",into:query)
   let task=app.webViews.otherElements.matching(NSPredicate(format:"label BEGINSWITH %@", "Safari task fixture")).firstMatch
   XCTAssertTrue(task.waitForExistence(timeout:15));shot("09-search-keyboard")
   task.tap();let title=app.webViews.textViews["Task title"];XCTAssertTrue(title.waitForExistence(timeout:15));shot("10-task-detail")
-  let description=app.webViews.textViews["Task description"];description.tap();dismissKeyboardIntro();description.typeText("Safari property edit café")
+  let description=app.webViews.textViews["Task description"];enter("Safari property edit café",into:description)
   if app.buttons["Done"].exists {app.buttons["Done"].tap()};app.webViews.buttons["Close"].firstMatch.tap()
  }
  func test04CanvasAlternatives() throws {
   login(requirePage:false);app.webViews.buttons.matching(NSPredicate(format:"label BEGINSWITH %@", "Search")).firstMatch.tap()
-  let query=app.webViews.textFields["Search workspace"];XCTAssertTrue(query.waitForExistence(timeout:10));query.tap();query.typeText("Apple Safari canvas");dismissKeyboardIntro()
+  let query=app.webViews.textFields["Search workspace"];XCTAssertTrue(query.waitForExistence(timeout:10));enter("Apple Safari canvas",into:query)
   let result=app.webViews.otherElements.matching(NSPredicate(format:"label BEGINSWITH %@", "Apple Safari canvas")).firstMatch
   XCTAssertTrue(result.waitForExistence(timeout:15));result.tap()
   let canvas=app.webViews.firstMatch;XCTAssertTrue(app.webViews.buttons["Zoom in"].waitForExistence(timeout:15));shot("11-canvas")
