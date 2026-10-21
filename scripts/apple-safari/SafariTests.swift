@@ -5,15 +5,20 @@ final class SafariTests: XCTestCase {
  func dismissKeyboardIntro() {let next=app.buttons["Continue"];if next.exists && next.isHittable {next.tap()}}
  func enter(_ text:String,into field:XCUIElement) {field.tap();dismissKeyboardIntro();if !app.keyboards.firstMatch.waitForExistence(timeout:3) {field.tap()};app.typeText(text);XCTAssertTrue((field.value as? String ?? "").contains(text),"Native typed text must reach the intended field before submitting")}
  func sendMessage() {let send=app.webViews.buttons["Send message"];XCTAssertTrue(send.waitForExistence(timeout:15));let ready=XCTNSPredicateExpectation(predicate:NSPredicate(format:"enabled == true"),object:send);XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:15),.completed,"Wait for prior stream and draft state before sending");send.tap()}
+ override func tearDownWithError() throws {let a=XCTAttachment(string:app.debugDescription);a.name="final-native-hierarchy";a.lifetime = .keepAlways;add(a);shot("final-native-screen")}
  func shot(_ name:String) {let a=XCTAttachment(screenshot: app.screenshot());a.name=name;a.lifetime = .keepAlways;add(a)}
- func login(requirePage:Bool=true) {
+ func login() {
   let user=app.webViews.textFields["Username"]
-  if user.waitForExistence(timeout:3) {
+  let editor=app.webViews.textViews["Type '/' for commands"].firstMatch
+  let ready=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in user.exists || editor.exists },object:nil)
+  XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed,"Wait for authenticated page OR real sign-in form, not an arbitrary hydration delay")
+  if user.exists {
    user.tap(); dismissKeyboardIntro(); if let value=user.value as? String,value != "ada" {user.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:value.count))};user.typeText("admin")
    let password=app.webViews.secureTextFields["Password"];if app.buttons["Next"].exists {app.buttons["Next"].tap()}else{password.tap()};password.typeText("password123");if app.buttons["Done"].exists {app.buttons["Done"].tap()}
-   app.webViews.buttons.matching(identifier:"Sign in").element(boundBy:1).tap()
+   let form=app.webViews.otherElements.matching(NSPredicate(format:"label BEGINSWITH %@","Sign in form")).firstMatch
+   XCTAssertTrue(form.waitForExistence(timeout:10));let submit=form.buttons["Sign in"];XCTAssertTrue(submit.isHittable);submit.tap()
   }
-  if requirePage {XCTAssertTrue(app.webViews.staticTexts["Apple Safari acceptance"].firstMatch.waitForExistence(timeout:20),"Fixture page must load after browser session setup")}
+  do {XCTAssertTrue(editor.waitForExistence(timeout:30),"Fixture editor must load after browser session setup");XCTAssertTrue((editor.value as? String ?? "").contains("Safari fixture text"),"Exact fixture body must hydrate, not a stale route")}
  }
  func test01LoginEditingRotation() throws {
   login();shot("01-portrait-shell")
@@ -31,6 +36,9 @@ final class SafariTests: XCTestCase {
   XCUIDevice.shared.orientation = .landscapeLeft
   XCTAssertTrue(editor.waitForExistence(timeout:8));shot("04-landscape")
   XCUIDevice.shared.orientation = .portrait;shot("05-portrait-return")
+  app.open(URL(string:"__FIXTURE_BASE__/pages/apple-page")!)
+  XCTAssertTrue(editor.waitForExistence(timeout:15));XCTAssertTrue((editor.value as? String ?? "").contains("Safari edit café"),"Unicode edit survives real route reload, not only a retained editor")
+  shot("05b-reloaded-durable-edit")
  }
  func test02AssistantProposal() throws {
   login();app.webViews.buttons.matching(NSPredicate(format:"label BEGINSWITH %@", "Ask AI")).firstMatch.tap()
@@ -44,16 +52,22 @@ final class SafariTests: XCTestCase {
   sendMessage()
   let proposal=app.webViews.buttons["Approve & execute"]
   XCTAssertTrue(proposal.waitForExistence(timeout:25));shot("07-proposal-keyboard")
-  // Standard browser fallback: review the full frozen plan with the keyboard
-  // dismissed. This does not certify keyboard-open inline approval hit testing.
-  if app.buttons["Done"].exists {app.buttons["Done"].tap()}
-  let review=app.webViews.links["Open full review"];XCTAssertTrue(review.waitForExistence(timeout:10));review.tap()
-  let close=app.webViews.buttons["Close assistant"];if close.exists {close.tap()}
-  XCTAssertTrue(app.webViews.staticTexts["Review proposed changes"].waitForExistence(timeout:15));shot("08-full-human-review")
-  let approve=app.webViews.buttons["Approve exact changes"];XCTAssertTrue(approve.waitForExistence(timeout:10));approve.tap()
-  let execute=app.webViews.buttons["Resume execution"];XCTAssertTrue(execute.waitForExistence(timeout:15));execute.tap()
-  let result=app.webViews.staticTexts.matching(NSPredicate(format:"label CONTAINS[c] %@", "Completed. Changeset")).firstMatch
-  XCTAssertTrue(result.waitForExistence(timeout:25));shot("09-executed-result")
+  // Keep the native keyboard open and scroll only the named message region.
+  let messages=app.webViews.otherElements.matching(NSPredicate(format:"label BEGINSWITH %@","Assistant messages")).firstMatch
+  XCTAssertTrue(messages.waitForExistence(timeout:10))
+  for _ in 0..<16 {
+   let r=proposal.frame,m=messages.frame
+   if m.contains(CGPoint(x:r.midX,y:r.midY)) {break}
+   let from=messages.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
+   let delta=max(-30,min(30,m.midY-r.midY))
+   from.press(forDuration:0.1,thenDragTo:from.withOffset(CGVector(dx:0,dy:delta)),withVelocity:.slow,thenHoldForDuration:0.4)
+  }
+  XCTAssertTrue(app.keyboards.firstMatch.exists,"Inline approval must be exercised with software keyboard open")
+  XCTAssertTrue(messages.frame.contains(CGPoint(x:proposal.frame.midX,y:proposal.frame.midY)),"Approval center must be inside actual transcript clip")
+  shot("08-inline-human-review-keyboard");proposal.tap()
+  let result=app.webViews.staticTexts.matching(NSPredicate(format:"label CONTAINS[c] %@", "Changeset")).firstMatch
+  XCTAssertTrue(result.waitForExistence(timeout:25));shot("09-inline-executed-result")
+
  }
  func test03SearchNavigation() throws {
   login();app.webViews.buttons.matching(NSPredicate(format:"label BEGINSWITH %@", "Search")).firstMatch.tap()
@@ -61,22 +75,37 @@ final class SafariTests: XCTestCase {
   XCTAssertTrue(query.waitForExistence(timeout:10));enter("Safari task",into:query)
   let task=app.webViews.otherElements.matching(NSPredicate(format:"label BEGINSWITH %@", "Safari task fixture")).firstMatch
   XCTAssertTrue(task.waitForExistence(timeout:15));shot("09-search-keyboard")
-  task.tap();let title=app.webViews.textViews["Task title"];XCTAssertTrue(title.waitForExistence(timeout:15));shot("10-task-detail")
+  if app.buttons["Done"].exists {app.buttons["Done"].tap()};XCTAssertTrue(task.isHittable);task.tap();let title=app.webViews.textViews["Task title"];XCTAssertTrue(title.waitForExistence(timeout:15));shot("10-task-detail")
   let description=app.webViews.textViews["Task description"];enter("Safari property edit café",into:description)
   if app.buttons["Done"].exists {app.buttons["Done"].tap()};app.webViews.buttons["Close"].firstMatch.tap()
  }
- func test04CanvasAlternatives() throws {
-  login(requirePage:false);app.webViews.buttons.matching(NSPredicate(format:"label BEGINSWITH %@", "Search")).firstMatch.tap()
+ func openCanvas() -> XCUIElement {
+  login();let search=app.webViews.buttons.matching(NSPredicate(format:"label BEGINSWITH %@", "Search")).firstMatch
+  XCTAssertTrue(search.waitForExistence(timeout:15));search.tap()
   let query=app.webViews.textFields["Search workspace"];XCTAssertTrue(query.waitForExistence(timeout:10));enter("Apple Safari canvas",into:query)
   let result=app.webViews.otherElements.matching(NSPredicate(format:"label BEGINSWITH %@", "Apple Safari canvas")).firstMatch
-  XCTAssertTrue(result.waitForExistence(timeout:15));result.tap()
-  let canvas=app.webViews.firstMatch;XCTAssertTrue(app.webViews.buttons["Zoom in"].waitForExistence(timeout:15));shot("11-canvas")
+  XCTAssertTrue(result.waitForExistence(timeout:15));if app.buttons["Done"].exists {app.buttons["Done"].tap()};XCTAssertTrue(result.isHittable);result.tap()
+  let canvas=app.webViews.otherElements.matching(NSPredicate(format:"label BEGINSWITH %@","Moodboard canvas")).firstMatch
+  XCTAssertTrue(canvas.waitForExistence(timeout:15));XCTAssertTrue(app.webViews.buttons["Zoom in"].waitForExistence(timeout:15));return canvas
+ }
+ func test04CanvasAlternatives() throws {
+  let canvas=openCanvas();shot("11-canvas")
   let note=app.webViews.staticTexts["Apple canvas note"].firstMatch;XCTAssertTrue(note.waitForExistence(timeout:8));let originalWidth=note.frame.width
   app.webViews.buttons["Zoom in"].tap();XCTAssertGreaterThan(note.frame.width,originalWidth+1);app.webViews.buttons["Zoom out"].tap();app.webViews.buttons["Fit to content"].tap()
-  app.webViews.buttons["Item list"].tap();XCTAssertTrue(app.webViews.textFields["Filter items"].waitForExistence(timeout:8))
+  let list=app.webViews.buttons["Item list"];XCTAssertTrue(list.isHittable);list.tap();XCTAssertTrue(app.webViews.textFields["Filter items"].waitForExistence(timeout:8))
   let nudge=app.webViews.buttons["Nudge right"].firstMatch;XCTAssertTrue(nudge.exists);nudge.tap();shot("12-canvas-nondrag-controls")
   app.webViews.buttons["Close item list"].tap()
-  let beforePinch=note.frame;canvas.pinch(withScale:0.8,velocity:-1);let afterPinch=note.frame;XCTAssertLessThan(afterPinch.width,beforePinch.width-1,"Canvas pinch must change rendered item geometry")
-  canvas.swipeLeft();XCTAssertGreaterThan(abs(note.frame.minX-afterPinch.minX),5,"Canvas pan must move rendered items");shot("13-canvas-pinch-pan")
+  let before=note.frame
+  // Deliberately begin over an item: Browse mode must pan the view, not move data.
+  note.coordinate(withNormalizedOffset:CGVector(dx:0.6,dy:0.5)).press(forDuration:0.05,thenDragTo:note.coordinate(withNormalizedOffset:CGVector(dx:0.6,dy:0.5)).withOffset(CGVector(dx:-60,dy:0)))
+  XCTAssertGreaterThan(abs(note.frame.minX-before.minX),40,"Browse drag over an item must pan rendered geometry")
+  XCTAssertEqual(note.frame.width,before.width,accuracy:2);XCTAssertTrue(canvas.exists);shot("13-independent-pan")
+ }
+ func test05CanvasPinch() throws {
+  let canvas=openCanvas();app.webViews.buttons["Fit to content"].tap()
+  let note=app.webViews.staticTexts["Apple canvas note"].firstMatch;XCTAssertTrue(note.waitForExistence(timeout:8))
+  let before=note.frame;canvas.pinch(withScale:0.8,velocity:-1)
+  XCTAssertLessThan(note.frame.width,before.width-5,"Pinch on the labelled canvas must change rendered geometry")
+  shot("14-independent-pinch")
  }
 }

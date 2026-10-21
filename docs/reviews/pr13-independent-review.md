@@ -57,7 +57,7 @@ node scripts/apple-safari.mjs
 # After an unchanged source build:
 node scripts/apple-safari.mjs --skip-build
 # Narrow rerun using installed simulator UDIDs:
-node scripts/apple-safari.mjs --skip-build --devices=AB3404CB-2495-4BD2-BFAF-DA7D12628278
+node scripts/apple-safari.mjs --skip-build --devices=1BDCB883-27F6-43E6-82A1-40FA4F2F8C19
 ```
 
 Default device matrix: a disposable iPhone SE (3rd generation) simulator (375 CSS-pixel portrait width), iPhone 17, iPhone 17 Pro Max, iPad (A16), iPad Pro 13-inch (M5). The compact device type was verified against the installed runtime before creating it; earlier iPhone 17e pilots are retained separately. Portrait and landscape are exercised. This is not evidence for compact 320px hardware, a second OS family or iPad resized Stage Manager windows.
@@ -108,3 +108,44 @@ The inherited `5cd0d16` background runs had no valid certificate for this correc
 The first clean `a5a3304` complete run was interrupted before completion to correct native test sequencing. A subsequent clean `ce16ddc` run completed 33/34 gates: 1,447 unit PASS / one Miniflare `ECONNRESET`, 668 dedicated D1 PASS and all browser gates PASS. Both failed runs remain archived and are not final acceptance. The isolated Cron offset-5 recheck passed (one selected test, 14 intentionally unselected), but does not replace a complete run. The keyboard correction changes source and requires another complete run. Final acceptance command: `npm run certify:ai`, on a clean committed source. All 34 existing mandatory gates remain required. Authoritative results are `.artifacts/certification/<final-SHA>-<timestamp>-complete/{summary.json,report.md,commands.json,test-results.json,environment.json,performance.json,security-audit.json,migrations.json}`. Check `completeLocalCertification`, exact SHA/fingerprint, initial/final source integrity and actual command exits. Unit and dedicated D1 counts overlap and must not be added as unique tests. Apple results are an additional separately identified run.
 
 Publication to PR #13 is authorized after successful final certification. PR #12 and PR #13 remain open/draft/unmerged. Production deployment, D1 migration 0032, permission activation, provider activation, live secrets and connector changes require separate authorization. Passing local automation does not approve those operations or close the external gates above.
+
+
+## Native Safari failure-resolution follow-up
+
+This section supersedes the unresolved engineering conclusions of the historical `c5da7d6` matrix above. It preserves that run's failures and does not relabel it as passing. The follow-up starts from certified `43dbace6`; final acceptance must be read from the new clean-commit artifacts rather than inferred from these development diagnostics.
+
+| Previous failed case | Root-cause classification | Evidence and correction |
+|---|---|---|
+| SE3 / iPhone 17 / Pro Max initial page readiness | Test selector and hydration synchronization | Editable body text is exposed as a TextView value, not a reliable static-text node. Wait for the actual sign-in form or editor, then assert the exact fixture body. A named form removes positional submit-button selection. SE3 diagnostic `resolution-semantic-login` also verifies a real reload of the persisted Unicode edit. |
+| SE3 compact task navigation | Test input/keyboard synchronization | Verify the exact typed query, dismiss the native keyboard using Done before selecting the result, and await the task title control. `resolution-se3-first` and `resolution-se3-inline-pan` reach and persist the task edit. |
+| SE3 canvas navigation | Harness readiness and selector | The old canvas login path could skip post-login readiness. Safari exposes the canvas as “Moodboard canvas, web application”; use its semantic label prefix. All cases now wait for the real editor before navigation. |
+| iPhone 17 item-list opening | Harness target/route readiness; final device rerun required | A named canvas, explicit destination readiness and a hittable Item list control distinguish route loading from a failed control. The old timeout alone did not prove a product defect. |
+| Pro Max / A16 / Pro13 pinch geometry | Gesture-target defect in the harness | A whole-WebView pinch can hit browser chrome or unrelated content. Target the labelled canvas; fixture-only telemetry records trusted two-touch/pointer delivery and the world transform. `resolution-se3-inline-pan` independently passes pinch with changed rendered note width. |
+| Pan not reached in old matrix | **Confirmed application defect R13-M01** | Browse itemDown bubbled to a canvas handler that accepted only background targets, so dragging an item did not pan. Accept the existing pending item tap in Browse mode while preserving toolbar clicks and item world coordinates. The strengthened browser regression fails before the fix (`pan-browser-red.log`); native pan passes after it (`resolution-se3-inline-pan`). |
+
+The historical SE3 canvas test failed before reaching its pinch assertion. It is a navigation/readiness failure, not an additional independently demonstrated pinch defect. Thus the ten old failed cases are covered without manufacturing ten application defects. iPhone 17's precise old item-list timeout remains less certain than the reproduced selector/readiness faults; the final matrix must establish its current behavior.
+
+### Inline approval and evidence quality
+
+The partly clipped inline approval diagnostic was caused by inertial transcript scrolling and an insufficiently bounded test scroll. The replacement targets the named Assistant messages region, uses short slow drags with a settling hold, asserts the approval center lies inside the actual clip, keeps the native keyboard open, taps the real button and requires changeset feedback plus exactly one server-created page. `resolution-se3-inline-slow` passes this path. No approval authorization or execution boundary was changed. The existing full-review fallback remains available and covered by the earlier browser workflow gate.
+
+App changes in this round are limited to the Browse pan correction and semantic names for the authentication form and assistant transcript. No backend, provider, permission, billing, migration or deployment configuration is changed. Chromium/Firefox/WebKit assistant acceptance additionally asserts center-point hit testing at keyboard-sized height and exactly-one execution. The compact canvas browser suite now begins its pan on an item and checks both screen movement and unchanged world coordinates.
+
+### Reproduction and final acceptance contract
+
+```bash
+# All five installed devices, real interactive Safari sign-in by default:
+node scripts/apple-safari.mjs --skip-build
+# Explicit diagnostic fallback only; does NOT certify interactive iPad sign-in:
+node scripts/apple-safari.mjs --skip-build --preauthenticated-ipad
+# Focused installed-device diagnosis:
+node scripts/apple-safari.mjs --skip-build --devices=<UDID> --only-test=test05CanvasPinch
+# Complete mandatory app certification on the same clean commit:
+npm run certify:ai
+```
+
+Five independent native cases per device cover interactive sign-in/editor hydration; Unicode edit/rotation/background/foreground/reload; keyboard-open inline approval; search/task editing; canvas zoom/item-list/nudge/pan; and an independently navigated pinch (the first journey combines the sign-in and edit assertions). The five XCTest names in `SafariTests.swift` are authoritative. Missing requested devices fail the runner instead of silently shrinking the matrix. Native server checks require per-device edit markers, exact nudge coordinates and exactly one uniquely named proposal page. The source fingerprint must remain unchanged through each run. Native fixtures use permissions DISABLED for platform parity; enabled-permission security evidence comes from the complete certification, not from these native cases.
+
+Fixture-only `probe.mjs` is injected into the temporary copied client, never into shipped assets. It records route, readiness, viewport/canvas geometry, trusted event targets and approval hit testing, without input values, source content, tokens or request bodies. Its loopback collector uses an unguessable path and an 8 MiB limit. `.xcresult` bundles retain screenshots and accessibility hierarchies on success as well as failure. Diagnostic runs are explicitly dirty-source development evidence; clean final runs belong under `.artifacts/pr13-apple/final-<SHA>/` and `.artifacts/certification/<SHA>-<timestamp>-complete/`.
+
+Only iOS 26.4.1 (`23E254a`) is installed. Physical devices, previous-major OS, human VoiceOver/TalkBack/NVDA, native 400% zoom, hardware media/file providers, installed PWA/OS suspension/storage eviction and iPad resized-window interaction remain external NOT RUN gates. Automated accessibility queries and Safari app background/foreground are not substitutes for these gates. Final result tables and actual command exits are attached to the PR and retained with the ignored artifacts after the committed source is tested, avoiding a documentation edit that would invalidate the exact-source certificate.
