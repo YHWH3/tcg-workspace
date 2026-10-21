@@ -10,8 +10,12 @@ import { putShared } from './core/sharedInbox';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: { url: string; revision: string | null }[] };
 
-const PRECACHE = 'ws-precache-v3';
 const entries = self.__WB_MANIFEST ?? [];
+// A revisioned URL in a shared cache is insufficient: ignoreSearch can select
+// the FIRST old index.html revision after an upgrade. Isolate each build.
+const CACHE_PREFIX = 'ws-precache-';
+const shellRevision = entries.find((e) => e.url.replace(/^\//, '') === 'index.html')?.revision ?? 'unversioned';
+const PRECACHE = `${CACHE_PREFIX}v4-${shellRevision}`;
 const precacheUrls = entries.map((e) => e.url);
 const precacheReqs = entries.map((e) => new Request(e.revision ? `${e.url}?__rev=${e.revision}` : e.url));
 
@@ -39,7 +43,12 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== PRECACHE).map((k) => caches.delete(k))))
+      .then((keys) => {
+        // One previous build supports lazy chunks requested by already-open
+        // tabs. Bound retention and leave unrelated origin caches untouched.
+        const previous = keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== PRECACHE).at(-1);
+        return Promise.all(keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== PRECACHE && k !== previous).map((k) => caches.delete(k)));
+      })
       .then(() => self.clients.claim()),
   );
 });
@@ -95,11 +104,21 @@ self.addEventListener('fetch', (event: FetchEvent) => {
   }
 
   // Cache-first for precached assets; plain network for anything else.
-  if (precacheUrls.includes(url.pathname) || precacheUrls.includes(url.pathname.slice(1))) {
+  if (precacheUrls.includes(url.pathname) || precacheUrls.includes(url.pathname.slice(1)) || url.pathname.startsWith('/assets/')) {
     event.respondWith(
       caches.open(PRECACHE).then(async (cache) => {
         const hit = await cache.match(event.request, { ignoreSearch: true });
-        return hit ?? fetch(event.request);
+        if (hit) return hit;
+        // Only immutable build assets may fall back to the prior build. Never
+        // use an old shell, API response or authenticated record projection.
+        if (url.pathname.startsWith('/assets/')) {
+          const keys = (await caches.keys()).filter((k) => k.startsWith(CACHE_PREFIX) && k !== PRECACHE).reverse();
+          for (const key of keys) {
+            const previous = await (await caches.open(key)).match(event.request, { ignoreSearch: true });
+            if (previous) return previous;
+          }
+        }
+        return fetch(event.request);
       }),
     );
   }
