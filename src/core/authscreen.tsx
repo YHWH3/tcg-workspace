@@ -58,7 +58,7 @@ function Logo() {
 
 function FormShell({ children, onSubmit, error, busy, submitLabel }: { children: React.ReactNode; onSubmit: (e: FormEvent) => void; error: string | null; busy: boolean; submitLabel: string }) {
   return (
-    <form onSubmit={onSubmit} className="anim-slide-up flex w-full max-w-80 flex-col gap-3.5">
+    <form aria-label={`${submitLabel} form`} onSubmit={onSubmit} className="anim-slide-up flex w-full max-w-80 flex-col gap-3.5">
       {children}
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950/40 dark:text-red-400">{error}</p>}
       <Button variant="primary" type="submit" disabled={busy} className="mt-1 h-10">

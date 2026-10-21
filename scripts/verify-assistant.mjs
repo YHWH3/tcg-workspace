@@ -122,11 +122,13 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
    await page.goto(base+'/pages/proj');await page.getByText('Project Atlas').first().waitFor();
    const toggle=page.getByTestId('assistant-toggle').filter({visible:true}).first();await toggle.tap?.().catch(()=>toggle.click());if(!(await panel().isVisible()))await toggle.click();await panel().waitFor();
    const box=await panel().boundingBox();assert.ok(box&&box.width<=390+1,'panel fits the compact viewport');
-   await chooseSimulated();await ask('/tool create_page {"title":"Mobile draft from assistant"}');
+   await chooseSimulated();await page.evaluate(()=>document.documentElement.style.setProperty('--vvh','287px'));await ask('/tool create_page {"title":"Mobile draft from assistant"}');
    const card=panel().getByTestId('assistant-approval-card').last();await card.waitFor({timeout:30000});
    const approve=card.getByTestId('assistant-approve');await approve.scrollIntoViewIfNeeded();const ab=await approve.boundingBox();assert.ok(ab&&ab.height>=40&&ab.x>=0&&ab.x+ab.width<=391,'approve control reachable');
-   await approve.click();
-   await eventually(async()=>(await pull(base,token)).some(r=>r.collection==='pages'&&r.data?.title==='Mobile draft from assistant'),{timeout:20000});
+   assert.ok(await approve.evaluate(el=>{const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),'keyboard-sized approval center must receive its own tap');
+   await approve.tap();
+   await eventually(async()=>(await pull(base,token)).filter(r=>r.collection==='pages'&&r.data?.title==='Mobile draft from assistant').length===1,{timeout:20000});
+   await page.evaluate(()=>document.documentElement.style.removeProperty('--vvh'));
    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+1);assert.equal(overflow,false,'no page-wide horizontal overflow');
   });
 

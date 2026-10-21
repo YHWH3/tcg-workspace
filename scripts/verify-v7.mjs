@@ -822,9 +822,11 @@ async function modeSuite(page, E, V, uid, touch = false) {
   };
   await setBrowse();
   const preB = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
+  const screenBeforeB = await itemEl(page, 'v7_i_note2').boundingBox();
   await dragItem(120, 60);
   const postB = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
-  N('modes: Browse/Pan drag does not move items', preB && postB && postB.x === preB.x && postB.y === preB.y ? 'PASS' : 'FAIL');
+  const screenAfterB = await itemEl(page, 'v7_i_note2').boundingBox();
+  N('modes: Browse/Pan drag pans view without moving item data', preB && postB && postB.x === preB.x && postB.y === preB.y && screenBeforeB && screenAfterB && Math.abs(screenAfterB.x-screenBeforeB.x)>80 ? 'PASS' : 'FAIL');
 
   // bg drag pans in browse (view transform changes)
   const panOk = await (async () => {
@@ -1234,23 +1236,9 @@ async function compactSuite(page, E, V, uid) {
     const cb = await canvasBox(page);
     const pre = await dexieGet(page, 'mooditems', 'v7_i_note', uid);
     if (!before || !cb || !pre) return false;
-    // touch-drag on empty canvas background → pan, not item move.
-    // find a point whose topmost element is the canvas bg (items don't pan in browse)
-    const bgPt = await page.evaluate(() => {
-      const cv = document.querySelector('[data-testid="mood-canvas"]');
-      if (!cv) return null;
-      const r = cv.getBoundingClientRect();
-      for (let gy = 0.85; gy > 0.05; gy -= 0.12) {
-        for (let gx = 0.08; gx < 0.95; gx += 0.12) {
-          const x = r.x + r.width * gx, y = r.y + r.height * gy;
-          const top = document.elementFromPoint(x, y);
-          if (top === cv || top?.dataset?.canvas === 'bg' || top?.dataset?.marquee === 'bg') return { x, y };
-        }
-      }
-      return null;
-    });
-    if (!bgPt) return 'no-bg-point';
-    const x = bgPt.x, y = bgPt.y;
+    // Begin on the item itself: Browse must pan without changing its world coordinates.
+    const x = before.x + Math.min(40, before.width / 2);
+    const y = before.y + Math.min(40, before.height / 2);
     try {
       const cdp = await page.context().newCDPSession(page); // chromium only
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });

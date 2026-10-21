@@ -279,7 +279,9 @@ export function MoodCanvas() {
     if (gesture.current) return;
     const el = e.target as HTMLElement;
     const onBg = e.target === e.currentTarget || el.dataset.canvas === 'bg' || el.dataset.marquee === 'bg';
-    if (!onBg) return;
+    // Item Browse drags bubble here with pendingTap set. They pan the view
+    // just like background drags; toolbar controls must remain ordinary clicks.
+    if (!onBg && !(mode === 'browse' && pendingTap.current)) return;
     // Capture only for real canvas gestures — capturing every pointerdown
     // inside the canvas subtree retargets the trailing click to this element
     // and kills toolbar/overlay button clicks (setPointerCapture can throw

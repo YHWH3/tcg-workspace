@@ -223,7 +223,7 @@ function AssistantSurface({ variant }: { variant: 'panel' | 'full' }) {
       ) : (
         <>
           <ProviderBar state={s} />
-          <div className="min-h-24 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+          <div role="region" aria-label="Assistant messages" data-testid="assistant-transcript" className="min-h-24 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
             {s.providersState === 'error' && <ProvidersError />}
             {noProvider && <NoProviderState />}
             {s.loadingConversation && (
