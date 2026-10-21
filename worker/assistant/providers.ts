@@ -104,18 +104,41 @@ async function errorFrom(res:Response):Promise<ProviderEvent>{
 export async function* streamResponses(res:Response,signal?:AbortSignal):AsyncGenerator<ProviderEvent>{
  if(!res.ok||!res.body){yield await errorFrom(res);return;}
  let completed=false;
+ const calls=new Map<string,{call:Extract<ProviderEvent,{type:'tool_call'}>;index:number;order:number}>(),itemIds=new Map<string,string>();
+ const invalidOutput=new Error('conflicting_provider_output');
+ const addCall=(value:unknown,index:unknown)=>{
+  if(!value||typeof value!=='object')return;
+  const item=value as {type?:unknown;id?:unknown;call_id?:unknown;name?:unknown;arguments?:unknown};
+  if(item.type!=='function_call')return;
+  if(typeof item.call_id!=='string'||!item.call_id||typeof item.name!=='string'||!item.name||typeof item.arguments!=='string')throw invalidOutput;
+  if(typeof item.id==='string'){
+   const prior=itemIds.get(item.id);if(prior!==undefined&&prior!==item.call_id)throw invalidOutput;
+   itemIds.set(item.id,item.call_id);
+  }
+  const old=calls.get(item.call_id);
+  if(old){if(old.call.name!==item.name||old.call.arguments!==item.arguments)throw invalidOutput;return;}
+  calls.set(item.call_id,{call:{type:'tool_call',id:item.call_id,name:item.name,arguments:item.arguments},index:typeof index==='number'&&Number.isInteger(index)&&index>=0?index:calls.size,order:calls.size});
+ };
  try{
   for await(const ev of sseEvents(res.body,signal)){
    let j:Record<string,unknown>;try{j=JSON.parse(ev.data);}catch{continue;}
    const type=String(j.type??ev.event);
    if(type==='response.output_text.delta'&&typeof j.delta==='string')yield {type:'text',delta:j.delta};
-   else if(type==='response.output_item.done'){const item=j.item as {type?:string;call_id?:string;name?:string;arguments?:string}|undefined;if(item?.type==='function_call'&&item.name)yield {type:'tool_call',id:item.call_id??crypto.randomUUID(),name:item.name,arguments:item.arguments??'{}'};}
-   else if(type==='response.completed'){completed=true;break;}
+   else if(type==='response.output_item.done')addCall(j.item,j.output_index);
+   else if(type==='response.completed'){
+    const output=(j.response as {output?:unknown}|undefined)?.output;
+    if(Array.isArray(output))output.forEach((item,index)=>addCall(item,index));
+    completed=true;break;
+   }
    else if(type==='response.failed'||type==='error'){const e=((j.response as {error?:{code?:string;message?:string}}|undefined)?.error)??(j.error as {code?:string;message?:string}|undefined)??{code:j.code as string|undefined,message:j.message as string|undefined};yield mapProviderError(200,e?.code,e?.message??'response failed');return;}
    else if(type==='response.incomplete'){yield {type:'error',code:'provider_failed',retryable:false,message:'The provider returned an incomplete response.'};return;}
   }
- }catch(e){if((e as Error)?.name==='AbortError'){yield {type:'error',code:'provider_stream_interrupted',retryable:true,message:'Generation stopped.'};return;}yield {type:'error',code:'provider_stream_interrupted',retryable:true,message:'The provider stream was interrupted.'};return;}
+ }catch(e){if(e===invalidOutput){yield {type:'error',code:'provider_failed',retryable:false,message:'The provider returned conflicting or invalid tool calls; no tools were dispatched.'};return;}if((e as Error)?.name==='AbortError'){yield {type:'error',code:'provider_stream_interrupted',retryable:true,message:'Generation stopped.'};return;}yield {type:'error',code:'provider_stream_interrupted',retryable:true,message:'The provider stream was interrupted.'};return;}
  if(!completed){yield {type:'error',code:'provider_stream_interrupted',retryable:true,message:'The provider stream ended before completion.'};return;}
+ // Keep text live, but expose executable calls only after successful completion.
+ // store:false may leave terminal output empty or partial; identity deduplication
+ // preserves streamed calls without scheduling repeated provider events twice.
+ for(const entry of [...calls.values()].sort((a,b)=>a.index-b.index||a.order-b.order))yield entry.call;
  yield {type:'done'};
 }
 

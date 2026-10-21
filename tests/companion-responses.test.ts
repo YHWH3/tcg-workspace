@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { ChatGPTAuth } from '../companion/lib/siwc.mjs';
 import { CompanionStore } from '../companion/lib/store.mjs';
 import { OpenAIClient, buildResponsesBody } from '../companion/lib/openai.mjs';
+import { buildToolset, runTurn } from '../companion/lib/chat.mjs';
 import { UNSUPPORTED_RESPONSES_FIELDS } from '../companion/lib/constants.mjs';
 import { assistantMsg, completed, fnCall, json, makeWorld, sseResponse, tempDir, textDelta } from '../companion/test-support/fixtures.mjs';
 
@@ -45,6 +46,75 @@ describe('request body', () => {
 });
 
 describe('stream outcomes', () => {
+  const consume = (events) => new OpenAIClient({ auth: {} }).consume(sseResponse(events).body, 'req_synthetic');
+  const done = (item, output_index) => ({ type: 'response.output_item.done', item, output_index });
+
+  it('merges partial terminal output with every completed streamed item in output order', async () => {
+    const first = fnCall('search', { query: 'first' }, 'first');
+    const second = fnCall('search', { query: 'second' }, 'second');
+    const message = assistantMsg('I will search twice.');
+    const r = await consume([textDelta('I will search twice.'), done(second, 2), done(message, 0), done(first, 1), completed([message])]);
+    expect(r.output).toEqual([message, first, second]);
+    expect(r.text).toBe('I will search twice.');
+  });
+
+  it.each([true, false])('deduplicates repeated streamed and terminal items (empty terminal=%s)', async (empty) => {
+    const call = fnCall('search', { query: 'one' });
+    const message = assistantMsg('Searching.');
+    const r = await consume([done(message, 0), done(call, 1), done(call, 1), done(message, 0), completed(empty ? [] : [message, call])]);
+    expect(r.output).toEqual([message, call]);
+  });
+
+  it('uses function call identity even when an item id is absent or changes', async () => {
+    const call = fnCall('search', { query: 'one' });
+    const { id: _id, ...withoutId } = call;
+    const r = await consume([done(withoutId, 0), done(call, 0), completed([{ ...call, id: 'another_item_id' }])]);
+    expect(r.output).toHaveLength(1);
+    expect(r.output[0]).toMatchObject({ call_id: call.call_id, arguments: call.arguments });
+  });
+
+  it.each(['arguments', 'name', 'namespace'])('rejects conflicting duplicate function %s before any dispatch', async (field) => {
+    const call = fnCall('search', { query: 'one' });
+    await expect(consume([done(call, 0), completed([{ ...call, [field]: 'changed' }])])).rejects.toMatchObject({ kind: 'stream_conflict' });
+  });
+
+  it('rejects reuse of an output item id for a different call id', async () => {
+    const call = fnCall('search', { query: 'one' });
+    await expect(consume([done(call, 0), done({ ...call, call_id: 'different' }, 1), completed([])])).rejects.toMatchObject({ kind: 'stream_conflict' });
+  });
+
+  it.each([
+    [[], 'stream_ended'],
+    [[{ type: 'response.incomplete', response: { incomplete_details: { reason: 'max_output_tokens' } } }], 'incomplete'],
+    [[{ type: 'error', code: 'synthetic_failure' }], 'responses_error'],
+  ])('does not expose a completed call when the response itself fails (%s)', async (terminal, kind) => {
+    await expect(consume([done(fnCall('search', {}), 0), ...terminal])).rejects.toMatchObject({ kind });
+  });
+
+  it('cancels and releases an open stream after a provider error', async () => {
+    let cancelled = false;
+    const body = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('data: {"type":"error","code":"synthetic_failure"}\n\n')); }, cancel() { cancelled = true; } });
+    await expect(new OpenAIClient({ auth: {} }).consume(body, 'synthetic')).rejects.toMatchObject({ errorCode: 'synthetic_failure' });
+    expect(body.locked).toBe(false);
+    expect(cancelled).toBe(true);
+  });
+
+  it('fails on a network interruption after a completed item without dispatching it', async () => {
+    let sent = false;
+    const body = new ReadableStream({ pull(controller) { if (!sent) { sent = true; controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(done(fnCall('search', {}), 0))}\n\n`)); } else controller.error(new Error('synthetic interruption')); } });
+    await expect(new OpenAIClient({ auth: {} }).consume(body, 'synthetic')).rejects.toMatchObject({ kind: 'stream_interrupted' });
+    expect(body.locked).toBe(false);
+  });
+
+  it.each([true, false])('dispatches each function call exactly once through the real companion tool loop (empty terminal=%s)', async (empty) => {
+    const { world, openai, label } = await ready();
+    const a = fnCall('search', { query: 'first' }, 'first'), b = fnCall('search', { query: 'second' }, 'second');
+    let segment = 0;
+    world.responsesHandler = () => sseResponse(segment++ === 0 ? [done(a, 0), done(a, 0), done(b, 1), completed(empty ? [] : [a])] : [textDelta('Finished.'), completed([assistantMsg('Finished.')])]);
+    const dispatched = [];
+    await runTurn({ openai, label, model: 'gpt-test', history: [], userText: 'search twice', write() {}, toolset: buildToolset([{ name: 'search', inputSchema: { type: 'object' } }]), mcp: { async callTool(name, args) { dispatched.push({ name, args }); return { content: [] }; } } });
+    expect(dispatched).toEqual([{ name: 'search', args: { query: 'first' } }, { name: 'search', args: { query: 'second' } }]);
+  });
   it('collects function calls from output_item.done when store:false leaves completed.output empty (observed on a real account)', async () => {
     const { world, openai, label } = await ready();
     const call = fnCall('search', { query: 'Soil sensor' });

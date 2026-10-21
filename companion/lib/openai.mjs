@@ -86,31 +86,70 @@ export async function* parseSse(stream) {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buf = '';
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (value) buf += decoder.decode(value, { stream: true });
-    if (done) buf += decoder.decode();
-    let idx;
-    while ((idx = buf.search(/\r?\n\r?\n/)) !== -1) {
-      const raw = buf.slice(0, idx);
-      buf = buf.slice(idx).replace(/^\r?\n\r?\n/, '');
-      let event = 'message';
-      const data = [];
-      for (const line of raw.split(/\r?\n/)) {
-        if (line.startsWith(':')) continue;
-        if (line.startsWith('event:')) event = line.slice(6).trim();
-        else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+  let ended = false;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) ended = true;
+      if (value) buf += decoder.decode(value, { stream: true });
+      if (done) buf += decoder.decode();
+      let idx;
+      while ((idx = buf.search(/\r?\n\r?\n/)) !== -1) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx).replace(/^\r?\n\r?\n/, '');
+        let event = 'message';
+        const data = [];
+        for (const line of raw.split(/\r?\n/)) {
+          if (line.startsWith(':')) continue;
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+        }
+        if (data.length) yield { event, data: data.join('\n') };
       }
-      if (data.length) yield { event, data: data.join('\n') };
-    }
-    if (done) {
-      if (buf.trim()) {
-        const data = buf.split(/\r?\n/).filter((l) => l.startsWith('data:')).map((l) => l.slice(5).replace(/^ /, ''));
-        if (data.length) yield { event: 'message', data: data.join('\n') };
+      if (done) {
+        if (buf.trim()) {
+          const data = buf.split(/\r?\n/).filter((l) => l.startsWith('data:')).map((l) => l.slice(5).replace(/^ /, ''));
+          if (data.length) yield { event: 'message', data: data.join('\n') };
+        }
+        return;
       }
-      return;
     }
+  } finally {
+    // A provider error can end consumption before its HTTP stream closes.
+    if (!ended) await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
+}
+
+/** Reconcile store:false streamed items with possibly empty/partial terminal
+ * output. Identity, rather than content or array length, prevents lost calls
+ * and repeated tool dispatch. Conflicting function identities fail closed. */
+function responseOutput(streamed, terminal, requestId) {
+  const rows = [], keys = new Map();
+  const conflict = () => { throw new ResponsesError({ requestId, kind: 'stream_conflict', message: 'The provider returned conflicting output items; no tools were dispatched.' }); };
+  const add = (item, index) => {
+    if (!item || typeof item !== 'object') return;
+    if (item.type === 'function_call' && (typeof item.call_id !== 'string' || !item.call_id || typeof item.name !== 'string' || typeof item.arguments !== 'string')) conflict();
+    const identities = [];
+    if (typeof item.id === 'string' && item.id) identities.push(`item:${item.id}`);
+    if (item.type === 'function_call') identities.push(`call:${item.call_id}`);
+    if (!identities.length && Number.isInteger(index) && index >= 0) identities.push(`index:${index}`);
+    const matches = [...new Set(identities.map(k => keys.get(k)).filter(r => r !== undefined))];
+    if (matches.length > 1) conflict();
+    let row = matches[0];
+    if (row) {
+      const old = row.item;
+      if (old.type !== item.type || (item.type === 'function_call' && ['call_id', 'name', 'namespace', 'arguments'].some(k => (old[k] ?? '') !== (item[k] ?? '')))) conflict();
+      row.item = { ...old, ...item };
+    } else {
+      row = { item, index: Number.isInteger(index) && index >= 0 ? index : rows.length, order: rows.length };
+      rows.push(row);
+    }
+    for (const key of identities) keys.set(key, row);
+  };
+  for (const entry of streamed) add(entry.item, entry.index);
+  for (const [index, item] of terminal.entries()) add(item, index);
+  return rows.sort((a, b) => a.index - b.index || a.order - b.order).map(r => r.item);
 }
 
 export class OpenAIClient {
@@ -185,7 +224,7 @@ export class OpenAIClient {
             if (typeof ev.delta === 'string') { text += ev.delta; onDelta?.(ev.delta); }
             break;
           case 'response.output_item.done':
-            if (ev.item && typeof ev.item === 'object') items.push(ev.item);
+            if (ev.item && typeof ev.item === 'object') items.push({ item: ev.item, index: ev.output_index });
             break;
           case 'response.completed':
             completed = ev.response ?? { output: [] };
@@ -209,7 +248,7 @@ export class OpenAIClient {
     if (!completed) {
       throw new ResponsesError({ requestId, kind: 'stream_ended', message: 'The stream ended without response.completed; treating as failed.' });
     }
-    const output = Array.isArray(completed.output) && completed.output.length ? completed.output : items;
+    const output = responseOutput(items, Array.isArray(completed.output) ? completed.output : [], requestId);
     return { output, text, requestId };
   }
 }

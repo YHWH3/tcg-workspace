@@ -16,6 +16,32 @@ describe('SSE parsing',()=>{
  });
 });
 describe('OpenAI Responses adapter',()=>{
+ it('reconciles multiple streamed and partial terminal calls once in source order',async()=>{
+  const a={type:'function_call',id:'item_a',call_id:'a',name:'search',arguments:'{"q":"a"}'},b={type:'function_call',id:'item_b',call_id:'b',name:'search',arguments:'{"q":"b"}'};
+  const out=await collect(streamResponses(res(sse([
+   {type:'response.output_item.done',output_index:1,item:b},
+   {type:'response.output_text.delta',delta:'Searching.'},
+   {type:'response.output_item.done',output_index:0,item:a},
+   {type:'response.output_item.done',output_index:1,item:b},
+   {type:'response.completed',response:{output:[a]}},
+  ]))));
+  expect(out).toEqual([{type:'text',delta:'Searching.'},{type:'tool_call',id:'a',name:'search',arguments:a.arguments},{type:'tool_call',id:'b',name:'search',arguments:b.arguments},{type:'done'}]);
+ });
+ it('retains terminal-only calls and deduplicates call_id even with a different item id',async()=>{
+  const a={type:'function_call',id:'item_a',call_id:'a',name:'search',arguments:'{}'},b={...a,id:'item_b',call_id:'b'};
+  const out=await collect(streamResponses(res(sse([{type:'response.output_item.done',output_index:0,item:a},{type:'response.completed',response:{output:[{...a,id:'changed_item_id'},b]}}]))));
+  expect(out.filter(e=>e.type==='tool_call')).toEqual([{type:'tool_call',id:'a',name:'search',arguments:'{}'},{type:'tool_call',id:'b',name:'search',arguments:'{}'}]);
+ });
+ it.each(['arguments','name','call_id'])('rejects conflicting %s without emitting executable calls',async field=>{
+  const a={type:'function_call',id:'item_a',call_id:'a',name:'search',arguments:'{}'};
+  const out=await collect(streamResponses(res(sse([{type:'response.output_item.done',item:a},{type:'response.completed',response:{output:[{...a,[field]:'different'}]}}]))));
+  expect(out).toEqual([expect.objectContaining({type:'error',code:'provider_failed',retryable:false})]);
+ });
+ it.each([{terminal:[]},{terminal:[{type:'response.incomplete'}]},{terminal:[{type:'error',code:'server_error',message:'synthetic'}]}])('never emits a tool call from a failed or incomplete segment ($terminal)',async({terminal})=>{
+  const out=await collect(streamResponses(res(sse([{type:'response.output_item.done',item:{type:'function_call',call_id:'a',name:'search',arguments:'{}'}},...terminal]))));
+  expect(out.some(e=>e.type==='tool_call')).toBe(false);
+  expect(out.at(-1)?.type).toBe('error');
+ });
  const req={model:'m',system:'sys',turns:[{role:'user' as const,text:'hi'},{role:'assistant' as const,text:'',toolCalls:[{id:'c1',name:'search',arguments:'{}'}]},{role:'tool' as const,toolCallId:'c1',text:'r'}],tools:[{name:'search',description:'d',parameters:{type:'object'}}],userId:'u'};
  it('sends store:false, stream:true, explicit history and none of the plan-route forbidden fields',()=>{
   const b=responsesBody(req) as Record<string,unknown>;
