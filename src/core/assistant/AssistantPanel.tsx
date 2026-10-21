@@ -156,7 +156,7 @@ function AssistantSurface({ variant }: { variant: 'panel' | 'full' }) {
   const noProvider = s.providersState === 'ready' && available.length === 0;
 
   return (
-    <section aria-labelledby={titleId} className="flex h-full min-h-0 flex-col">
+    <section aria-labelledby={titleId} className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain">
       <header className="flex shrink-0 items-center gap-1 border-b border-neutral-200/70 px-2 py-1.5 dark:border-neutral-800/70">
         {showHistory ? (
           <button type="button" className={ICON_BTN} aria-label="Back to conversation" onClick={() => assistantStore.set((x) => ({ ...x, showHistory: false }))}>
@@ -223,7 +223,7 @@ function AssistantSurface({ variant }: { variant: 'panel' | 'full' }) {
       ) : (
         <>
           <ProviderBar state={s} />
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+          <div className="min-h-24 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
             {s.providersState === 'error' && <ProvidersError />}
             {noProvider && <NoProviderState />}
             {s.loadingConversation && (
@@ -845,6 +845,7 @@ function AddChip({ r }: { r: ContextRef }) {
 
 function Composer({ state: s, online }: { state: AssistantState; online: boolean }) {
   const input = useRef<HTMLTextAreaElement>(null);
+  const actionButton = useRef<HTMLButtonElement>(null);
   const hintId = useId();
   const action = s.actionId ? aiAction(s.actionId) : undefined;
   const p = selectedProvider(s);
@@ -858,7 +859,27 @@ function Composer({ state: s, online }: { state: AssistantState; online: boolean
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    // Long drafts can exceed the keyboard-shrunk visual viewport. The surface
+    // scrolls its chrome rather than clipping the primary Send/Stop action.
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement === el) actionButton.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [s.draft]);
+  // Keyboard/toolbars can resize the sheet without changing the draft.
+  useEffect(() => {
+    const surface = input.current?.closest('section');
+    if (!surface) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (document.activeElement === input.current) actionButton.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+    });
+    observer.observe(surface);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  }, []);
   const sendable = canSend(s) && online;
   const reason = !online
     ? 'You are offline. Sending is disabled; your workspace keeps working offline.'
@@ -906,6 +927,7 @@ function Composer({ state: s, online }: { state: AssistantState; online: boolean
           rows={1}
           value={s.draft}
           maxLength={MAX_MESSAGE_CHARS}
+          style={{ maxHeight: 'clamp(44px, calc(var(--vvh, 100dvh) - 64px), 200px)' }}
           aria-describedby={hintId}
           placeholder={action ? (action.id === 'selection_explain' ? 'Ask about the selection…' : 'Add details (optional)…') : 'Ask anything about your workspace…'}
           onChange={(e) => setDraft(e.target.value)}
@@ -918,11 +940,11 @@ function Composer({ state: s, online }: { state: AssistantState; online: boolean
           className="max-h-[200px] min-h-11 min-w-0 flex-1 resize-none rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-base leading-6 placeholder:text-neutral-400 focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10"
         />
         {s.streaming ? (
-          <button type="button" data-testid="assistant-stop" onClick={stop} aria-label="Stop response" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900">
+          <button ref={actionButton} type="button" data-testid="assistant-stop" onClick={stop} aria-label="Stop response" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900">
             <Square size={15} fill="currentColor" aria-hidden="true" />
           </button>
         ) : (
-          <button type="submit" data-testid="assistant-send" disabled={!sendable} aria-label="Send message" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-900 text-white hover:bg-neutral-700 disabled:opacity-40 dark:bg-white dark:text-neutral-900">
+          <button ref={actionButton} type="submit" data-testid="assistant-send" disabled={!sendable} aria-label="Send message" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-900 text-white hover:bg-neutral-700 disabled:opacity-40 dark:bg-white dark:text-neutral-900">
             <ArrowUp size={18} aria-hidden="true" />
           </button>
         )}

@@ -15,12 +15,14 @@ import {createCertificationReporter} from './certification-report.mjs';
 
 const engines={chromium,firefox,webkit},only=process.argv.find(a=>a.startsWith('--only='))?.slice(7);
 if(only&&!engines[only])throw new Error('Unknown browser');
-const names=['embedded sourced answer with keyboard open/close','selection rewrite applied through editor mutate','meeting workflow proposal approved and executed with attribution','provider failure keeps workspace usable without fallback','external MCP host uses the same canonical capabilities','session revocation stops an in-flight run','mobile assistant and approval journey','permission-enabled assistant cache clears on revocation'];
-const accessOnly=process.argv.includes('--only-access'),mandatoryNames=accessOnly?[names[7]]:names;
+const names=['embedded sourced answer with keyboard open/close','selection rewrite applied through editor mutate','meeting workflow proposal approved and executed with attribution','provider failure keeps workspace usable without fallback','external MCP host uses the same canonical capabilities','session revocation stops an in-flight run','mobile assistant and approval journey','permission-enabled assistant cache clears on revocation','keyboard-height long composer keeps Send reachable'];
+const accessOnly=process.argv.includes('--only-access'),keyboardOnly=process.argv.includes('--only-keyboard');
+if(accessOnly&&keyboardOnly)throw new Error('Select one focused assistant journey');
+const mandatoryNames=accessOnly?[names[7]]:keyboardOnly?[names[8]]:names;
 const reporter=createCertificationReporter('verify-assistant',(only?[only]:Object.keys(engines)).flatMap(e=>mandatoryNames.map(n=>e+'/'+n)));
 process.env.CERT_SOURCE_SHA??=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
 const output=process.env.CERT_ARTIFACT_DIR??mkdtempSync(join(tmpdir(),'tcg-assistant-'));mkdirSync(output,{recursive:true});process.env.CERT_ARTIFACT_DIR??=output;process.env.CERT_RESULT_PATH??=join(output,'results.json');
-reporter.setMetadata('providerMode','SIMULATED fixture provider only; no real model execution');reporter.setMetadata('permissionMode',accessOnly?'ENABLED':'MIXED — first seven assertions DISABLED; final cache-revocation assertion ENABLED');reporter.setMetadata('sourceFingerprint',fingerprint(process.cwd()));
+reporter.setMetadata('providerMode','SIMULATED fixture provider only; no real model execution');reporter.setMetadata('permissionMode',accessOnly?'ENABLED':keyboardOnly?'DISABLED':'MIXED — compatibility/keyboard assertions DISABLED; cache-revocation assertion ENABLED');reporter.setMetadata('sourceFingerprint',fingerprint(process.cwd()));
 let built=process.argv.includes('--skip-build');
 
 async function sse(base,token,path,body){
@@ -126,6 +128,25 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
    await approve.click();
    await eventually(async()=>(await pull(base,token)).some(r=>r.collection==='pages'&&r.data?.title==='Mobile draft from assistant'),{timeout:20000});
    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+1);assert.equal(overflow,false,'no page-wide horizontal overflow');
+  });
+
+
+  await check(names[8],'320/375 keyboard',async()=>{
+   await page.setViewportSize({width:375,height:667});await page.goto(base+'/pages/proj');await page.getByPlaceholder('Untitled',{exact:true}).waitFor();await openPanel();await chooseSimulated();
+   const longDraft='Please propose actions from these source-linked meeting notes: café 中文. '.repeat(20);
+   const actionVisible=async()=>{const sheet=await panel().boundingBox(),send=await panel().getByTestId('assistant-send').boundingBox();return sheet&&send&&send.y>=sheet.y&&send.y+send.height<=sheet.y+sheet.height+1&&await panel().getByTestId('assistant-send').evaluate(el=>{const r=el.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button')===el;});};
+   for(const width of [320,375])for(const height of [220,275,362]){
+    await page.setViewportSize({width,height:667});await panel().getByTestId('assistant-input').fill(longDraft);
+    await page.evaluate(height=>{document.documentElement.style.setProperty('--vvh',height+'px');document.documentElement.style.setProperty('--vvo','0px');},height);
+    await eventually(actionVisible,{timeout:5000}); // Existing draft survives a keyboard resize too.
+    // Trigger textarea growth after the visible viewport shrinks. No manual
+    // scrolling: the application must keep the action itself in view.
+    await panel().getByTestId('assistant-input').fill(longDraft+' End.');
+    await eventually(actionVisible,{timeout:5000});
+    assert.equal(await panel().getByTestId('assistant-input').inputValue(),longDraft+' End.','Viewport fitting must preserve the complete unsent draft');
+    await page.screenshot({path:join(dir,`assistant-keyboard-${width}-${height}.png`)});
+   }
+   await page.evaluate(()=>{document.documentElement.style.removeProperty('--vvh');document.documentElement.style.removeProperty('--vvo');});
   });
 
   await context.close();
