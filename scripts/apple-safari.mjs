@@ -2,16 +2,17 @@
 // Test-only XCUITest runner for the existing HTTPS application's Safari surface.
 // Generates a temporary UI-test bundle; never creates a native production app.
 // Apple Simulator Safari is additional evidence, not physical-device acceptance.
-import {execFileSync,spawn} from 'node:child_process';
-import {mkdirSync,mkdtempSync,copyFileSync,writeFileSync,unlinkSync,readFileSync,openSync,closeSync,statSync} from 'node:fs';
+import {execFileSync,spawn,spawnSync} from 'node:child_process';
+import {mkdirSync,mkdtempSync,copyFileSync,writeFileSync,unlinkSync,readFileSync,openSync,closeSync,statSync,chmodSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createServer} from 'node:http';
+import {createServer as createHttpsServer} from 'node:https';
 import {randomUUID} from 'node:crypto';
 import {startFixture,bootstrap,eventually} from './phase4-fixture.mjs';
 import {freePort,fingerprint,fetchFixtureApi} from './certification/core.mjs';
 async function fixtureApi(base,path,{token,method='GET',body}={}){
- const response=await fetchFixtureApi(base+path,{method,headers:{...(token?{Authorization:`Bearer ${token}`}:{}) ,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(30000)});
+ const response=await (base.startsWith('https://127.0.0.1:')?fetch:fetchFixtureApi)(base+path,{method,headers:{...(token?{Authorization:`Bearer ${token}`}:{}) ,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(30000)});
  return {status:response.status,data:await response.json()};
 }
 async function fixturePush(base,token,changes){
@@ -32,6 +33,15 @@ async function fixturePull(base,token){
 }
 const root=resolve(import.meta.dirname,'..');
 const output=resolve(process.env.APPLE_ARTIFACT_DIR??join(root,'.artifacts/pr13-apple',new Date().toISOString().replaceAll(':','-')));mkdirSync(output,{recursive:true});
+const useTls=process.argv.includes('--https');
+if(useTls&&!process.env.TCG_APPLE_CERT){
+ const dir=mkdtempSync(join(tmpdir(),'tcg-apple-tls-')),cert=join(dir,'cert.pem'),key=join(dir,'key.pem');
+ execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','2','-subj','/CN=localhost','-addext','subjectAltName=DNS:localhost,IP:127.0.0.1','-keyout',key,'-out',cert],{stdio:'ignore'});
+ chmodSync(key,0o600);
+ // Trust only inside owned simulator clones, never the host/user keychain.
+ const child=spawnSync(process.execPath,[import.meta.filename,...process.argv.slice(2)],{stdio:'inherit',env:{...process.env,APPLE_ARTIFACT_DIR:output,TCG_APPLE_CERT:cert,TCG_APPLE_KEY:key,NODE_EXTRA_CA_CERTS:cert}});process.exit(child.status??1);
+}
+const tls=useTls?{cert:process.env.TCG_APPLE_CERT,key:process.env.TCG_APPLE_KEY}:undefined;
 const run=(file,args,opts={})=>execFileSync(file,args,{cwd:root,encoding:'utf8',timeout:30000,...opts});
 async function xcodeTest(args,logPath){
  // Keep the event loop free so fixture stdout, API sockets and timers continue
@@ -57,28 +67,33 @@ const desired=['TCG compact SE3 acceptance','iPhone 17','iPhone 17 Pro Max','iPa
 const explicit=process.argv.find(a=>a.startsWith('--devices='))?.slice(10).split(',');
 const interactiveIpad=!process.argv.includes('--preauthenticated-ipad');
 const onlyTest=process.argv.find(a=>a.startsWith('--only-test='))?.slice(12);
+const repetitions=Number(process.argv.find(a=>a.startsWith('--repetitions='))?.slice(14)??1);
+if(!Number.isInteger(repetitions)||repetitions<1||repetitions>5)throw new Error('Native repetitions must be 1–5; every attempt is retained and required');
 if(onlyTest&&!['test01LoginEditingRotation','test02AssistantProposal','test03SearchNavigation','test04CanvasAlternatives','test05CanvasPinch'].includes(onlyTest))throw new Error('Unknown Safari test');
 const all=Object.entries(inventory.devices).flatMap(([runtime,devices])=>devices.map(d=>({...d,runtime})));
-const devices=explicit?explicit.map(id=>all.find(d=>d.udid===id)).filter(Boolean):desired.map(name=>all.find(d=>d.name===name)).filter(Boolean);
+let devices=explicit?explicit.map(id=>all.find(d=>d.udid===id)).filter(Boolean):desired.map(name=>all.find(d=>d.name===name)).filter(Boolean);
 if(!devices.length||devices.length!==(explicit??desired).length)throw new Error('Requested installed Apple simulator devices unavailable');
 writeFileSync(join(output,'toolchain.json'),JSON.stringify({date:new Date().toISOString(),xcode,selectedPath,runtimeInfo,inventory,source},null,2));
 const project=mkdtempSync(join(tmpdir(),'tcg-apple-safari-'));mkdirSync(join(project,'SafariTests.xcodeproj'));mkdirSync(join(project,'Tests'));
 copyFileSync(join(root,'scripts/apple-safari/project.pbxproj'),join(project,'SafariTests.xcodeproj/project.pbxproj'));
 copyFileSync(join(root,'scripts/apple-safari/SafariTests.swift'),join(project,'Tests/SafariTests.swift'));
-let fixture;const results=[];
+let fixture;const results=[],ownedClones=[];
 let probeBytes=0;const probePath='/'+randomUUID(),probeLog=join(output,'native-probe.jsonl');
-const probe=createServer((req,res)=>{
+const probeListener=(req,res)=>{
  res.setHeader('Access-Control-Allow-Origin','*');
  if(req.method!=='POST'||req.url!==probePath){res.writeHead(404);res.end();return;}
  let body='';req.on('data',chunk=>{body+=chunk;if(body.length>65536)req.destroy();});req.on('end',()=>{
   try{const data=JSON.parse(body);if(probeBytes<8*1024*1024){const line=JSON.stringify({at:Date.now(),...data})+'\n';probeBytes+=line.length;writeFileSync(probeLog,line,{flag:'a',mode:0o600});}res.end('ok');}catch{res.writeHead(400);res.end();}
  });
-});
+};
+const probe=useTls?createHttpsServer({key:readFileSync(tls.key),cert:readFileSync(tls.cert)},probeListener):createServer(probeListener);
 await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));
-const sink=`http://127.0.0.1:${probe.address().port}${probePath}`;
+const sink=`${useTls?'https':'http'}://127.0.0.1:${probe.address().port}${probePath}`;
 try{
- fixture=await startFixture({port:await freePort(),build:!process.argv.includes('--skip-build'),artifactDirectory:join(output,'fixture')});
- const {admin}=await bootstrap(fixture.base);
+ if(useTls){devices=devices.map(device=>{const udid=run('xcrun',['simctl','clone',device.udid,`TCG HTTPS ${device.name} ${Date.now()}`],{timeout:120000}).trim();ownedClones.push(udid);return {...device,originalUdid:device.udid,udid,state:'Shutdown'};});writeFileSync(join(output,'owned-simulator-clones.json'),JSON.stringify({scope:'Disposable clones only; host and original simulator keychains unchanged',devices},null,2));}
+ fixture=await startFixture({port:await freePort(),build:!process.argv.includes('--skip-build'),artifactDirectory:join(output,'fixture'),tls});
+ const {admin}=useTls?{admin:(await fixtureApi(fixture.base,'/api/auth/signup',{method:'POST',body:{username:'admin',name:'Synthetic Safari Admin',password:'password123'}})).data}:await bootstrap(fixture.base);
+ if(!admin.token)throw new Error('Disposable Safari authentication fixture failed');
  const index=join(fixture.directory,'client','index.html');
  writeFileSync(index,readFileSync(index,'utf8').replace('</head>','<script type="module" src="/apple-probe.mjs"></script></head>'));
  writeFileSync(join(fixture.directory,'client','apple-probe.mjs'),readFileSync(join(root,'scripts/apple-safari/probe.mjs'),'utf8').replace('__PROBE_SINK__',JSON.stringify(sink)));
@@ -95,8 +110,8 @@ try{
  writeFileSync(join(fixture.directory,'client','apple-entry.mjs'),`localStorage.setItem('ws_token',${JSON.stringify(admin.token)});localStorage.setItem('ws_uid',${JSON.stringify(admin.user.id)});localStorage.setItem('ws_user',${JSON.stringify(JSON.stringify(admin.user))});location.replace('/pages/apple-page');`,{mode:0o600});
  writeFileSync(join(fixture.directory,'client','apple-entry.html'),'<!doctype html><title>Disposable Safari test entry</title><script type="module" src="/apple-entry.mjs"></script>',{mode:0o600});
  await new Promise(resolve=>setTimeout(resolve,2000));
- for(const device of devices){
-  const dir=join(output,device.udid);mkdirSync(dir);const bootedHere=device.state!=='Booted';let status='FAIL',error=null,exitCode=null;
+ for(const {device,attempt} of devices.flatMap(device=>Array.from({length:repetitions},(_,i)=>({device,attempt:i+1})))){
+  const dir=join(output,device.udid+(repetitions>1?`-attempt-${attempt}`:''));mkdirSync(dir);const bootedHere=device.state!=='Booted';let status='FAIL',error=null,exitCode=null;
   try{
    const marker=`${device.udid.slice(0,8)}-${Date.now().toString(36)}`;
    const pageMarker=`Safari edit café ${marker}`,taskMarker=`Safari property edit café ${marker}`,proposalTitle=`Apple simulator proposed page ${marker}`;
@@ -106,9 +121,10 @@ try{
    writeFileSync(join(project,'Tests/SafariTests.swift'),swift);
    if(bootedHere)run('xcrun',['simctl','boot',device.udid]);
    run('xcrun',['simctl','bootstatus',device.udid,'-b'],{timeout:120000});
+   if(useTls)run('xcrun',['simctl','keychain',device.udid,'add-root-cert',tls.cert]);
    // XCTest opens the exact URL synchronously in every setUp; never trust an old Safari tab.
    const logStart=readFileSync(join(output,'fixture','worker.log'),'utf8').length;
-   const child=await xcodeTest(['test','-project',join(project,'SafariTests.xcodeproj'),'-scheme','SafariTests','-destination',`platform=iOS Simulator,id=${device.udid}`,'-derivedDataPath',join(project,'DerivedData'),'-resultBundlePath',join(dir,'Safari.xcresult'),'-parallel-testing-enabled','NO','CODE_SIGNING_ALLOWED=NO',...(onlyTest?[`-only-testing:SafariTests/SafariTests/${onlyTest}`]:[])],join(dir,'xcodebuild.log'));exitCode=child.status;
+   const child=await xcodeTest(['test','-project',join(project,'SafariTests.xcodeproj'),'-scheme','SafariTests','-destination',`platform=iOS Simulator,id=${device.udid}`,'-derivedDataPath',join(project,'DerivedData'),'-resultBundlePath',join(dir,'Safari.xcresult'),'-parallel-testing-enabled','NO','-test-timeouts-enabled','YES','-default-test-execution-time-allowance','120','-maximum-test-execution-time-allowance','180','CODE_SIGNING_ALLOWED=NO',...(onlyTest?[`-only-testing:SafariTests/SafariTests/${onlyTest}`]:[])],join(dir,'xcodebuild.log'));exitCode=child.status;
    if(child.error)throw child.error;
    try{run('xcrun',['xcresulttool','export','attachments','--path',join(dir,'Safari.xcresult'),'--output-path',join(dir,'screenshots')]);}catch{}
    try{for(const item of ['summary','tests'])writeFileSync(join(dir,`test-${item}.json`),run('xcrun',['xcresulttool','get','test-results',item,'--path',join(dir,'Safari.xcresult'),'--format','json']));}catch{}
@@ -125,11 +141,11 @@ try{
    status='PASS';
   }catch(e){error=e.message;}
   finally{if(bootedHere)try{run('xcrun',['simctl','shutdown',device.udid]);}catch{}}
-  results.push({device:device.name,authenticationMode:device.name.startsWith('iPad')&&!interactiveIpad?'Explicit preauthenticated synthetic fixture session; interactive sign-in NOT RUN':'Interactive Safari sign-in',udid:device.udid,runtime:device.runtime,status,exitCode,error});
-  writeFileSync(join(output,'results.json'),JSON.stringify({source,scope:onlyTest??'All five Safari journeys',provider:'SIMULATED',approvalMode:'Authenticated inline browser approval with native software keyboard open; exactly-one server execution required',permissionMode:'DISABLED (platform parity only)',results,limitations:['Physical devices NOT RUN','Manual VoiceOver/TalkBack/NVDA NOT RUN','Native 400% zoom NOT RUN','Previous major runtime unavailable unless separately installed','Camera/microphone/file-provider hardware NOT RUN','PWA installation and offline suspension require separate acceptance']},null,2));
+  results.push({device:device.name,attempt,authenticationMode:device.name.startsWith('iPad')&&!interactiveIpad?'Explicit preauthenticated synthetic fixture session; interactive sign-in NOT RUN':'Interactive Safari sign-in',udid:device.udid,runtime:device.runtime,status,exitCode,error});
+  writeFileSync(join(output,'results.json'),JSON.stringify({source,protocol:useTls?'HTTPS, trusted temporary CA in disposable simulator clones':'HTTP loopback',scope:onlyTest??'All five Safari journeys',provider:'SIMULATED',approvalMode:'Authenticated inline browser approval with native software keyboard open; exactly-one server execution required',permissionMode:'DISABLED (platform parity only)',results,limitations:['Physical devices NOT RUN','Manual VoiceOver/TalkBack/NVDA NOT RUN','Native 400% zoom NOT RUN','Previous major runtime unavailable unless separately installed','Camera/microphone/file-provider hardware NOT RUN','PWA installation and offline suspension require separate acceptance']},null,2));
   console.log(`${status}: ${device.name} (${device.udid})`);
  }
  if(fingerprint(root)!==source.fingerprint)throw new Error('Source changed during Apple Safari run');
-}finally{if(fixture)for(const file of ['apple-entry.html','apple-entry.mjs'])try{unlinkSync(join(fixture.directory,'client',file));}catch{}await fixture?.stop();await new Promise(resolve=>probe.close(resolve));}
+}finally{if(fixture)for(const file of ['apple-entry.html','apple-entry.mjs'])try{unlinkSync(join(fixture.directory,'client',file));}catch{}await fixture?.stop();await new Promise(resolve=>probe.close(resolve));for(const id of ownedClones)try{run('xcrun',['simctl','delete',id]);}catch{}}
 process.exitCode=results.some(r=>r.status!=='PASS')?1:0;
 console.log(output);
