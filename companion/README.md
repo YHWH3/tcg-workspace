@@ -2,7 +2,7 @@
 
 A small **local** command-line companion that lets you chat with, and act on, your TCG Workspace using **your own ChatGPT plan**. It signs in with OpenAI's "Sign in with ChatGPT" open-source plan-usage flow, sends inference to the public Responses API, and calls Workspace through Workspace's existing MCP server.
 
-> **Not verified against a real ChatGPT account in this repository's tests; real-account acceptance requires a consenting eligible ChatGPT Plus/Pro account.**
+> **Real-account acceptance was recorded on October 21, 2026 with the owner's consenting account.** See [the host acceptance record](../docs/architecture/unified-ai-mcp.md#7-external-acceptance-with-real-hosts-2026-10-21) for scope, the streaming fix and teardown. Automated contract tests use synthetic credentials; they do not repeat real-account acceptance or certify every host/account combination.
 
 ## Why this runs locally (policy)
 

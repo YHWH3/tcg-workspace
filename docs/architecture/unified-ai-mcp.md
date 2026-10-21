@@ -80,7 +80,7 @@ Status, credentials, model discovery, streaming, tool-call translation and error
 | D — Workers AI | `workers-ai` | Implemented; disabled by default. Needs `AI_PROVIDER=workers-ai`, `AI_CHAT_MODEL` and `AI_DAILY_UNITS`. Tested with a fake binding only. Uses the operator budget through `reserveAi`. |
 | C — BYOK | `openai` (Responses API), `anthropic` (Messages API) | Implemented; disabled by default. Needs `AI_BYOK_PROVIDERS` and the secret `AI_CREDENTIAL_KEY`. Keys are AES-GCM encrypted with AAD `user:provider` and are never returned. Contract-tested with recorded-shape streams. **Real-account acceptance requires the user's own key — NOT RUN.** |
 | A — ChatGPT plan, hosted | `chatgpt-hosted` | **Requires OpenAI approval.** OpenAI requires paid or remotely hosted apps to apply. It reports `requires_provider_approval`, and no hosted token flow is implemented. |
-| A — ChatGPT plan, local | `companion/` (TCG Workspace Companion) | Implemented as a local CLI on the user's machine. Sign in with ChatGPT uses `dynamic_agent_client`, a host ID, a 127.0.0.1 callback, PKCE, nonce and an ID-token check against JWKS. Calls go to Responses with `store:false` and `stream:true`. Workspace tools are reached through ordinary scoped MCP OAuth. **Real-account acceptance requires a consenting eligible ChatGPT account — NOT RUN.** |
+| A — ChatGPT plan, local | `companion/` (TCG Workspace Companion) | Implemented as a local CLI on the user's machine. Sign in with ChatGPT uses `dynamic_agent_client`, a host ID, a 127.0.0.1 callback, PKCE, nonce and an ID-token check against JWKS. Calls go to Responses with `store:false` and `stream:true`. Workspace tools are reached through ordinary scoped MCP OAuth. **Real-account acceptance recorded on October 21 — see §7.** |
 | B — Subscription MCP hosts | Claude, ChatGPT and others | Supported through `/mcp` OAuth under each host's own subscription and connector rules. Claude subscriptions are not used for embedded inference; Claude models are available embedded only through the Anthropic API (BYOK). |
 | Test | `simulated` | Only when `WORKSPACE_ENV === 'local-test'`. Deterministic, and never labelled as real. |
 
@@ -177,5 +177,13 @@ Run through the Aside browser with the owner's approval. Setup:
 - **Companion: tool calls dropped with `store:false`.** On the real account, `response.completed.output` was empty with `store:false`; the items arrive only in `response.output_item.done`. The companion read the completed output, so every function call was silently dropped. It now collects the streamed items, with a regression test in `tests/companion-responses.test.ts`. The Worker adapter already read the streamed items.
 
 **Observations (not fixed):**
-- **Preview impact counts.** `impact.create` counts the activity row, but `byCollection` omits it (3 vs 2). This is existing Phase 6 display behavior.
+- **Preview impact counts — corrected in the PR #13 review round.** The full frozen plan still includes activity rows. Both review surfaces now distinguish content operations, activity/audit operations and the unchanged total. Older stored previews explicitly label their aggregate as total operations.
 - **Revocation error wording.** After revocation, Claude shows its own generic "didn't complete authentication" text. The server correctly returns 401.
+
+## 8. Independent review correction round (2026-10-21)
+
+See `docs/reviews/pr13-independent-review.md` for the correction ledger and evidence. Streaming adapters reconcile partial terminal output with streamed items, deduplicate function-call identities and fail closed on conflicting or incomplete streams. Text may stream before completion, but executable calls wait for successful completion.
+
+Retained conversation privacy uses authoritative read-gate dependencies, independently of visible citations. Replies and pending tool arguments inherit the sources consumed by the model. Current source access is rechecked before pending dispatch and before retaining results. Old model/tool payloads without complete coverage, and payloads beyond the bounded 1,000-source contract, are withheld without deleting retained originals. Bytes already streamed before a mid-generation revocation cannot be recalled; the reply is not retained and continuation is blocked.
+
+Apple Simulator Safari adds platform evidence; it does not replace physical-device or human assistive-technology acceptance. The runnable test-only harness is `node scripts/apple-safari.mjs`. It uses disposable local data and simulated inference, creates no native production application, and records source identity, installed runtimes, per-device XCUITest logs and screenshots.

@@ -157,3 +157,10 @@ Spec: `docs/architecture/unified-ai-mcp.md`.
 - `assistant_*` tables (migration 0032) are server-only; messages carry source ids and are redacted on reopen when unreadable.
 - Providers are OFF by default (`AI_CHAT_MODEL`, `AI_BYOK_PROVIDERS`, secret `AI_CREDENTIAL_KEY`, `OPENAI_CHATGPT_HOSTED_APPROVAL`). Exact egress hosts, `redirect:'error'`, never fall back to another provider/billing path. The simulated provider exists only for `WORKSPACE_ENV=local-test` and is never real-provider evidence.
 - ChatGPT plan usage runs only in the local `companion/` (OpenAI requires approval for hosted apps); never relay plan tokens through the Worker.
+
+## PR #13 review invariants
+
+- Responses output is reconciled by stable item/function-call identity across streamed and terminal output. Conflicting identities fail closed; incomplete segments cannot dispatch tools. Keep provider/billing selection explicit with no fallback.
+- Retained assistant dependencies are authoritative read-gate evidence, separate from citations. Derived replies and pending calls inherit consumed sources and the exact principal role captured before reading. Legacy/incomplete coverage is withheld without purging originals; never model user-directory IDs as record IDs.
+- Assistant UI responses are account/token/access-epoch/status bound. Observed access transitions discard retained source-derived memory and abort streams; this is not instantaneous offline revocation. Keep ordinary stream cancellation separate from authority invalidation so provider discovery can finish.
+- Apple Safari testing uses a temporary test-only XCUITest bundle (`scripts/apple-safari.mjs`). It does not create a native production app or certify physical hardware, human VoiceOver or native 400% zoom. Preserve compact input text sizes and keyboard-visible search results.

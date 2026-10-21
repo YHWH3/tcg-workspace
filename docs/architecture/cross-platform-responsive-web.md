@@ -321,3 +321,7 @@ Checked 2026-10-08 using official standards, vendor/developer and browser-refere
 - **S18** [W3C: WCAG 2.2](https://www.w3.org/TR/WCAG22/) — normative AA requirements and exceptions.
 - **S19** [Playwright: Browsers](https://playwright.dev/docs/browsers) — supported engines/branded browser options.
 - **S20** [Playwright: Emulation](https://playwright.dev/docs/emulation) — device/viewport emulation scope.
+
+## PR #13 Apple Simulator evidence (2026-10-21)
+
+`node scripts/apple-safari.mjs` drives Apple Safari with a temporary XCUITest bundle against disposable local fixtures and simulated inference. It records installed device/runtime builds, source identity, assertions, screenshots and logs. It creates no native product app. The review round corrected compact input autozoom and keyboard-clipped search results; the shared browser regression gates cover computed input sizes and keyboard-height search/filter interaction. See `docs/reviews/pr13-independent-review.md` and the run's `.artifacts/pr13-apple/.../results.json` for executed cases. Simulator Safari, desktop WebKit, physical devices and human assistive technology remain distinct claims. Previous OS runtimes, physical media, native 400% zoom and detailed PWA/OS-eviction behavior are not inferred from these cases.
