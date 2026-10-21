@@ -42,6 +42,28 @@ async function journey(context,platform,token){
   const socket=await page.evaluate(()=>new Promise(resolve=>{const ws=new WebSocket(location.origin.replace(/^http/,'ws')+'/api/live',['ws-auth',localStorage.getItem('ws_token')]);const timer=setTimeout(()=>{ws.close();resolve(false)},10000);ws.onopen=()=>{clearTimeout(timer);ws.close();resolve(true)};ws.onerror=()=>{clearTimeout(timer);resolve(false)};}));assert.equal(socket,true,'Real TLS WebSocket upgrades');
   return {url:page.url(),secureContext:true,oauthResource:fixture.base+'/mcp',webSocket:true};
  });
+ await test(platform,'Interrupted required-asset installation retains the complete active shell',async()=>{
+  await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration())?.active);await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
+  const swPath=join(fixture.directory,'client','sw.js'),indexPath=join(fixture.directory,'client','index.html'),sw=readFileSync(swPath,'utf8'),index=readFileSync(indexPath,'utf8');
+  const main=index.match(/src="(\/assets\/[^"\n]+\.js)"/)?.[1];assert.ok(main,'Actual built entry script required');
+  const marker='qa-broken-'+Date.now(),missing='/assets/qa-required-missing.js',text=await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).innerText();
+  const before=await page.evaluate(async()=>({keys:await caches.keys(),user:localStorage.getItem('ws_uid')}));networkGate.setAssetFailure(missing);
+  try{
+   assert.equal((await page.request.get(fixture.base+missing)).status(),503,'A real required-asset response must fail');
+   const broken=sw.replaceAll(main.slice(1),missing.slice(1)).replace(/"revision":"[^"\n]+","url":"index.html"/,`"revision":"${marker}","url":"index.html"`);assert.notEqual(broken,sw);
+   writeFileSync(indexPath,index.replace(main,missing));writeFileSync(swPath,broken);
+   const state=await page.evaluate(()=>new Promise(async(resolve,reject)=>{
+    const registration=await navigator.serviceWorker.getRegistration();window.__qaPreviousActive=registration.active;
+    const timer=setTimeout(()=>reject(new Error('No bounded install completion')),15000);
+    registration.addEventListener('updatefound',()=>{const worker=registration.installing;worker.addEventListener('statechange',()=>{if(worker.state==='redundant'||worker.state==='activated'){clearTimeout(timer);resolve(worker.state)}})},{once:true});registration.update().catch(error=>{clearTimeout(timer);reject(error)});
+   }));
+   assert.equal(state,'redundant','An incomplete new shell must never activate');
+   assert.equal(await page.evaluate(async()=>(await navigator.serviceWorker.getRegistration()).active===window.__qaPreviousActive),true);
+   assert.deepEqual(await page.evaluate(()=>caches.keys()),before.keys,'Failed candidate cache must not consume retained-build storage');
+   await offline(context,platform,true);await page.reload();const editor=page.getByRole('textbox',{name:"Type '/' for commands",exact:true});await editor.waitFor();assert.equal(await editor.innerText(),text);assert.equal(await page.evaluate(()=>localStorage.getItem('ws_uid')),before.user);
+   return {requiredAssetStatus:503,installState:state,activeUnchanged:true,offlineEditorRetained:true,accountRetained:true};
+  }finally{networkGate.setAssetFailure(null);await offline(context,platform,false);writeFileSync(swPath,sw);writeFileSync(indexPath,index);}
+ });
  await test(platform,'Service worker controlled offline edit/reload/reconnect persists once',async()=>{
   await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistrations()).some(r=>r.active));await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   writeFileSync(join(output,platform+'-cache-before-offline.json'),JSON.stringify(await page.evaluate(async()=>{const out=[];for(const key of await caches.keys()){const c=await caches.open(key);for(const req of await c.keys()){if(req.url.includes('index.html')){const r=await c.match(req);out.push({key,url:req.url,status:r.status,redirected:r.redirected,type:r.type,headers:Object.fromEntries(r.headers),bytes:(await r.clone().arrayBuffer()).byteLength});}}}return out}),null,2));

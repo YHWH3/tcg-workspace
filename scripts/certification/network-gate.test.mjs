@@ -30,3 +30,12 @@ test('network cut closes an upgraded socket and its upstream peer',async()=>{
   await Promise.race([closed,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Upstream upgraded peer leaked')),2000).unref())]);
  }finally{client.destroy();peer?.destroy();await gate.stop();await new Promise(r=>backend.close(r));}
 });
+
+test('required-asset fault is explicit, scoped and reversible',async()=>{
+ const backend=http.createServer((req,res)=>res.end('healthy'));backend.listen(0,'127.0.0.1');await once(backend,'listening');const gate=await createNetworkGate(`http://127.0.0.1:${backend.address().port}`);
+ try{
+  assert.throws(()=>gate.setAssetFailure('/api/auth/login'));gate.setAssetFailure('/assets/main.js');
+  assert.equal((await fetch(gate.base+'/assets/main.js?__rev=next')).status,503);assert.equal(await(await fetch(gate.base+'/api/auth/status')).text(),'healthy');
+  gate.setAssetFailure(null);assert.equal(await(await fetch(gate.base+'/assets/main.js')).text(),'healthy');
+ }finally{await gate.stop();backend.closeAllConnections();await new Promise(r=>backend.close(r));}
+});

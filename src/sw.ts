@@ -17,24 +17,30 @@ const CACHE_PREFIX = 'ws-precache-';
 const shellRevision = entries.find((e) => e.url.replace(/^\//, '') === 'index.html')?.revision ?? 'unversioned';
 const PRECACHE = `${CACHE_PREFIX}v4-${shellRevision}`;
 const precacheUrls = entries.map((e) => e.url);
-const precacheReqs = entries.map((e) => new Request(e.revision ? `${e.url}?__rev=${e.revision}` : e.url));
+// Workbox can include the same icon through both its glob and manifest list.
+// Cache.addAll rejects duplicate request keys, so deduplicate exact URLs first.
+const precacheReqs = [...new Map(entries.map((e) => {
+  const request = new Request(e.revision ? `${e.url}?__rev=${e.revision}` : e.url);
+  return [request.url, request] as const;
+})).values()];
 
 self.addEventListener('install', (event: ExtendableEvent) => {
   event.waitUntil(
     (async () => {
+      const existed = (await caches.keys()).includes(PRECACHE);
+      const cache = await caches.open(PRECACHE);
       try {
-        const cache = await caches.open(PRECACHE);
-        // addAll one-by-one so a single bad asset can't kill the whole install.
-        for (const req of precacheReqs) {
-          try {
-            await cache.add(req);
-          } catch (e) {
-            console.error('SW precache failed:', req.url, e);
-          }
-        }
-      } finally {
-        await self.skipWaiting();
+        // A new shell is usable offline only when ALL required build assets
+        // are cached. Cache.addAll is atomic; an interrupted install must leave
+        // the previous worker active rather than activate an incomplete build.
+        await cache.addAll(precacheReqs);
+      } catch (error) {
+        // A script-only update can reuse an existing shell revision. Never
+        // delete a cache that the still-active worker may be using.
+        if (!existed) await caches.delete(PRECACHE);
+        throw error;
       }
+      await self.skipWaiting();
     })(),
   );
 });

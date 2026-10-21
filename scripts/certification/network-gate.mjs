@@ -5,11 +5,12 @@ import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 export async function createNetworkGate(backend,tls){
  const url=new URL(backend);assert.equal(url.hostname,'127.0.0.1');assert.ok(['http:','https:'].includes(url.protocol));assert.equal(url.pathname,'/');assert.ok(!url.username&&!url.password&&!url.search&&!url.hash);
- const transport=url.protocol==='https:'?https:http,sockets=new Set();let available=true;
+ const transport=url.protocol==='https:'?https:http,sockets=new Set();let available=true,failedAssetPath=null;
  const server=(tls?https.createServer({key:readFileSync(tls.key),cert:readFileSync(tls.cert)}):http.createServer());
  server.on('connection',socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));});
  server.on('request',(req,res)=>{
   if(!available){req.socket.destroy();return;}
+  if(failedAssetPath&&req.url.split('?')[0]===failedAssetPath){res.writeHead(503,{'Content-Type':'text/plain'});res.end('Injected required-asset failure');return;}
   const upstream=transport.request({hostname:url.hostname,port:url.port,path:req.url.startsWith('/')?req.url:'/',protocol:url.protocol,method:req.method,headers:req.headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
   upstream.on('error',()=>res.destroy());req.on('error',()=>upstream.destroy());res.on('close',()=>upstream.destroy());req.pipe(upstream);
  });
@@ -23,5 +24,5 @@ export async function createNetworkGate(backend,tls){
   upstream.on('response',response=>{socket.end(`HTTP/1.1 ${response.statusCode} Rejected\r\nConnection: close\r\n\r\n`);response.resume();});upstream.on('error',()=>socket.destroy());upstream.end();
  });
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
- return {base:`${tls?'https':'http'}://127.0.0.1:${server.address().port}`,setAvailable(value){available=value;if(!value)for(const socket of sockets)socket.destroy();},async stop(){for(const socket of sockets)socket.destroy();await new Promise(resolve=>server.close(resolve));}};
+ return {base:`${tls?'https':'http'}://127.0.0.1:${server.address().port}`,setAssetFailure(path){assert.ok(path===null||typeof path==='string'&&path.startsWith('/assets/')&&!path.includes('?')&&!path.includes('#'));failedAssetPath=path;},setAvailable(value){available=value;if(!value)for(const socket of sockets)socket.destroy();},async stop(){for(const socket of sockets)socket.destroy();await new Promise(resolve=>server.close(resolve));}};
 }
