@@ -15,6 +15,8 @@ import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, ClipboardLis
 import { authStore } from '../auth';
 import { useIsMobile } from '../mobile';
 import { PresenceStack } from '../presence';
+import { AskAiMenu } from '../assistant/AskAiMenu';
+import { useAssistantContext } from '../assistant/store';
 import { useStore } from '../store';
 import { mutate } from '../sync/engine';
 import { Button, Dialog, Popover, Select, Sheet } from '../ui';
@@ -89,6 +91,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
   const me = useStore(authStore).user?.id;
   const mobile = useIsMobile();
   const [fieldsOpen, setFieldsOpen] = useState(false);
+  useAssistantContext(board ? { kind: 'database', id: board.id } : null);
 
   const view = board ? resolveView(board, views, viewId) : undefined;
 
@@ -115,7 +118,13 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
             <span>{String(board.icon ?? (isRecordsDb(board) ? '🗃️' : '🗂️'))}</span>
             {String(board.name ?? (isRecordsDb(board) ? 'Database' : 'Board'))}
           </h1>
-          <span className="flex-1" /><MoveSpaceButton root={board}/>
+          <span className="flex-1" />
+          <AskAiMenu
+            modules={/\b(people|person|contact|member)s?\b/i.test(`${String(board.name ?? '')} ${String(board.recordNoun ?? '')}`) ? ['databases', 'people'] : ['databases']}
+            refs={{ database: { kind: 'database', id: board.id } }}
+            compact
+          />
+          <MoveSpaceButton root={board}/>
           <Button size="sm" onClick={() => void createRecord(board.id, {}).then((id) => navigate(view?.id ? `/boards/${board.id}/views/${view.id}/records/${id}` : `/boards/${board.id}/tasks/${id}`))}>
             <Plus size={14} /> New {noun.toLowerCase()}
           </Button>

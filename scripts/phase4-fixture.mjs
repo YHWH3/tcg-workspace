@@ -74,7 +74,7 @@ function fixtureSettings(directory) {
     durable_objects:{bindings:[{name:'LIVE',class_name:'LiveRoom'}]},migrations:[{tag:'v1',new_sqlite_classes:['LiveRoom']}],
     vars:{WORKSPACE_ENV:'local-test',TURNSTILE_LOCAL_TEST:'1'},triggers:{crons:['*/15 * * * *']}};
 }
-export async function startFixture({port=8799,build=true,artifactDirectory,startupTimeout=60_000,commandTimeout=180_000}={}) {
+export async function startFixture({port=8799,build=true,artifactDirectory,startupTimeout=60_000,commandTimeout=180_000,tls}={}) {
   await assertPortAvailable(port);
   if(build) await command(['npm','run','build'],{timeout:commandTimeout});
   if(!existsSync(join(PROJECT,'dist/workspace/index.js')))throw new Error('Built Worker missing; run certification build stage first');
@@ -96,10 +96,13 @@ export async function startFixture({port=8799,build=true,artifactDirectory,start
   writeFileSync(join(evidence,'migration-evidence.json'),JSON.stringify({fixtureId,state,config,local:true,exitCode:migration.code,durationMs:migration.durationMs,files:migrationFiles.map(file=>({file,sha256:createHash('sha256').update(readFileSync(join(PROJECT,'migrations',file))).digest('hex')}))},null,2));
   // Check again after migration setup; never adopt the process that won a race.
   await assertPortAvailable(port);
-  const server=spawn(wrangler,['dev','--local','--ip','127.0.0.1','--config',config,'--port',String(port),'--persist-to',state,'--test-scheduled'],{cwd:PROJECT,env:fixtureEnvironment(),stdio:['ignore','pipe','pipe'],detached:true});
+  // Optional, fixture-owned TLS. Existing certification continues to use the
+  // strict HTTP managed-fixture contract; no remote resources are introduced.
+  if(tls&&(!existsSync(tls.key)||!existsSync(tls.cert)))throw new Error('Fixture TLS key/certificate missing');
+  const server=spawn(wrangler,['dev','--local','--ip','127.0.0.1','--config',config,'--port',String(port),'--persist-to',state,'--test-scheduled',...(tls?['--local-protocol','https','--https-key-path',resolve(tls.key),'--https-cert-path',resolve(tls.cert)]:[])],{cwd:PROJECT,env:fixtureEnvironment(),stdio:['ignore','pipe','pipe'],detached:true});
   let logs='',closed=false,launchError;server.once('error',error=>{launchError=error;});server.once('exit',()=>{closed=true;});
   for(const stream of [server.stdout,server.stderr]) stream.on('data',chunk=>{const clean=redactFixtureLog(chunk);logs=(logs+clean).slice(-100_000);writeFileSync(join(evidence,'worker.log'),clean,{flag:'a'});});
-  const base=`http://127.0.0.1:${port}`;
+  const base=`${tls?'https':'http'}://127.0.0.1:${port}`;
   let stopping;
   const exitCleanup=()=>signalOwned(server,'SIGTERM');
   const stop=()=>stopping??=(async()=>{

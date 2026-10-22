@@ -78,7 +78,7 @@ export async function runReleaseRehearsal() {
  const callIndexer=async pathname=>{const start=performance.now();const response=await mf.dispatchFetch('http://localhost'+pathname);assert.equal(response.status,200);const result=await response.json();measurements.push({operation:pathname,durationMs:performance.now()-start,...result.metrics});assert.ok(result.metrics.bindings<=45);return result.result;};
  try {
   let manifest;
-  await check(releaseRehearsalCases[0],async()=>{manifest=verifyMigrationManifest();assert.equal(manifest.length,31);for(const m of manifest.filter(m=>m.name<'0012')){const old=execFileSync('git',['show',`${LEGACY_SHA}:migrations/${m.name}`],{cwd:ROOT});assert.equal(createHash('sha256').update(old).digest('hex'),m.sha256,`Previously shipped migration changed: ${m.name}`);}});
+  await check(releaseRehearsalCases[0],async()=>{manifest=verifyMigrationManifest();assert.equal(manifest.length,32);for(const m of manifest.filter(m=>m.name<'0012')){const old=execFileSync('git',['show',`${LEGACY_SHA}:migrations/${m.name}`],{cwd:ROOT});assert.equal(createHash('sha256').update(old).digest('hex'),m.sha256,`Previously shipped migration changed: ${m.name}`);}});
   await open(join(folder,'initial-state'));
   await apply(manifest.filter(m=>m.name<'0012').map(m=>m.name));
   await check(releaseRehearsalCases[1],async()=>{
@@ -142,7 +142,7 @@ export async function runReleaseRehearsal() {
   writeJson(join(folder,'metrics.json'),measurements);writeJson(join(folder,'commands.json'),commands);
   const limitations=['Local Miniflare D1 measurements are not production billing or regional latency.','Closed disposable local state copies are not Cloudflare Time Travel, SQL export, or a production backup/restore proof.','No credentials, production resources, remote migrations, permissions activation, or real AI provider were used.'];
   const report=reporter.finish();
-  writeJson(join(folder,'summary.json'),{status:report.status,sourceSha:sha,tree,initialFingerprint,finalFingerprint,sourceUnchanged:initialFingerprint===finalFingerprint,startedAt,endedAt:new Date().toISOString(),fixtureId:fixtureName,permissionMode:'DISABLED',legacySha:LEGACY_SHA,legacyMigrationCount:11,finalMigrationCount:31,legacyTableCount:allTables?.length??0,summary:report.summary,allMandatoryAssertionsExecuted:report.allMandatoryAssertionsExecuted,limitations});
+  writeJson(join(folder,'summary.json'),{status:report.status,sourceSha:sha,tree,initialFingerprint,finalFingerprint,sourceUnchanged:initialFingerprint===finalFingerprint,startedAt,endedAt:new Date().toISOString(),fixtureId:fixtureName,permissionMode:'DISABLED',legacySha:LEGACY_SHA,legacyMigrationCount:11,finalMigrationCount:(()=>{try{return verifyMigrationManifest().length;}catch{return 0;}})(),legacyTableCount:allTables?.length??0,summary:report.summary,allMandatoryAssertionsExecuted:report.allMandatoryAssertionsExecuted,limitations});
   writeFileSync(join(folder,'report.md'),`# Local release migration/recovery rehearsal\n\nResult: ${report.status}; ${report.summary.pass} PASS, ${report.summary.fail} FAIL.\n\nSource: ${sha}; tree: ${tree}.\n\n${commands.map(c=>`- ${c.exitCode===0?'PASS':'FAIL'} — ${c.check} (${Math.round(c.durationMs)} ms)`).join('\n')}\n\n${limitations.join('\n\n')}\n`);
   console.log('Release rehearsal evidence:',folder);
   return {folder,report};

@@ -20,6 +20,14 @@ export interface Env {
   AI_PROVIDER?:'none'|'workers-ai';
   AI_DAILY_UNITS?:string;
   AI_CLASSIFICATION?:string;
+  /** Embedded assistant (all default OFF). Workers AI chat model id; requires AI_PROVIDER=workers-ai + AI_DAILY_UNITS. */
+  AI_CHAT_MODEL?:string;
+  /** Comma list of bring-your-own-key providers the operator allows: openai,anthropic. */
+  AI_BYOK_PROVIDERS?:string;
+  /** Secret: base64 32-byte AES-GCM key encrypting users' BYOK credentials. BYOK is off without it. */
+  AI_CREDENTIAL_KEY?:string;
+  /** Hosted ChatGPT plan usage requires OpenAI approval; only the literal 'approved' changes its status text. */
+  OPENAI_CHATGPT_HOSTED_APPROVAL?:string;
   TURNSTILE_LOCAL_TEST?: string;
   DB: D1Database;
   AI: Ai;

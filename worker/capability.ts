@@ -97,3 +97,15 @@ export async function capabilityViolated(db: D1Database, input: CapabilityFenceI
   try { await capabilityFence(db, input).first(); return false; }
   catch { return true; }
 }
+
+/** Discovery hint only: can this caller (optionally through a connector grant)
+ * currently write to at least one space? Permissions disabled → legacy broad
+ * access. Hiding tools is never an authorization decision; handlers revalidate. */
+export async function hasWritableSpace(db: D1Database, userId: string, connectorId?: string): Promise<boolean> {
+  const enabled = await db.prepare('SELECT enabled FROM access_state WHERE id=1').first<number>('enabled').catch(() => 0);
+  if (enabled !== 1) return true;
+  const row = await db.prepare(`SELECT 1 FROM spaces s WHERE s.deleted_at IS NULL AND ${levelSql('?', 's.id')} >= 3
+      AND (? IS NULL OR s.id IN (SELECT a.value FROM ai_connections g, json_each(g.spaces_json) a WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>?)) LIMIT 1`)
+    .bind(userId, connectorId ?? null, connectorId ?? null, userId, Date.now()).first();
+  return !!row;
+}

@@ -10,27 +10,37 @@ import { putShared } from './core/sharedInbox';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: { url: string; revision: string | null }[] };
 
-const PRECACHE = 'ws-precache-v3';
 const entries = self.__WB_MANIFEST ?? [];
+// A revisioned URL in a shared cache is insufficient: ignoreSearch can select
+// the FIRST old index.html revision after an upgrade. Isolate each build.
+const CACHE_PREFIX = 'ws-precache-';
+const shellRevision = entries.find((e) => e.url.replace(/^\//, '') === 'index.html')?.revision ?? 'unversioned';
+const PRECACHE = `${CACHE_PREFIX}v4-${shellRevision}`;
 const precacheUrls = entries.map((e) => e.url);
-const precacheReqs = entries.map((e) => new Request(e.revision ? `${e.url}?__rev=${e.revision}` : e.url));
+// Workbox can include the same icon through both its glob and manifest list.
+// Cache.addAll rejects duplicate request keys, so deduplicate exact URLs first.
+const precacheReqs = [...new Map(entries.map((e) => {
+  const request = new Request(e.revision ? `${e.url}?__rev=${e.revision}` : e.url);
+  return [request.url, request] as const;
+})).values()];
 
 self.addEventListener('install', (event: ExtendableEvent) => {
   event.waitUntil(
     (async () => {
+      const existed = (await caches.keys()).includes(PRECACHE);
+      const cache = await caches.open(PRECACHE);
       try {
-        const cache = await caches.open(PRECACHE);
-        // addAll one-by-one so a single bad asset can't kill the whole install.
-        for (const req of precacheReqs) {
-          try {
-            await cache.add(req);
-          } catch (e) {
-            console.error('SW precache failed:', req.url, e);
-          }
-        }
-      } finally {
-        await self.skipWaiting();
+        // A new shell is usable offline only when ALL required build assets
+        // are cached. Cache.addAll is atomic; an interrupted install must leave
+        // the previous worker active rather than activate an incomplete build.
+        await cache.addAll(precacheReqs);
+      } catch (error) {
+        // A script-only update can reuse an existing shell revision. Never
+        // delete a cache that the still-active worker may be using.
+        if (!existed) await caches.delete(PRECACHE);
+        throw error;
       }
+      await self.skipWaiting();
     })(),
   );
 });
@@ -39,7 +49,12 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== PRECACHE).map((k) => caches.delete(k))))
+      .then((keys) => {
+        // One previous build supports lazy chunks requested by already-open
+        // tabs. Bound retention and leave unrelated origin caches untouched.
+        const previous = keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== PRECACHE).at(-1);
+        return Promise.all(keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== PRECACHE && k !== previous).map((k) => caches.delete(k)));
+      })
       .then(() => self.clients.claim()),
   );
 });
@@ -95,11 +110,21 @@ self.addEventListener('fetch', (event: FetchEvent) => {
   }
 
   // Cache-first for precached assets; plain network for anything else.
-  if (precacheUrls.includes(url.pathname) || precacheUrls.includes(url.pathname.slice(1))) {
+  if (precacheUrls.includes(url.pathname) || precacheUrls.includes(url.pathname.slice(1)) || url.pathname.startsWith('/assets/')) {
     event.respondWith(
       caches.open(PRECACHE).then(async (cache) => {
         const hit = await cache.match(event.request, { ignoreSearch: true });
-        return hit ?? fetch(event.request);
+        if (hit) return hit;
+        // Only immutable build assets may fall back to the prior build. Never
+        // use an old shell, API response or authenticated record projection.
+        if (url.pathname.startsWith('/assets/')) {
+          const keys = (await caches.keys()).filter((k) => k.startsWith(CACHE_PREFIX) && k !== PRECACHE).reverse();
+          for (const key of keys) {
+            const previous = await (await caches.open(key)).match(event.request, { ignoreSearch: true });
+            if (previous) return previous;
+          }
+        }
+        return fetch(event.request);
       }),
     );
   }

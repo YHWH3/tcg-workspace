@@ -41,9 +41,9 @@ test('unsafe fixture/prod configuration fails even when the same values enter th
 test('missing or modified migration cannot satisfy the immutable ledger',t=>{
   const {root}=fixture(t);
   writeFileSync(join(root,'migrations/0001_init.sql'),'-- tampered fixture');
-  assert.ok(failed(root,'31 immutable migration hashes'));
-  rmSync(join(root,'migrations/0031_phase6_digest_outcome.sql'));
-  assert.ok(failed(root,'31 immutable migration hashes'));
+  assert.ok(failed(root,'32 immutable migration hashes'));
+  rmSync(join(root,'migrations/0032_assistant_conversations.sql'));
+  assert.ok(failed(root,'32 immutable migration hashes'));
 });
 
 test('stale generated target or missing client package fails release packaging',t=>{

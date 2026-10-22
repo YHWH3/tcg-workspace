@@ -17,6 +17,12 @@ import { Backlinks } from './Backlinks';
 import { SharePopover } from './Share';
 import { createPage, deletePage, renamePage, usePages, visiblePages, type PageRow } from './api';
 import { BlockEditor } from './BlockEditor';
+import { SelectionAskAi } from './SelectionAskAi';
+import { AskAiMenu } from '../../core/assistant/AskAiMenu';
+import { useAssistantContext } from '../../core/assistant/store';
+
+/** Block types that make a page a dashboard (Phase 3 dashboard blocks). */
+const DASHBOARD_BLOCKS = new Set(['metric', 'view', 'mywork', 'activity', 'calendar']);
 
 export function PagesHome() {
   const pages = usePages();
@@ -67,6 +73,13 @@ export function PageView() {
   const [title, setTitle] = useState('');
   const [focused, setFocused] = useState(false);
   const debouncedRename = useRef(debounce((id: string, t: string) => void renamePage(id, t), 400));
+  const editorRef = useRef<HTMLDivElement>(null);
+  const isDashboard = useLiveQuery(
+    async () => (pageId ? (await db.blocks.where('pageId').equals(pageId).filter((b) => !b.deleted && DASHBOARD_BLOCKS.has(String(b.type))).count()) > 0 : false),
+    [pageId],
+    false,
+  );
+  useAssistantContext(pageId && page && !page.deleted ? { kind: 'page', id: pageId } : null);
 
   useEffect(() => {
     if (page && !focused) setTitle(String(page.title ?? ''));
@@ -91,6 +104,12 @@ export function PageView() {
         </div>
         <div className="flex items-center gap-1">
           <PresenceStack path={`/pages/${page.id}`} />
+          <AskAiMenu
+            modules={isDashboard ? ['dashboards', 'pages', 'notes'] : ['pages', 'notes']}
+            refs={{ page: { kind: 'page', id: page.id }, dashboard: { kind: 'dashboard' } }}
+            primary={{ kind: 'page', id: page.id }}
+            compact
+          />
           {!page.parentId&&<MoveSpaceButton root={page}/>}<HistoryButton recordId={page.id}/><SharePopover pageId={page.id} />
           <Popover
           align="right"
@@ -190,7 +209,10 @@ export function PageView() {
         }}
       />
 
-      <BlockEditor pageId={page.id} />
+      <div ref={editorRef}>
+        <BlockEditor pageId={page.id} />
+      </div>
+      <SelectionAskAi pageId={page.id} container={editorRef} />
 
       <Backlinks pageId={page.id} />
       <Slot modules={modules} kind="pageFooter" props={{ pageId: page.id }} />

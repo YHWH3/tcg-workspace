@@ -75,7 +75,7 @@ export function IconButton({ className, ...props }: ButtonHTMLAttributes<HTMLBut
 
 /* ---------- Inputs ---------- */
 const inputCls =
-  'w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 transition-shadow focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600 dark:focus:ring-white/10';
+  'w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-base sm:text-sm text-neutral-900 placeholder:text-neutral-400 transition-shadow focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600 dark:focus:ring-white/10';
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(inputCls, className)} {...props} />;
@@ -470,14 +470,16 @@ export function AdaptiveDialog({ children, onClose, title, guard }: OverlayProps
   );
 }
 
-export function Sheet({ children, onClose, side = 'right', label, guard }: { children: ReactNode; onClose: () => void; side?: 'right' | 'left' | 'bottom'; label?: string; guard?: () => boolean }) {
+export function Sheet({ children, onClose, side = 'right', label, guard }: { children: ReactNode; onClose: () => void; side?: 'right' | 'left' | 'bottom' | 'full'; label?: string; guard?: () => boolean }) {
   const anim = side === 'right' ? 'anim-slide-right' : side === 'left' ? 'anim-slide-left' : 'anim-slide-bottom';
   const pos =
     side === 'right'
       ? 'ml-auto h-full w-full sm:w-[420px] sm:max-w-[92vw] border-l pr-safe'
       : side === 'left'
         ? 'mr-auto h-full w-[280px] max-w-[85vw] border-r pl-safe'
-        : 'mt-auto h-[92%] w-full rounded-t-2xl border-t pb-safe';
+        : side === 'full'
+          ? 'h-full w-full p-safe'
+          : 'mt-auto h-[92%] w-full rounded-t-2xl border-t pb-safe';
   return (
     <Overlay onClose={onClose} guard={guard} label={label ?? 'Panel'} className="flex h-full flex-col">
       <div className={cn(anim, 'flex flex-col overflow-hidden border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950', pos)}>

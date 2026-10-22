@@ -6,6 +6,8 @@ import type { AppModule } from '../types';
 import { db } from '../../core/db';
 import { mutate } from '../../core/sync/engine';
 import { api } from '../../core/api';
+import { AskAiMenu } from '../../core/assistant/AskAiMenu';
+import { useAssistantContext } from '../../core/assistant/store';
 import { useBoard, type BoardRow } from '../boards/api';
 import { availableFieldKeys, fieldKeyLabel } from '../../core/records';
 import { useUsers } from '../../core/users';
@@ -457,6 +459,7 @@ export function AutomationsEditor() {
   const { boardId } = useParams();
   const navigate = useNavigate();
   const board = useBoard(boardId);
+  useAssistantContext(boardId && board ? { kind: 'database', id: boardId } : null);
   const allBoards = useLiveQuery(() => db.boards.filter((b) => b.deleted !== true).toArray(), [], [] as BoardRow[]) ?? [];
   const allForms = (useLiveQuery(() => db.collection('forms').filter((f) => f.deleted !== true).toArray(), []) ?? []) as { id: string; title?: string }[];
   const autos = (useLiveQuery(
@@ -484,6 +487,7 @@ export function AutomationsEditor() {
         <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight">
           <Zap size={15} className="mr-1 inline-block -mt-0.5" /> Automations — {String(board?.name ?? 'database')}
         </h1>
+        <AskAiMenu modules={['automations']} refs={boardId ? { database: { kind: 'database', id: boardId } } : {}} compact />
         <Button size="sm" onClick={createAutomation}>
           <Plus size={14} /> New automation
         </Button>

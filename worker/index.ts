@@ -5,6 +5,7 @@ import {aiPreviewApi} from './aiPreviews';
 import {catalogApi} from './catalog';
 import {usageApi} from './usage';
 import {historyApi} from './history';
+import {assistantApi} from './assistant/api';
 import { Hono } from 'hono';
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
 import { auth, me, sessionsApi, userByToken } from './auth';
@@ -68,6 +69,7 @@ app.get('/api/live', async (c) => {
   });
 });
 
+app.route('/api/assistant',assistantApi);
 app.route('/api/ai/config',aiConfigApi);
 app.route('/api/ai/previews',aiPreviewApi);
 app.route('/api/ai/suggestions',aiSuggestionsApi);

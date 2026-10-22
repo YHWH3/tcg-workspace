@@ -7,9 +7,10 @@ vi.mock('../src/core/files', () => ({ uploadPendingBlobs: async () => { fixture.
 let engine: typeof import('../src/core/sync/engine'), db: typeof import('../src/core/db')['db'];
 let generation: number, failAccess: boolean, pullCursor: number, pullOverride: Record<string, unknown> | null;
 let pushOverride: unknown, replaceDuringAccess: boolean;
+let accessFailure: number | 'network' | null;
 beforeEach(async () => {
   vi.resetModules(); fixture.userId = `engine-${crypto.randomUUID()}`; fixture.calls = []; fixture.authed = true; fixture.upload.mockReset(); generation = 20; failAccess = false; pullCursor = 100; pullOverride = null;
-  pushOverride = undefined; replaceDuringAccess = false;
+  pushOverride = undefined; replaceDuringAccess = false; accessFailure = null;
   vi.mocked((await import('../src/core/auth')).dropSession).mockClear();
   const values = new Map([['ws_uid', fixture.userId], ['ws_token', 'fixture-only-token']]);
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) });
@@ -19,6 +20,8 @@ beforeEach(async () => {
     const manifest = { protocol: 3, userId: fixture.userId, workspaceRole: 'member', etag: `fixture-etag-${generation}`, spaces: [{ id: 'space-core', name: 'Core', role: 'editor', exportPolicy: 'members' }] };
     let body: unknown;
     if (path === '/api/access') {
+      if (accessFailure === 'network') throw new TypeError('Transport unavailable with navigator.onLine true');
+      if (typeof accessFailure === 'number') return Response.json({ error: 'denied' }, { status: accessFailure });
       if (replaceDuringAccess) {
         localStorage.setItem('ws_uid', 'replacement-user'); localStorage.setItem('ws_token', 'replacement-token');
         return Response.json({ error: 'expired_session' }, { status: 401 });
@@ -51,11 +54,63 @@ describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
     expect(access.accessClientStore.get()).toMatchObject({ status: 'error', reason: 'reconnect_required' });
   });
 
+  it('uses validated offline cache after transport failure even when navigator reports online', async () => {
+    await engine.syncNow(); fixture.calls = [];
+    await db.outbox.add({ id: 'visible', collection: 'pages', patch: { title: 'Pending offline work' }, ts: 10 });
+    accessFailure = 'network'; await engine.syncNow();
+    expect((await import('../src/core/accessClient')).accessClientStore.get().status).toBe('offline');
+    expect(engine.syncStore.get().status).toBe('offline');
+    expect(fixture.calls).toEqual(['GET /api/access']); expect(await db.outbox.count()).toBe(1);
+  });
+
+  it('does not unlock known-stale permissions during a transport outage with online navigator', async () => {
+    await engine.syncNow();
+    await db.meta.put({ key: 'access_reconciliation_required', value: { userId: fixture.userId, generation: 21 } });
+    accessFailure = 'network'; await engine.syncNow();
+    expect((await import('../src/core/accessClient')).accessClientStore.get()).toMatchObject({ status: 'error', reason: 'reconnect_required' });
+  });
+
+  it.each([401, 403])('does not treat authoritative HTTP %i as an offline permission decision', async status => {
+    await engine.syncNow(); accessFailure = status; await engine.syncNow();
+    expect((await import('../src/core/accessClient')).accessClientStore.get().status).toBe('error');
+    expect((await import('../src/core/auth')).dropSession).toHaveBeenCalledTimes(status === 401 ? 1 : 0);
+  });
+
   it('locks a stale tab on storage account replacement without logging out the new account', async () => {
     localStorage.setItem('ws_uid', 'replacement-user'); localStorage.setItem('ws_token', 'replacement-token');
     engine.handleAccessStorageChange({ key: 'ws_uid', newValue: 'replacement-user' });
     expect((await import('../src/core/accessClient')).accessClientStore.get()).toMatchObject({ status: 'error', reason: 'account_changed' });
     expect((await import('../src/core/auth')).dropSession).not.toHaveBeenCalled(); expect(fixture.calls).toEqual([]);
+  });
+
+  it.each(['account', 'session', 'capability'])('does not let a delayed offline cache read reopen a newer %s barrier', async change => {
+    await engine.syncNow();
+    await db.outbox.add({ id: 'visible', collection: 'pages', patch: { title: 'Retained original work' }, ts: 10 });
+    vi.stubGlobal('navigator', { onLine: false });
+    const access = await import('../src/core/accessClient');
+    const original = db.meta.bulkGet.bind(db.meta);
+    let release!: () => void, entered = false;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const { default: Dexie } = await import('dexie');
+    const read = vi.spyOn(db.meta, 'bulkGet').mockImplementationOnce(keys => {
+      entered = true;
+      return original(keys).then(rows => Dexie.Promise.resolve(barrier).then(() => rows));
+    });
+    const pending = engine.syncNow();
+    await vi.waitFor(() => expect(entered).toBe(true));
+    if (change === 'account') {
+      localStorage.setItem('ws_uid', 'replacement-user'); localStorage.setItem('ws_token', 'replacement-token');
+      access.failClientAccess('account_changed');
+    } else if (change === 'session') {
+      localStorage.setItem('ws_token', 'replacement-token'); access.lockClientAccess('session_changed');
+    } else access.lockClientAccess('permissions_changed');
+    const locked = access.accessClientStore.get();
+    release(); await pending; read.mockRestore();
+    expect(access.accessClientStore.get().status).not.toBe('offline');
+    expect(access.accessClientStore.get().reason).toBe(locked.reason);
+    expect(engine.syncStore.get().status).toBe('error');
+    expect(await db.outbox.count()).toBe(1);
+    expect((await import('../src/core/auth')).dropSession).not.toHaveBeenCalled();
   });
 
   it.each([null, {}, { ok: true, rejected: 0 }, { ok: true, rejected: 1, rejectedItems: [] },
@@ -66,6 +121,28 @@ describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
     await engine.syncNow();
     expect(await db.outbox.count()).toBe(1); expect(engine.syncStore.get().status).toBe('error');
     expect(fixture.calls).not.toContain('upload');
+  });
+
+  it('retains truthful pending counts when an asynchronous counter read loses its account database', async () => {
+    await db.outbox.add({ id: 'retained-counter-work', collection: 'pages', patch: { title: 'Unsynced original' }, ts: 10 });
+    engine.syncStore.set(s => ({ ...s, status: 'synced', pending: 1, rejected: 2, quarantined: 3 }));
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const original = db.outbox.toArray.bind(db.outbox);
+    const { default: Dexie } = await import('dexie');
+    const read = vi.spyOn(db.outbox, 'toArray').mockImplementationOnce(() => Dexie.Promise.resolve(barrier).then(() => original()));
+    engine.refreshPending(); db.close(); release();
+    await vi.waitFor(() => expect(engine.syncStore.get()).toMatchObject({ status: 'error', pending: 1, rejected: 2, quarantined: 3 }));
+    read.mockRestore(); await db.open(); expect(await db.outbox.count()).toBe(1);
+  });
+
+  it('reports a failed background pending read without claiming zero work or successful synchronization', async () => {
+    engine.syncStore.set(s => ({ ...s, status: 'synced', pending: 4 }));
+    vi.spyOn(db.outbox, 'toArray').mockRejectedValueOnce(new DOMException('Fixture storage failure', 'UnknownError'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    engine.refreshPending();
+    await vi.waitFor(() => expect(engine.syncStore.get()).toMatchObject({ status: 'error', pending: 4 }));
+    expect(log).toHaveBeenCalled();
   });
 
   it('does not drop replacement credentials when the previous session returns a late 401', async () => {

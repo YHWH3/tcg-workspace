@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openAuditFixture, ctx as executionCtx, type AuditFixture } from './audit-fixture';
 
 const tools = vi.hoisted(() => new Map<string, (args: Record<string, unknown>) => Promise<{ content: { text: string }[]; isError?: boolean }>>());
-vi.mock('@modelcontextprotocol/server', () => ({ McpServer: class { registerTool(name: string, _meta: unknown, fn: never) { tools.set(name, fn); } registerPrompt() {} } }));
+vi.mock('@modelcontextprotocol/server', () => ({ McpServer: class { registerTool(name: string, _meta: unknown, fn: never) { tools.set(name, fn); } registerPrompt() {} registerResource() {} }, ResourceTemplate: class {} }));
 vi.mock('agents/mcp/server', () => ({ createMcpHandler: vi.fn() }));
 vi.mock('../worker/events', async (original) => ({ ...(await original<typeof import('../worker/events')>()), scheduleOutbox: vi.fn() }));
 import { createWorkspaceServer } from '../worker/mcp';

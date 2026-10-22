@@ -44,7 +44,7 @@ export function TaskCard({ task, board, overlay }: { task: TaskRow; board: Board
         </div>
       )}
       <div className="px-2.5 pb-2 pt-2">
-        <p className={cn('text-[13px] font-medium leading-5', isDone(task, board) && 'text-neutral-400 line-through')}>{String(task.title ?? '') || 'Untitled task'}</p>
+        <button type="button" className={cn('block w-full text-left text-[13px] font-medium leading-5', isDone(task, board) && 'text-neutral-400 line-through')}>{String(task.title ?? '') || 'Untitled task'}</button>
         <CardFooter audios={audios} fileCount={files.length} commentCount={commentCount} assignee={assignee} dueDate={task.dueDate} overdue={!!overdue} fieldChips={<FieldChips board={board} task={task} />} task={task} board={board} />
       </div>
     </div>

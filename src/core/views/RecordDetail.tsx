@@ -22,6 +22,9 @@ import { Slot } from '../../modules/slots';
 import { BlockEditor } from '../../modules/pages/BlockEditor';
 import { FieldRow } from '../../modules/boards/FieldValue';
 import { PresenceStack } from '../presence';
+import { AskAiMenu } from '../assistant/AskAiMenu';
+import { useAssistantContext } from '../assistant/store';
+import type { ActionModule } from '../../../shared/aiActions';
 import { LinkedPanel } from '../LinkedPanel';
 import { columnIdFor, isDone, PRIORITIES, taskBoardId, useBoards, useTasks, type BoardRow, type TaskRow } from '../../modules/boards/api';
 import { fieldsOf } from '../../../shared/fields';
@@ -42,7 +45,16 @@ export function RecordDetail({ recordId, board: boardProp, onClose }: { recordId
   return <RecordDetailInner rec={rec} board={board} onClose={onClose} />;
 }
 
+/** Which contextual AI action sets fit a record (projects/people databases get their own). */
+function recordAiModules(board: BoardRow): ActionModule[] {
+  const name = `${String(board.name ?? '')} ${String(board.recordNoun ?? '')}`;
+  if (/project/i.test(name)) return ['projects', 'tasks'];
+  if (/\b(people|person|contact|member)s?\b/i.test(name)) return ['tasks', 'people'];
+  return ['tasks'];
+}
+
 function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: BoardRow; onClose: () => void }) {
+  useAssistantContext({ kind: 'record', id: rec.id });
   const navigate = useNavigate();
   const tasks = useTasks();
   const links = useLinks();
@@ -94,7 +106,9 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           {String(board.icon ?? '')} {String(board.name ?? '')}
         </span>
         <span className="flex-1" />
-        <PresenceStack path={`/boards/${board.id}/tasks/${rec.id}`} /><HistoryButton recordId={rec.id}/>
+        <PresenceStack path={`/boards/${board.id}/tasks/${rec.id}`} />
+        <AskAiMenu modules={recordAiModules(board)} refs={{ record: { kind: 'record', id: rec.id } }} compact />
+        <HistoryButton recordId={rec.id}/>
         <Popover
           align="right"
           trigger={

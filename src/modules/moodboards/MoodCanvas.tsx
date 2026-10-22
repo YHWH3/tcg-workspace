@@ -8,6 +8,8 @@ import { db } from '../../core/db';
 import { addFile, toast, useFileUrl } from '../../core/files';
 import { useIsMobile } from '../../core/mobile';
 import { PresenceStack } from '../../core/presence';
+import { AskAiMenu } from '../../core/assistant/AskAiMenu';
+import { useAssistantContext } from '../../core/assistant/store';
 import { mutate } from '../../core/sync/engine';
 import { Popover } from '../../core/ui';
 import { SharePopover } from '../pages/Share';
@@ -65,11 +67,17 @@ const geomOf = (item: MoodItem): DragGeom => ({
   h: Number(item.h ?? 100),
 });
 
+/** Pointer coordinates are single-precision floats in some engines; a drag from a
+ * fractional start point otherwise persists offsets like 20.0000152. Quantize
+ * world-space deltas to 1/1000 unit (invisible at any supported zoom). */
+const quantize = (n: number) => Math.round(n * 1000) / 1000;
+
 export function MoodCanvas() {
   const { boardId = '' } = useParams();
   const mobile = useIsMobile();
   const nav = useNavigate();
   const board = useLiveQuery(() => db.moodboards.get(boardId), [boardId]);
+  useAssistantContext(boardId && board && !board.deleted ? { kind: 'moodboard', id: boardId } : null);
   const items = useMoodItems(boardId);
   const boards = useBoards();
   const dbs = useBoardsLite();
@@ -271,7 +279,9 @@ export function MoodCanvas() {
     if (gesture.current) return;
     const el = e.target as HTMLElement;
     const onBg = e.target === e.currentTarget || el.dataset.canvas === 'bg' || el.dataset.marquee === 'bg';
-    if (!onBg) return;
+    // Item Browse drags bubble here with pendingTap set. They pan the view
+    // just like background drags; toolbar controls must remain ordinary clicks.
+    if (!onBg && !(mode === 'browse' && pendingTap.current)) return;
     // Capture only for real canvas gestures — capturing every pointerdown
     // inside the canvas subtree retargets the trailing click to this element
     // and kills toolbar/overlay button clicks (setPointerCapture can throw
@@ -353,8 +363,8 @@ export function MoodCanvas() {
       gesture.current = { kind: 'move', ids, primary: g.id, origs, startX: g.startX, startY: g.startY, started: true };
       movedSinceDown.current = true;
     } else if (g.kind === 'move') {
-      const dx = (e.clientX - g.startX) / view.z;
-      const dy = (e.clientY - g.startY) / view.z;
+      const dx = quantize((e.clientX - g.startX) / view.z);
+      const dy = quantize((e.clientY - g.startY) / view.z);
       setDrafts((d) => {
         const next = { ...d };
         for (const [id, o] of g.origs) next[id] = { ...o, x: o.x + dx, y: o.y + dy };
@@ -362,8 +372,8 @@ export function MoodCanvas() {
       });
       movedSinceDown.current = true;
     } else if (g.kind === 'resize') {
-      const dx = (e.clientX - g.startX) / view.z;
-      const dy = (e.clientY - g.startY) / view.z;
+      const dx = quantize((e.clientX - g.startX) / view.z);
+      const dy = quantize((e.clientY - g.startY) / view.z);
       setDrafts((d) => {
         const o = g.orig;
         const w = Math.max(40, o.w + dx);
@@ -795,6 +805,7 @@ export function MoodCanvas() {
           onChange={(e) => void mutate('moodboards', boardId, { title: e.target.value })}
         />
         <PresenceStack path={`/moodboards/${boardId}`} />
+        <AskAiMenu modules={['moodboards']} refs={{ moodboard: { kind: 'moodboard', id: boardId } }} compact />
         <SharePopover moodboardId={boardId} />
       </div>
 

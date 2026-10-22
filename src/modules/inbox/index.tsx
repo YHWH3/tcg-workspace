@@ -13,6 +13,7 @@ import { Avatar, Button, EmptyState, Select } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { cn, relTime } from '../../core/utils';
 import type { AppModule } from '../types';
+import { AskAiMenu } from '../../core/assistant/AskAiMenu';
 
 /* ---------- Types (mirrors worker rows + users.prefs) ---------- */
 
@@ -163,6 +164,8 @@ function NotifRow({
   const [open, setOpen] = useState(false);
   const actor = resolveUser(n.actorId, users, me);
   const grouped = (n.groupCount ?? 1) > 1;
+  // Inbox AI actions apply to the record a notification points at (never restricted copies).
+  const aiRecord = !n.restricted && n.targetId && (n.targetType === 'task' || n.targetType === 'record') ? n.targetId : null;
   return (
     <li className={cn('border-b border-neutral-100 last:border-0 dark:border-neutral-800', !n.readAt && 'bg-neutral-50/60 dark:bg-neutral-900/40')}>
       <div
@@ -224,6 +227,11 @@ function NotifRow({
         )}
         {!n.readAt && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-label="unread" />}
       </div>
+      {aiRecord && (
+        <div className="flex justify-end px-3 pb-2">
+          <AskAiMenu modules={['inbox']} refs={{ record: { kind: 'record', id: aiRecord } }} label="Ask AI about this item" compact={false} className="text-xs" />
+        </div>
+      )}
     </li>
   );
 }

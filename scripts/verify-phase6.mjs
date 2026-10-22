@@ -59,6 +59,8 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
    await page.goto(p.reviewUrl);await page.getByRole('heading',{name:'Review proposed changes',exact:true}).waitFor();
    for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:900});await page.getByRole('button',{name:'Approve exact changes'}).waitFor();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));}
    const button=page.getByRole('button',{name:'Approve exact changes'});await button.focus();await button.press('Enter');await page.getByText('Approved. Return to your assistant',{exact:false}).waitFor();await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Resume execution'}).tap();await page.getByText('Completed. Changeset',{exact:false}).waitFor();
+   await page.getByText('Impact counts are unavailable in the completed summary. Open changeset history for authorized details.',{exact:true}).waitFor();
+   assert.equal(await page.getByText(/^Total planned operations: /).count(),0,'metadata-only completed output must not imply zero planned work');
    const replay=await call('execute_preview',{previewId:p.previewId,argsHash:p.argsHash});assert.ok(replay.data.replayed);assert.ok(replay.data.changesetId);
    const snapshot=await call('dashboard_snapshot',{pageId:'ai_source'});const link=snapshot.data.blocks.find(b=>b.id==='ai_dashboard_view').records.find(r=>r.id==='ai_task').url;await page.goto(link);await page.getByPlaceholder('Task title',{exact:true}).waitFor();assert.ok(page.url().includes('/boards/ai_board/tasks/ai_task'));
   });

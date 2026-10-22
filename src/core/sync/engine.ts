@@ -67,7 +67,15 @@ async function updatePending() {
 
 /** Re-count pending work (records + media) — safe to call after any write path. */
 export function refreshPending(): void {
-  void updatePending();
+  void updatePending().catch((error: unknown) => {
+    // Login/account changes intentionally close this tab's database. A pending
+    // read can finish after close: keep its last known counts and never emit an
+    // unhandled rejection or claim zero/synced work. Awaited sync reads still
+    // reject into syncNow's normal error path.
+    syncStore.set(s => ({ ...s, status: 'error' }));
+    const name = error instanceof Error ? error.name : 'UnknownError';
+    if (name !== 'DatabaseClosedError' || db.isOpen()) console.error('Unable to read local sync state', name);
+  });
 }
 
 /**
@@ -130,7 +138,7 @@ export async function mutate(collection: Collection, id: string, patch: Record<s
     await table.put(row);
     await db.outbox.add({ id, collection, patch, ts, createIntent: !existing });
   });
-  void updatePending();
+  refreshPending();
   scheduleSync();
 }
 
@@ -317,7 +325,7 @@ export async function syncNow(): Promise<void> {
   if (!getToken() || !navigator.onLine) {
     const userId = authStore.get().user?.id;
     if (getToken() && !navigator.onLine && userId) await prepareOfflineAccess(userId);
-    syncStore.set((s) => ({ ...s, status: getToken() && !navigator.onLine ? 'offline' : s.status }));
+    syncStore.set((s) => ({ ...s, status: getToken() && !navigator.onLine ? (accessClientStore.get().status === 'offline' ? 'offline' : 'error') : s.status }));
     return;
   }
   running = true;
@@ -360,6 +368,19 @@ export async function syncNow(): Promise<void> {
     if (localStorage.getItem('ws_uid') !== TAB_UID || getToken() !== token) {
       stopPresence(); failClientAccess(localStorage.getItem('ws_uid') !== TAB_UID ? 'account_changed' : 'session_changed');
       syncStore.set(s => ({ ...s, status: 'error' })); return;
+    }
+    // navigator.onLine only describes a network interface, not reachability of
+    // this server. A transport failure may use the SAME validated offline path
+    // as airplane mode. HTTP denials/conflicts must never take this fallback.
+    if (e instanceof ApiError && e.status === 0) {
+      stopPresence();
+      const userId = authStore.get().user?.id;
+      if (userId) await prepareOfflineAccess(userId);
+      if (localStorage.getItem('ws_uid') !== TAB_UID || getToken() !== token) {
+        failClientAccess('session_changed'); syncStore.set(s => ({ ...s, status: 'error' })); return;
+      }
+      syncStore.set(s => ({ ...s, status: accessClientStore.get().status === 'offline' ? 'offline' : 'error' }));
+      return;
     }
     failClientAccess(e instanceof Error && e.message === 'session_changed' ? 'session_changed' : 'access_check_failed');
     if (e instanceof ApiError && e.status === 401) {
@@ -412,7 +433,7 @@ export async function countLocalPending(): Promise<{ records: number; rejected: 
 }
 
 export function startSyncEngine() {
-  void updatePending();
+  refreshPending();
   void syncNow();
   // Re-kick sync whenever auth state flips to authed (e.g. right after login:
   // the engine's first run happens while unauthenticated and early-returns).

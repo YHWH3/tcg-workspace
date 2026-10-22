@@ -13,7 +13,7 @@ export const releasePreflightNames=[
   'explicit production target','D1 binding','OAuth KV binding','LiveRoom binding and migration',
   'asset and OAuth routing','fifteen-minute Cron','local bindings have no remote access',
   'fixture bypasses absent','optional AI disabled','secret values absent from config',
-  'permission activation defaults off','31 immutable migration hashes','lockfile and pinned Wrangler',
+  'permission activation defaults off','32 immutable migration hashes','lockfile and pinned Wrangler',
   'built package matches deployment contract',
 ];
 const project=resolve(dirname(fileURLToPath(import.meta.url)),'..');
@@ -40,12 +40,12 @@ export function inspectRelease(root=project){
   check(releasePreflightNames[5],()=>assert.deepEqual(c.triggers?.crons,['*/15 * * * *'],'Reviewed fifteen-minute UTC schedule missing or changed'));
   check(releasePreflightNames[6],()=>invariant(!hasRemote(c),'A configured binding uses remote access; local rehearsal must remain isolated'));
   check(releasePreflightNames[7],()=>invariant(!('TURNSTILE_LOCAL_TEST' in (c.vars??{}))&&(c.vars??{}).WORKSPACE_ENV!=='local-test','Disposable-only challenge bypass present in deployment configuration'));
-  check(releasePreflightNames[8],()=>invariant(c.ai?.binding==='AI'&&(!c.vars?.AI_PROVIDER||c.vars.AI_PROVIDER==='none')&&(!c.vars?.AI_DAILY_UNITS||c.vars.AI_DAILY_UNITS==='0')&&!c.vars?.AI_CLASSIFICATION,'Optional AI is enabled or AI binding differs; this candidate certifies disabled-mode operation'));
+  check(releasePreflightNames[8],()=>invariant(c.ai?.binding==='AI'&&(!c.vars?.AI_PROVIDER||c.vars.AI_PROVIDER==='none')&&(!c.vars?.AI_DAILY_UNITS||c.vars.AI_DAILY_UNITS==='0')&&!c.vars?.AI_CLASSIFICATION&&!c.vars?.AI_CHAT_MODEL&&!c.vars?.AI_BYOK_PROVIDERS&&!c.vars?.AI_CREDENTIAL_KEY&&!c.vars?.OPENAI_CHATGPT_HOSTED_APPROVAL,'Optional AI is enabled or AI binding differs; this candidate certifies disabled-mode operation'));
   check(releasePreflightNames[9],()=>invariant(!Object.keys(c.vars??{}).some(key=>/(?:SECRET|TOKEN|PASSWORD|PRIVATE_KEY|API_KEY)$/i.test(key)),'Secret-like value stored as plaintext deployment variable; configure secret names through approved operator flow'));
   check(releasePreflightNames[10],()=>invariant(/INSERT\s+INTO\s+access_state\(id,generation,enabled\)\s+VALUES\(1,1,0\)/i.test(readFileSync(join(root,'migrations/0012_phase5_access_foundation.sql'),'utf8')),'Access foundation no longer defaults to disabled'));
   check(releasePreflightNames[11],()=>{
     const manifest=json(join(root,'scripts/certification/migrations.json')),files=readdirSync(join(root,'migrations')).filter(name=>name.endsWith('.sql')).sort();
-    invariant(manifest.length===31&&files.length===31,'Expected exactly 31 registered migrations; review additive migration changes');
+    invariant(manifest.length===32&&files.length===32,'Expected exactly 32 registered migrations; review additive migration changes');
     invariant(manifest.every((entry,index)=>entry.name===files[index]&&entry.name.startsWith(String(index+1).padStart(4,'0')+'_')&&entry.sha256===createHash('sha256').update(readFileSync(join(root,'migrations',entry.name))).digest('hex')),'Migration name/order/hash differs from immutable manifest');
   });
   check(releasePreflightNames[12],()=>{
@@ -69,7 +69,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
   reporter.setMetadata('scope','Local static contract and built-package checks only; never authorizes deployment');
   reporter.setMetadata('productionReleaseCertified',false);
   reporter.setMetadata('productionTargetWarning','Default config targets existing production workspace/DB/KV. Do not deploy or migrate without separate approval.');
-  reporter.setMetadata('operatorConfiguration',{secretNames:['TURNSTILE_SECRET'],publicVariableNames:['TURNSTILE_SITE_KEY','TURNSTILE_HOSTNAMES'],optionalDisabled:['AI_PROVIDER','AI_DAILY_UNITS','AI_CLASSIFICATION','REMOTE_IMPORT_HOSTS'],valuesIncluded:false});
+  reporter.setMetadata('operatorConfiguration',{secretNames:['TURNSTILE_SECRET'],publicVariableNames:['TURNSTILE_SITE_KEY','TURNSTILE_HOSTNAMES'],optionalDisabled:['AI_PROVIDER','AI_DAILY_UNITS','AI_CLASSIFICATION','AI_CHAT_MODEL','AI_BYOK_PROVIDERS','AI_CREDENTIAL_KEY','OPENAI_CHATGPT_HOSTED_APPROVAL','REMOTE_IMPORT_HOSTS'],valuesIncluded:false});
   reporter.setMetadata('externalReleaseGates',['Live remote variables/secrets and target settings','Approved production backup/restore','Real Turnstile and hostname','Physical devices and assistive technology','Real third-party MCP host','Real optional AI provider'].map(test=>({test,status:'NOT VERIFIED'})));
   if(process.argv.length>2)reporter.record('node','none','arguments','FAIL','This read-only local preflight accepts no command-line arguments');
   else for(const result of inspectRelease()){reporter.record('node','none',result.test,result.status,result.error);console.log(`${result.status}: ${result.test}`);}

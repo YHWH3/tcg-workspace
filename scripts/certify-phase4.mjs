@@ -12,7 +12,8 @@ import { assessSecurityAudit } from './certification/security.mjs';
 import { json, fingerprint, preventIdleSleep, configureCertificationNetwork, localOrigin, freePort, runCommand, validateReport, validateVitest, validateSmoke, migrationsManifest, decision, validatePerformanceEvidence } from './certification/core.mjs';
 
 const cwd=fileURLToPath(new URL('../',import.meta.url));
-const phase6=process.argv.includes('--phase6');
+const assistant=process.argv.includes('--ai');
+const phase6=assistant||process.argv.includes('--phase6');
 const mode=process.argv.includes('--quick')?'quick':process.argv.includes('--extended')?'extended':'complete';
 const sha=()=>execFileSync('git',['rev-parse','HEAD'],{cwd,encoding:'utf8'}).trim();
 const startingSha=sha(),startedAt=new Date().toISOString();
@@ -24,6 +25,7 @@ for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{interrupted=tr
 const expectedIds=['prerequisites','dependencies','lockfile','whitespace','migrations','harness','typecheck','unit','build','d1','security','performance-evidence','source-integrity'];
 if(mode!=='quick')expectedIds.push('browsers','smoke','mcp-base','mcp-multiuser','mcp-phase1','mcp-phase2','mcp-phase3','mcp-phase4','v4','v6','v7','v8','v9','phase5-sync','phase5-workflows','phase5-mcp');
 if(phase6&&mode!=='quick')expectedIds.push('phase6-workflows','release-preflight','release-rehearsal','release-ui');
+if(assistant&&mode!=='quick')expectedIds.push('assistant-e2e');
 if(mode==='extended')expectedIds.push('d1-stress-1','d1-stress-2');
 const sleepGuard=preventIdleSleep();
 const network=configureCertificationNetwork();
@@ -113,7 +115,7 @@ try {
   const unitPath=join(directory,'vitest.json'),testFiles=readdirSync(join(cwd,'tests')).filter(f=>f.endsWith('.test.ts')).map(f=>'tests/'+f);
   await stage('unit',['npm','test','--','--reporter=default','--reporter=json',`--outputFile=${unitPath}`],{adapter:()=>validateVitest(readJson(unitPath),testFiles)});
   buildOkay=(await stage('build',['npm','run','build'])).status==='PASS';
-  const d1Files=testFiles.filter(f=>/(?:phase[456]|audit)-.*-d1\.test\.ts$/.test(f)),d1Path=join(directory,'d1-results.json');
+  const d1Files=testFiles.filter(f=>/(?:phase[456]|audit|assistant)-.*-d1\.test\.ts$/.test(f)),d1Path=join(directory,'d1-results.json');
   await stage('d1',['npm','test','--',...d1Files,'--reporter=default','--reporter=json',`--outputFile=${d1Path}`],{adapter:()=>validateVitest(readJson(d1Path),d1Files)});
   await stage('security',['npm','audit','--json'],{adapter:(output,result)=>{const report=JSON.parse(output);json(join(directory,'security-audit.json'),report);const assessment=assessSecurityAudit(report,{auditExitCode:result.exitCode,project:cwd});json(join(directory,'security-decisions.json'),assessment);return {pass:assessment.verdict==='PASS'?1:0,fail:assessment.verdict==='FAIL'?1:0,notRun:0,allMandatoryAssertionsExecuted:true,...(assessment.verdict==='PASS'?{acceptedExitCode:result.exitCode}:{}),securityAssessment:assessment};}});
   if(mode!=='quick') {
@@ -135,6 +137,7 @@ try {
       await integration('release-rehearsal','scripts/release-rehearsal.mjs',{selfFixture:true,skipBuild:false});
       await integration('release-ui','scripts/verify-release-ui.mjs',{selfFixture:true});
     }
+    if(assistant)await integration('assistant-e2e','scripts/verify-assistant.mjs',{selfFixture:true});
   }
   if(mode==='extended')for(let i=1;i<=2;i++){const path=join(directory,`d1-stress-${i}.json`);await stage(`d1-stress-${i}`,['npm','test','--',...d1Files,'--reporter=default','--reporter=json',`--outputFile=${path}`],{adapter:()=>validateVitest(readJson(path),d1Files)});}
   await internal('performance-evidence',()=>{

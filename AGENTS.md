@@ -147,3 +147,20 @@ Delete its entry from `modules` in `src/modules/index.ts` — nav, routes, sideb
 - AI providers are off by default. Do not invoke paid/real models during local certification. Distinguish simulated provider-contract tests from real-provider proof. Suggestions remain non-authoritative until human acceptance.
 - Remote import is denied to arbitrary MCP URLs; never bypass explicit human consent and the exact trusted-host policy. Do not follow redirects or put workspace text in external requests.
 - `npm run certify:phase6` extends the existing local orchestrator. Keep all earlier gates, explicit permission modes and clean-source fingerprint requirements.
+
+## Embedded AI + universal MCP (feature/unified-ai-mcp)
+
+Spec: `docs/architecture/unified-ai-mcp.md`.
+- `shared/aiCapabilities.ts` classifies EVERY MCP tool (read/write/proposal, embedded allow/deny); `tests/assistant-registry.test.ts` fails on drift. A new tool needs a registry entry.
+- The embedded assistant is an MCP client of the same `createWorkspaceServer` over `InMemoryTransport` (`worker/assistant/bridge.ts`) with `ctx.assistant`: writes always become frozen previews (zero-op plans fail closed); approval/execution/undo/publication/sharing are human-only. Never add a direct D1 path for the assistant.
+- One runtime step per request (`worker/assistant/runtime.ts`); stay inside the 45-call D1 budget (tests wrap every request with `withD1Budget(env,45)`).
+- `assistant_*` tables (migration 0032) are server-only; messages carry source ids and are redacted on reopen when unreadable.
+- Providers are OFF by default (`AI_CHAT_MODEL`, `AI_BYOK_PROVIDERS`, secret `AI_CREDENTIAL_KEY`, `OPENAI_CHATGPT_HOSTED_APPROVAL`). Exact egress hosts, `redirect:'error'`, never fall back to another provider/billing path. The simulated provider exists only for `WORKSPACE_ENV=local-test` and is never real-provider evidence.
+- ChatGPT plan usage runs only in the local `companion/` (OpenAI requires approval for hosted apps); never relay plan tokens through the Worker.
+
+## PR #13 review invariants
+
+- Responses output is reconciled by stable item/function-call identity across streamed and terminal output. Conflicting identities fail closed; incomplete segments cannot dispatch tools. Keep provider/billing selection explicit with no fallback.
+- Retained assistant dependencies are authoritative read-gate evidence, separate from citations. Derived replies and pending calls inherit consumed sources and the exact principal role captured before reading. Legacy/incomplete coverage is withheld without purging originals; never model user-directory IDs as record IDs.
+- Assistant UI responses are account/token/access-epoch/status bound. Observed access transitions discard retained source-derived memory and abort streams; this is not instantaneous offline revocation. Keep ordinary stream cancellation separate from authority invalidation so provider discovery can finish.
+- Apple Safari testing uses a temporary test-only XCUITest bundle (`scripts/apple-safari.mjs`). It does not create a native production app or certify physical hardware, human VoiceOver or native 400% zoom. Preserve compact input text sizes and keyboard-visible search results.

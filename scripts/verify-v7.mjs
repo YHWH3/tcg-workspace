@@ -565,7 +565,7 @@ async function canvasSuite(page, E, V, uid) {
     else {
       const il = page.locator('button[title="Item list"]');
       await il.dispatchEvent('click'); await sleep(400);
-      const row = page.locator('[role="option"][aria-selected="true"]').first();
+      const row = page.locator('[data-testid="mood-itemlist"] [role="listitem"]:has(button[aria-pressed="true"])').first();
       if (await row.count()) await row.locator('button[title="Bring to front"]').dispatchEvent('click');
     }
     await sleep(400);
@@ -579,15 +579,15 @@ async function canvasSuite(page, E, V, uid) {
 
   /* ---- ItemList: pointer-free ops ---- */
   const itemListOk = await (async () => {
-    if (!(await page.locator('[role="listbox"]').count())) await page.locator('button[title="Item list"]').dispatchEvent('click');
+    if (!(await page.locator('[data-testid="mood-itemlist"] [role="list"]').count())) await page.locator('button[title="Item list"]').dispatchEvent('click');
     await sleep(500);
-    const options = page.locator('[role="listbox"] [role="option"]');
+    const options = page.locator('[data-testid="mood-itemlist"] [role="listitem"]');
     const count = await options.count();
     if (count < 5) return false;
     const row = options.filter({ hasText: 'seed note two' }).first();
     if (!(await row.count())) return false;
     const before = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
-    await row.locator('button[title="Nudge right"]').dispatchEvent('click');
+    await row.getByRole('button',{name:'Nudge right',exact:true}).dispatchEvent('click');
     await sleep(300);
     const after = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
     return after && before && after.x === before.x + 10;
@@ -595,7 +595,7 @@ async function canvasSuite(page, E, V, uid) {
   N('canvas: ItemList nudge button works without pointer drag', itemListOk ? 'PASS' : 'FAIL');
 
   const itemListResize = await (async () => {
-    const row = page.locator('[role="listbox"] [role="option"]').filter({ hasText: 'seed note two' }).first();
+    const row = page.locator('[data-testid="mood-itemlist"] [role="listitem"]').filter({ hasText: 'seed note two' }).first();
     if (!(await row.count())) return false;
     const before = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
     await row.locator('button[title="Grow 10%"]').dispatchEvent('click');
@@ -606,7 +606,7 @@ async function canvasSuite(page, E, V, uid) {
   N('canvas: ItemList grow button resizes without pointer drag', itemListResize ? 'PASS' : 'FAIL');
 
   const itemListZ = await (async () => {
-    const row = page.locator('[role="listbox"] [role="option"]').filter({ hasText: 'seed note two' }).first();
+    const row = page.locator('[data-testid="mood-itemlist"] [role="listitem"]').filter({ hasText: 'seed note two' }).first();
     if (!(await row.count())) return false;
     const before = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
     await row.locator('button[title="Reorder z +1"]').dispatchEvent('click');
@@ -617,15 +617,15 @@ async function canvasSuite(page, E, V, uid) {
   N('canvas: ItemList z-order buttons work', itemListZ ? 'PASS' : 'FAIL');
 
   const itemListDelete = await (async () => {
-    // create a throwaway note then delete via ItemList (it is auto-selected → its row is aria-selected)
+    // create a throwaway note then delete via ItemList (it is auto-selected → its selection button is aria-pressed)
     await addViaMenu(page, 'Sticky note');
     const fresh = (await boardItems(page, uid, MB)).filter((i) => i.type === 'note' && !before.has(i.id)).pop();
     if (!fresh) return 'no-fresh';
     await canvas(page).press('Escape'); // clear editing so the fresh item is selectable
     await selectItemEl(page, fresh.id);
-    if (!(await page.locator('[role="listbox"]').count())) await page.locator('button[title="Item list"]').dispatchEvent('click');
+    if (!(await page.locator('[data-testid="mood-itemlist"] [role="list"]').count())) await page.locator('button[title="Item list"]').dispatchEvent('click');
     await sleep(500);
-    const row = page.locator('[role="listbox"] [role="option"][aria-selected="true"]').first();
+    const row = page.locator('[data-testid="mood-itemlist"] [role="listitem"]:has(button[aria-pressed="true"])').first();
     if (!(await row.count())) return 'no-selected-row';
     await row.locator('button[title="Delete"]').dispatchEvent('click');
     await sleep(600);
@@ -822,9 +822,11 @@ async function modeSuite(page, E, V, uid, touch = false) {
   };
   await setBrowse();
   const preB = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
+  const screenBeforeB = await itemEl(page, 'v7_i_note2').boundingBox();
   await dragItem(120, 60);
   const postB = await dexieGet(page, 'mooditems', 'v7_i_note2', uid);
-  N('modes: Browse/Pan drag does not move items', preB && postB && postB.x === preB.x && postB.y === preB.y ? 'PASS' : 'FAIL');
+  const screenAfterB = await itemEl(page, 'v7_i_note2').boundingBox();
+  N('modes: Browse/Pan drag pans view without moving item data', preB && postB && postB.x === preB.x && postB.y === preB.y && screenBeforeB && screenAfterB && Math.abs(screenAfterB.x-screenBeforeB.x)>80 ? 'PASS' : 'FAIL');
 
   // bg drag pans in browse (view transform changes)
   const panOk = await (async () => {
@@ -1234,23 +1236,9 @@ async function compactSuite(page, E, V, uid) {
     const cb = await canvasBox(page);
     const pre = await dexieGet(page, 'mooditems', 'v7_i_note', uid);
     if (!before || !cb || !pre) return false;
-    // touch-drag on empty canvas background → pan, not item move.
-    // find a point whose topmost element is the canvas bg (items don't pan in browse)
-    const bgPt = await page.evaluate(() => {
-      const cv = document.querySelector('[data-testid="mood-canvas"]');
-      if (!cv) return null;
-      const r = cv.getBoundingClientRect();
-      for (let gy = 0.85; gy > 0.05; gy -= 0.12) {
-        for (let gx = 0.08; gx < 0.95; gx += 0.12) {
-          const x = r.x + r.width * gx, y = r.y + r.height * gy;
-          const top = document.elementFromPoint(x, y);
-          if (top === cv || top?.dataset?.canvas === 'bg' || top?.dataset?.marquee === 'bg') return { x, y };
-        }
-      }
-      return null;
-    });
-    if (!bgPt) return 'no-bg-point';
-    const x = bgPt.x, y = bgPt.y;
+    // Begin on the item itself: Browse must pan without changing its world coordinates.
+    const x = before.x + Math.min(40, before.width / 2);
+    const y = before.y + Math.min(40, before.height / 2);
     try {
       const cdp = await page.context().newCDPSession(page); // chromium only
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });

@@ -1,7 +1,7 @@
 import {SpaceSwitcher} from './SpaceHome';
 import { useEffect, useState } from 'react';
 import { matchPath, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router';
-import { Search, Settings, LogOut, Moon, Sun, Monitor, CloudOff, RefreshCw, Check, AlertTriangle, PanelLeft, Plus, Camera, X } from 'lucide-react';
+import { Search, Settings, LogOut, Moon, Sun, Monitor, CloudOff, RefreshCw, Check, AlertTriangle, PanelLeft, Plus, Camera, X, Sparkles } from 'lucide-react';
 import { toastStore } from './files';
 import { modules } from '../modules';
 import type { AppModule } from '../modules/types';
@@ -11,6 +11,8 @@ import { legacyRecoveryStore, resolveLegacyRecovery } from './legacyMigration';
 import { APP_NAME } from './config';
 import { InstallButton } from './install';
 import { CommandPalette, paletteStore } from './search';
+import { AssistantDock } from './assistant/AssistantPanel';
+import { assistantStore, toggleAssistant } from './assistant/store';
 import { sendHere } from './live';
 import { PresenceDots } from './presence';
 import { BoardOrDb } from './views/DatabasePage';
@@ -77,7 +79,7 @@ function SyncIndicator({ heldOnly = false }: { heldOnly?: boolean }) {
     return (
       <button
         onClick={() => void syncNow()}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-amber-600 transition-colors hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-amber-700 transition-colors hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30"
         title="Unsynced changes — click to sync now"
       >
         <RefreshCw size={13} />
@@ -458,6 +460,28 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+function AssistantToggle() {
+  const mode = useStore(assistantStore).mode;
+  const location = useLocation();
+  const onChat = !!matchPath('/ai/chat/*', location.pathname);
+  return (
+    <div className="px-2 pb-2">
+      <button
+        type="button"
+        data-testid="assistant-toggle"
+        aria-expanded={mode === 'panel'}
+        aria-keyshortcuts="Control+J Meta+J"
+        onClick={() => (onChat ? document.querySelector<HTMLElement>('[data-testid="assistant-input"]')?.focus() : toggleAssistant())}
+        className="flex min-h-10 w-full items-center gap-2.5 rounded-lg border border-neutral-200/80 px-2.5 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800/50"
+      >
+        <Sparkles size={15} className="text-violet-500" aria-hidden="true" />
+        <span className="flex-1 text-left">Ask AI</span>
+        <kbd className="text-[10px] text-neutral-500 dark:text-neutral-400">⌘J</kbd>
+      </button>
+    </div>
+  );
+}
+
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
@@ -488,6 +512,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <Camera size={15} />
         </NavLink>
       </div>
+      {/* Global assistant entry (the compact header has its own toggle). */}
+      {!onNavigate && <AssistantToggle />}
       <NavItems onNavigate={onNavigate} />
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
         {modules.map((m) => m.sidebarSection && <m.sidebarSection key={m.id} />)}
@@ -517,6 +543,13 @@ export function Shell() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         paletteStore.set(true);
+        return;
+      }
+      // Ctrl/Cmd+J toggles the assistant (on the full-screen route it focuses the composer).
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        if (matchPath('/ai/chat/*', window.location.pathname)) document.querySelector<HTMLElement>('[data-testid="assistant-input"]')?.focus();
+        else toggleAssistant();
         return;
       }
       // C → quick capture, when not typing in a field.
@@ -551,6 +584,15 @@ export function Shell() {
             <span className="flex-1 text-sm font-semibold tracking-tight">{APP_NAME}</span>
             <button onClick={() => paletteStore.set(true)} className="flex h-11 w-11 items-center justify-center rounded-lg text-neutral-500" aria-label="Search">
               <Search size={19} strokeWidth={1.8} />
+            </button>
+            <button
+              type="button"
+              data-testid="assistant-toggle"
+              onClick={() => toggleAssistant()}
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-violet-600 dark:text-violet-400"
+              aria-label="Ask AI"
+            >
+              <Sparkles size={19} strokeWidth={1.8} />
             </button>
           </header>
         )}
@@ -596,6 +638,8 @@ export function Shell() {
           </nav>
         )}
       </div>
+
+      <AssistantDock />
 
       {sheetOpen && (
         <Sheet onClose={() => setSheetOpen(false)} side="left">

@@ -2,6 +2,8 @@ import {recordHref} from '../shared/recordRoutes';
 import {hybridSearch} from './aiSemantic';
 import {registerSuggestionTools} from './aiSuggestions';
 import {registerAiWorkflows} from './aiWorkflows';
+import {registerAssistantTools,type ToolHandler} from './mcpAssistantTools';
+import {isEmbeddedAllowed} from '../shared/aiCapabilities';
 import {proposePreview,executePreview,previewUrl,PreviewError,type PreviewOp} from './aiPreviews';
 import {registerReadTools} from './mcpReadTools';
 import { loadConnection } from './connectorAccess';
@@ -256,6 +258,9 @@ interface Ctx {
    * by bounded, permission-filtered queries — never by reading whole collections). */
   titleKeys?: Set<string>;
   titleIds?: Set<string>;
+  /** Embedded Workspace Assistant call (worker/assistant/*): every write becomes a
+   * frozen preview for human approval; human-only tools are refused. */
+  assistant?: { provider: string; model: string };
 }
 
 type Resolution = { id: string } | { ambiguous: { id: string; title?: string; name?: string }[] } | { missing: true };
@@ -586,10 +591,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   // Each helper authorizes its own read; the tool can still retain earlier values
   // while awaiting later reads. Revalidate the explicitly observed record set at
   // serialization. Never infer dependencies from response strings.
+  const toolHandlers = new Map<string, ToolHandler>();
   server.registerTool = new Proxy(server.registerTool, {
     apply(register, receiver, args) {
       const [name, metadata, handler] = args;
-      return Reflect.apply(register, receiver, [name, metadata, async (...input: unknown[]) => {
+      const wrapped = async (...input: unknown[]) => {
+        // Human-only capabilities (approval, execution, undo, publication) are
+        // never callable from the embedded assistant, whatever the model asks.
+        if (ctx.assistant && !isEmbeddedAllowed(name)) return err('assistant_requires_human_workspace_action');
         const result = await handler(...input);
         if (!(await ctx.env.READ_GATE!.validateObserved())) {
           // Writes may already have committed (including our own cascade delete).
@@ -602,7 +611,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           return err('access changed during request; re-read current data');
         }
         return result;
-      }]);
+      };
+      toolHandlers.set(name, wrapped as ToolHandler);
+      return Reflect.apply(register, receiver, [name, metadata, wrapped]);
     },
   });
 
@@ -639,6 +650,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       }
       const input=args as Record<string,unknown>;
       const canonical=Object.fromEntries(Object.entries(input).filter(([key])=>!['requestId','previewId','dryRun'].includes(key)));
+      if(ctx.assistant&&(typeof input.previewId==='string'||!isEmbeddedAllowed(name)))return err('assistant_requires_human_workspace_action');
       if(typeof input.previewId==='string') {
         try {return txt(await executePreview(ctx.env,ctx.userId,input.previewId,await argsHash({tool:name,args:canonical}),ctx.ectx));}
         catch(e){return err(e instanceof PreviewError?e.code:'preview_execution_interrupted');}
@@ -658,7 +670,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         const merged=new Map<string,PreviewOp>();
         for(const op of ops){const previous=merged.get(op.id);merged.set(op.id,{...op,patch:{...previous?.patch,...op.patch}});}
         const significant=(name==='update_board'&&(Array.isArray(input.columns)||Array.isArray(input.removeFields)&&input.removeFields.length>0||Array.isArray(input.updateFields)&&input.updateFields.length>0))||name==='update_field'&&typeof input.type==='string'||['delete_item','remove_field','remove_stage','create_from_template','install_template','convert_record','convert_idea_to_project'].includes(name)||merged.size>25||[...merged.values()].some(o=>o.patch.deleted===true);
-        if((significant||input.dryRun===true)&&merged.size){
+        if((significant||input.dryRun===true||ctx.assistant)&&merged.size){
           try {
             let payload:Record<string,unknown>={};try{payload=JSON.parse(planned.content[0].text);}catch{/* no metadata */}
             const metadata:Record<string,unknown>={};
@@ -677,6 +689,9 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           }
           catch(e){return err(e instanceof Error?e.message:'preview_failed');}
         }
+        // Fail closed: an embedded-assistant write that planned nothing must not
+        // fall through to direct execution.
+        if(ctx.assistant)return err('assistant_write_produced_no_plan');
         if(input.dryRun===true)return planned;
         captured={ops:[...merged.values()],result:planned,expected:plannedRevisions};
       }
@@ -4352,6 +4367,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   registerAiWorkflows(server,ctx);
   registerSuggestionTools(server,ctx);
   registerApprovalTools(server,reg,ctx);
+  registerAssistantTools(server,ctx,toolHandlers);
   return server;
 }
 
@@ -4421,6 +4437,11 @@ export const mcpApiHandler = {
       return new Response(JSON.stringify({error:'connector_reauthorization_required'}),{status:403,headers:{'content-type':'application/json'}});
     }
     request = await normalizePromptGetRequest(request);
+    // External hosts keep the certified Phase 5 contract: the full tool list is
+    // advertised and every handler returns its own authorization result. Hosts
+    // cache tools/list per connection, so hiding writes would strand a grant
+    // upgraded mid-session. Permission-filtered discovery is applied to the
+    // embedded assistant (worker/assistant/bridge.ts) and /api/assistant/capabilities.
     return createMcpHandler(
       (mcpCtx: McpRequestContext) => createWorkspaceServer(ctxFor(env, ctx, mcpCtx, props)),
       { route: '/mcp' },
