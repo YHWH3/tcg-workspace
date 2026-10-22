@@ -23,8 +23,12 @@ const stop=()=>{try{process.kill(-child.pid,'SIGTERM');}catch{}};process.once('e
 try{
  await eventually(async()=>{try{return execFileSync(adb,['-s',serial,'shell','getprop','sys.boot_completed'],{encoding:'utf8',timeout:3000,stdio:['ignore','pipe','ignore']}).trim()==='1'}catch{return false}},{timeout:180000});
  writeFileSync(join(out,'owned-device.json'),JSON.stringify({pid:child.pid,serial,avdHome:home,image,physical:false,existingAvdsUntouched:true},null,2));
- Object.assign(process.env,{QA_ANDROID_SERIAL:serial,ANDROID_ADB:adb,CROSS_QA_ARTIFACT_DIR:join(out,'chrome')});
- try{await command([process.execPath,join(root,'scripts/cross-platform-qa.mjs'),'--skip-build','--only=android','--android-pwa'],{timeout:300000,log:{write:s=>writeFileSync(join(out,'chrome.log'),s,{flag:'a'})},cwd:root});}catch(e){const resultPath=join(out,'chrome','results.json');const rows=existsSync(resultPath)?JSON.parse(readFileSync(resultPath)).results:[];exitCode=rows.length&&!rows.some(r=>r.status==='FAIL')&&rows.some(r=>r.status==='BLOCKED')?2:1;writeFileSync(join(out,'chrome-error.txt'),e.message);}
+ Object.assign(process.env,{QA_ANDROID_SERIAL:serial,ANDROID_ADB:adb,QA_ANDROID_OWNERSHIP:join(out,'owned-device.json'),CROSS_QA_ARTIFACT_DIR:join(out,'chrome')});
+ if(!process.argv.includes('--only-public-pwa'))try{await command([process.execPath,join(root,'scripts/cross-platform-qa.mjs'),'--skip-build','--only=android',...(process.argv.includes('--public-pwa')?[]:['--android-pwa'])],{timeout:300000,log:{write:s=>writeFileSync(join(out,'chrome.log'),s,{flag:'a'})},cwd:root});}catch(e){const resultPath=join(out,'chrome','results.json');const rows=existsSync(resultPath)?JSON.parse(readFileSync(resultPath)).results:[];exitCode=rows.length&&!rows.some(r=>r.status==='FAIL')&&rows.some(r=>r.status==='BLOCKED')?2:1;writeFileSync(join(out,'chrome-error.txt'),e.message);}
+ if(process.argv.includes('--public-pwa')||process.argv.includes('--only-public-pwa')){
+  process.env.PUBLIC_QA_ARTIFACT_DIR=join(out,'public-pwa');
+  try{await command([process.execPath,join(root,'scripts/public-platform-qa.mjs'),'--android'],{timeout:600000,log:{write:s=>writeFileSync(join(out,'public-pwa.log'),s,{flag:'a'})},cwd:root});}catch(e){const path=join(out,'public-pwa','results.json'),rows=existsSync(path)?JSON.parse(readFileSync(path)).results:[];exitCode=rows.some(r=>r.status==='FAIL')?1:2;writeFileSync(join(out,'public-pwa-error.txt'),e.message);}
+ }
  // command() deliberately sanitizes credentials but inherits environment. Pass
  // only fixture identity knobs for the child, and restore them afterwards.
  const apk=process.env.FIREFOX_ANDROID_APK;

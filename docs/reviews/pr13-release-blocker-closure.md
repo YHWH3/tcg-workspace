@@ -1,0 +1,43 @@
+# PR #13 release-blocker closure
+
+This is an **author-side technical review**, not independent third-party approval. Starting source: `3dbe39ab71981d51800af83b8cb8d7f76328dc4c`. Work is confined to the dedicated `tcg-unified-ai` checkout. PR #12 and PR #13 remain draft, unmerged and undeployed. The earlier exact-source certification and platform artifacts remain historical evidence, not certification of the corrections below.
+
+## Dependency correction
+
+The published advisory ranges for GHSA-qxg6-89mg-rqv8 and GHSA-xp26-3454-mjgp exclude `5.0.3` and later. The current registry's compatible stable release was `vitest@5.0.5`; it resolves `@vitest/mocker@5.0.5`. Commit `45ecfd1` updates the exact development dependency and normal npm lockfile. No force-fix, peer override, alias, production dependency or hand-edited installed package was used. Actual `npm audit --json` exited 0 with zero vulnerabilities after installation. Registry, advisory, dependency-tree and raw audit evidence are under `.artifacts/release-closure/`. Final certification must repeat the raw audit; a historical zero result is not a permanent dependency guarantee.
+
+## Confirmed finding R13-F01 — delayed offline reads could reopen a newer authority barrier
+
+**Severity: high, client privacy boundary.** `prepareOfflineAccess()` awaited IndexedDB metadata and then installed an offline grant without verifying the current account, token or access epoch. A storage/session/capability transition during that await could lock the UI and then be overwritten by the older cached result. This is a client stale-content exposure, not a demonstrated bypass of server authorization. The offline branch of `syncNow()` additionally claimed offline availability even when validation refused it.
+
+Reproduction uses the real Dexie metadata read with a deterministic promise barrier in `tests/phase5-engine.test.ts`: begin offline synchronization, pause `meta.bulkGet`, change account/token or authority epoch using the canonical access barrier, then release the earlier read. All three variants failed before correction (`offline-fence-red.log`, real nonzero exit). Commit `ef97b6f` captures and validates identity/token/epoch before and after the await and retains any newer lock. Offline status is reported only when access validation actually permits offline use. Pending outbox work and the replacement session are retained. The focused engine/cache/companion suite passed 82 assertions after correction; TypeScript and build also passed. Full clean-source certification is separately required.
+
+This does not promise instantaneous remote revocation while a device is disconnected. It prevents a locally observed newer authority transition from being overwritten by a stale asynchronous cache read.
+
+## Focused release-stack boundary review
+
+| Boundary | Source and concrete verification contract |
+|---|---|
+| SW install/activation/cache migration | `src/sw.ts`: deduplicated required requests; atomic `Cache.addAll`; failed new install deletes only a newly created cache; an existing active shell is preserved. Build revision namespaces prevent selecting an older index. Only immutable asset paths fall back to one retained prior build. `scripts/cross-platform-qa.mjs` injects required-asset failure and verifies offline old/new shell behavior in actual browser engines. API records are never service-worker cached. |
+| Account/session/offline authority | `src/core/accessClient.ts`, `src/core/sync/engine.ts`, `accountSwitch.ts` and Protocol 3 reconciliation: account-bound databases, token/access-version guards and explicit rejected/quarantined work. R13-F01 above was confirmed and corrected. Cache persistence is not a substitute for server authorization. |
+| Approval/execution/replay | `worker/aiPreviews.ts`, `worker/assistant/api.ts`, `runtime.ts`, `bridge.ts`: actual session-authenticated human decision, argument hash, retained source/revision/connector fences, transactional checkpoints and leases. Model tool dispatch cannot approve itself. Existing enabled-permission OAuth/Worker and assistant browser gates remain mandatory; no credentials or real inference are required. |
+| Migration 0032/recovery | `migrations/0032_assistant_conversations.sql` and registered hash, `scripts/release-rehearsal.mjs`: server-only conversation/message/run/credential state, active-run uniqueness and retained execution identity. Use the registered migration/recovery tests, not an ordinary FTS5 SQL export as proof of complete recovery. No shipped migration was edited. D1 recovery does not cover KV/DO state. |
+| Packaging/provider security | Exact lockfile, production dependency graph, production build, explicit provider selection, encrypted credentials and exact-host egress remain intact. Optional AI remains off by default; no fallback billing route, production binding, permission activation or deployment workflow is introduced. |
+
+Only R13-F01 is a new confirmed application finding in this round. The review does not convert theoretical risks or a browser-driver timeout into defects. Certification is author-run verification, not independent review approval.
+
+## Platform execution and reproducibility
+
+`node scripts/android-qa.mjs --public-pwa` runs the existing Android browser journeys and then an additional publicly trusted HTTPS installed-app test on a newly owned disposable AVD. `--only-public-pwa` isolates its diagnostics. `node scripts/public-platform-qa.mjs --safari` or `--firefox` uses shipping desktop WebDriver browsers with no certificate-warning bypass. Firefox must be an officially signed/notarized binary; the harness does not download or install one automatically.
+
+The optional anonymous Cloudflare Quick Tunnel exposes only synthetic temporary fixtures. Exact random cookie gating protects APIs; only manifest/icons/immutable build files are public for install packaging. The origin proxy validates the temporary localhost certificate with explicit TLS server name while preserving the public HTTP Host. This corrects the reproduced test-ingress `ERR_TLS_CERT_ALTNAME_INVALID` failure. DNS propagation/readiness, origin errors and failed platform attempts are retained. No host keychain, production account, named tunnel or live connector is modified. The ingress intentionally denies WebSocket upgrades and Quick Tunnels do not support SSE; this is **not** third-party AI-host or presence acceptance.
+
+Safari remote automation is a temporary native UI setting, not a hidden profile modification. On this Safari the exact path is **Safari → Settings → Advanced → Show features for web developers → Developer → Allow remote automation and external agents**. The earlier Develop-menu recipe is obsolete for this installed build. WebDriver session timeouts are recorded separately from application assertions. Restore both temporary checkboxes to their recorded initial state after testing. Do not enable Apple Events JavaScript, relax origin restrictions or change OS automation permissions as a substitute.
+
+Additional Android 36 testing could not proceed because the installed SDK required new license acceptance; the install was left unaccepted. The existing Android 35 image remains available. An unavailable licensed runtime is an external tooling gate, not an application failure.
+
+## Final evidence discipline
+
+After the final source commit, run `npm run certify:ai` on a clean tree and keep all 34 mandatory gates, actual exits and initial/final fingerprints. Rerun affected native Safari/PWA, Android and desktop regressions on that same SHA. Store exact results in `.artifacts/release-closure/final-*` and the orchestrator's `.artifacts/certification/<SHA>-<timestamp>-complete/`; retain all earlier diagnostic failures. Do not edit source merely to insert certification results after the run. Publish exact final evidence in PR #13 and the ignored consolidated result report.
+
+For actual hardware and human assistive-technology acceptance, use [the single hardware acceptance packet](../releases/hardware-acceptance.md) and `scripts/hardware-acceptance.mjs`. Physical iPhone/iPad/Android, prior-major OS, human VoiceOver/TalkBack/desktop AT, real camera/microphone/file-provider behavior, storage eviction and inaccessible third-party/provider/production operations stay NOT RUN or BLOCKED until genuinely executed. Native desktop zoom and simulator/PWA outcomes must be read from their specific source-bound artifacts, not inferred from viewport or AX inspection.
