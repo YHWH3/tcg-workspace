@@ -32,7 +32,7 @@ async function test(platform,name,fn){const at=Date.now();try{const evidence=awa
 async function api(path,{token,method='GET',body}={}){const r=await fetch(fixture.base+path,{method,headers:{...(token?{Authorization:`Bearer ${token}`}:{}) ,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(30000)});return {status:r.status,data:await r.json()};}
 async function pull(token){const result=await api('/api/sync/pull?since=0',{token});assert.equal(result.status,200);return result.data.records;}
 async function login(page,touch=false){await page.goto(fixture.base+'/pages/qa-page');await page.getByRole('textbox',{name:'Username',exact:true}).fill('admin');await page.getByLabel('Password',{exact:true}).fill('password123');if(touch)await page.getByLabel('Password',{exact:true}).press('Enter');else await page.getByRole('form',{name:'Sign in form',exact:true}).getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();}
-async function offline(context,platform,value){if(platform==='mac-webkit')networkGate.setAvailable(!value);else await context.setOffline(value);}
+async function offline(context,platform,value){if(platform==='mac-webkit'||platform==='mac-firefox')networkGate.setAvailable(!value);else await context.setOffline(value);}
 async function journey(context,platform,token,androidDevice){
  const page=context.pages()[0]??await context.newPage();diagnosticPage=page;page.setDefaultTimeout(20000);const errors=[];page.on('pageerror',e=>{errors.push({name:e.name,message:e.message,stack:e.stack});writeFileSync(join(output,platform+'-page-errors.json'),JSON.stringify(errors,null,2));});
  await test(platform,'Secure-origin login, headers, OAuth resource and live socket',async()=>{
@@ -151,9 +151,17 @@ try{
     const cua=process.env.CUA_DRIVER??'/Users/trinity/.local/bin/cua-driver',session='tcg-qa-native-zoom';
     const call=(tool,args)=>{const data=execFileSync(cua,['call',tool,JSON.stringify({session,...args})],{encoding:'utf8',timeout:15000,maxBuffer:10*1024*1024});return JSON.parse(data);};
     call('start_session',{});const observed=call('list_windows',{});writeFileSync(join(output,'native-zoom-windows.json'),JSON.stringify(observed));const windows=observed.windows.filter(w=>w.pid===pid&&w.is_on_screen&&w.bounds.width>400);if(!windows.length){const error=new Error('Exact isolated Chrome window unavailable to the native GUI driver on this macOS Stage; expose the test window and rerun --native-zoom');error.code='EXTERNAL_GUI';throw error;}const window_id=windows[0].window_id,target={pid,window_id};
-    writeFileSync(join(output,'native-zoom-before.json'),JSON.stringify(call('get_window_state',{...target,include_screenshot:false})));
+    // A visible WindowServer surface is not proof of an available AX window.
+    // Activate ONLY the disposable browser's exact window and verify it before
+    // native input; never fall back to the user's Chrome process or pixels.
+    const activation=JSON.parse(execFileSync(cua,['call','bring_to_front',JSON.stringify(target)],{encoding:'utf8',timeout:15000}));
+    writeFileSync(join(output,'native-zoom-activation.json'),JSON.stringify(activation));
+    const observedState=call('get_window_state',{...target,include_screenshot:false});writeFileSync(join(output,'native-zoom-before.json'),JSON.stringify(observedState));
+    if(!activation.activated||!activation.exact_window_effect?.verified||observedState.background_input?.exact_window?.status==='ax_unresolved'){
+     call('end_session',{});const error=new Error('Exact owned Chrome accessibility window unavailable; native zoom requires an exposed authorized GUI surface');error.code='EXTERNAL_GUI';throw error;
+    }
     const baseline=await page.evaluate(()=>({dpr:devicePixelRatio,width:innerWidth}));
-    try{for(let i=0;i<8;i++){const previous=await page.evaluate(()=>devicePixelRatio);const action=call('invoke_menu',{...target,path:['View','Zoom In']});writeFileSync(join(output,`native-zoom-action-${i}.json`),JSON.stringify(action));assert.ok(!action.error,JSON.stringify(action));await page.waitForFunction(dpr=>devicePixelRatio>dpr,previous,{timeout:5000});}
+    try{for(let i=0;i<8;i++){const previous=await page.evaluate(()=>devicePixelRatio);const action=call('invoke_menu',{...target,path:['View','Zoom In']});writeFileSync(join(output,`native-zoom-action-${i}.json`),JSON.stringify(action));if(action.status==='refused'||action.refusal){const error=new Error('Native GUI zoom action refused: '+JSON.stringify(action));error.code='EXTERNAL_GUI';throw error;}assert.ok(!action.error,JSON.stringify(action));await page.waitForFunction(dpr=>devicePixelRatio>dpr,previous,{timeout:5000});}
      await page.waitForFunction(dpr=>Math.abs(devicePixelRatio/dpr-4)<.05,baseline.dpr);
      const actual=await page.evaluate(()=>({dpr:devicePixelRatio,width:innerWidth,scroll:document.documentElement.scrollWidth}));assert.ok(actual.scroll<=actual.width+1,'Native zoom root reflow');
      const search=page.getByRole('button',{name:/^Search/}).first();await search.focus();await search.press('Enter');await page.getByRole('dialog').waitFor();await page.keyboard.press('Escape');assert.equal(await search.evaluate(e=>e===document.activeElement),true);
