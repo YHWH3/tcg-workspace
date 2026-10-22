@@ -325,7 +325,7 @@ export async function syncNow(): Promise<void> {
   if (!getToken() || !navigator.onLine) {
     const userId = authStore.get().user?.id;
     if (getToken() && !navigator.onLine && userId) await prepareOfflineAccess(userId);
-    syncStore.set((s) => ({ ...s, status: getToken() && !navigator.onLine ? 'offline' : s.status }));
+    syncStore.set((s) => ({ ...s, status: getToken() && !navigator.onLine ? (accessClientStore.get().status === 'offline' ? 'offline' : 'error') : s.status }));
     return;
   }
   running = true;

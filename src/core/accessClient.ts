@@ -1,5 +1,5 @@
 /** Client presentation/cache barrier. Server authorization remains mandatory. */
-import { api } from './api';
+import { api, getToken } from './api';
 import { db } from './db';
 import { PERMISSION_PROTOCOL } from '../../shared/protocol';
 import { readState } from './sync/feedState';
@@ -39,9 +39,18 @@ export async function prepareOnlineAccess(userId: string, assertCurrent: () => v
 }
 
 export async function prepareOfflineAccess(userId: string): Promise<void> {
-  if (db.name !== `workspace-${userId}`) { failClientAccess('account_changed'); return; }
+  const token = getToken(), epoch = accessClientStore.get().epoch;
+  // IndexedDB reads can finish after a storage event or another reconciliation
+  // locked the UI. A cached grant must never overwrite that newer barrier.
+  const current = () => {
+    if (db.name !== `workspace-${userId}` || localStorage.getItem('ws_uid') !== userId) { failClientAccess('account_changed'); return false; }
+    if (!token || getToken() !== token) { failClientAccess('session_changed'); return false; }
+    return accessClientStore.get().epoch === epoch;
+  };
+  if (!current()) return;
   try {
     const state = await readState(db, userId);
+    if (!current()) return;
     if (state.required || !state.consistent || (state.feed && (state.feed.legacyUpgrade || Object.keys(state.feed.joining).length))) { failClientAccess('reconnect_required'); return; }
     const value = state.access;
     // An existing Phase 4 cache without a manifest predates scoped permissions.
@@ -50,7 +59,7 @@ export async function prepareOfflineAccess(userId: string): Promise<void> {
     if (value && value.protocol !== 1 && value.protocol !== PERMISSION_PROTOCOL) throw new Error('reconnect_required');
     if (value && value.userId !== userId) throw new Error('account_cache_mismatch');
     accessClientStore.set(s => ({ ...s, status: 'offline', manifest, reason: 'offline_access_may_be_stale' }));
-  } catch { failClientAccess('reconnect_required'); }
+  } catch { if (current()) failClientAccess('reconnect_required'); }
 }
 
 export function assertClientMutationReady(): void {

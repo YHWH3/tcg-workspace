@@ -83,6 +83,36 @@ describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
     expect((await import('../src/core/auth')).dropSession).not.toHaveBeenCalled(); expect(fixture.calls).toEqual([]);
   });
 
+  it.each(['account', 'session', 'capability'])('does not let a delayed offline cache read reopen a newer %s barrier', async change => {
+    await engine.syncNow();
+    await db.outbox.add({ id: 'visible', collection: 'pages', patch: { title: 'Retained original work' }, ts: 10 });
+    vi.stubGlobal('navigator', { onLine: false });
+    const access = await import('../src/core/accessClient');
+    const original = db.meta.bulkGet.bind(db.meta);
+    let release!: () => void, entered = false;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const { default: Dexie } = await import('dexie');
+    const read = vi.spyOn(db.meta, 'bulkGet').mockImplementationOnce(keys => {
+      entered = true;
+      return original(keys).then(rows => Dexie.Promise.resolve(barrier).then(() => rows));
+    });
+    const pending = engine.syncNow();
+    await vi.waitFor(() => expect(entered).toBe(true));
+    if (change === 'account') {
+      localStorage.setItem('ws_uid', 'replacement-user'); localStorage.setItem('ws_token', 'replacement-token');
+      access.failClientAccess('account_changed');
+    } else if (change === 'session') {
+      localStorage.setItem('ws_token', 'replacement-token'); access.lockClientAccess('session_changed');
+    } else access.lockClientAccess('permissions_changed');
+    const locked = access.accessClientStore.get();
+    release(); await pending; read.mockRestore();
+    expect(access.accessClientStore.get().status).not.toBe('offline');
+    expect(access.accessClientStore.get().reason).toBe(locked.reason);
+    expect(engine.syncStore.get().status).toBe('error');
+    expect(await db.outbox.count()).toBe(1);
+    expect((await import('../src/core/auth')).dropSession).not.toHaveBeenCalled();
+  });
+
   it.each([null, {}, { ok: true, rejected: 0 }, { ok: true, rejected: 1, rejectedItems: [] },
     { ok: true, rejected: 1, rejectedItems: [{ id: 'unrelated', collection: 'pages', reason: 'forbidden' }] },
   ])('retains unacknowledged work when the push reply is incomplete: %j', async malformed => {
