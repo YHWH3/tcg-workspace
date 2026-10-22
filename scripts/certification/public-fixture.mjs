@@ -28,7 +28,7 @@ export async function startPublicFixture({output,tls}) {
   const guard=https.createServer({key:readFileSync(tls.key),cert:readFileSync(tls.cert)},(req,res)=>{
     const path=new URL(req.url,'https://fixture.invalid').pathname;
     const policy=publicFixturePolicy(path,req.headers.cookie,secret,entry);
-    if(policy==='entry'){res.writeHead(303,{'Set-Cookie':`tcg_qa=${secret}; Path=/; HttpOnly; Secure; SameSite=Lax`,'Location':'/pages/qa-page','Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.end();return;}
+    if(policy==='entry'){res.writeHead(303,{'Set-Cookie':`tcg_qa=${secret}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=3600`,'Location':'/pages/qa-page','Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.end();return;}
     if(policy==='deny'||policy==='static'&&req.method!=='GET'&&req.method!=='HEAD'){appendFileSync(join(output,'guard-denied.jsonl'),JSON.stringify({path,method:req.method})+'\n');res.writeHead(404,{'Cache-Control':'no-store'});res.end();return;}
     const request=https.request({hostname:upstream.hostname,servername:'localhost',port:upstream.port,path:req.url,method:req.method,headers:{...req.headers,'x-forwarded-proto':'https'}},response=>{res.writeHead(response.statusCode,{...response.headers,'referrer-policy':'no-referrer'});response.pipe(res);});
     request.on('error',error=>{writeFileSync(join(output,'origin-error.json'),JSON.stringify({code:error.code,message:error.message,path},null,2));res.destroy();});req.on('error',()=>request.destroy());res.on('close',()=>request.destroy());req.pipe(request);
