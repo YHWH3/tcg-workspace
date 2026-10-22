@@ -170,7 +170,10 @@ async function androidInteractions(context,platform,token,device){
   const panel=page.getByTestId('assistant-panel');await panel.waitFor();await panel.getByTestId('assistant-provider-select').selectOption('simulated');
   const title='Android approved '+Date.now(),input=panel.getByTestId('assistant-input');await input.tap();await input.fill('/tool create_page '+JSON.stringify({title}));await nativeTap('Send message');
   const card=panel.getByTestId('assistant-approval-card').last();await card.waitFor();await panel.getByTestId('assistant-stop').waitFor({state:'hidden'});await input.tap();const approve=card.getByTestId('assistant-approve');await approve.scrollIntoViewIfNeeded();
-  await device.scroll({pkg:'com.android.chrome',text:'Assistant messages',scrollable:true},'down',0.8,{timeout:15000});
+  // A tablet transcript may fit without overflow and therefore has no native
+  // scrollable widget. Scroll only when the rendered region actually needs it.
+  if(await panel.getByTestId('assistant-transcript').evaluate(el=>el.scrollHeight>el.clientHeight+1))
+   await device.scroll({pkg:'com.android.chrome',text:'Assistant messages',scrollable:true},'down',0.8,{timeout:15000});
   const keyboard=await eventually(async()=>{const state=await ime();return shown(state)?state:false},{timeout:10000});writeFileSync(join(output,platform+'-approval-ime.txt'),keyboard);assert.equal(shown(keyboard),true,'Actual Android IME must be shown, not a substituted viewport');
   assert.equal(await approve.evaluate(el=>{const r=el.getBoundingClientRect(),v=visualViewport;return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))&&r.y+r.height/2>=(v?.offsetTop??0)&&r.y+r.height/2<(v?.height??innerHeight)+(v?.offsetTop??0)}),true,'Keyboard-open approval receives the intended tap');
   await page.screenshot({path:join(output,platform+'-approval-keyboard.png')});writeFileSync(join(output,platform+'-approval-keyboard-native.png'),await device.screenshot());await nativeTap('Approve & execute');await panel.getByText(/Changeset/i).last().waitFor();
