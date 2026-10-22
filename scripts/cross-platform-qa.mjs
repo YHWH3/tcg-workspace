@@ -168,8 +168,14 @@ async function androidInteractions(context,platform,token,device){
   await eventually(async()=>(await pull(token)).find(r=>r.id==='qa-task')?.data?.description===text);await page.reload({waitUntil:'domcontentloaded'});await description.waitFor();assert.equal(await description.inputValue(),text);
   await page.goto(fixture.base+'/pages/qa-page',{waitUntil:'domcontentloaded'});await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();await page.getByTestId('assistant-toggle').filter({visible:true}).first().tap();
   const panel=page.getByTestId('assistant-panel');await panel.waitFor();await panel.getByTestId('assistant-provider-select').selectOption('simulated');
-  const title='Android approved '+Date.now(),input=panel.getByTestId('assistant-input');await input.tap();await input.fill('/tool create_page '+JSON.stringify({title}));await nativeTap('Send message');
-  const card=panel.getByTestId('assistant-approval-card').last();await card.waitFor();await panel.getByTestId('assistant-stop').waitFor({state:'hidden'});await input.tap();const approve=card.getByTestId('assistant-approve');await approve.scrollIntoViewIfNeeded();
+  const title='android approved '+Date.now(),input=panel.getByTestId('assistant-input');
+  await page.waitForFunction(()=>document.activeElement?.matches('[data-testid=assistant-input]'));assert.equal(await input.inputValue(),'');
+  // Android's native key-code API cannot type the synthetic tool command's
+  // punctuation. Seed only that syntax, type the actual title through the OS,
+  // verify the exact draft, then close the JSON before the native Send tap.
+  const prefix='/tool create_page {"title":"';await input.fill(prefix);await device.input.type(title);await eventually(async()=>await input.inputValue()===prefix+title);
+  const command='/tool create_page '+JSON.stringify({title});await input.fill(command);assert.equal(await input.inputValue(),command);await nativeTap('Send message');
+  const card=panel.getByTestId('assistant-approval-card').last();await card.waitFor();await panel.getByTestId('assistant-stop').waitFor({state:'hidden'});await page.waitForFunction(()=>document.activeElement?.matches('[data-testid=assistant-input]'));const approve=card.getByTestId('assistant-approve');await approve.scrollIntoViewIfNeeded();
   // A tablet transcript may fit without overflow and therefore has no native
   // scrollable widget. Scroll only when the rendered region actually needs it.
   if(await panel.getByTestId('assistant-transcript').evaluate(el=>el.scrollHeight>el.clientHeight+1))
