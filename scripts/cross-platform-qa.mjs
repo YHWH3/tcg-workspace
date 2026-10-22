@@ -42,12 +42,18 @@ async function journey(context,platform,token,androidDevice){
   const socket=await page.evaluate(()=>new Promise(resolve=>{const ws=new WebSocket(location.origin.replace(/^http/,'ws')+'/api/live',['ws-auth',localStorage.getItem('ws_token')]);const timer=setTimeout(()=>{ws.close();resolve(false)},10000);ws.onopen=()=>{clearTimeout(timer);ws.close();resolve(true)};ws.onerror=()=>{clearTimeout(timer);resolve(false)};}));assert.equal(socket,true,'Real TLS WebSocket upgrades');
   return {url:page.url(),secureContext:true,oauthResource:fixture.base+'/mcp',webSocket:true};
  });
- if(androidDevice){await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration())?.active);await androidInteractions(context,platform,token,androidDevice);diagnosticPage=page;await page.bringToFront();}
+ if(androidDevice){await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration())?.active);if(platform.endsWith('-small'))await androidRotation(context,platform,token,androidDevice,page);await androidInteractions(context,platform,token,androidDevice);diagnosticPage=page;await page.bringToFront();}
  await test(platform,'Interrupted required-asset installation retains the complete active shell',async()=>{
   await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration())?.active);await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   const swPath=join(fixture.directory,'client','sw.js'),indexPath=join(fixture.directory,'client','index.html'),sw=readFileSync(swPath,'utf8'),index=readFileSync(indexPath,'utf8');
   const main=index.match(/src="(\/assets\/[^"\n]+\.js)"/)?.[1];assert.ok(main,'Actual built entry script required');
-  const marker='qa-broken-'+Date.now(),missing='/assets/qa-required-missing.js',text=await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).innerText();
+  const editor=page.getByRole('textbox',{name:"Type '/' for commands",exact:true});
+  // RichInput's DOM-fill effect follows element creation. Existence alone can
+  // capture an empty mount before the already-loaded record is rendered.
+  const canonical=(await pull(token)).find(r=>r.id==='qa-block')?.data?.text;
+  assert.equal(typeof canonical,'string','Canonical fixture text required before the fault');
+  await eventually(async()=>await editor.innerText()===canonical,{timeout:20000});
+  const marker='qa-broken-'+Date.now(),missing='/assets/qa-required-missing.js',text=await editor.innerText();
   const before=await page.evaluate(async()=>({keys:await caches.keys(),user:localStorage.getItem('ws_uid')}));networkGate.setAssetFailure(missing);
   try{
    assert.equal((await page.request.get(fixture.base+missing)).status(),503,'A real required-asset response must fail');
@@ -90,6 +96,43 @@ async function journey(context,platform,token,androidDevice){
  });
  if(platform!=='mac-chrome')await page.close();
 }
+async function androidRotation(context,platform,token,device,page){
+ await test(platform,'Native Android landscape and background retain a durable unacknowledged edit',async()=>{
+  await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
+  const editor=page.getByRole('textbox',{name:"Type '/' for commands",exact:true});
+  const original=(await pull(token)).find(r=>r.id==='qa-block').data.text;
+  await eventually(async()=>await editor.innerText()===original);
+  const text='Android landscape offline café 日本語 '+Date.now();
+  await editor.tap();await context.setOffline(true);await editor.fill(text);
+  await eventually(async()=>/\bmInputShown=true\b/.test(String(await device.shell('dumpsys input_method'))),{timeout:10000});
+  await eventually(async()=>(await readAccountStore(page,'blocks',{id:'qa-block'}))?.text===text);
+  assert.ok((await readAccountStore(page,'outbox')).some(r=>r.id==='qa-block'),'The edit must still be pending, not acknowledged');
+  assert.notEqual((await pull(token)).find(r=>r.id==='qa-block').data.text,text);
+  const screen=async landscape=>{let image;await eventually(async()=>{image=await device.screenshot();return landscape?image.readUInt32BE(16)>image.readUInt32BE(20):image.readUInt32BE(20)>image.readUInt32BE(16)},{timeout:15000});return image;};
+  try{
+   await device.shell('wm user-rotation lock 1');
+   writeFileSync(join(output,'android-landscape-native.png'),await screen(true));
+   writeFileSync(join(output,'android-landscape-display.txt'),String(await device.shell('dumpsys display')));
+   const metrics=await page.evaluate(()=>({width:innerWidth,height:innerHeight,scroll:document.documentElement.scrollWidth,visual:{width:visualViewport.width,height:visualViewport.height,offsetTop:visualViewport.offsetTop},orientation:screen.orientation.type}));
+   writeFileSync(join(output,'android-landscape-metrics.json'),JSON.stringify(metrics));assert.ok(metrics.scroll<=metrics.width+1);
+   assert.equal(await editor.innerText(),text);
+   const activity=async()=>String(await device.shell('dumpsys activity activities')).split('\n').filter(line=>/topResumedActivity|mResumedActivity/.test(line)).join('\n');
+   await device.shell('input keyevent KEYCODE_HOME');
+   const background=await eventually(async()=>{const value=await activity();return /launcher/i.test(value)?value:false},{timeout:10000});
+   writeFileSync(join(output,'android-background-activity.txt'),background);
+   const debugVisibility=await page.evaluate(()=>document.visibilityState);
+   await device.shell('am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p com.android.chrome');
+   const foreground=await eventually(async()=>{const value=await activity();return value.includes('com.android.chrome')?value:false},{timeout:10000});
+   writeFileSync(join(output,'android-foreground-activity.txt'),foreground);writeFileSync(join(output,'android-background-dom-visibility.json'),JSON.stringify({debugVisibility,note:'CDP may keep a page visible; native activity is the app-switch assertion. This does not prove real process suspension.'}));
+   assert.equal(await editor.innerText(),text);
+   await device.shell('wm user-rotation lock 0');writeFileSync(join(output,'android-portrait-return-native.png'),await screen(false));
+   await context.setOffline(false);await eventually(async()=>(await pull(token)).find(r=>r.id==='qa-block').data.text===text,{timeout:25000});
+   await eventually(async()=>!(await readAccountStore(page,'outbox')).some(r=>r.id==='qa-block'));
+   await page.reload({waitUntil:'domcontentloaded'});await editor.waitFor();await eventually(async()=>await editor.innerText()===text);
+   return {nativeLandscape:true,nativePortraitReturn:true,actualIme:true,backgroundForeground:true,localPendingBeforeReconnect:true,serverPersistence:true,outboxAcknowledged:true,text};
+  }finally{await context.setOffline(false);await device.shell('wm user-rotation lock 0');}
+ });
+}
 async function androidInteractions(context,platform,token,device){
  // A CDP-created background tab cannot exercise the native IME. Open the
  // route with a real Android VIEW intent, then adopt its visible browser tab.
@@ -97,20 +140,41 @@ async function androidInteractions(context,platform,token,device){
  await device.shell('am start -a android.intent.action.VIEW -d '+nativeUrl+' -p com.android.chrome');
  const page=await eventually(async()=>{for(const candidate of context.pages()){if(candidate.url().startsWith(fixture.base+'/boards/board-default/tasks/qa-task')&&await candidate.evaluate(()=>document.visibilityState==='visible').catch(()=>false))return candidate;}return false;},{timeout:20000});
  diagnosticPage=page;page.setDefaultTimeout(20000);
+ let nativeStep=0;
+ async function nativeTap(label){
+  if(label==='Send message')await page.waitForFunction(()=>document.querySelector('[data-testid=assistant-send]')?.disabled===false);
+  const selector={pkg:'com.android.chrome',text:new RegExp('^'+label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$'),enabled:true,clickable:true};
+  const step=++nativeStep;
+  try{
+   await device.wait(selector,{timeout:15000});
+   const observed=await device.info(selector);
+   writeFileSync(join(output,platform+'-native-button-'+step+'.json'),JSON.stringify({label,...observed}));
+   const image=await device.screenshot();writeFileSync(join(output,platform+'-native-button-'+step+'.png'),image);
+   const b=observed.bounds;assert.ok(b.width>0&&b.height>0&&b.x>=0&&b.y>=0&&b.x+b.width<=image.readUInt32BE(16)&&b.y+b.height<=image.readUInt32BE(20),'Native target must fit inside the actual device screen');
+   // Resolve the same named native widget again at input time. CSS coordinates
+   // do not account for Android's keyboard-induced viewport panning.
+   await device.tap(selector,{timeout:15000});
+  }catch(error){
+   writeFileSync(join(output,platform+'-native-button-'+step+'-failure.png'),await device.screenshot());
+   writeFileSync(join(output,platform+'-native-button-'+step+'-failure.json'),JSON.stringify({label,error:error.message,viewport:await page.evaluate(()=>({width:innerWidth,height:innerHeight,visual:{height:visualViewport.height,offsetTop:visualViewport.offsetTop}}))}));
+   throw new Error('Native '+label+': '+error.message);
+  }
+ }
  const ime=async()=>String(await device.shell('dumpsys input_method'));
- const shown=text=>/mInputShown=true|inputShown=true|mIsInputViewShown=true/.test(text);
+ const shown=text=>/\bmInputShown=true\b/.test(text);
  await test(platform,'Task edit and keyboard-open simulated assistant approval persist exactly once',async()=>{
   await page.getByRole('textbox',{name:'Task title',exact:true}).waitFor();
   const text='Android task café '+Date.now(),description=page.getByRole('textbox',{name:'Task description',exact:true});await description.fill(text);await description.press('Tab');
   await eventually(async()=>(await pull(token)).find(r=>r.id==='qa-task')?.data?.description===text);await page.reload({waitUntil:'domcontentloaded'});await description.waitFor();assert.equal(await description.inputValue(),text);
   await page.goto(fixture.base+'/pages/qa-page',{waitUntil:'domcontentloaded'});await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();await page.getByTestId('assistant-toggle').filter({visible:true}).first().tap();
   const panel=page.getByTestId('assistant-panel');await panel.waitFor();await panel.getByTestId('assistant-provider-select').selectOption('simulated');
-  const title='Android approved '+Date.now(),input=panel.getByTestId('assistant-input');await input.tap();await input.fill('/tool create_page '+JSON.stringify({title}));await panel.getByTestId('assistant-send').tap();
-  const card=panel.getByTestId('assistant-approval-card').last();await card.waitFor();await input.tap();const approve=card.getByTestId('assistant-approve');await approve.scrollIntoViewIfNeeded();
+  const title='Android approved '+Date.now(),input=panel.getByTestId('assistant-input');await input.tap();await input.fill('/tool create_page '+JSON.stringify({title}));await nativeTap('Send message');
+  const card=panel.getByTestId('assistant-approval-card').last();await card.waitFor();await panel.getByTestId('assistant-stop').waitFor({state:'hidden'});await input.tap();const approve=card.getByTestId('assistant-approve');await approve.scrollIntoViewIfNeeded();
+  await device.scroll({pkg:'com.android.chrome',text:'Assistant messages',scrollable:true},'down',0.8,{timeout:15000});
   const keyboard=await eventually(async()=>{const state=await ime();return shown(state)?state:false},{timeout:10000});writeFileSync(join(output,platform+'-approval-ime.txt'),keyboard);assert.equal(shown(keyboard),true,'Actual Android IME must be shown, not a substituted viewport');
-  assert.equal(await approve.evaluate(el=>{const r=el.getBoundingClientRect(),v=visualViewport;return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))&&r.y+r.height/2<(v?.height??innerHeight)+(v?.offsetTop??0)}),true,'Keyboard-open approval receives the intended tap');
-  await page.screenshot({path:join(output,platform+'-approval-keyboard.png')});writeFileSync(join(output,platform+'-approval-keyboard-native.png'),await device.screenshot());await approve.tap();await panel.getByText(/Changeset/i).last().waitFor();
-  await eventually(async()=>(await pull(token)).filter(r=>r.collection==='pages'&&r.data?.title===title).length===1);await panel.getByRole('button',{name:'Close assistant',exact:true}).tap();
+  assert.equal(await approve.evaluate(el=>{const r=el.getBoundingClientRect(),v=visualViewport;return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))&&r.y+r.height/2>=(v?.offsetTop??0)&&r.y+r.height/2<(v?.height??innerHeight)+(v?.offsetTop??0)}),true,'Keyboard-open approval receives the intended tap');
+  await page.screenshot({path:join(output,platform+'-approval-keyboard.png')});writeFileSync(join(output,platform+'-approval-keyboard-native.png'),await device.screenshot());await nativeTap('Approve & execute');await panel.getByText(/Changeset/i).last().waitFor();
+  await eventually(async()=>(await pull(token)).filter(r=>r.collection==='pages'&&r.data?.title===title).length===1);const close=panel.getByRole('button',{name:'Close assistant',exact:true});await close.focus();await close.scrollIntoViewIfNeeded();await nativeTap('Close assistant');await panel.waitFor({state:'hidden'});
   return {taskReloaded:true,taskText:text,approvalTitle:title,proposalCount:1,actualIme:true,provider:'SIMULATED'};
  });
  await test(platform,'Canvas item-list nudge, actual browser touch pan and pinch',async()=>{
@@ -186,14 +250,14 @@ try{
   const version=String(await device.shell('getprop ro.build.version.release')).trim();writeFileSync(join(output,'android-device.json'),JSON.stringify({serial,version,model:device.model(),physical:false}));
   try{for(const [name,size,density] of [['small','720x1280','320'],['large','1080x2400','420'],['tablet','1600x2560','240']]){
    await device.close();
-   for(const args of [['wm','size',size],['wm','density',density],['pm','clear','com.android.chrome']])execFileSync(adb,['-s',serial,'shell',...args],{timeout:10000,stdio:'ignore'});
+   for(const args of [['am','force-stop','com.microsoft.playwright.androiddriver'],['wm','size',size],['wm','density',density],['pm','clear','com.android.chrome']])execFileSync(adb,['-s',serial,'shell',...args],{timeout:10000,stdio:'ignore'});
    await eventually(async()=>{try{if(execFileSync(adb,['-s',serial,'get-state'],{encoding:'utf8',timeout:3000}).trim()!=='device')return false;device=(await _android.devices()).find(d=>d.serial()===serial);return !!device}catch{return false}},{timeout:30000});
    writeFileSync(join(output,`android-${name}-display.txt`),execFileSync(adb,['-s',serial,'shell','wm','size'],{encoding:'utf8'})+'\n'+execFileSync(adb,['-s',serial,'shell','wm','density'],{encoding:'utf8'}));
    const context=await device.launchBrowser({hasTouch:true,args:[`--ignore-certificate-errors-spki-list=${spki}`],ignoreHTTPSErrors:true});try{
     // The browser DOM can respond behind Chrome's native first-run modal.
     // Inspect a fresh hierarchy and decline notifications before claiming real
     // touch/IME acceptance. Never grant a permission or adopt a personal profile.
-    const setupDump=execFileSync(adb,['-s',serial,'shell','uiautomator','dump','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8',timeout:15000});
+    const setupDump=execFileSync(adb,['-s',serial,'shell','uiautomator','dump','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8',timeout:30000});
     assert.ok(setupDump.includes('dumped'),'Fresh Chrome setup hierarchy required');
     const setup=execFileSync(adb,['-s',serial,'shell','cat','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8'});
     writeFileSync(join(output,`android-${name}-setup.xml`),setup);
@@ -201,10 +265,11 @@ try{
      const button=[...setup.matchAll(/<node\b[^>]*>/g)].map(m=>m[0]).find(n=>n.includes('text="No thanks"')&&n.includes('clickable="true"'));
      const bounds=button?.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);assert.ok(bounds,'Observed decline-notifications button required');
      execFileSync(adb,['-s',serial,'shell','input','tap',String((Number(bounds[1])+Number(bounds[3]))/2),String((Number(bounds[2])+Number(bounds[4]))/2)]);
-     const afterDump=execFileSync(adb,['-s',serial,'shell','uiautomator','dump','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8',timeout:15000});assert.ok(afterDump.includes('dumped'));
+     const afterDump=execFileSync(adb,['-s',serial,'shell','uiautomator','dump','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8',timeout:30000});assert.ok(afterDump.includes('dumped'));
      const after=execFileSync(adb,['-s',serial,'shell','cat','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8'});writeFileSync(join(output,`android-${name}-setup-after.xml`),after);
      assert.ok(!after.includes('Chrome notifications make things easier'),'Native setup must be dismissed before page interactions');
     }
+    await device.wait({pkg:'com.android.chrome',clazz:'android.webkit.WebView'},{timeout:15000});
     await journey(context,`android-${version}-chrome-${name}`,admin.token,(name==='small'||name==='tablet')?device:undefined);writeFileSync(join(output,`android-${name}.png`),await device.screenshot());
     if(name==='small'&&process.argv.includes('--android-pwa'))await test('android-chrome','Native Home Screen PWA installation and standalone launch',async()=>{
      const page=await context.newPage();diagnosticPage=page;await page.goto(fixture.base+'/pages/qa-page');await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();let step=0;
@@ -221,7 +286,12 @@ try{
      await app.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();return {standalone:true,accountRetained:await app.evaluate(()=>!!localStorage.getItem('ws_uid'))};
     });
    }finally{await context.close();}
-  }}finally{await device.close().catch(()=>{});try{execFileSync(adb,['-s',serial,'reverse','--remove',`tcp:${new URL(fixture.base).port}`]);}catch(e){writeFileSync(join(output,'android-cleanup-error.txt'),e.message);}}
+  }}finally{
+   // AndroidDevice.close can leave its instrumentation transport alive. Stop
+   // only this disposable device's test driver before closing the ADB client.
+   try{execFileSync(adb,['-s',serial,'shell','am','force-stop','com.microsoft.playwright.androiddriver'],{timeout:10000,stdio:'ignore'});}
+   finally{await device.close().catch(()=>{});try{execFileSync(adb,['-s',serial,'reverse','--remove',`tcp:${new URL(fixture.base).port}`]);}catch(e){writeFileSync(join(output,'android-cleanup-error.txt'),e.message);}}
+  }
  }
  assert.equal(fingerprint(root),source.fingerprint,'Source unchanged during qualification');
 }finally{await networkGate?.stop();await fixture?.stop();save();}
