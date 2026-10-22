@@ -52,7 +52,7 @@ try {
    // Packaging is asynchronous. Do not repeatedly tap a changing mini-infobar.
    await eventually(async()=>{const value=hierarchy();return !value.includes('text="Cancel"')||await standalone();},{timeout:20000});
    screenshot('after-install');
-   app=await standalone();if(!app){adbRun('shell','input','keyevent','KEYCODE_HOME');xml=hierarchy();app=await eventually(async()=>{const value=hierarchy();if(tap(value,['Workspace']))return await standalone();return false;},{timeout:90000}).catch(()=>false);}
+   app=await standalone();if(!app){adbRun('shell','input','keyevent','KEYCODE_HOME');xml=hierarchy();app=await eventually(async()=>{const value=hierarchy();if(tap(value,['Add to home screen']))return false;if(tap(value,['Workspace']))return await standalone();return false;},{timeout:90000}).catch(()=>false);}
    if(!app){writeFileSync(join(output,'webapk-log.txt'),adbRun('logcat','-d','-t','3000'));writeFileSync(join(output,'installed-packages.txt'),adbRun('shell','pm','list','packages'));writeFileSync(join(output,'activity-after-install.txt'),adbRun('shell','dumpsys','activity','activities'));writeFileSync(join(output,'targets-after-install.json'),JSON.stringify(await (await fetch(`http://127.0.0.1:${forwardPort}/json/list`)).json(),null,2));const e=new Error('Installation did not yield observed standalone mode despite public CA and minimal Chrome flags');e.code='EXTERNAL_GUI';throw e;}
    await app.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();assert.equal(await app.evaluate(()=>localStorage.getItem('ws_uid')),fixture.userId);screenshot('standalone');return {standalone:true,accountRetained:true};
   });
@@ -93,6 +93,9 @@ try {
    writeFileSync(join(output,'safari-persisted.png'),Buffer.from(await command('/screenshot'),'base64'));return {capabilities:created.capabilities,publicCaTrusted:true,accountRetained:true,reloaded:true,unicode:true};
   });
   await record(`Shipping ${browserName} service worker complete shell and authenticated search`,async()=>{
+   // A first navigation can finish before installation. Revisit only after the
+   // real worker is activated, then assert actual control of the new document.
+   await command('/execute/async',{script:'const done=arguments[arguments.length-1];navigator.serviceWorker.ready.then(r=>done(r.active?.state));',args:[]});await command('/refresh',{});
    try{await eventually(()=>js('return !!navigator.serviceWorker.controller'),{timeout:60000});}catch(e){const state=await command('/execute/async',{script:'const done=arguments[arguments.length-1];(async()=>({ready:document.readyState,url:location.pathname,secure:isSecureContext,cache:await caches.keys(),registrations:(await navigator.serviceWorker.getRegistrations()).map(r=>({scope:r.scope,active:r.active?.state,installing:r.installing?.state,waiting:r.waiting?.state}))}))().then(done);',args:[]});writeFileSync(join(output,'service-worker-failure.json'),JSON.stringify(state,null,2));throw e;}
    const cache=await command('/execute/async',{script:'const done=arguments[arguments.length-1];(async()=>{const keys=(await caches.keys()).filter(k=>k.startsWith("ws-precache-v4-"));const c=await caches.open(keys.at(-1));const r=await c.match("index.html",{ignoreSearch:true});return {keys,index:!!r,assets:(await c.keys()).length}})().then(done);',args:[]});assert.ok(cache.index&&cache.assets>10);
    const query=await command('/execute/async',{script:'const done=arguments[arguments.length-1];fetch("/api/search?q=Cross",{headers:{Authorization:"Bearer "+localStorage.getItem("ws_token")}}).then(r=>r.json()).then(r=>done({hasFixture:JSON.stringify(r).includes("Cross-platform QA")}));',args:[]});assert.equal(query.hasFixture,true);return {cache,search:query};
