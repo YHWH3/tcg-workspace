@@ -13,8 +13,15 @@ final class SafariTests: XCTestCase {
   let ready=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in user.exists || editor.exists },object:nil)
   XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed,"Wait for authenticated page OR real sign-in form, not an arbitrary hydration delay")
   if user.exists {
-   user.tap(); dismissKeyboardIntro(); if let value=user.value as? String,value != "ada" {user.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:value.count))};user.typeText("admin")
-   let password=app.webViews.secureTextFields["Password"];if app.buttons["Next"].exists {app.buttons["Next"].tap()}else{password.tap()};password.typeText("password123");if app.buttons["Done"].exists {app.buttons["Done"].tap()}
+   user.tap();dismissKeyboardIntro();XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout:10),"Native keyboard must be ready before first sign-in typing")
+   if let value=user.value as? String,value != "ada" {user.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:value.count))}
+   user.typeText("admin")
+   let usernameEntered=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (user.value as? String)=="admin" },object:nil)
+   XCTAssertEqual(XCTWaiter.wait(for:[usernameEntered],timeout:10),.completed,"Exact username must reach its field before advancing to Password")
+   let password=app.webViews.secureTextFields["Password"];if app.buttons["Next"].exists {app.buttons["Next"].tap()}else{password.tap()};dismissKeyboardIntro();XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout:10));password.typeText("password123")
+   let passwordEntered=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (password.value as? String ?? "").count==11 },object:nil)
+   XCTAssertEqual(XCTWaiter.wait(for:[passwordEntered],timeout:10),.completed,"Synthetic password must reach the secure field before submitting")
+   if app.buttons["Done"].exists {app.buttons["Done"].tap()}
    let form=app.webViews.otherElements.matching(NSPredicate(format:"label BEGINSWITH %@","Sign in form")).firstMatch
    XCTAssertTrue(form.waitForExistence(timeout:10));let submit=form.buttons["Sign in"];XCTAssertTrue(submit.isHittable);submit.tap()
   }
