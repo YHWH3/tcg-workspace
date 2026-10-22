@@ -27,20 +27,27 @@ async function targetStates(){
  const targets=await(await fetch(`http://127.0.0.1:${forwardPort}/json/list`)).json();const rows=[];
  for(const target of targets.filter(t=>t.type==='page'&&t.url.startsWith(fixture.base))){
   assert.ok(target.webSocketDebuggerUrl.startsWith(`ws://127.0.0.1:${forwardPort}/`));
-  const value=await new Promise((resolve,reject)=>{const ws=new WebSocket(target.webSocketDebuggerUrl);const timer=setTimeout(()=>{ws.close();reject(new Error('Owned target evaluation timed out'));},5000);ws.onopen=()=>ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:'JSON.stringify({standalone:matchMedia("(display-mode: standalone)").matches,modes:["standalone","minimal-ui","fullscreen","browser"].filter(v=>matchMedia("(display-mode: "+v+")").matches),ready:document.readyState,hasAccount:!!localStorage.getItem("ws_uid"),bodyLength:document.body?.innerText.length})',returnByValue:true}}));ws.onmessage=e=>{const r=JSON.parse(e.data);if(r.id===1){clearTimeout(timer);ws.close();r.error?reject(new Error('Owned target evaluation failed')):resolve(JSON.parse(r.result.result.value));}};ws.onerror=()=>{clearTimeout(timer);reject(new Error('Owned target connection failed'));};});
+  let value;try{value=await new Promise((resolve,reject)=>{const ws=new WebSocket(target.webSocketDebuggerUrl);const timer=setTimeout(()=>{ws.close();reject(new Error('Owned target evaluation timed out'));},5000);ws.onopen=()=>ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:'JSON.stringify({standalone:matchMedia("(display-mode: standalone)").matches,modes:["standalone","minimal-ui","fullscreen","browser"].filter(v=>matchMedia("(display-mode: "+v+")").matches),ready:document.readyState,hasAccount:!!localStorage.getItem("ws_uid"),bodyLength:document.body?.innerText.length})',returnByValue:true}}));ws.onmessage=e=>{const r=JSON.parse(e.data);if(r.id===1){clearTimeout(timer);ws.close();r.error?reject(new Error('Owned target evaluation failed')):resolve(JSON.parse(r.result.result.value));}};ws.onerror=()=>{clearTimeout(timer);reject(new Error('Owned target connection failed'));};});}catch(error){value={observationError:error.message};}
   rows.push({id:target.id,url:target.url,...value});
  }
  writeFileSync(join(output,'standalone-target-states.json'),JSON.stringify(rows,null,2));return rows;
 }
-async function standalone(){
- for(const context of browser.contexts())for(const p of context.pages())if(p.url().startsWith(fixture.base)&&await p.evaluate(()=>matchMedia('(display-mode: standalone)').matches).catch(()=>false))return p;
- // Native WebappActivity can create a target outside the initial tab inventory.
- // Require direct target proof before refreshing the owned CDP connection.
- if((await targetStates()).some(t=>t.standalone)){
-  browser=await chromium.connectOverCDP(`http://127.0.0.1:${forwardPort}`);
-  for(const context of browser.contexts())for(const p of context.pages())if(p.url().startsWith(fixture.base)&&await p.evaluate(()=>matchMedia('(display-mode: standalone)').matches).catch(()=>false))return p;
+async function observedStandalonePage(){
+ for(const context of browser.contexts())for(const p of context.pages()){
+  if(!p.url().startsWith(fixture.base))continue;
+  let timer;
+  const value=await Promise.race([p.evaluate(()=>matchMedia('(display-mode: standalone)').matches).catch(()=>false),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),3000);})]);clearTimeout(timer);
+  if(value)return p;
  }
  return false;
+}
+async function standalone(){
+ // A background Chrome tab can freeze while the native launcher owns focus.
+ // Bound every target read and require real display-mode proof, not AX geometry.
+ if(!(await targetStates()).some(t=>t.standalone))return false;
+ let page=await observedStandalonePage();if(page)return page;
+ browser=await chromium.connectOverCDP(`http://127.0.0.1:${forwardPort}`);
+ return observedStandalonePage();
 }
 try {
  fixture=await startPublicFixture({output,tls});
@@ -71,7 +78,6 @@ try {
    // the launcher request has been handled; HOME can hide the pending dialog.
    let miniConfirmed=false;
    await eventually(async()=>{
-    if(await standalone())return true;
     const value=hierarchy();
     if(tap(value,['Add to home screen']))return true;
     // Chrome may offer its mini-infobar after the menu install request. Confirm
