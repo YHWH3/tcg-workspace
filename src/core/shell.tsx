@@ -530,7 +530,7 @@ export function Shell() {
     return () => window.removeEventListener('keydown', onKey);
   }, [navigate]);
 
-  const tabItems = modules.filter((m) => m.navItem).map((m) => m.navItem!);
+  const tabItems = modules.filter((m) => m.navItem && m.navItem.tab !== false).map((m) => m.navItem!);
 
   return (
     <div className="vv-fit px-safe flex">

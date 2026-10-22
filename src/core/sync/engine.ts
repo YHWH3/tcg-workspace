@@ -1,6 +1,6 @@
 import { PERMISSION_PROTOCOL } from '../../../shared/protocol';
 import { isCollection, type Collection } from '../../../shared/collections';
-import { WEBSITE_INBOX_BOARD, WEBSITE_INBOX_ID } from '../../../shared/websiteInbox';
+import { WEBSITE_INBOX_BOARD, WEBSITE_INBOX_ID, websiteAutomations, websiteInboxViews } from '../../../shared/websiteInbox';
 import type { Mutation, PulledRecord, PublicUser } from '../../../shared/types';
 import { api, ApiError, getToken } from '../api';
 import { db, getMeta, setMeta } from '../db';
@@ -117,11 +117,17 @@ async function seedBuiltins(): Promise<void> {
 }
 
 // Separate flag: existing installs already set SEEDS_DONE before this seed existed.
-const WEBSITE_SEED_DONE = 'seeds_website_v1';
+// v2 adds the views and, from an admin's client only, the two automations
+// (AI classification needs a real owner; see shared/websiteInbox.ts).
+const WEBSITE_SEED_DONE = 'seeds_website_v2';
 
 async function seedWebsiteInbox(): Promise<void> {
   if (await getMeta(WEBSITE_SEED_DONE)) return;
   await seedRecord('boards', WEBSITE_INBOX_ID, { ...WEBSITE_INBOX_BOARD, createdAt: Date.now() });
+  for (const view of websiteInboxViews()) await seedRecord('views', view.id, { ...view.data, createdAt: Date.now() });
+  const user = authStore.get().user;
+  if (user?.role !== 'admin') return; // a member's client seeds the rest next time an admin syncs
+  for (const auto of websiteAutomations(user.id)) await seedRecord('automations', auto.id, auto.data);
   await setMeta(WEBSITE_SEED_DONE, 1);
 }
 

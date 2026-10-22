@@ -8,7 +8,7 @@ export interface AppModule {
   label: string;
   icon: LucideIcon;
   /** Primary nav entry in sidebar / bottom tab bar. */
-  navItem?: { path: string; label: string; icon: LucideIcon };
+  navItem?: { path: string; label: string; icon: LucideIcon; /** false keeps it out of the compact bottom tab bar (still in the sidebar and menu drawer). */ tab?: boolean };
   routes: RouteObject[];
   /** Dexie collections this module owns. */
   collections: Collection[];
