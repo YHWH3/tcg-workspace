@@ -23,7 +23,25 @@ function tap(xml,labels){for(const label of labels){const node=[...xml.matchAll(
 async function record(name,fn){const start=Date.now();try{const evidence=await fn();results.push({name,status:'PASS',exitCode:0,durationMs:Date.now()-start,evidence});}catch(error){results.push({name,status:error.code==='EXTERNAL_GUI'?'BLOCKED':'FAIL',exitCode:error.code==='EXTERNAL_GUI'?2:1,durationMs:Date.now()-start,error:String(error.message).replaceAll(fixture?.entry??'NEVER_MATCH','[private entry]')});throw error;}}
 async function row(){return (await fixture.serverRows()).find(r=>r.id==='qa-block');}
 async function connectAndroid(){await eventually(async()=>{try{return (await fetch(`http://127.0.0.1:${forwardPort}/json/version`)).ok;}catch{return false;}},{timeout:30000});browser=await chromium.connectOverCDP(`http://127.0.0.1:${forwardPort}`);return browser.contexts()[0];}
-async function standalone(){for(const context of browser.contexts())for(const p of context.pages())if(p.url().startsWith(fixture.base)&&await p.evaluate(()=>matchMedia('(display-mode: standalone)').matches).catch(()=>false))return p;return false;}
+async function targetStates(){
+ const targets=await(await fetch(`http://127.0.0.1:${forwardPort}/json/list`)).json();const rows=[];
+ for(const target of targets.filter(t=>t.type==='page'&&t.url.startsWith(fixture.base))){
+  assert.ok(target.webSocketDebuggerUrl.startsWith(`ws://127.0.0.1:${forwardPort}/`));
+  const value=await new Promise((resolve,reject)=>{const ws=new WebSocket(target.webSocketDebuggerUrl);const timer=setTimeout(()=>{ws.close();reject(new Error('Owned target evaluation timed out'));},5000);ws.onopen=()=>ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:'JSON.stringify({standalone:matchMedia("(display-mode: standalone)").matches,modes:["standalone","minimal-ui","fullscreen","browser"].filter(v=>matchMedia("(display-mode: "+v+")").matches),ready:document.readyState,hasAccount:!!localStorage.getItem("ws_uid"),bodyLength:document.body?.innerText.length})',returnByValue:true}}));ws.onmessage=e=>{const r=JSON.parse(e.data);if(r.id===1){clearTimeout(timer);ws.close();r.error?reject(new Error('Owned target evaluation failed')):resolve(JSON.parse(r.result.result.value));}};ws.onerror=()=>{clearTimeout(timer);reject(new Error('Owned target connection failed'));};});
+  rows.push({id:target.id,url:target.url,...value});
+ }
+ writeFileSync(join(output,'standalone-target-states.json'),JSON.stringify(rows,null,2));return rows;
+}
+async function standalone(){
+ for(const context of browser.contexts())for(const p of context.pages())if(p.url().startsWith(fixture.base)&&await p.evaluate(()=>matchMedia('(display-mode: standalone)').matches).catch(()=>false))return p;
+ // Native WebappActivity can create a target outside the initial tab inventory.
+ // Require direct target proof before refreshing the owned CDP connection.
+ if((await targetStates()).some(t=>t.standalone)){
+  browser=await chromium.connectOverCDP(`http://127.0.0.1:${forwardPort}`);
+  for(const context of browser.contexts())for(const p of context.pages())if(p.url().startsWith(fixture.base)&&await p.evaluate(()=>matchMedia('(display-mode: standalone)').matches).catch(()=>false))return p;
+ }
+ return false;
+}
 try {
  fixture=await startPublicFixture({output,tls});
  if(process.argv.includes('--android')){
@@ -49,8 +67,18 @@ try {
    assert.ok(tap(xml,['More options','Customize and control Google Chrome']));xml=hierarchy();
    if(!tap(xml,['Install app','Add to Home screen'])){const e=new Error('No native install action on public-trust HTTPS origin; inspect installability and native UI');e.code='EXTERNAL_GUI';throw e;}
    xml=await eventually(async()=>{const value=hierarchy();return value.includes('text="Cancel"')&&value.includes('text="Install"')?value:false;},{timeout:15000});assert.equal(tap(xml,['Install']),'Install');
-   // Packaging is asynchronous. Do not repeatedly tap a changing mini-infobar.
-   await eventually(async()=>{const value=hierarchy();return !value.includes('text="Cancel"')||await standalone();},{timeout:20000});
+   // Packaging/shortcut confirmation is asynchronous. Keep Chrome visible until
+   // the launcher request has been handled; HOME can hide the pending dialog.
+   let miniConfirmed=false;
+   await eventually(async()=>{
+    if(await standalone())return true;
+    const value=hierarchy();
+    if(tap(value,['Add to home screen']))return true;
+    // Chrome may offer its mini-infobar after the menu install request. Confirm
+    // that separately once, based on its exact observed label, never in a loop.
+    if(!miniConfirmed&&value.includes('text="Install Workspace"')&&!value.includes('text="Cancel"')){miniConfirmed=!!tap(value,['Install']);}
+    return false;
+   },{timeout:30000}).catch(()=>false);
    screenshot('after-install');
    app=await standalone();if(!app){adbRun('shell','input','keyevent','KEYCODE_HOME');xml=hierarchy();app=await eventually(async()=>{const value=hierarchy();if(tap(value,['Add to home screen']))return false;if(tap(value,['Workspace']))return await standalone();return false;},{timeout:90000}).catch(()=>false);}
    if(!app){writeFileSync(join(output,'webapk-log.txt'),adbRun('logcat','-d','-t','3000'));writeFileSync(join(output,'installed-packages.txt'),adbRun('shell','pm','list','packages'));writeFileSync(join(output,'activity-after-install.txt'),adbRun('shell','dumpsys','activity','activities'));writeFileSync(join(output,'targets-after-install.json'),JSON.stringify(await (await fetch(`http://127.0.0.1:${forwardPort}/json/list`)).json(),null,2));const e=new Error('Installation did not yield observed standalone mode despite public CA and minimal Chrome flags');e.code='EXTERNAL_GUI';throw e;}
@@ -81,6 +109,12 @@ try {
   const created=await wd('/session',{capabilities:{alwaysMatch:{browserName}}});session={id:created.sessionId,port};
   const command=(path,body)=>wd(`/session/${session.id}${path}`,body);
   const js=(script,...args)=>command('/execute/sync',{script,args});
+  const installPageProbe=async()=>{
+   // Observe the document realm directly and bridge only a boolean via DOM,
+   // never fixture credentials or a fabricated service-worker state.
+   const probe='(()=>{const update=()=>document.documentElement.setAttribute("data-qa-sw-controlled",String(!!navigator.serviceWorker.controller));update();navigator.serviceWorker.addEventListener("controllerchange",update);})();';
+   await js('const s=document.createElement("script");s.textContent=arguments[0];document.head.append(s);',probe);
+  };
   const element=async selector=>{const r=await command('/element',{using:'css selector',value:selector});return r['element-6066-11e4-a52e-4f735466cecf'];};
   const fill=async(selector,text)=>{const id=await element(selector);await command('/element/'+id+'/click',{});await command('/element/'+id+'/value',{text,value:[text]});};
   await record(`Shipping macOS ${browserName} public HTTPS sign-in and Unicode persistence`,async()=>{
@@ -95,9 +129,9 @@ try {
   await record(`Shipping ${browserName} service worker complete shell and authenticated search`,async()=>{
    // A first navigation can finish before installation. Revisit only after the
    // real worker is activated, then assert actual control of the new document.
-   await command('/execute/async',{script:'const done=arguments[arguments.length-1];navigator.serviceWorker.ready.then(r=>done(r.active?.state));',args:[]});await command('/refresh',{});
-   try{await eventually(()=>js('return !!navigator.serviceWorker.controller'),{timeout:60000});}catch(e){const state=await command('/execute/async',{script:'const done=arguments[arguments.length-1];(async()=>({ready:document.readyState,url:location.pathname,secure:isSecureContext,cache:await caches.keys(),registrations:(await navigator.serviceWorker.getRegistrations()).map(r=>({scope:r.scope,active:r.active?.state,installing:r.installing?.state,waiting:r.waiting?.state}))}))().then(done);',args:[]});writeFileSync(join(output,'service-worker-failure.json'),JSON.stringify(state,null,2));throw e;}
-   const cache=await command('/execute/async',{script:'const done=arguments[arguments.length-1];(async()=>{const keys=(await caches.keys()).filter(k=>k.startsWith("ws-precache-v4-"));const c=await caches.open(keys.at(-1));const r=await c.match("index.html",{ignoreSearch:true});return {keys,index:!!r,assets:(await c.keys()).length}})().then(done);',args:[]});assert.ok(cache.index&&cache.assets>10);
+   await command('/execute/async',{script:'const done=arguments[arguments.length-1];navigator.serviceWorker.ready.then(r=>done(r.active?.state));',args:[]});await command('/url',{url:fixture.base+'/pages/qa-page'});await installPageProbe();
+   try{await eventually(()=>js('return document.documentElement.getAttribute("data-qa-sw-controlled")==="true"'),{timeout:60000});}catch(e){const state=await command('/execute/async',{script:'const done=arguments[arguments.length-1];(async()=>({ready:document.readyState,url:location.pathname,secure:isSecureContext,pageControlled:document.documentElement.getAttribute("data-qa-sw-controlled"),webdriverControlled:!!navigator.serviceWorker.controller,cache:await caches.keys(),registrations:(await navigator.serviceWorker.getRegistrations()).map(r=>({scope:r.scope,active:r.active?.state,installing:r.installing?.state,waiting:r.waiting?.state}))}))().then(done);',args:[]});writeFileSync(join(output,'service-worker-failure.json'),JSON.stringify(state,null,2));throw e;}
+   const cache=await command('/execute/async',{script:'const done=arguments[arguments.length-1];(async()=>{const keys=(await caches.keys()).filter(k=>k.startsWith("ws-precache-v4-"));const c=await caches.open(keys.at(-1));const r=await c.match("/index.html",{ignoreSearch:true});return {keys,index:!!r,assets:(await c.keys()).length}})().then(done);',args:[]});writeFileSync(join(output,'shell-cache.json'),JSON.stringify(cache,null,2));assert.ok(cache.index&&cache.assets>10);
    const query=await command('/execute/async',{script:'const done=arguments[arguments.length-1];fetch("/api/search?q=Cross",{headers:{Authorization:"Bearer "+localStorage.getItem("ws_token")}}).then(r=>r.json()).then(r=>done({hasFixture:JSON.stringify(r).includes("Cross-platform QA")}));',args:[]});assert.equal(query.hasFixture,true);return {cache,search:query};
   });
  } else throw new Error('Specify --android, --safari or --firefox');
