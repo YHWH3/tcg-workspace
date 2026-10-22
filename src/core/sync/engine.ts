@@ -67,7 +67,15 @@ async function updatePending() {
 
 /** Re-count pending work (records + media) — safe to call after any write path. */
 export function refreshPending(): void {
-  void updatePending();
+  void updatePending().catch((error: unknown) => {
+    // Login/account changes intentionally close this tab's database. A pending
+    // read can finish after close: keep its last known counts and never emit an
+    // unhandled rejection or claim zero/synced work. Awaited sync reads still
+    // reject into syncNow's normal error path.
+    syncStore.set(s => ({ ...s, status: 'error' }));
+    const name = error instanceof Error ? error.name : 'UnknownError';
+    if (name !== 'DatabaseClosedError' || db.isOpen()) console.error('Unable to read local sync state', name);
+  });
 }
 
 /**
@@ -130,7 +138,7 @@ export async function mutate(collection: Collection, id: string, patch: Record<s
     await table.put(row);
     await db.outbox.add({ id, collection, patch, ts, createIntent: !existing });
   });
-  void updatePending();
+  refreshPending();
   scheduleSync();
 }
 
@@ -425,7 +433,7 @@ export async function countLocalPending(): Promise<{ records: number; rejected: 
 }
 
 export function startSyncEngine() {
-  void updatePending();
+  refreshPending();
   void syncNow();
   // Re-kick sync whenever auth state flips to authed (e.g. right after login:
   // the engine's first run happens while unauthenticated and early-returns).

@@ -93,6 +93,28 @@ describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
     expect(fixture.calls).not.toContain('upload');
   });
 
+  it('retains truthful pending counts when an asynchronous counter read loses its account database', async () => {
+    await db.outbox.add({ id: 'retained-counter-work', collection: 'pages', patch: { title: 'Unsynced original' }, ts: 10 });
+    engine.syncStore.set(s => ({ ...s, status: 'synced', pending: 1, rejected: 2, quarantined: 3 }));
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const original = db.outbox.toArray.bind(db.outbox);
+    const { default: Dexie } = await import('dexie');
+    const read = vi.spyOn(db.outbox, 'toArray').mockImplementationOnce(() => Dexie.Promise.resolve(barrier).then(() => original()));
+    engine.refreshPending(); db.close(); release();
+    await vi.waitFor(() => expect(engine.syncStore.get()).toMatchObject({ status: 'error', pending: 1, rejected: 2, quarantined: 3 }));
+    read.mockRestore(); await db.open(); expect(await db.outbox.count()).toBe(1);
+  });
+
+  it('reports a failed background pending read without claiming zero work or successful synchronization', async () => {
+    engine.syncStore.set(s => ({ ...s, status: 'synced', pending: 4 }));
+    vi.spyOn(db.outbox, 'toArray').mockRejectedValueOnce(new DOMException('Fixture storage failure', 'UnknownError'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    engine.refreshPending();
+    await vi.waitFor(() => expect(engine.syncStore.get()).toMatchObject({ status: 'error', pending: 4 }));
+    expect(log).toHaveBeenCalled();
+  });
+
   it('does not drop replacement credentials when the previous session returns a late 401', async () => {
     replaceDuringAccess = true; await engine.syncNow();
     expect((await import('../src/core/auth')).dropSession).not.toHaveBeenCalled();
