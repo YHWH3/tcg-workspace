@@ -13,7 +13,15 @@ final class SafariTests: XCTestCase {
   let ready=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in user.exists || editor.exists },object:nil)
   XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed,"Wait for authenticated page OR real sign-in form, not an arbitrary hydration delay")
   if user.exists {
-   user.tap();dismissKeyboardIntro();XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout:10),"Native keyboard must be ready before first sign-in typing")
+   user.tap();dismissKeyboardIntro()
+   // A first Safari tap can focus the AX node without opening the software
+   // keyboard. Capture that state and reacquire the same named field; never
+   // type into an unverified keyboard or treat the next test as a sign-in pass.
+   for attempt in 0..<2 {
+    if app.keyboards.firstMatch.waitForExistence(timeout:3) {break}
+    shot("signin-keyboard-refocus-\(attempt)");user.tap();dismissKeyboardIntro()
+   }
+   XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout:10),"Native keyboard must be ready before first sign-in typing")
    if let value=user.value as? String,value != "ada" {user.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:value.count))}
    user.typeText("admin")
    let usernameEntered=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (user.value as? String)=="admin" },object:nil)
