@@ -21,6 +21,10 @@ export interface Env {
   AI_DAILY_UNITS?:string;
   AI_CLASSIFICATION?:string;
   TURNSTILE_LOCAL_TEST?: string;
+  /** Shared HMAC secret for POST /api/ingest/website (worker/websiteIngest.ts). Secret, never a var. */
+  WEBSITE_INGEST_SECRET?: string;
+  /** '1' or 'true' turns the website inbox on; anything else answers 503. */
+  WEBSITE_INGEST_ENABLED?: string;
   DB: D1Database;
   AI: Ai;
   LIVE: DurableObjectNamespace;

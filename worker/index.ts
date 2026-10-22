@@ -21,6 +21,7 @@ import { mcpApiHandler } from './mcp';
 import { notificationsApi } from './notifications';
 import { approvalsApi } from './approvals';
 import { formsApi, publicFormsApi } from './forms';
+import { websiteIngestApi } from './websiteIngest';
 import { automationsApi } from './automations';
 import { searchApi } from './searchApi';
 import { runScheduled } from './reminders';
@@ -92,6 +93,7 @@ app.route('/api/forms', formsApi);
 app.route('/api/automations', automationsApi);
 app.route('/api/search', searchApi);
 app.route('/api/public/forms', publicFormsApi);
+app.route('/api/ingest/website', websiteIngestApi);
 app.route('/api', admin);
 
 app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));

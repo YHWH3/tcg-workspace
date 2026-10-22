@@ -2,7 +2,8 @@ import {AiWorkspace,AiReview,AiUndo} from './core/AiWorkspace';
 import {SpaceHome} from './core/SpaceHome';
 import {GuestJoin} from './core/GuestJoin';
 import { useEffect } from 'react';
-import { createBrowserRouter, RouterProvider, Navigate } from 'react-router';
+import { createBrowserRouter, RouterProvider, Navigate, useLocation } from 'react-router';
+import { stripNotionPrefix } from './core/notionPath';
 import { authStore, initAuth } from './core/auth';
 import { AuthScreen } from './core/authscreen';
 import { SettingsPage } from './core/settings';
@@ -32,6 +33,12 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <AccessBarrier>{children}</AccessBarrier>;
 }
 
+/** `/notion/...` (the website's redirect) → the same route at the app root. */
+function NotionPrefix() {
+  const { pathname, search, hash } = useLocation();
+  return <Navigate to={{ pathname: stripNotionPrefix(pathname), search, hash }} replace />;
+}
+
 const router = createBrowserRouter([
  {path:'join/:token',element:<GuestJoin/>},
   // Public share links live entirely outside the auth shell — no sync engine,
@@ -40,6 +47,8 @@ const router = createBrowserRouter([
   { path: 's/:token', element: <PublicView /> },
   { path: 's/:token/:pageId', element: <PublicView /> },
   { path: 'f/:token', element: <FormView /> },
+  { path: 'notion', element: <NotionPrefix /> },
+  { path: 'notion/*', element: <NotionPrefix /> },
   {
     element: (
       <RequireAuth>

@@ -1,5 +1,6 @@
 import { PERMISSION_PROTOCOL } from '../../../shared/protocol';
 import { isCollection, type Collection } from '../../../shared/collections';
+import { WEBSITE_INBOX_BOARD, WEBSITE_INBOX_ID } from '../../../shared/websiteInbox';
 import type { Mutation, PulledRecord, PublicUser } from '../../../shared/types';
 import { api, ApiError, getToken } from '../api';
 import { db, getMeta, setMeta } from '../db';
@@ -113,6 +114,15 @@ async function seedBuiltins(): Promise<void> {
     createdAt: Date.now(),
   });
   await setMeta(SEEDS_DONE, 1);
+}
+
+// Separate flag: existing installs already set SEEDS_DONE before this seed existed.
+const WEBSITE_SEED_DONE = 'seeds_website_v1';
+
+async function seedWebsiteInbox(): Promise<void> {
+  if (await getMeta(WEBSITE_SEED_DONE)) return;
+  await seedRecord('boards', WEBSITE_INBOX_ID, { ...WEBSITE_INBOX_BOARD, createdAt: Date.now() });
+  await setMeta(WEBSITE_SEED_DONE, 1);
 }
 
 /** Local write API: apply patch to the local row + enqueue for sync, in one tx. */
@@ -341,7 +351,7 @@ export async function syncNow(): Promise<void> {
     } else await pullRemote(access, assertCurrent);
     // Guest/read-only clients must never manufacture Core seed writes. The
     // server bootstrap will provision built-ins for scoped workspaces.
-    if (access.protocol === 1) { await seedBuiltins(); await refreshUsers(); }
+    if (access.protocol === 1) { await seedBuiltins(); await seedWebsiteInbox(); await refreshUsers(); }
     // Chunked blob uploads run after metadata sync (dynamic import avoids a cycle).
     const { uploadPendingBlobs } = await import('../files');
     assertCurrent(); await uploadPendingBlobs(assertCurrent); assertCurrent();

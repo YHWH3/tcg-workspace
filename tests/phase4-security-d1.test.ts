@@ -178,7 +178,7 @@ describe('real D1 public upload claim authority and recovery', () => {
 
 describe('real D1 sync and private Inbox security boundaries', () => {
   it('rejects every server-controlled collection through direct sync without staging records or events', async () => {
-    const forbidden = ['notifications', 'approvals', 'automation_runs', 'form_tokens', 'form_submissions', 'date_index', 'reminder_sent', 'event_outbox', 'rate_limits', 'notification_deliveries', 'execution_steps', 'form_people_keys'];
+    const forbidden = ['notifications', 'approvals', 'automation_runs', 'form_tokens', 'form_submissions', 'date_index', 'reminder_sent', 'event_outbox', 'rate_limits', 'notification_deliveries', 'execution_steps', 'form_people_keys', 'website_ingest'];
     const response = await sync.request('http://localhost/push', {
       method: 'POST', headers: auth('bob'),
       body: JSON.stringify({ changes: forbidden.map((collection, index) => ({ id: `forbidden_${index}`, collection, patch: { userId: 'alice', status: 'approved', title: 'Spoofed' }, ts: Date.now() })) }),

@@ -56,6 +56,48 @@ Setup per client:
 
 Settings → AI connectors shows the URL to copy, per-client steps, and your connected apps with Revoke (revoking kills the grant's tokens immediately). AI changes are undoable from Activity — entries carry an Undo button, the 'AI changes' chip filters to connector writes, and Settings → Recent AI changes lists the last 20 change sets with Undo.
 
+## Website inbox (The Common Ground)
+
+The Common Ground website's form relay forwards every form submission and patron event (`patron.applied`, `approved`, `paid`, `minted`, `refund_needed`) to `POST https://<host>/api/ingest/website`. Each event becomes a record in the built-in **Website inbox** database. The record has these fields:
+
+- Status: New, In review, Replied or Done;
+- Source, Email, Page and Event;
+- Patron tier, Edition and Application id.
+
+The answers form the record's body. Admins get an Inbox notification for each event. Later patron events with the same `application_id` update the same record: they set the Event, Edition and Tier fields and append a line with the amount, edition, token and tx. They never change the title or Status the team has set.
+
+Settings:
+
+```bash
+npx wrangler secret put WEBSITE_INGEST_SECRET   # shared with the relay's FORWARD_SECRET
+```
+
+Also set `WEBSITE_INGEST_ENABLED=1` as a plain-text variable (Workers dashboard → Settings → Variables, or `vars` in `wrangler.jsonc`). Without both settings the endpoint answers 503. For local development, put the two settings in a `.dev.vars` file. Never commit that file.
+
+Request contract:
+
+- `X-TCG-Timestamp`: unix seconds, which must be within ±300 s of the server's clock.
+- `X-TCG-Signature: sha256=<hex>`: HMAC-SHA256 with the secret over `<timestamp>.<raw body>`.
+- The body is JSON:
+  - `id` (1–64 chars), the idempotency key;
+  - `event`;
+  - `occurred_at` (ISO 8601);
+  - optional `form_id`, `subject`, `page` and `reply_to`;
+  - `answers`: up to 40 `{name, label, value}` items, with string values of at most 5,000 chars;
+  - `patron`: `{application_id, tier, currency, amount_display, edition, tx, token_id}`, required for `patron.*` events.
+- Responses:
+  - 200 `{ok, id, recordId, action}`;
+  - 400 when the body fails the schema;
+  - 401 for a bad or expired signature;
+  - 409 when the same `id` arrives with a different body;
+  - 413 over 64 KB;
+  - 503 when ingest is not configured, or `{retryable:true}` when the write did not land.
+- Retries: the same `id` with the same body returns the first result, even when it is re-signed with a new timestamp. 400, 401, 409 and 413 are final. Retry 503 and other 5xx responses.
+
+The website's `thecommonground.living/notion` redirect may point at the app root or keep the prefix. Either way, `/notion/boards/x` lands on `/boards/x`, and signed-out visitors see the sign-in screen at that URL.
+
+Known limit: while per-space access control is enabled, the `website` writer is not a workspace member, the same as public forms. Ingest then answers 503 and the relay keeps retrying.
+
 ## Storage & files
 
 - Files live in D1 (`files` + `file_chunks` tables, 1 MiB chunks) — no R2 needed.

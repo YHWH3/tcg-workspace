@@ -122,5 +122,9 @@
   {
     "name": "0031_phase6_digest_outcome.sql",
     "sha256": "a6eed938b184557cc1efe4bcc439f618f5f710eb08246d16fa79c6f42107c2ac"
+  },
+  {
+    "name": "0032_website_ingest.sql",
+    "sha256": "afb634470d941ce6c3445a3e2c185d9d836e5facbf09b7d21749f2972903ff67"
   }
 ]
