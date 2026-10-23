@@ -65,16 +65,27 @@ export const test=base.extend({page:async({page,context,browser,browserName},use
     return injected||injectedGroup||cancelledRead;
   });
   // A WebKit console diagnostic can be emitted before a failed request enters
-  // Playwright's network stream. For the remaining read-only GET diagnostics,
+  // Playwright's network stream. For the remaining read-only diagnostics (GET reads and protocol-3 POST pull),
   // require actual recovery in this browser, rather than hiding them by timing.
   const recoveredReads=[];
-  const candidates=browserName==='webkit'?errors.filter(e=>!expected.includes(e)).map(e=>({e,url:e.stack?.match(/^Fetch API cannot load (https:\/\/[^ ]+\/api\/(?:access|notifications\/badge|approvals)(?:\?[^ ]*)?) due to access control checks\./)?.[1]})).filter(x=>x.url&&new URL(x.url).origin===origin.origin):[];
+  const candidates=browserName==='webkit'?errors.filter(e=>!expected.includes(e)).map(e=>({e,url:e.stack?.match(/^Fetch API cannot load (https:\/\/[^ ]+\/api\/(?:access|notifications\/badge|approvals|sync\/pull)(?:\?[^ ]*)?) due to access control checks\./)?.[1]})).filter(x=>x.url&&new URL(x.url).origin===origin.origin):[];
   const urls=[...new Set(candidates.map(x=>x.url))];
   expect(urls.length,'Bounded read recovery verification').toBeLessThanOrEqual(20);
   for(const url of urls){
     const recovery=await page.evaluate(async url=>{
       if(!navigator.onLine)return {online:false,status:0};
-      try{return {online:true,status:(await fetch(url,{headers:{Authorization:'Bearer '+localStorage.getItem('ws_token')}})).status};}
+      try{
+        const headers={Authorization:'Bearer '+localStorage.getItem('ws_token')};
+        if(new URL(url).pathname==='/api/sync/pull'){
+          const manifestResponse=await fetch('/api/access',{headers});
+          if(!manifestResponse.ok)return {online:true,status:manifestResponse.status};
+          const manifest=await manifestResponse.json();
+          if(manifest.protocol!==3||!Array.isArray(manifest.spaces))return {online:true,status:0};
+          const body={protocol:3,etag:manifest.etag,cursor:0,joining:manifest.spaces.map(s=>({space:s.id,after:0,base:0})),limit:1};
+          return {online:true,status:(await fetch(url,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(body)})).status};
+        }
+        return {online:true,status:(await fetch(url,{headers})).status};
+      }
       catch{return {online:true,status:0};}
     },url);
     recoveredReads.push({url,...recovery});

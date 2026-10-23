@@ -20,7 +20,7 @@ npm run qa:ux -- --project=webkit-compact-dark
 UX_SEED=20261024 UX_RUNS=10 npm run qa:ux -- --grep='seeded interaction'
 ```
 
-The command builds the app, creates a fresh disposable D1 fixture on a free loopback HTTPS port, seeds synthetic records, runs tests, and stops only its own Worker. Its seven-day self-signed certificate lives in ignored `.artifacts/ux-lab/tls/`; the key is mode 0600. Node trusts it only in the command's child process. Browser TLS exceptions are confined to disposable test contexts/processes; Chromium's launch-scoped exception avoids an observed local stylesheet transport failure. No device/system trust is changed. External browser requests are blocked. No public tunnel, cloud resource, paid inference or production data is used. Permissions are enabled only in the disposable fixture.
+The command builds the app, creates a fresh disposable D1 fixture on a free loopback HTTPS port, seeds synthetic records, runs tests, and stops only its own Worker. Its seven-day self-signed certificate lives in ignored `.artifacts/ux-lab/tls/`; the key is mode 0600. Generated certificates renew automatically when less than a day remains; supplied certificate files are never overwritten. Renewal restarts the owned Node process to load the new CA. Node trusts it only in the command's child process. Browser TLS exceptions are confined to disposable test contexts/processes; Chromium's launch-scoped exception avoids an observed local stylesheet transport failure. No device/system trust is changed. External browser requests are blocked. No public tunnel, cloud resource, paid inference or production data is used. Permissions are enabled only in the disposable fixture.
 
 Outputs are under `.artifacts/ux-lab/<timestamp>/`:
 
@@ -33,9 +33,9 @@ Reports/traces are local-only and may contain disposable session credentials. Do
 
 ## What is tested
 
-The explicit matrix is Chromium/Firefox/WebKit × 390/820/1440px × light/dark: 18 projects. The catalog covers 20 named rendered states: home/page, database index, six record views, task detail, moodboard/form/automation empty states, approvals, Activity, Inbox, Settings, AI library with inference off, Website dashboard and Website inbox.
+The explicit matrix is Chromium/Firefox/WebKit × 390/820/1440px × light/dark: 18 projects. The catalog covers 21 named rendered states: home/page, database index, six record views, task detail and unavailable task, moodboard/form/automation empty states, approvals, Activity, Inbox, Settings, AI library with inference off, Website dashboard and Website inbox.
 
-The complete plan has 30 cases × 18 projects = 540 cases. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
+The complete plan has 31 cases × 18 projects = 558 cases. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
 
 Fast-check generates bounded sequences of stage changes, Unicode/long title edits, offline edits, reloads, breakpoint changes, theme changes and keyboard search. It compares title/stage with a small model and verifies server persistence before reload. Every generated case resets its starting viewport/theme/connectivity; failures retain seed, shrink path, command sequence and a replay command. The default is three generated sequences per project, each with 6–14 commands. This is bounded exploration, not all possible sequences.
 

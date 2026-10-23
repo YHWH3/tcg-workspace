@@ -100,7 +100,13 @@ test('task draft: focus, cross-field edits and responsive recovery',async({page,
   // A focused but unedited field must follow newly synchronized source text.
   // Compact sheets focus the title before the initial pull may finish.
   await title.focus();
-  await request('/api/sync/push',{protocol:3,changes:[{id:taskId,collection:'tasks',ts:Date.now(),patch:{title:'Updated while focused'}}]});
+  const changed=await request('/api/sync/push',{protocol:3,changes:[{id:taskId,collection:'tasks',ts:Date.now(),patch:{title:'Updated while focused'}}]});
+  expect(changed.rejected).toBe(0);
+  await expect.poll(async()=>(await readRecord(taskId))?.data.title).toBe('Updated while focused');
+  // Exercise the real foreground-refresh path without blurring the input.
+  // This tests source hydration, not a deadline for the 15s fallback poll
+  // (whose timer can be reset by the engine's 5s connection-state check).
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
   await expect(title).toHaveValue('Updated while focused',{timeout:20_000});
   await setOfflineForTest(page,context,true);
   const draft='Preserved café 👩🏽‍💻 '+('long text '.repeat(12)),body=('Description survives title changes and responsive remounts.\n').repeat(8);

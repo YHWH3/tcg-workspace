@@ -4,6 +4,7 @@ export const surfaces = [
   {id:'page',path:'/pages/ux-page',ready:{placeholder:'Untitled'}},
   {id:'databases',path:'/boards',ready:{role:'heading',name:'Boards'}},
   ...['table','list','gallery','board','calendar','timeline'].map(type=>({id:`records-${type}`,path:`/boards/ux-records/views/ux-${type}`,ready:{role:'heading',name:'🗃️ UX records'}})),
+  {id:'task-unavailable',path:'/boards/ux-tasks/tasks/ux-missing',ready:{role:'status',name:'Task not found'}},
   {id:'task-detail',path:'/boards/ux-tasks/tasks/ux-task',ready:{role:'textbox',name:'Task title'}},
   {id:'moodboards-empty',path:'/moodboards',ready:{role:'heading',name:'Mood boards'}},
   {id:'forms-empty',path:'/forms/ux-records',ready:{role:'heading',name:/^Forms/}},

@@ -2,7 +2,7 @@
 // One command, owned loopback HTTPS, fresh D1, synthetic data, no model/cloud calls.
 import {spawn} from 'node:child_process';
 import {execFileSync,spawnSync} from 'node:child_process';
-import {mkdirSync,writeFileSync,readFileSync,existsSync,chmodSync} from 'node:fs';
+import {mkdirSync,writeFileSync,readFileSync,existsSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHmac} from 'node:crypto';
@@ -10,20 +10,17 @@ import {startFixture,fixtureEnvironment} from './phase4-fixture.mjs';
 import {freePort,fingerprint} from './certification/core.mjs';
 import {surfaces,notCovered} from './ux-lab/catalog.mjs';
 import {coverage} from './ux-lab/coverage.mjs';
+import {ensureLabTls} from './ux-lab/tls.mjs';
 const root=resolve(import.meta.dirname,'..'),output=resolve(process.env.UX_OUTPUT??join(root,'.artifacts/ux-lab',new Date().toISOString().replaceAll(':','-')));
 mkdirSync(output,{recursive:true});
 const args=process.argv.slice(2),record=args.includes('--record'),skipBuild=args.includes('--skip-build');
 if(args.some(a=>/^--(?:update-snapshots|ui|headed|debug|reporter|config|output)/.test(a)))throw new Error('Use --record for explicit local baseline capture; interactive/alternate config flags are not supported by this fixture owner');
 if(Boolean(process.env.UX_TLS_CERT)!==Boolean(process.env.UX_TLS_KEY))throw new Error('Set both UX_TLS_CERT and UX_TLS_KEY, or neither');
 const tls={cert:resolve(process.env.UX_TLS_CERT??join(root,'.artifacts/ux-lab/tls/cert.pem')),key:resolve(process.env.UX_TLS_KEY??join(root,'.artifacts/ux-lab/tls/key.pem'))};
-if(!existsSync(tls.cert)||!existsSync(tls.key)){
-  if(process.env.UX_TLS_CERT)throw new Error('Configured local certificate files are missing');
-  mkdirSync(join(root,'.artifacts/ux-lab/tls'),{recursive:true,mode:0o700});
-  execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','7','-subj','/CN=localhost','-addext','subjectAltName=IP:127.0.0.1,DNS:localhost','-keyout',tls.key,'-out',tls.cert],{stdio:'ignore'});chmodSync(tls.key,0o600);
-}
+const tlsRenewed=ensureLabTls(tls,{provided:!!process.env.UX_TLS_CERT});
 // Node reads additional CA roots at process startup. Trust only in this owned
 // child process, never in the operating system or the user's browser profile.
-if(process.env.NODE_EXTRA_CA_CERTS!==tls.cert){
+if(process.env.NODE_EXTRA_CA_CERTS!==tls.cert||tlsRenewed){
   const child=spawnSync(process.execPath,[fileURLToPath(import.meta.url),...args],{cwd:root,env:{...process.env,UX_OUTPUT:output,NODE_EXTRA_CA_CERTS:tls.cert},stdio:'inherit'});
   process.exit(child.status??1);
 }

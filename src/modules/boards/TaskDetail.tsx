@@ -30,7 +30,8 @@ export function TaskDetail({ taskId, onClose }: { taskId: string; onClose: () =>
 
 function TaskDetailState({ taskId, onClose }: { taskId: string; onClose: () => void }) {
   const mobile = useIsMobile();
-  const task = useLiveQuery(() => db.tasks.get(taskId), [taskId]) as TaskRow | undefined;
+  const result = useLiveQuery(async () => ({ task: await db.tasks.get(taskId) }), [taskId]);
+  const task = result?.task as TaskRow | undefined;
   // Drafts belong to the record, above the responsive sheet/aside boundary.
   const titleDraft = useTaskTextDraft(taskId, 'title', String(task?.title ?? ''), Number(task?._ts.title ?? 0), !!task && !task.deleted);
   const descriptionDraft = useTaskTextDraft(taskId, 'description', String(task?.description ?? ''), Number(task?._ts.description ?? 0), !!task && !task.deleted);
@@ -40,12 +41,12 @@ function TaskDetailState({ taskId, onClose }: { taskId: string; onClose: () => v
     drafts.current.titleDraft.blur();
     drafts.current.descriptionDraft.blur();
   }, [mobile]);
-  const inner = <DetailBody taskId={taskId} task={task} titleDraft={titleDraft} descriptionDraft={descriptionDraft} onClose={onClose} />;
+  const inner = <DetailBody taskId={taskId} task={task} loading={!result} titleDraft={titleDraft} descriptionDraft={descriptionDraft} onClose={onClose} />;
   if (mobile) return <Sheet onClose={onClose} side="bottom">{inner}</Sheet>;
   return <aside className="anim-slide-right flex w-[400px] shrink-0 flex-col border-l border-neutral-200/80 bg-white dark:border-neutral-800 dark:bg-neutral-950">{inner}</aside>;
 }
 
-function DetailBody({ taskId, task, titleDraft, descriptionDraft, onClose }: { taskId: string; task: TaskRow | undefined; titleDraft: ReturnType<typeof useTaskTextDraft>; descriptionDraft: ReturnType<typeof useTaskTextDraft>; onClose: () => void }) {
+function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClose }: { taskId: string; task: TaskRow | undefined; loading: boolean; titleDraft: ReturnType<typeof useTaskTextDraft>; descriptionDraft: ReturnType<typeof useTaskTextDraft>; onClose: () => void }) {
   useAssistantContext(task && !task.deleted ? { kind: 'record', id: task.id } : null);
   const users = useUsers();
   const boards = useBoards();
@@ -81,8 +82,8 @@ function DetailBody({ taskId, task, titleDraft, descriptionDraft, onClose }: { t
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, lightbox]);
 
-  if (!task || task.deleted) {
-    return <div className="flex h-full items-center justify-center text-sm text-neutral-400">Task not found</div>;
+  if (loading || !task || task.deleted) {
+    return <div role="status" aria-label={loading ? 'Loading task' : 'Task not found'} className="flex h-full items-center justify-center text-sm text-neutral-600 dark:text-neutral-400">{loading ? 'Loading task…' : 'Task not found'}</div>;
   }
 
   const board = boards.find((b) => b.id === taskBoardId(task));
