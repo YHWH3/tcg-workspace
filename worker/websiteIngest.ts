@@ -26,6 +26,7 @@
 //
 // `website_ingest` is a server-only D1 table (never a synced collection).
 
+import {websiteAuthority,websiteGrantFence} from './websiteAuthority';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from './auth';
@@ -457,6 +458,10 @@ const failed = (r: ApplyResult) => !!(r.partialError || r.rejected || r.conflict
 const SELECT_ROW = 'SELECT id,collection,data,seq FROM records WHERE id=?';
 
 export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): Promise<IngestOutcome> {
+  const grant=await websiteAuthority(env);
+  if(!grant)return retryable('ingest_authority_unavailable');
+  const sponsor=grant.sponsor_id;
+  const fences=[()=>websiteGrantFence(env,grant)];
   const now = Date.now();
   const bodyHash = await sha256Hex(stableJson(body));
   const recordId = websiteRecordId(body);
@@ -468,7 +473,16 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
   const row = reserve[1]!.results[0] as { body_hash: string; state: string; result: string | null } | undefined;
   if (!row) return retryable('ingest_unavailable');
   if (row.body_hash !== bodyHash) return { status: 409, body: { ok: false, error: 'ingest_conflict' } };
-  if (row.state === 'accepted' && row.result) return { status: 200, body: JSON.parse(row.result) as Record<string, unknown> };
+  if (row.state === 'accepted' && row.result) {
+    const result=JSON.parse(row.result) as Record<string,unknown>;
+    const current=await env.DB.prepare("SELECT id FROM records WHERE id=? AND collection='tasks' AND json_extract(data,'$.boardId')=? AND space_id=? AND COALESCE(json_extract(data,'$.deleted'),0)=0").bind(result.recordId as string,grant.inbox_id,grant.space_id).first();
+    if(!current)return retryable('receipt_destination_changed');
+    if(result.personId){
+      const person=await env.DB.prepare("SELECT id FROM records WHERE id=? AND collection='tasks' AND json_extract(data,'$.boardId')=? AND space_id=? AND COALESCE(json_extract(data,'$.deleted'),0)=0 AND COALESCE(json_extract(data,'$.archived'),0)=0").bind(result.personId as string,grant.people_id,grant.space_id).first();
+      if(!person){delete result.personId;result.matchingStatus='unusable_identity';}
+    }
+    return {status:200,body:result};
+  }
 
   // One read for everything the plan needs.
   const baseViews = websiteInboxViews();
@@ -478,7 +492,7 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
     env.DB.prepare(SELECT_ROW).bind(recordId),
     env.DB.prepare("SELECT json_extract(data,'$.order') AS value FROM records WHERE collection='tasks' AND json_extract(data,'$.boardId')=? AND COALESCE(json_extract(data,'$.deleted'),0)!=1 ORDER BY json_extract(data,'$.order') DESC LIMIT 1").bind(WEBSITE_INBOX_ID),
     env.DB.prepare("SELECT json_extract(data,'$.order') AS value FROM records WHERE collection='blocks' AND json_extract(data,'$.pageId')=? ORDER BY json_extract(data,'$.order') DESC LIMIT 1").bind(recordId),
-    env.DB.prepare("SELECT id,collection,data,seq FROM records WHERE collection='boards' AND (id=? OR lower(trim(json_extract(data,'$.name')))='people') AND COALESCE(json_extract(data,'$.deleted'),0)!=1 AND COALESCE(json_extract(data,'$.archived'),0)!=1 ORDER BY id LIMIT 20").bind(WEBSITE_PEOPLE_ID),
+    env.DB.prepare("SELECT id,collection,data,seq FROM records WHERE collection='boards' AND id=? AND COALESCE(json_extract(data,'$.deleted'),0)!=1 AND COALESCE(json_extract(data,'$.archived'),0)!=1 ORDER BY id LIMIT 20").bind(grant.people_id),
     env.DB.prepare("SELECT id,json_extract(data,'$.config') AS config FROM records WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(viewIds)),
     env.DB.prepare("SELECT id FROM users WHERE COALESCE(workspace_role,role) IN ('owner','admin') AND disabled_at IS NULL ORDER BY id"),
   ]);
@@ -494,7 +508,7 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
 
   // Seeds converge with the client seed: ts=1 and no serverTs, so any real edit wins.
   const seeds: (WriteOp & { ts: number })[] = [];
-  if (!inbox) seeds.push({ id: WEBSITE_INBOX_ID, collection: 'boards', patch: { ...WEBSITE_INBOX_BOARD, createdAt: now }, ts: 1 });
+  if (!inbox) seeds.push({ id: WEBSITE_INBOX_ID, collection: 'boards', patch: { ...WEBSITE_INBOX_BOARD, spaceId:grant.space_id, createdAt: now }, ts: 1 });
   for (const v of baseViews) if (!views.has(v.id)) seeds.push({ id: v.id, collection: 'views', patch: { ...v.data, createdAt: now }, ts: 1 });
   const famIndex = baseViews.filter((v) => v.id.startsWith('view-wi-fam-')).length;
   if (!views.has(familyViewId(family)) && !seeds.some((s) => s.id === familyViewId(family))) {
@@ -502,10 +516,11 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
   }
 
   const email = normalizeEmail(body.reply_to);
-  const people = EMAIL_RE.test(email) ? choosePeopleDatabase(inbox?.data ?? null, peopleBoards) : null;
-  if (people?.create) seeds.push({ id: WEBSITE_PEOPLE_ID, collection: 'boards', patch: { ...WEBSITE_PEOPLE_BOARD, createdAt: now }, ts: 1 });
+  const people = EMAIL_RE.test(email) ? {id:grant.people_id,create:!peopleBoards.some(b=>b.id===grant.people_id)} : null;
+  if(people?.create&&people.id!==WEBSITE_PEOPLE_ID)return retryable('people_destination_unavailable');
+  if (people?.create) seeds.push({ id: WEBSITE_PEOPLE_ID, collection: 'boards', patch: { ...WEBSITE_PEOPLE_BOARD, spaceId:grant.space_id, createdAt: now }, ts: 1 });
   if (seeds.length) {
-    const seeded = await applyChanges(env, 'website', seeds);
+    const seeded = await applyChanges(env, sponsor, seeds,{fences,atomic:true});
     if (failed(seeded)) return retryable('write_failed');
   }
 
@@ -552,22 +567,26 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
 
   // People: match by normalized email, reserve through the forms table, link.
   let personId: string | undefined;
+  let matchingStatus = people ? 'created' : 'no_email';
   if (people) {
     const peopleBoard = people.create ? (WEBSITE_PEOPLE_BOARD as Record<string, unknown>) : peopleBoards.find((b) => b.id === people.id)!.data;
     const emailKey = wiKey(peopleEmailField(peopleBoard)!.id);
     const matched = await env.DB.prepare(
-      "SELECT id FROM records WHERE collection='tasks' AND json_extract(data,'$.boardId')=? AND lower(trim(json_extract(data,?)))=? AND COALESCE(json_extract(data,'$.deleted'),0)!=1 ORDER BY id LIMIT 1",
+      "SELECT id FROM records WHERE collection='tasks' AND json_extract(data,'$.boardId')=? AND lower(trim(json_extract(data,?)))=? ORDER BY COALESCE(json_extract(data,'$.deleted'),0),COALESCE(json_extract(data,'$.archived'),0),id LIMIT 1",
     ).bind(people.id, `$.${emailKey}`, email).first<{ id: string }>();
     const candidate = matched?.id ?? (await personRecordId(people.id, emailKey, email));
     const reserved = await env.DB.batch([
       env.DB.prepare('INSERT OR IGNORE INTO form_people_keys(database_id,field_key,email,record_id) VALUES(?,?,?,?)').bind(people.id, emailKey, email, candidate),
       env.DB.prepare(
-        "SELECT k.record_id, r.id AS present FROM form_people_keys k LEFT JOIN records r ON r.id=k.record_id AND COALESCE(json_extract(r.data,'$.deleted'),0)!=1 WHERE k.database_id=? AND k.field_key=? AND k.email=?",
+        "SELECT k.record_id, r.id AS present, r.data AS person_data, EXISTS(SELECT 1 FROM website_ingest w WHERE w.state='accepted' AND json_extract(w.result,'$.personId')=k.record_id) AS previously_used FROM form_people_keys k LEFT JOIN records r ON r.id=k.record_id WHERE k.database_id=? AND k.field_key=? AND k.email=?",
       ).bind(people.id, emailKey, email),
     ]);
-    const key = reserved[1]!.results[0] as { record_id: string; present: string | null } | undefined;
-    personId = key?.record_id ?? candidate;
-    if (!key?.present) {
+    const key = reserved[1]!.results[0] as { record_id: string; present: string | null; person_data:string|null; previously_used:number } | undefined;
+    const storedPerson=key?.person_data?JSON.parse(key.person_data) as Record<string,unknown>:null;
+    const unusable=storedPerson&&(storedPerson.deleted===true||storedPerson.archived===true||storedPerson.boardId!==people.id||normalizeEmail(storedPerson[emailKey])!==email)||!key?.present&&key?.previously_used;
+    matchingStatus=unusable?'unusable_identity':key?.present?'matched':'created';
+    personId = unusable?undefined:key?.record_id ?? candidate;
+    if (personId && !key?.present) {
       const columns = Array.isArray(peopleBoard.columns) ? (peopleBoard.columns as { id: string }[]) : [];
       ops.push({
         id: personId,
@@ -576,13 +595,17 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
       });
       createOnly.add(personId);
     }
+    if(personId) {
     const link = linkId('related', '', plan.recordId, personId);
     ops.push({ id: link, collection: 'links', patch: { fromType: 'record', fromId: plan.recordId, toType: 'record', toId: personId, kind: 'related', fieldId: null, deleted: false, createdBy: null, createdAt: now } });
     createOnly.add(link);
+    }
   }
 
-  const written = await applyChanges(env, 'website', ops.map((o) => ({ ...o, ts: now })), {
+  const written = await applyChanges(env, sponsor, ops.map((o) => ({ ...o, patch:{...o.patch,...(o.patch.createdBy===null?{createdBy:sponsor}:{})}, ts: now })), {
     serverTs: true,
+    atomic: true,
+    fences,
     createOnly,
     ...(expect.size ? { expect } : {}),
     event: { source: 'website', ctx },
@@ -603,10 +626,11 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
     groupKey: 'website-inbox',
     dedupeKey: `website:${body.id}`,
   }));
-  const result = { ok: true, id: body.id, recordId: plan.recordId, action: plan.action, family, ...(personId ? { personId } : {}) };
+  const result = { ok: true, id: body.id, recordId: plan.recordId, action: plan.action, family, matchingStatus, ...(personId ? { personId } : {}) };
   const outboxId = `ev_web_${fnv1a64hex(body.id)}`;
   await env.DB.batch([
-    env.DB.prepare('INSERT OR IGNORE INTO event_outbox(id,payload,created_at) VALUES(?,?,?)').bind(outboxId, JSON.stringify({ source: 'website', userId: 'website', changesetId: null, applied: [], extra: [], notifications }), now),
+    websiteGrantFence(env,grant),
+    env.DB.prepare('INSERT OR IGNORE INTO event_outbox(id,payload,created_at) VALUES(?,?,?)').bind(outboxId, JSON.stringify({ source: 'website', userId: sponsor, changesetId: null, applied: [], extra: [], notifications }), now),
     env.DB.prepare("UPDATE website_ingest SET state='accepted',record_id=?,result=?,updated_at=? WHERE event_id=?").bind(plan.recordId, JSON.stringify(result), Date.now(), body.id),
   ]);
   scheduleOutbox(env, ctx, [outboxId]);

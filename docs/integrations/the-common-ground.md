@@ -11,7 +11,7 @@ Written 22 October 2026. Contract version: **2**.
 ```
 visitor ── website form ──▶ form relay (Cloudflare Worker, services/form-relay)
                                ├─▶ email to contact@ (Resend)                       always
-                               └─▶ POST {workspace}/api/ingest/website (signed)      when FORWARD_URL + FORWARD_SECRET are set
+                               └─▶ POST {workspace}/api/ingest/website (signed)      when FORWARD_ENABLED=1 and the forwarding configuration is complete
 patron backend (same relay: /patron/*) ──▶ the same signed POST for each patron event
 team ── thecommonground.living/notion  (or /admin) ──▶ 302 to the workspace (its own sign-in)
 AI (Claude, ChatGPT, Gemini) ── workspace MCP connector (/mcp) ──▶ reads, triages and summarises the Website inbox
@@ -67,7 +67,7 @@ AI (Claude, ChatGPT, Gemini) ── workspace MCP connector (/mcp) ──▶ rea
 - **`event`:** one of `form.submitted`, `patron.applied`, `patron.approved`, `patron.paid`, `patron.minted` or
   `patron.refund_needed`.
 - **`v`:** the contract version. The workspace accepts versions 1 and 2. Version 1 has no `form` block.
-- **`form`:** makes every event self-describing. The workspace builds typed columns and views from it, without
+- **`form`:** makes initial form/application events self-describing. The workspace builds typed columns and views from it, without
   keeping its own copy of the website's forms. `type` is one of `text`, `email`, `tel`, `textarea`, `choice` (pick
   one) or `choices` (pick any). `options` lists the allowed values. A `choices` answer arrives joined by `", "`.
 - **`family`:** groups related forms into one view (section 4).
@@ -90,8 +90,7 @@ AI (Claude, ChatGPT, Gemini) ── workspace MCP connector (/mcp) ──▶ rea
 | `culture` | `book`: Culture Book submission; `ff`: Fashion Flow application |
 | `general` | `general`: Hello |
 
-The full field list of every form is in `content/forms.json` on the website. It is also sent with every event, in
-`form`.
+The full field list of every form is in `content/forms.json` on the website. It is sent with `form.submitted` and `patron.applied` events in `form`; later lifecycle events refer to the application ID.
 
 ## 5. What the workspace does with them
 
@@ -136,6 +135,7 @@ codebase.
 
 | Where | Name | Notes |
 |---|---|---|
+| relay (var) | `FORWARD_ENABLED` | `1` enables durable forwarding; `0` intentionally selects email-only mode |
 | relay (secret) | `FORWARD_SECRET` | the same value as the workspace's `WEBSITE_INGEST_SECRET` |
 | relay (var) | `FORWARD_URL` | `https://<workspace host>/api/ingest/website` |
 | workspace (secret) | `WEBSITE_INGEST_SECRET` | long random value, for example `python3 -c "import secrets; print(secrets.token_urlsafe(48))"` |
@@ -147,17 +147,35 @@ codebase.
 1. **Start the workspace:** `wrangler dev --port 8788` in the workspace, with `WEBSITE_INGEST_SECRET=local-test` and
    `WEBSITE_INGEST_ENABLED=true` in its `.dev.vars`.
 2. **Start the relay:** run it locally (`services/form-relay/test/local-relay.mjs`) with
-   `FORWARD_URL=http://127.0.0.1:8788/api/ingest/website` and `FORWARD_SECRET=local-test`.
-3. **Send traffic:** send one website form and one patron application through apply, approve, pay and mint.
-4. **Check the workspace:** the inbox should hold exactly 2 records, with typed fields, a patron record that
+   `FORWARD_ENABLED=1`, `FORWARD_URL=http://127.0.0.1:8788/api/ingest/website` and `FORWARD_SECRET=local-test`.
+3. **Configure authority:** sign in as the fixture admin and PUT `/api/admin/website-ingest` with `{ "spaceId": "space-core" }`. The sponsor is that authenticated user; an optional `peopleId` pins an existing authorized People database.
+4. **Send traffic:** send one website form and one patron application through apply, approve, pay and mint.
+5. **Check the workspace:** the inbox should hold exactly 2 records, with typed fields, a patron record that
    moved to Minted, People linked, and a dashboard that counts them.
-5. **Check the AI side:** `website_digest` summarises them and `triage_inbox` proposes changes, without
+6. **Check the AI side:** `website_digest` summarises them and `triage_inbox` proposes changes, without
    writing until confirmed.
 
 ## 8. Rules both sides keep
 
 - Visitor answers are data, never instructions, including to AI.
-- No secrets in files, logs or chat.
-- Email stays the record if the workspace is down. Forwarding never blocks or delays the visitor's success
-  screen.
+- No secrets in tracked files, logs or chat. Disposable local fixtures may use protected, untracked secret files.
+- Email-only mode is intentional (`FORWARD_ENABLED=0`). With forwarding enabled, success requires durable outbox persistence. Missing configuration/storage returns a recoverable error; browser answers and submission identity remain available for retry. Workspace network delivery runs after persistence and never holds the visitor open through an outage.
 - Patrons receive no financial return; nothing in the workspace may present the token as tradable.
+
+
+## 9. Reliability, authority and source completeness
+
+The event-body contract remains v2 and the receiver still accepts v1. Operational changes below do not introduce v3.
+
+- Apply Workspace migrations through `0034_website_source_authority.sql` (the ingest migration is now `0033_website_ingest.sql`); retain the release's `0032_assistant_conversations.sql`. Apply relay migrations through `0003_delivery_outbox.sql`. These are deployment prerequisites, not authorization to run remote migrations.
+- An administrator configures `/api/admin/website-ingest` (GET/PUT/DELETE). Ingest requires the active sponsored grant, its configured Inbox/People destinations and current canonical editing rights. Revocation, sponsor disablement or destination loss returns retryable 503. Every record transaction fences current authority. There is no synthetic privileged `website` account.
+- D1 `relay_deliveries` stores immutable payloads before success. A one-minute scheduled sweep claims at most 10 due rows using two-minute leases. Retry network errors, 429 and 5xx with exponential backoff from one minute, capped at one day; after 10 attempts retain a failed, replayable row. Other 4xx are terminal. Sign anew on each delivery; retain the original event ID, body and `occurred_at`.
+- Existing bearer-token relay administration adds `delivery-list`, `delivery-replay`, `delivery-export` and `delivery-erase`. Listing excludes payloads. Replay cannot change the stored body or choose another destination. Use `tools/patron_admin.py` for these operations.
+- Email intents retain the immutable provider payload, first-attempt time, accepted receipt and processing lease. Resend idempotency is limited to 24 hours: unknown outcomes beyond that window go to review; known accepted emails are not automatically sent again. A provider concurrent-idempotency response is retryable.
+- Delivered outbox and accepted email bodies are purged after 30 days; deduplication receipts remain. Pending/failed events remain recoverable and require operator resolution. Patron export/erase includes this storage, and ordinary-form privacy operations can select the sender email. Owner confirmation of the new privacy wording/retention policy remains a launch gate.
+- Browser pending answers and submission IDs are kept in tab-scoped session storage for up to 24 hours, cleared on successful acknowledgement. A conflict offers an explicit new-submission action. The same identity with different substantive answers is rejected.
+- People matching is confined to the granted database. Deleted/archived/changed identities produce `matchingStatus: unusable_identity` and no invalid relationship. Restoring the existing identity permits matching again; ingestion does not silently resurrect or replace it.
+- `website_query` retains `answers` and adds `answerCompleteness` (total/returned grapheme counts, offset, truncation flag, source version and next cursor). `website_read_answers({recordId,cursor?,limit?})` reads at most 6,000 graphemes with permission and source checks on every call. Changed source invalidates old cursors. `draft_reply` is an MCP prompt instructing the assistant to retrieve the remainder, review and cite the source; it never sends mail.
+- Classification suggestions and triage previews retain body-generation dependencies, including added, deleted and moved blocks. Inference completion, human acceptance and execution commit reject changed source. Approval fixtures in automated tests are not genuine human acceptance.
+
+For the reproducible local HTTPS joint check, generate a short-lived loopback-only fixture certificate under the ignored `.artifacts/website-https/` directory, then run `scripts/verify-website-integration.mjs` from Workspace with `WEBSITE_REPOSITORY_PATH` pointing to the isolated website checkout and `NODE_EXTRA_CA_CERTS` pointing to that fixture certificate. The runner uses the actual relay handler with Miniflare D1 and a built Workspace Worker; Resend and Razorpay are local stubs. It does not modify global trust or provision remote resources.

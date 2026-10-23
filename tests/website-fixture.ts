@@ -30,6 +30,7 @@ export async function website(name:string,admins=['alice','carol','dave']):Promi
     ...admins.map(id=>db.prepare("INSERT INTO users(id,username,name,role,prefs) VALUES(?,?,?,'admin',NULL)").bind(id,id,id[0]!.toUpperCase()+id.slice(1))),
     db.prepare("INSERT INTO users(id,username,name,role,prefs) VALUES('bob','bob','Bob','member',NULL)"),
   ]);
+  await db.prepare("INSERT INTO website_ingest_grant(id,sponsor_id,space_id,inbox_id,people_id,updated_at) VALUES(1,?,'space-core','board-website-inbox','board-website-people',?)").bind(admins[0]??'bob',Date.now()).run();
   return {mf,db,env,maxBudgetUsed:0};
 }
 

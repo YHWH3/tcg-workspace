@@ -71,6 +71,7 @@ export const CAPABILITIES: readonly Capability[] = [
   R('find_collaborators', 'people'),
   // Inbox / suggestions
   P('propose_suggestion', 'inbox'),
+  R('website_query','inbox'), R('website_digest','inbox'), R('website_read_answers','inbox'), P('propose_website_triage','inbox'),
   // Automations
   R('list_automations', 'automations'),
   // History, activity, changesets

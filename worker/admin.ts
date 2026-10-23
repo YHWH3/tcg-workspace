@@ -4,9 +4,46 @@ import type { Env, AuthUser } from './auth';
 import type { PublicUser } from '../shared/types';
 import { maintainDateIndex } from './events';
 import { revokeAllGrants } from './ratelimit';
+import {websiteAuthority,websiteGrantFence,defaultWebsiteDestinations} from './websiteAuthority';
+import {loadAccessContext,spaceAccess} from './access';
+import {canEdit} from '../shared/access';
+import {levelSql} from './capability';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 admin.use('*', requireAuth);
+
+function adminSessionFence(env:Env,user:AuthUser,spaceId?:string){
+ return env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
+ WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL AND u.role='admin')
+ ${spaceId?`AND ${levelSql('?','?')}>=3`:''} THEN 1 ELSE json_extract('{','$') END`)
+ .bind(user.tokenHash,user.id,Date.now(),...(spaceId?[user.id,spaceId]:[]));
+}
+
+admin.get('/admin/website-ingest',requireAdmin,async c=>{
+ const grant=await c.env.DB.prepare('SELECT * FROM website_ingest_grant WHERE id=1').first<{space_id:string}>();
+ const readable=grant&&canEdit(spaceAccess(await loadAccessContext(c.env.DB,c.get('user').id,[grant.space_id]),grant.space_id));
+ return c.json({grant:readable?grant:null,available:readable&&!!await websiteAuthority(c.env),defaults:defaultWebsiteDestinations});
+});
+admin.put('/admin/website-ingest',requireAdmin,async c=>{
+ const body=await c.req.json().catch(()=>null),uid=c.get('user').id;
+ if(!body||typeof body.spaceId!=='string'||!body.spaceId||body.spaceId.length>64||body.peopleId!==undefined&&(typeof body.peopleId!=='string'||!body.peopleId||body.peopleId.length>64))return c.json({error:'invalid_destination'},400);
+ const access=await loadAccessContext(c.env.DB,uid,[body.spaceId]);
+ if(!canEdit(spaceAccess(access,body.spaceId)))return c.json({error:'destination_not_authorized'},403);
+ const peopleId=body.peopleId??defaultWebsiteDestinations.peopleId;
+ const invalid=await c.env.DB.prepare(`SELECT id FROM records WHERE id IN (?,?) AND (collection!='boards' OR space_id!=? OR COALESCE(json_extract(data,'$.deleted'),0)=1 OR COALESCE(json_extract(data,'$.archived'),0)=1)`).bind(defaultWebsiteDestinations.inboxId,peopleId,body.spaceId).first();
+ if(invalid)return c.json({error:'destination_unavailable'},409);
+ await c.env.DB.batch([adminSessionFence(c.env,c.get('user'),body.spaceId),c.env.DB.prepare(`INSERT INTO website_ingest_grant(id,sponsor_id,space_id,inbox_id,people_id,updated_at) VALUES(1,?,?,?,?,?)
+ ON CONFLICT(id) DO UPDATE SET sponsor_id=excluded.sponsor_id,space_id=excluded.space_id,inbox_id=excluded.inbox_id,people_id=excluded.people_id,version=version+1,revoked_at=NULL,updated_at=excluded.updated_at`)
+ .bind(uid,body.spaceId,defaultWebsiteDestinations.inboxId,peopleId,Date.now())]);
+ const grant=await websiteAuthority(c.env);
+ if(!grant)return c.json({error:'authority_changed'},409);
+ await c.env.DB.batch([websiteGrantFence(c.env,grant)]);
+ return c.json({ok:true,grant});
+});
+admin.delete('/admin/website-ingest',requireAdmin,async c=>{
+ await c.env.DB.batch([adminSessionFence(c.env,c.get('user')),c.env.DB.prepare('UPDATE website_ingest_grant SET revoked_at=?,version=version+1,updated_at=? WHERE id=1').bind(Date.now(),Date.now())]);
+ return c.json({ok:true});
+});
 
 admin.get('/users', async (c) => {
   const { results } = await c.env.DB

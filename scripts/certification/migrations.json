@@ -130,5 +130,9 @@
   {
     "name": "0033_website_ingest.sql",
     "sha256": "afb634470d941ce6c3445a3e2c185d9d836e5facbf09b7d21749f2972903ff67"
+  },
+  {
+    "name": "0034_website_source_authority.sql",
+    "sha256": "87c96e5d7ae7a374a5ae536ca1ab96e3b9704fe6460973e54d202a584d9b76f8"
   }
 ]

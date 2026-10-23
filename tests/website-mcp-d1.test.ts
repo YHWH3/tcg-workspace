@@ -5,7 +5,7 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 const handlers=vi.hoisted(()=>new Map<string,(a:Record<string,unknown>)=>Promise<{content:{text:string}[];isError?:boolean}>>());
 const prompts=vi.hoisted(()=>new Map<string,{meta:{description?:string};fn:(a:Record<string,unknown>)=>Promise<{messages:{content:{text:string}}[]}>}>());
-vi.mock('@modelcontextprotocol/server',()=>({McpServer:class{registerTool(n:string,_m:unknown,f:never){handlers.set(n,f);}registerPrompt(n:string,m:never,f:never){prompts.set(n,{meta:m,fn:f});}}}));
+vi.mock('@modelcontextprotocol/server',()=>({ResourceTemplate:class{},McpServer:class{registerResource(){}registerTool(n:string,_m:unknown,f:never){handlers.set(n,f);}registerPrompt(n:string,m:never,f:never){prompts.set(n,{meta:m,fn:f});}}}));
 vi.mock('agents/mcp/server',()=>({createMcpHandler:vi.fn()}));
 vi.mock('../worker/events',async o=>({...await o<typeof import('../worker/events')>(),scheduleOutbox:vi.fn()}));
 import {createWorkspaceServer} from '../worker/mcp';
@@ -115,7 +115,7 @@ describe('propose_website_triage, draft_reply and the triage_inbox prompt',()=>{
 describe('bulk: 1,000 submissions',()=>{
   it('ingests 1,000 signed submissions, digests them and proposes triage in two 500-record batches inside the budgets',async()=>{
     f=await website('website-mcp-bulk');
-    const families=[['consulting','consulting'],['roots','join'],['community','community'],['book','culture'],['general','general']] as const;
+    const families=[['consulting','consulting'],['roots','join'],['community','community'],['book','culture'],['general','general'],['patron','patrons']] as const;
     for(let i=0;i<1000;i++){
       const [formId,family]=families[i%families.length]!;
       const res=await send(f,{...consultingEvent('bulk'+i,{reply_to:`person${i%400}@example.com`,occurred_at:new Date(Date.now()-(i%7)*86400_000).toISOString()}),form_id:formId,form:{...consultingEvent('x').form,id:formId,family}});
@@ -129,7 +129,7 @@ describe('bulk: 1,000 submissions',()=>{
     const digest=await call('website_digest',{since:new Date(Date.now()-8*86400_000).toISOString()});
     expect(digest.out.isError,JSON.stringify(digest.out).slice(0,300)).not.toBe(true);
     expect(digest.out.received.count).toBe(1000);
-    expect(digest.out.byFamily).toHaveLength(5);
+    expect(digest.out.byFamily).toHaveLength(6);
     expect(digest.used).toBeLessThanOrEqual(40);
 
     const ids=(await f.db.prepare("SELECT id FROM records WHERE collection='tasks' AND json_extract(data,'$.boardId')='board-website-inbox' ORDER BY id").all<{id:string}>()).results.map(r=>r.id);
@@ -141,11 +141,19 @@ describe('bulk: 1,000 submissions',()=>{
       previews.push(out as never);
     }
     expect((await f.db.prepare("SELECT COUNT(*) n FROM records WHERE collection='tasks' AND json_extract(data,'$.status')='in_review'").first<{n:number}>())!.n).toBe(0);
-    // Approve one batch and execute it in resumable calls, each inside a budget.
-    await approve(previews[0]!.previewId,previews[0]!.argsHash);
-    let done:Record<string,any>={};
-    for(let i=0;i<40&&!done.completed;i++){const r=await call('execute_preview',previews[0]!);done=r.out;expect(done.isError,JSON.stringify(done).slice(0,300)).not.toBe(true);expect(r.used).toBeLessThanOrEqual(45);}
-    expect(done.completed).toBe(true);
-    expect((await f.db.prepare("SELECT COUNT(*) n FROM records WHERE collection='tasks' AND json_extract(data,'$.status')='in_review'").first<{n:number}>())!.n).toBe(500);
+    // Each approval is a separate disposable human-session fixture.
+    for(const preview of previews){
+      await approve(preview.previewId,preview.argsHash);
+      let done:Record<string,any>={};
+      for(let i=0;i<40&&!done.completed;i++){
+        const r=await call('execute_preview',preview);done=r.out;
+        expect(done.isError,JSON.stringify(done).slice(0,300)).not.toBe(true);expect(r.used).toBeLessThanOrEqual(45);
+      }
+      expect(done.completed).toBe(true);
+      expect((await call('execute_preview',preview)).out.replayed).toBe(true);
+    }
+    expect((await f.db.prepare("SELECT COUNT(*) n FROM records WHERE collection='tasks' AND json_extract(data,'$.boardId')='board-website-inbox' AND json_extract(data,'$.status')='in_review'").first<{n:number}>())!.n).toBe(1000);
+    expect((await f.db.prepare('SELECT COUNT(*) n FROM ai_preview_done').first<{n:number}>())!.n).toBeGreaterThanOrEqual(1000);
+
   },600_000);
 });

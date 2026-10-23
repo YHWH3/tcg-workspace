@@ -51,6 +51,7 @@ const results=[];let fixture;
 try{
   fixture=await startFixture({port:await freePort(),build:!process.argv.includes('--skip-build'),artifactDirectory:join(output,'fixture'),vars:{WEBSITE_INGEST_SECRET:SECRET,WEBSITE_INGEST_ENABLED:'true'}});
   const {admin}=await bootstrap(fixture.base);
+  assert.equal((await fetch(fixture.base+'/api/admin/website-ingest',{method:'PUT',headers:{Authorization:'Bearer '+admin.token,'Content-Type':'application/json'},body:JSON.stringify({spaceId:'space-core'})})).status,200);
   const at=()=>new Date().toISOString();
   await sendEvent(fixture.base,{v:2,id:'ui-form-1',event:'form.submitted',occurred_at:at(),form_id:'consulting',subject:'Project application',page:'/consulting/',reply_to:'asha@example.org',form:CONSULTING,
     answers:[{name:'Name',label:'Your name',value:'Asha Menon'},{name:'Email',label:'Email',value:'asha@example.org'},{name:'Building',label:'What are you building?',value:'Retreat or studio, Community education or arts space'},{name:'Why',label:'Why',value:'A long answer that should wrap cleanly on a phone screen without making the page scroll sideways at all, even with averyveryverylongwordwithoutanyspacesinsideit.'}]});
@@ -67,8 +68,8 @@ try{
           context=await browser.newContext({viewport:{width:vp.width,height:vp.height},hasTouch:vp.name!=='desktop',serviceWorkers:'block',reducedMotion:'reduce'});
           await context.addInitScript(a=>{localStorage.setItem('ws_token',a.token);localStorage.setItem('ws_uid',a.user.id);localStorage.setItem('ws_user',JSON.stringify(a.user));},admin);
           const page=await context.newPage();page.setDefaultTimeout(30000);page.on('pageerror',e=>errors.push(e.message));
-          // Pass/fail covers the Website section (<main>); whole-page findings outside it are recorded, not failed.
-          const audit=async surface=>{const tags=['wcag2a','wcag2aa','wcag21aa','wcag22aa'];const scan=await new AxeBuilder({page}).include('main').withTags(tags).analyze();const whole=await new AxeBuilder({page}).withTags(tags).analyze();writeFileSync(join(output,`${engine}-${vp.name}-${surface}-axe.json`),JSON.stringify({section:scan.violations,wholePage:whole.violations},null,2));violations.push(...scan.violations.map(v=>({surface,id:v.id,impact:v.impact,targets:v.nodes.map(n=>n.target)})));outside.push(...whole.violations.filter(v=>!scan.violations.some(s=>s.id===v.id)).map(v=>({surface,id:v.id,html:v.nodes.map(n=>n.html.slice(0,160))})));};
+          // Both the section and its shared shell are required accessibility surfaces.
+          const audit=async surface=>{const tags=['wcag2a','wcag2aa','wcag21aa','wcag22aa'];const scan=await new AxeBuilder({page}).include('main').withTags(tags).analyze();const whole=await new AxeBuilder({page}).withTags(tags).analyze();writeFileSync(join(output,`${engine}-${vp.name}-${surface}-axe.json`),JSON.stringify({section:scan.violations,wholePage:whole.violations},null,2));violations.push(...whole.violations.map(v=>({surface,id:v.id,impact:v.impact,targets:v.nodes.map(n=>n.target)})));outside.push(...whole.violations.filter(v=>!scan.violations.some(s=>s.id===v.id)).map(v=>({surface,id:v.id,html:v.nodes.map(n=>n.html.slice(0,160))})));};
           const reflow=async surface=>{const m=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth}));assert.ok(m.scroll<=m.width+1,`${surface}: root horizontal overflow ${JSON.stringify(m)}`);};
           // Arrive the way the website sends people: /notion/... lands on the same route.
           await page.goto(fixture.base+'/notion/website');

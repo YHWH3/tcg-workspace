@@ -116,11 +116,12 @@ describe('idempotency',()=>{
   });
   it('a failed write leaves the event pending so the relay retry completes it',async()=>{
     await f.db.prepare('UPDATE access_state SET enabled=1 WHERE id=1').run();
+    await f.db.prepare("CREATE TRIGGER fixture_write_outage BEFORE INSERT ON records WHEN NEW.collection='tasks' BEGIN SELECT RAISE(ABORT,'fixture storage unavailable'); END").run();
     const blocked=await send(f,v1Form());
     expect(blocked.status).toBe(503);
     expect(blocked.body.retryable).toBe(true);
     expect((await f.db.prepare("SELECT state FROM website_ingest WHERE event_id='evt_form_1'").first<{state:string}>())?.state).toBe('pending');
-    await f.db.prepare('UPDATE access_state SET enabled=0 WHERE id=1').run();
+    await f.db.prepare('DROP TRIGGER fixture_write_outage').run();
     expect((await send(f,v1Form())).status).toBe(200);
     expect((await f.db.prepare("SELECT state FROM website_ingest WHERE event_id='evt_form_1'").first<{state:string}>())?.state).toBe('accepted');
   });
@@ -290,6 +291,7 @@ describe('People',()=>{
       {id:'db_people_team',collection:'boards',patch:{name:'People',kind:'records',columns:[{id:'c',name:'All'}],fields:[{id:'f_email',name:'Email',type:'text'}]},ts:Date.now()},
       {id:'person_existing',collection:'tasks',patch:{boardId:'db_people_team',title:'Ada (team)',p_f_email:'Ada@Example.com',status:'c'},ts:Date.now()},
     ]);
+    await f.db.prepare("UPDATE website_ingest_grant SET people_id='db_people_team',version=version+1 WHERE id=1").run();
     const res=await send(f,consultingEvent('p1'));
     expect(res.body.personId).toBe('person_existing');
     expect((await rec(f,WEBSITE_INBOX_ID))!.peopleDatabaseId).toBe('db_people_team');

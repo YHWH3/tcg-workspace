@@ -2,7 +2,7 @@
 // 1,000 inbox rows inside the production invocation budget (45 bindings).
 import {afterEach,expect,it,vi} from 'vitest';
 const handlers=vi.hoisted(()=>new Map<string,(a:Record<string,unknown>)=>Promise<{content:{text:string}[];isError?:boolean}>>());
-vi.mock('@modelcontextprotocol/server',()=>({McpServer:class{registerTool(n:string,_m:unknown,f:never){handlers.set(n,f);}registerPrompt(){}}}));
+vi.mock('@modelcontextprotocol/server',()=>({ResourceTemplate:class{},McpServer:class{registerResource(){}registerTool(n:string,_m:unknown,f:never){handlers.set(n,f);}registerPrompt(){}}}));
 vi.mock('agents/mcp/server',()=>({createMcpHandler:vi.fn()}));
 vi.mock('../worker/events',async o=>({...await o<typeof import('../worker/events')>(),scheduleOutbox:vi.fn()}));
 import {openAuditFixture,type AuditFixture} from './audit-fixture';
