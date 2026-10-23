@@ -81,7 +81,7 @@ export const test=base.extend({page:async({page,context,browser,browserName},use
           if(!manifestResponse.ok)return {online:true,status:manifestResponse.status};
           const manifest=await manifestResponse.json();
           if(manifest.protocol!==3||!Array.isArray(manifest.spaces))return {online:true,status:0};
-          const body={protocol:3,etag:manifest.etag,cursor:0,joining:manifest.spaces.map(s=>({space:s.id,after:0,base:0})),limit:1};
+          const body={protocol:3,etag:manifest.etag,cursor:0,joining:manifest.spaces.map(s=>({space:s.id,after:0,base:0})),limit:8};
           return {online:true,status:(await fetch(url,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(body)})).status};
         }
         return {online:true,status:(await fetch(url,{headers})).status};

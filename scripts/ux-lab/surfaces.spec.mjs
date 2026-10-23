@@ -110,7 +110,13 @@ test('task draft: focus, cross-field edits and responsive recovery',async({page,
   await expect(title).toHaveValue('Updated while focused',{timeout:20_000});
   await setOfflineForTest(page,context,true);
   const draft='Preserved café 👩🏽‍💻 '+('long text '.repeat(12)),body=('Description survives title changes and responsive remounts.\n').repeat(8);
-  await title.fill(draft);await description.fill(body);
+  // Settle in-flight foreground reads after the offline transition, then click
+  // the actual editable control. Source text can arrive before reconciliation.
+  await expect.poll(()=>page._uxPending.size,'Foreground requests must settle before text entry').toBe(0);
+  await title.click();await expect(title).toBeFocused();
+  await title.fill(draft);await expect(title).toHaveValue(draft);
+  await description.click();await expect(description).toBeFocused();
+  await description.fill(body);await expect(description).toHaveValue(body);
   await page.setViewportSize({width:info.project.use.viewport.width<768?1440:390,height:900});
   await expect(title).toHaveValue(draft);await expect(description).toHaveValue(body);
   for (const input of [title,description]) await expect.poll(()=>input.evaluate(el=>el.scrollHeight-el.clientHeight),'All wrapped task text must remain visible').toBeLessThanOrEqual(1);
