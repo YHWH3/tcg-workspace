@@ -596,6 +596,7 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
       createOnly.add(personId);
     }
     if(personId) {
+    if(key?.present)fences.push(()=>env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM records WHERE id=? AND collection='tasks' AND space_id=? AND json_extract(data,'$.boardId')=? AND COALESCE(json_extract(data,'$.deleted'),0)=0 AND COALESCE(json_extract(data,'$.archived'),0)=0 AND lower(trim(json_extract(data,?)))=?) THEN 1 ELSE json_extract('{','$') END`).bind(personId!,grant.space_id,people.id,'$.'+emailKey,email));
     const link = linkId('related', '', plan.recordId, personId);
     ops.push({ id: link, collection: 'links', patch: { fromType: 'record', fromId: plan.recordId, toType: 'record', toId: personId, kind: 'related', fieldId: null, deleted: false, createdBy: null, createdAt: now } });
     createOnly.add(link);

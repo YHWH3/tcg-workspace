@@ -8,6 +8,7 @@ import {classifyForAutomation} from '../worker/aiClassification';
 import {aiSuggestionsApi} from '../worker/aiSuggestions';
 import {websiteAutomations} from '../shared/websiteInbox';
 import {sha256Hex} from '../worker/password';
+import {admin} from '../worker/admin';
 import {bodyVersions} from '../worker/bodySources';
 import {proposePreview,aiPreviewApi,executePreview} from '../worker/aiPreviews';
 let f:Fixture;
@@ -85,4 +86,27 @@ it('W07 generations cover added, moved, deleted and physically removed answer bl
  expect((await bodyVersions(f.env,[id]))[id]).toBeGreaterThan(added[id]!);
  const moved=await bodyVersions(f.env,['other']);await f.db.prepare("DELETE FROM records WHERE id='extra_answer'").run();
  expect((await bodyVersions(f.env,['other'])).other).toBeGreaterThan(moved.other!);
+});
+
+it('W02 administrator configuration binds canonical space and session identity in SQL order',async()=>{
+ f=await website('remediation-admin');await f.db.prepare('UPDATE access_state SET enabled=1').run();
+ const headers=await session();
+ const configured=await admin.request('http://localhost/admin/website-ingest',{method:'PUT',headers,body:JSON.stringify({spaceId:'space-core'})},f.env,ctx);
+ expect(configured.status,await configured.clone().text()).toBe(200);
+ const grant=await configured.json() as {grant:{sponsor_id:string;space_id:string}};
+ expect(grant.grant).toMatchObject({sponsor_id:'alice',space_id:'space-core'});
+ expect((await admin.request('http://localhost/admin/website-ingest',{method:'DELETE',headers},f.env,ctx)).status).toBe(200);
+ expect((await send(f,consultingEvent('after-admin-revoke'))).status).toBe(503);
+});
+
+it('W06 explicitly rebinds a changed-email reservation only to an active authorized Person',async()=>{
+ f=await website('remediation-rebind');const first=await send(f,consultingEvent('old-person')),oldId=String(first.body.personId);
+ const old=await rec(f,oldId);const emailKey=Object.keys(old!).find(k=>old![k]===consultingEvent('x').reply_to)!;
+ await applyChanges(f.env,'alice',[{id:oldId,collection:'tasks',patch:{[emailKey]:'changed@example.org'},ts:0},{id:'replacement',collection:'tasks',patch:{boardId:'board-website-people',title:'Explicit operator choice',[emailKey]:consultingEvent('x').reply_to,deleted:false},ts:0}],{serverTs:true});
+ expect((await send(f,consultingEvent('before-rebind'))).body.matchingStatus).toBe('unusable_identity');
+ await f.db.prepare('UPDATE access_state SET enabled=1').run();const headers=await session();
+ const call=(personId:string)=>admin.request('http://localhost/admin/website-ingest/people-rebind',{method:'POST',headers,body:JSON.stringify({email:consultingEvent('x').reply_to,personId})},f.env,ctx);
+ expect((await call(oldId)).status).toBe(409);expect((await call('replacement')).status).toBe(200);
+ expect((await send(f,consultingEvent('after-rebind'))).body.personId).toBe('replacement');
+ expect(await f.db.prepare("SELECT COUNT(*) n FROM access_audit WHERE action='website_people_rebind'").first<number>('n')).toBe(1);
 });

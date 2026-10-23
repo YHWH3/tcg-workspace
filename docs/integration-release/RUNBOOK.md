@@ -25,3 +25,6 @@ backend.enabled, featured.show_samples and policy draft flags remain unchanged. 
 
 ## Evidence and review
 Run npm run certify:ai on clean committed Workspace source; use the current mandatory manifest. Run relay and cross-repository checks against the recorded website SHA. Record every exit, fixture ID, browser/OS version and both source fingerprints. Local logs contain synthetic fixtures only; publish sanitized summaries and hashes. A genuine person must review frozen changes in the browser; test session approvals are not human acceptance.
+
+## Identity recovery
+Restore a Person with the existing authorized restore workflow. To rebind a reserved email explicitly, an administrator can POST `/api/admin/website-ingest/people-rebind` with the normalized email and an existing active `personId` in the configured People database. The target must have that email. Rebinding is audited, session/grant/revision fenced, and applies to future submissions. It never resurrects or creates a Person.
