@@ -54,9 +54,9 @@ function RecChip({ rec, board, onOpen }: { rec: TaskRow; board: BoardRow; onOpen
 /** Pick-a-date control for the unscheduled tray — a real input, no dragging needed. */
 function DatePicker({ onPick }: { onPick: (d: string) => void }) {
   return (
-    <Input
+    <Input density="compact"
       type="date"
-      className="h-7 w-32 text-xs"
+      className="w-32"
       aria-label="Pick date"
       onChange={(e) => {
         if (e.target.value) onPick(e.target.value);

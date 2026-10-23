@@ -37,3 +37,6 @@ Genuine human approval (automated sessions are fixtures), physical devices, huma
 
 ## Release rehearsal correction
 The first completed integration certification at a8e6f4b passed 33 of 34 mandatory gates, including 1,512 unit tests, 668 D1 tests, all browser/AI gates, security and source integrity. The migration rehearsal failed because it retained the previous release's 32-entry count. Its count now matches the 34-entry manifest. The failed certificate is retained; the corrected rehearsal and a fresh complete certification are required. No application or schema behavior changed in this correction.
+
+## Human-found UI follow-up
+The user's four screenshots exposed clipped table controls and native menu offsets missed by the earlier acceptance. UI status returned to HOLD. See UI-FOLLOWUP.md for eight finding groups, shared-component fixes, expanded rendered geometry/accessibility checks and the native-display review launcher. The prior certificate remains evidence for eaaa325 only; fresh affected checks and source-bound results are required for this follow-up.

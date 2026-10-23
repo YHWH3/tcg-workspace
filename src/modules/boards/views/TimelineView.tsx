@@ -142,7 +142,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
           Today
         </Button>
         <span className="flex-1" />
-        <Select value={scale} onChange={(e) => void mutate('views', view.id, { config: { ...cfg, timelineScale: e.target.value } })} className="h-8 w-24 text-xs" aria-label="Scale" disabled={!view.id}>
+        <Select density="compact" value={scale} onChange={(e) => void mutate('views', view.id, { config: { ...cfg, timelineScale: e.target.value } })} className="w-24" aria-label="Scale" disabled={!view.id}>
           <option value="week">Week</option>
           <option value="month">Month</option>
           <option value="quarter">Quarter</option>
@@ -164,8 +164,8 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
                         {recordTitle(b.record as TaskRow)}
                       </button>
                       <div className="mt-1.5 flex items-center gap-2">
-                        <Input type="date" value={b.start} className="h-7 flex-1 text-xs" aria-label="Start date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, e.target.value, endKey ? b.end : null)} />
-                        {endKey && <Input type="date" value={b.end} className="h-7 flex-1 text-xs" aria-label="End date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, b.start, e.target.value)} />}
+                        <Input density="compact" type="date" value={b.start} className="flex-1" aria-label="Start date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, e.target.value, endKey ? b.end : null)} />
+                        {endKey && <Input density="compact" type="date" value={b.end} className="flex-1" aria-label="End date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, b.start, e.target.value)} />}
                       </div>
                     </div>
                   );

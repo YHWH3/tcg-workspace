@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Check, ExternalLink, X } from 'lucide-react';
 import { mutate } from '../../core/sync/engine';
+import { fieldOptionStyle } from '../../core/fieldColors';
 import { Popover } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { authStore } from '../../core/auth';
@@ -21,7 +22,7 @@ export function FieldChip({ field, task }: { field: FieldDef; task: TaskRow }) {
     const o = (field.options ?? []).find((x) => x.id === raw);
     if (!o) return null;
     return (
-      <span className="inline-flex max-w-[120px] items-center truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={{ background: `${o.color}22`, color: o.color }}>
+      <span className="inline-flex max-w-[120px] items-center truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={fieldOptionStyle(o.color)}>
         {o.name}
       </span>
     );
@@ -32,7 +33,7 @@ export function FieldChip({ field, task }: { field: FieldDef; task: TaskRow }) {
     return (
       <>
         {opts.slice(0, 2).map((o) => (
-          <span key={o!.id} className="inline-flex max-w-[100px] items-center truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={{ background: `${o!.color}22`, color: o!.color }}>
+          <span key={o!.id} className="inline-flex max-w-[100px] items-center truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={fieldOptionStyle(o!.color)}>
             {o!.name}
           </span>
         ))}
@@ -68,7 +69,7 @@ export function FieldChips({ board, task }: { board: BoardRow | undefined; task:
 export function FieldRow({ field, task }: { field: FieldDef; task: TaskRow }) {
   const users = useUsers();
   const raw = task[propKey(field.id)] as unknown;
-  const input = 'w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10';
+  const input = 'w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10';
   return (
     <>
       <span className="text-xs text-neutral-400">{field.name}</span>
@@ -121,7 +122,7 @@ function MultiPicker({ field, task, values }: { field: FieldDef; task: TaskRow; 
             const o = opts.find((x) => x.id === id);
             if (!o) return null;
             return (
-              <span key={id} className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={{ background: `${o.color}22`, color: o.color }}>
+              <span key={id} className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={fieldOptionStyle(o.color)}>
                 {o.name}
                 <X
                   size={10}

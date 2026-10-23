@@ -74,20 +74,22 @@ export function IconButton({ className, ...props }: ButtonHTMLAttributes<HTMLBut
 }
 
 /* ---------- Inputs ---------- */
-const inputCls =
-  'w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-base sm:text-sm text-neutral-900 placeholder:text-neutral-400 transition-shadow focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600 dark:focus:ring-white/10';
+// Defaults live in the components layer so caller utilities override them.
+// Compact density grows with its text instead of imposing a clipping height.
+const inputCls = 'ws-input';
+type ControlDensity = { density?: 'normal' | 'compact' };
 
-export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(inputCls, className)} {...props} />;
+export function Input({ className, density = 'normal', ...props }: InputHTMLAttributes<HTMLInputElement> & ControlDensity) {
+  return <input className={cn(inputCls, density === 'compact' && 'ws-input-compact', className)} {...props} />;
 }
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea className={cn(inputCls, 'min-h-16 resize-none', className)} {...props} />;
 }
 
-export function Select({ className, children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className, children, density = 'normal', style, ...props }: SelectHTMLAttributes<HTMLSelectElement> & ControlDensity) {
   return (
-    <select className={cn(inputCls, 'appearance-none pr-8 bg-no-repeat cursor-pointer', className)} style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.6rem center' }} {...props}>
+    <select className={cn(inputCls, density === 'compact' && 'ws-input-compact', 'appearance-none pr-8 bg-no-repeat cursor-pointer', className)} style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.6rem center', ...style }} {...props}>
       {children}
     </select>
   );

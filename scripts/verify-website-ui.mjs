@@ -12,6 +12,7 @@
 //     the test-only ingest settings, admin + bob bootstrapped, NO events sent;
 //     stays up until Ctrl-C. Point the relay's FORWARD_URL at it.
 import assert from 'node:assert/strict';
+import {assertControlGeometry} from './control-geometry.mjs';
 import {createHmac} from 'node:crypto';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
@@ -95,7 +96,28 @@ try{
           // The pipeline board view opens from the Views card.
           await page.getByRole('link',{name:'Patron pipeline'}).click();await page.waitForURL(/view-wi-pipeline/);
           await eventually(async()=>await page.getByText('Patron application · Ravi Kumar').count()>0,{timeout:30000});
-          await reflow('pipeline');
+          await reflow('pipeline');await audit('pipeline');
+          await page.goto(fixture.base+'/boards/board-website-inbox/views/view-wi-all');
+          await page.getByRole('heading',{name:'🌐 Website inbox',exact:true}).waitFor();
+          if(vp.name!=='compact')await page.getByRole('combobox',{name:'Stage',exact:true}).first().waitFor();
+          await page.screenshot({path:join(output,`${engine}-${vp.name}-inbox-table.png`),fullPage:true});
+          if(vp.name!=='compact'){
+            const stage=page.getByRole('combobox',{name:'Stage',exact:true}).first();
+            const original=await stage.inputValue();await stage.selectOption('in_review');
+            await page.reload();await eventually(async()=>await page.getByRole('combobox',{name:'Stage',exact:true}).first().inputValue()==='in_review');
+            await page.getByRole('combobox',{name:'Stage',exact:true}).first().selectOption(original);
+            const title=page.getByRole('textbox',{name:'Title',exact:true}).first();assert.equal(await title.getAttribute('title'),await title.inputValue(),'Truncated titles retain their full text');
+            const resize=page.getByRole('separator',{name:'Resize Title',exact:true});const before=Number(await resize.getAttribute('aria-valuenow'));await resize.focus();await resize.press('ArrowRight');assert.equal(Number(await resize.getAttribute('aria-valuenow')),before+24,'Keyboard resize updates announced width');
+          }
+          const tabs=page.getByRole('tablist',{name:'Views',exact:true});await tabs.getByRole('tab',{name:'All',exact:true}).focus();await page.keyboard.press('ArrowRight');await page.getByRole('tab',{name:'New',exact:true}).waitFor();await eventually(async()=>await page.getByRole('tab',{name:'New',exact:true}).getAttribute('aria-selected')==='true');await page.keyboard.press('Home');await eventually(async()=>await page.getByRole('tab',{name:'All',exact:true}).getAttribute('aria-selected')==='true');
+          for(const name of ['Mine','Filters','Sort','Properties']){const bounds=await page.getByRole('toolbar',{name:'View controls',exact:true}).getByRole('button',{name,exact:true}).boundingBox();assert.ok(bounds&&bounds.x>=0&&bounds.x+bounds.width<=vp.width+1,`Toolbar ${name} is visible without scrolling the view tabs`);}
+          await assertControlGeometry(page,'Website inbox table');await reflow('inbox table');await audit('inbox-table');
+          await page.emulateMedia({colorScheme:'dark'});await page.reload();
+          await page.getByRole('heading',{name:'🌐 Website inbox',exact:true}).waitFor();
+          if(vp.name!=='compact')await page.getByRole('combobox',{name:'Stage',exact:true}).first().waitFor();
+          await assertControlGeometry(page,'Website inbox dark');await reflow('inbox dark');await audit('inbox-dark');
+          await page.screenshot({path:join(output,`${engine}-${vp.name}-inbox-dark.png`),fullPage:true});
+          await page.emulateMedia({colorScheme:'light'});
           assert.deepEqual(errors,[],'no uncaught browser errors');
           assert.deepEqual(violations,[],`automated WCAG A/AA rules: ${JSON.stringify(violations).slice(0,800)}`);
           results.push({engine,viewport:`${vp.width}x${vp.height}`,name:vp.name,status:'PASS',ms:Math.round(performance.now()-started),outsideSection:outside});console.log(`PASS ${engine} ${vp.name} ${vp.width}x${vp.height}`);

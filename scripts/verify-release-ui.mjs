@@ -2,6 +2,7 @@
 // Additional release viewport acceptance, using the existing disposable Worker
 // and fail-closed reporter. This complements (does not replace) Phase 0–6 journeys.
 import assert from 'node:assert/strict';
+import {assertControlGeometry} from './control-geometry.mjs';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {execFileSync} from 'node:child_process';
@@ -47,7 +48,7 @@ try{
      page=await context.newPage();page.setDefaultTimeout(20000);page.on('pageerror',e=>errors.push(e.message));
      const audit=async surface=>{const scan=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa','wcag22aa']).analyze();const path=join(output,`${engine}-${width}-${surface}-axe.json`);writeFileSync(path,JSON.stringify(scan,null,2));reporter.artifacts.push(path);accessibility.push(...scan.violations.map(v=>({surface,id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})));};
      const screenshot=async surface=>{await page.evaluate(async()=>{await Promise.allSettled(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished));});const path=join(output,`${engine}-${width}-${surface}.png`);await page.screenshot({path,fullPage:true});reporter.artifacts.push(path);};
-     const reflow=async surface=>{const actual=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,main:document.querySelectorAll('main').length,positiveTabs:[...document.querySelectorAll('[tabindex]')].filter(e=>Number(e.getAttribute('tabindex'))>0).length}));assert.ok(actual.scroll<=actual.width+1,`${surface}: root overflow ${JSON.stringify(actual)}`);assert.ok(actual.main>=1,`${surface}: missing main landmark`);assert.equal(actual.positiveTabs,0,`${surface}: positive tab order`);};
+     const reflow=async surface=>{await assertControlGeometry(page,surface);const actual=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,main:document.querySelectorAll('main').length,positiveTabs:[...document.querySelectorAll('[tabindex]')].filter(e=>Number(e.getAttribute('tabindex'))>0).length}));assert.ok(actual.scroll<=actual.width+1,`${surface}: root overflow ${JSON.stringify(actual)}`);assert.ok(actual.main>=1,`${surface}: missing main landmark`);assert.equal(actual.positiveTabs,0,`${surface}: positive tab order`);};
      await page.goto(fixture.base+'/pages/release-ui-page');await page.getByPlaceholder('Untitled',{exact:true}).waitFor();await reflow('page');await audit('page');await screenshot('page');
      if(width<768){const menu=page.getByRole('button',{name:'Menu',exact:true});await menu.focus();await menu.press('Enter');await page.getByRole('dialog').waitFor();await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});assert.equal(await menu.evaluate(e=>e===document.activeElement),true,'Keyboard drawer must restore trigger focus');await menu.tap();await page.getByRole('dialog').waitFor();await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});}
      const trigger=page.getByRole('button',{name:/^Search/}).first();await trigger.focus();await trigger.press('Enter');

@@ -68,8 +68,8 @@ export function ItemList({ items, frames, sel, onSel, onFocus, onClose, onConnec
   return (
     <div className="absolute left-3 top-3 z-20 flex max-h-[calc(100%-6rem)] w-80 flex-col rounded-2xl border border-neutral-200/80 bg-white/95 shadow-lg backdrop-blur dark:border-neutral-700 dark:bg-neutral-900/95" data-testid="mood-itemlist">
       <div className="flex items-center gap-2 border-b border-neutral-100 p-2 dark:border-neutral-800">
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter items…" className="h-8 flex-1 text-xs" aria-label="Filter items" />
-        <Select value={sort} onChange={(e) => setSort(e.target.value as 'z' | 'type' | 'name')} className="h-8 w-24 text-xs" aria-label="Sort items">
+        <Input density="compact" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter items…" className="flex-1" aria-label="Filter items" />
+        <Select density="compact" value={sort} onChange={(e) => setSort(e.target.value as 'z' | 'type' | 'name')} className="w-24" aria-label="Sort items">
           <option value="z">By z</option>
           <option value="type">By type</option>
           <option value="name">By name</option>

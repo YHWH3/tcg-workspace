@@ -204,7 +204,7 @@ function CalendarBlock({ block }: MediaBlockProps) {
             return (
               <div key={i} className="flex flex-col gap-1.5 rounded-lg border border-neutral-200/70 p-2 dark:border-neutral-800">
                 <div className="flex items-center gap-1">
-                  <Select value={src.databaseId} onChange={(e) => updateSrc(i, { databaseId: e.target.value })} className="h-8 flex-1 text-xs" aria-label={`Source ${i + 1} database`}>
+                  <Select density="compact" value={src.databaseId} onChange={(e) => updateSrc(i, { databaseId: e.target.value })} className="flex-1" aria-label={`Source ${i + 1} database`}>
                     <option value="">Pick a database…</option>
                     {pickers.map((x) => (
                       <option key={x.id} value={x.id}>
@@ -216,7 +216,7 @@ function CalendarBlock({ block }: MediaBlockProps) {
                     <Trash2 size={13} />
                   </IconButton>
                 </div>
-                <Select value={src.dateKey ?? 'dueDate'} onChange={(e) => updateSrc(i, { dateKey: e.target.value })} className="h-8 text-xs" aria-label={`Source ${i + 1} date field`}>
+                <Select density="compact" value={src.dateKey ?? 'dueDate'} onChange={(e) => updateSrc(i, { dateKey: e.target.value })} className="" aria-label={`Source ${i + 1} date field`}>
                   {dateKeyOptions(b).map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.label}

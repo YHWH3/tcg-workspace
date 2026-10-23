@@ -246,7 +246,7 @@ function FieldsEditor({ board, fields, onChange }: { board: BoardRow | undefined
               <span className="w-28 shrink-0 truncate text-[11px] font-medium uppercase tracking-wide text-neutral-400" title={f.fieldKey}>
                 {fieldKeyName(board, f.fieldKey)}
               </span>
-              <Input value={f.label} onChange={(e) => set(i, { label: e.target.value })} placeholder="Field label" className="h-8 flex-1 text-sm" />
+              <Input density="compact" value={f.label} onChange={(e) => set(i, { label: e.target.value })} placeholder="Field label" className="flex-1 text-sm" />
               <div className="flex shrink-0 flex-col">
                 <button onClick={() => move(i, -1)} disabled={i === 0} className="text-neutral-400 hover:text-neutral-700 disabled:opacity-20 dark:hover:text-neutral-200" aria-label={`Move ${f.label} up`}>
                   <ArrowUp size={13} />
@@ -270,7 +270,7 @@ function FieldsEditor({ board, fields, onChange }: { board: BoardRow | undefined
               </label>
             </div>
             {f.help !== undefined && (
-              <Input value={f.help} onChange={(e) => set(i, { help: e.target.value })} placeholder="Help text shown under the label" className="mt-2 h-8 text-xs" />
+              <Input density="compact" value={f.help} onChange={(e) => set(i, { help: e.target.value })} placeholder="Help text shown under the label" className="mt-2" />
             )}
           </div>
         ))}
