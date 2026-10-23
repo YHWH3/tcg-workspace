@@ -34,3 +34,6 @@ Implementation checkpoints are ready for a clean source freeze. Final certificat
 
 ## Remaining external gates
 Genuine human approval (automated sessions are fixtures), physical devices, human screen readers, CA/legal/privacy policy approval, production payment/email/account setup, real chain/provider checks and authorized deployment. None may be reported as locally certified.
+
+## Release rehearsal correction
+The first completed integration certification at a8e6f4b passed 33 of 34 mandatory gates, including 1,512 unit tests, 668 D1 tests, all browser/AI gates, security and source integrity. The migration rehearsal failed because it retained the previous release's 32-entry count. Its count now matches the 34-entry manifest. The failed certificate is retained; the corrected rehearsal and a fresh complete certification are required. No application or schema behavior changed in this correction.
