@@ -397,7 +397,7 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       >
         {() => (
           <div className="w-72 max-w-[calc(100vw-2rem)] p-2 text-xs">
-            <p className="px-1 pb-1.5 font-semibold text-neutral-500">Filters</p>
+            <p className="px-1 pb-1.5 font-semibold text-neutral-600 dark:text-neutral-400">Filters</p>
             {filters.map((f, i) => (
               <FilterRow key={i} board={board} keys={keys} filter={f} onChange={(nf) => setCfg({ filters: nf ? filters.map((x, j) => (j === i ? nf : x)) : filters.filter((_, j) => j !== i) })} />
             ))}
@@ -417,21 +417,21 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       >
         {() => (
           <div className="w-64 p-2 text-xs">
-            <p className="px-1 pb-1.5 font-semibold text-neutral-500">Sort</p>
+            <p className="px-1 pb-1.5 font-semibold text-neutral-600 dark:text-neutral-400">Sort</p>
             {sorts.map((s, i) => (
               <div key={i} className="mb-1 flex items-center gap-1">
-                <Select density="compact" value={s.key} onChange={(e) => setCfg({ sorts: sorts.map((x, j) => (j === i ? { ...x, key: e.target.value as FieldKey } : x)) })} className="flex-1">
+                <Select density="compact" aria-label="Sort field" value={s.key} onChange={(e) => setCfg({ sorts: sorts.map((x, j) => (j === i ? { ...x, key: e.target.value as FieldKey } : x)) })} className="flex-1">
                   {keys.map((k) => (
                     <option key={k} value={k}>
                       {fieldKeyLabel(board, k)}
                     </option>
                   ))}
                 </Select>
-                <Select density="compact" value={s.dir} onChange={(e) => setCfg({ sorts: sorts.map((x, j) => (j === i ? { ...x, dir: e.target.value as 'asc' | 'desc' } : x)) })} className="w-20">
+                <Select density="compact" aria-label="Sort direction" value={s.dir} onChange={(e) => setCfg({ sorts: sorts.map((x, j) => (j === i ? { ...x, dir: e.target.value as 'asc' | 'desc' } : x)) })} className="w-20">
                   <option value="asc">Asc</option>
                   <option value="desc">Desc</option>
                 </Select>
-                <button className="text-neutral-400 hover:text-red-500" onClick={() => setCfg({ sorts: sorts.filter((_, j) => j !== i) })} aria-label="Remove sort">
+                <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-600 hover:text-red-600 dark:text-neutral-400" onClick={() => setCfg({ sorts: sorts.filter((_, j) => j !== i) })} aria-label="Remove sort">
                   <Trash2 size={12} />
                 </button>
               </div>
@@ -467,7 +467,7 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       >
         {() => (
           <div className="w-52 p-1.5 text-xs">
-            <p className="px-1 pb-1 font-semibold text-neutral-500">Shown properties</p>
+            <p className="px-1 pb-1 font-semibold text-neutral-600 dark:text-neutral-400">Shown properties</p>
             {keys.map((k) => {
               const on = visible.includes(k);
               return (
@@ -581,22 +581,22 @@ function FilterRow({ board, keys, filter, onChange }: { board: BoardRow; keys: F
   const noValue = ['empty', 'not_empty', 'checked', 'unchecked', 'me'].includes(filter.op);
   return (
     <div className="mb-1 flex items-center gap-1">
-      <Select density="compact" value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className="flex-1">
+      <Select density="compact" aria-label="Filter field" value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className="flex-1">
         {keys.map((k) => (
           <option key={k} value={k}>
             {fieldKeyLabel(board, k)}
           </option>
         ))}
       </Select>
-      <Select density="compact" value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as VFilter['op'] })} className="w-24">
+      <Select density="compact" aria-label="Filter operator" value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as VFilter['op'] })} className="w-24">
         {FILTER_OPS.map((o) => (
           <option key={o.id} value={o.id}>
             {o.label}
           </option>
         ))}
       </Select>
-      {!noValue && <input value={String(filter.value ?? '')} placeholder="value" onChange={(e) => onChange({ ...filter, value: e.target.value })} className="h-8 w-20 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700" />}
-      <button className="text-neutral-400 hover:text-red-500" onClick={() => onChange(null)} aria-label="Remove filter">
+      {!noValue && <input aria-label="Filter value" value={String(filter.value ?? '')} placeholder="value" onChange={(e) => onChange({ ...filter, value: e.target.value })} className="h-8 w-20 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700" />}
+      <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-600 hover:text-red-600 dark:text-neutral-400" onClick={() => onChange(null)} aria-label="Remove filter">
         <Trash2 size={12} />
       </button>
     </div>

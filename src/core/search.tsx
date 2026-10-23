@@ -70,7 +70,8 @@ function SearchDialog(){
   <p role="status" className="text-sm">{status}{current?.reply?.indexPending?' · Index update pending':''}</p>
   {current?.error&&<div role="alert"><p>{current.error}</p><Button onClick={()=>retry(i=>i+1)}>Retry search</Button></div>}
   <div id="workspace-search-results" role="listbox" aria-label="Search results" className="min-h-0 flex-1 overflow-y-auto py-2">{hits.map((h,i)=><button role="option" id={`workspace-search-${i}`} aria-selected={selected===i} key={h.id} onClick={()=>go(h)} onFocus={()=>setSelected(i)} className={`my-1 block min-h-11 w-full rounded border p-3 text-left ${selected===i?'border-blue-500':'border-transparent'}`}><span className="block break-words">{h.title}</span><span className="block text-xs text-neutral-500">{h.type} · {h.source==='local'?'Cached local result':'Server result'}</span>{h.snippet&&<span className="block break-words text-sm">{h.snippet}</span>}</button>)}
-  {ready&&query.trim()&&hits.length===0&&current?.state==='Server results'&&!current.reply?.indexPending&&<p>No matching records</p>}
-  {current?.reply?.hasMore&&<Button disabled={current.state==='Loading'} onClick={()=>void fetchPage(current.reply!.nextCursor!)}>Load more results</Button>}</div>
+  </div>
+  {ready&&query.trim()&&hits.length===0&&current?.state==='Server results'&&!current.reply?.indexPending&&<p role="status">No matching records</p>}
+  {current?.reply?.hasMore&&<Button disabled={current.state==='Loading'} onClick={()=>void fetchPage(current.reply!.nextCursor!)}>Load more results</Button>}
  </div></Sheet>;
 }

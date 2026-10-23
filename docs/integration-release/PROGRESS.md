@@ -40,3 +40,8 @@ The first completed integration certification at a8e6f4b passed 33 of 34 mandato
 
 ## Human-found UI follow-up
 The user's four screenshots exposed clipped table controls and native menu offsets missed by the earlier acceptance. UI status returned to HOLD. See UI-FOLLOWUP.md for eight finding groups, shared-component fixes, expanded rendered geometry/accessibility checks and the native-display review launcher. The prior certificate remains evidence for eaaa325 only; fresh affected checks and source-bound results are required for this follow-up.
+# Public QA tools and wider UI follow-up
+
+User steering on 2026-10-23: research public tools and actually use them to reduce manual discovery of obvious UI failures. Added a disposable local HTTPS UX lab using exact Playwright Test 1.63.0 and fast-check 4.10.2, existing axe, rendered-control geometry and explicit state coverage. Tool research, new findings UI09–UI13, boundaries and reproducible commands are in QA-TOOLS.md and docs/testing/UX-LAB.md. No paid inference/cloud testing was activated.
+
+Intermediate failures remain in `.artifacts/ux-lab/development-*`. They exposed and led to fixes for avatar/secondary-text contrast, nested notification actions, empty-search semantics and filter/sort names/targets. The final matrix/comparison and source-bound release checks run after this source freeze; their actual outcomes belong in `.artifacts/ux-lab/` and the machine release ledger. Do not resume from old passing counts or treat an initial screenshot capture as design acceptance. Overall status remains HOLD until required current-source engineering evidence is present.

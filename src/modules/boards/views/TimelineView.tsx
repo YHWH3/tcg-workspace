@@ -172,14 +172,14 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
                 })}
               </div>
             ))}
-            {groupBars.every((g) => !g.bars.length) && <p className="p-6 text-center text-sm text-neutral-400">No dated records in range.</p>}
+            {groupBars.every((g) => !g.bars.length) && <p className="p-6 text-center text-sm text-neutral-600 dark:text-neutral-400">No dated records in range.</p>}
           </div>
         ) : (
           <div className="relative" style={{ width: days * dayW + 160 }}>
             {/* tick header */}
             <div className="sticky top-0 z-10 flex h-8 items-end border-b border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900">
               {range.ticks.map((t) => (
-                <div key={t} className="absolute border-l border-neutral-200 pb-1 pl-1 text-[10px] text-neutral-400 dark:border-neutral-800" style={{ left: x(t), height: '100%' }}>
+                <div key={t} className="absolute border-l border-neutral-200 pb-1 pl-1 text-[10px] text-neutral-600 dark:text-neutral-400 dark:border-neutral-800" style={{ left: x(t), height: '100%' }}>
                   {tickLabel(scale, t)}
                 </div>
               ))}
@@ -192,7 +192,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
             <div className="relative">
               {groupLayouts.map((g) => (
                 <div key={g.key || 'all'}>
-                  {g.key && <p className="sticky left-0 px-2 py-1 text-[11px] font-semibold uppercase text-neutral-400">{groupKeyLabel(board, cfg.groupBy!, g.key)}</p>}
+                  {g.key && <p className="sticky left-0 px-2 py-1 text-[11px] font-semibold uppercase text-neutral-600 dark:text-neutral-400">{groupKeyLabel(board, cfg.groupBy!, g.key)}</p>}
                   <div className="relative" style={{ height: g.rows.length * 30 }}>
                     {g.rows.map(({ bar, pos }) => {
                       const conflict = conflicts.has(bar.id);
@@ -229,7 +229,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
                 })}
               </svg>
             </div>
-            {groupBars.every((g) => !g.bars.length) && <p className="p-6 text-center text-sm text-neutral-400">No dated records in range.</p>}
+            {groupBars.every((g) => !g.bars.length) && <p className="p-6 text-center text-sm text-neutral-600 dark:text-neutral-400">No dated records in range.</p>}
           </div>
         )}
       </div>

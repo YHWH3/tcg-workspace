@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, type LucideIcon } from 'lucide-react';
 import { cn, initials } from './utils';
 import { useIsMobile, useVisualViewport } from './mobile';
+import { avatarTextColor } from './avatarColor';
 
 /* ---------- Overlay layer stack (platform spec §8) ----------
  * Every dismissible layer (dialog/sheet/adaptive surface, open popover)
@@ -109,8 +110,8 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 export function Avatar({ name, color, size = 24, className }: { name: string; color?: string; size?: number; className?: string }) {
   return (
     <span
-      className={cn('inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white', className)}
-      style={{ backgroundColor: color ?? '#666', width: size, height: size, fontSize: size * 0.42 }}
+      className={cn('inline-flex shrink-0 items-center justify-center rounded-full font-semibold', className)}
+      style={{ backgroundColor: color ?? '#666', color: avatarTextColor(color ?? '#666'), width: size, height: size, fontSize: size * 0.42 }}
       title={name}
     >
       {initials(name)}

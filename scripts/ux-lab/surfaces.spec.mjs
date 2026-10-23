@@ -1,0 +1,81 @@
+import {test,expect,open,health,fixture} from './support.mjs';
+import {surfaces} from './catalog.mjs';
+import {assertControlGeometry} from '../control-geometry.mjs';
+for(const surface of surfaces)test(`surface: ${surface.id}`,async({page},info)=>{
+  await open(page,surface);
+  await info.attach(surface.id,{body:await page.screenshot({fullPage:true,animations:'disabled'}),contentType:'image/png'});
+  await health(page,surface.id,info);
+});
+test('visual reference: website inbox',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='website-inbox'));
+  await expect(page.getByRole('textbox',{name:'Title',exact:true}).or(page.getByText('UX application · Example Applicant',{exact:true})).first()).toBeVisible();
+  await health(page,'visual-inbox',info);
+  // A reference is a change detector, not proof its first image is correct.
+  await expect(page.locator('main')).toHaveScreenshot('website-inbox.png');
+});
+test('opened search: focus, empty results and recovery',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='page'));
+  const trigger=page.getByRole('button',{name:/^Search/}).first();await trigger.focus();await trigger.press('Enter');
+  const input=page.getByRole('combobox',{name:'Search workspace',exact:true});await expect(input).toBeVisible();await input.fill('zzzzNoSyntheticMatch');
+  await expect(page.getByText('No matching records',{exact:true})).toBeVisible();await health(page,'search-empty',info);
+  await info.attach('search-empty',{body:await page.screenshot(),contentType:'image/png'});
+  await page.keyboard.press('Escape');await expect(input).toBeHidden();await expect(trigger).toBeFocused();
+  await trigger.press('Enter');await input.fill('UX journal');await expect(page.getByRole('option').filter({hasText:'UX journal'})).toBeVisible();
+  await health(page,'search-recovered',info);
+});
+test('approvals network failure and recovery',async({page,context},info)=>{
+  await context.route('**/api/approvals**',route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"synthetic_unavailable"}'}));
+  await open(page,surfaces.find(s=>s.id==='approvals-empty'));
+  await expect(page.getByText(/Needs a connection/).first()).toBeVisible();await health(page,'approvals-failure',info);
+  await context.unroute('**/api/approvals**');await page.reload();
+  await expect(page.getByText('Nothing waiting on you.',{exact:true})).toBeVisible();await expect(page.getByText(/Needs a connection/)).toHaveCount(0);
+  await health(page,'approvals-recovered',info);
+});
+test('negative control: clipped labels must be detected',async({page})=>{
+  await open(page,surfaces.find(s=>s.id==='task-detail'));
+  const style=await page.addStyleTag({content:'select {height:28px!important;min-height:0!important;padding-top:8px!important;padding-bottom:8px!important;line-height:20px!important;}'});
+  await expect(assertControlGeometry(page,'injected old clipping defect')).rejects.toThrow(/clipped control labels/);
+  await style.evaluate(e=>e.remove());await assertControlGeometry(page,'restored controls');
+});
+test('profile: every avatar palette colour remains readable',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='settings'));
+  for(const color of ['#e5484d','#e93d82','#8e4ec6','#6e56cf','#0091ff','#12a594','#30a46c','#e5a000']){
+    await page.getByRole('button',{name:color,exact:true}).click();
+    await health(page,'avatar '+color,info);
+  }
+});
+test('opened view controls: filters, sorting and properties',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='records-table'));
+  for(const name of ['Filters','Sort','Properties']){
+    const trigger=page.getByRole('button',{name,exact:true});await trigger.focus();await trigger.press('Enter');
+    const dialog=page.getByRole('dialog');await expect(dialog).toBeVisible();
+    if(name==='Filters')await dialog.getByRole('button',{name:'Add filter',exact:true}).click();
+    if(name==='Sort')await dialog.getByRole('button',{name:'Add sort',exact:true}).click();
+    await health(page,'opened '+name,info);
+    await info.attach('opened '+name,{body:await page.screenshot(),contentType:'image/png'});
+    if(name==='Filters')await dialog.getByRole('button',{name:'Remove filter',exact:true}).click();
+    if(name==='Sort')await dialog.getByRole('button',{name:'Remove sort',exact:true}).click();
+    await page.keyboard.press('Escape');await expect(dialog).toBeHidden();await expect(trigger).toBeFocused();
+  }
+});
+test('table: horizontal recovery exposes complete controls',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='website-inbox'));
+  const table=page.getByTestId('record-table');
+  if(info.project.use.viewport.width<768){await expect(table).toHaveCount(0);await health(page,'compact record list',info);return;}
+  await expect(table).toBeVisible();
+  await table.evaluate(el=>{el.scrollLeft=el.scrollWidth;});
+  await assertControlGeometry(page,'rightmost inbox columns');
+  const event=page.getByRole('combobox',{name:'Event',exact:true}).first();
+  await expect(event).toBeVisible();
+  const box=await event.boundingBox(),container=await table.boundingBox();
+  expect(box.x).toBeGreaterThanOrEqual(container.x-1);
+  expect(box.x+box.width).toBeLessThanOrEqual(container.x+container.width+1);
+  await table.evaluate(el=>{el.scrollLeft=0;});await health(page,'table scroll restored',info);
+});
+test('text enlargement: 200 percent in inbox and task detail',async({page},info)=>{
+  for(const id of ['website-inbox','task-detail']){
+    await open(page,surfaces.find(s=>s.id===id));await page.addStyleTag({content:'html {font-size:200% !important}'});
+    await health(page,id+' text 200%',info);
+    await info.attach(id+' text enlargement',{body:await page.screenshot(),contentType:'image/png'});
+  }
+});

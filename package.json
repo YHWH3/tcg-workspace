@@ -23,7 +23,8 @@
     "certify:ai": "node scripts/certify-phase4.mjs --ai",
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:rehearse": "node scripts/release-rehearsal.mjs",
-    "release:ui": "node scripts/verify-release-ui.mjs"
+    "release:ui": "node scripts/verify-release-ui.mjs",
+    "qa:ux": "node scripts/qa-ux.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",
@@ -48,12 +49,14 @@
     "@axe-core/playwright": "4.14.0",
     "@cloudflare/vite-plugin": "1.63.2",
     "@modelcontextprotocol/sdk": "1.32.1",
+    "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "26.6.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
     "fake-indexeddb": "^6.2.5",
+    "fast-check": "4.10.2",
     "json5": "2.2.3",
     "playwright": "1.63.0",
     "sharp": "0.35.5",

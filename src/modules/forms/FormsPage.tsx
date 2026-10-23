@@ -57,7 +57,7 @@ export function FormsPage() {
           <ArrowLeft size={17} />
         </Link>
         <h1 className="text-base font-semibold tracking-tight">
-          Forms {board?.name ? <span className="font-normal text-neutral-400">· {String(board.name)}</span> : null}
+          Forms {board?.name ? <span className="font-normal text-neutral-600 dark:text-neutral-400">· {String(board.name)}</span> : null}
         </h1>
         <span className="flex-1" />
         <Button size="sm" onClick={() => void create()} disabled={creating}>
@@ -84,10 +84,10 @@ export function FormsPage() {
                   to={`/forms/${boardId}/${f.id}`}
                   className="flex items-center gap-3 rounded-xl border border-neutral-200 px-4 py-3 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
                 >
-                  <ClipboardList size={17} className="shrink-0 text-neutral-400" />
+                  <ClipboardList size={17} className="shrink-0 text-neutral-600 dark:text-neutral-400" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{String(f.title ?? 'Untitled form')}</span>
-                    <span className="block truncate text-xs text-neutral-400">
+                    <span className="block truncate text-xs text-neutral-600 dark:text-neutral-400">
                       {(f.fields ?? []).length} field{(f.fields ?? []).length === 1 ? '' : 's'}
                     </span>
                   </span>

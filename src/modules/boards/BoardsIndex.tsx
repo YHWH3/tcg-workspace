@@ -49,7 +49,7 @@ export function BoardsIndex() {
           ) : (
             <button
               onClick={() => setCreating(true)}
-              className="flex h-full min-h-32 w-full flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-neutral-300 text-sm text-neutral-400 transition-colors hover:border-neutral-400 hover:text-neutral-600 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:text-neutral-300"
+              className="flex h-full min-h-32 w-full flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-neutral-300 text-sm text-neutral-600 dark:text-neutral-400 transition-colors hover:border-neutral-400 hover:text-neutral-600 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:text-neutral-300"
             >
               <Plus size={18} /> New board
             </button>
@@ -80,7 +80,7 @@ function BoardTile({ board, tasks }: { board: BoardRow; tasks: ReturnType<typeof
       )}
       <div className="flex items-center justify-between px-3 py-2.5">
         <span className="truncate text-sm font-medium">{String(board.name ?? 'Board')}</span>
-        <span className="text-[11px] text-neutral-400">{open}</span>
+        <span className="text-[11px] text-neutral-600 dark:text-neutral-400">{open}</span>
       </div>
     </Link>
   );
