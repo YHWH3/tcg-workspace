@@ -17,7 +17,7 @@ import { sha256Hex } from './password';
 
 export const MAX_MOVE_RECORDS = 2000;
 const ROOT_COLLECTIONS = new Set(['boards', 'moodboards', 'pages']);
-const BUILT_IN_ROOTS = new Set(['board-default', 'board-inbox']);
+const BUILT_IN_ROOTS = new Set(['board-default', 'board-inbox', 'board-website-inbox']);
 
 export class SpaceMoveError extends Error {
   constructor(public readonly code: 'invalid_request' | 'not_found' | 'forbidden' | 'same_space' | 'not_a_root' | 'deleted_root' | 'conflict'

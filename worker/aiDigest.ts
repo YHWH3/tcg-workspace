@@ -4,6 +4,7 @@ import {withReadGate} from './readAccess';
 import {getRecs,SELECT,toRow,type RawRow} from './records';
 import {notify} from './notifications';
 import {hasD1Budget,D1BudgetExhausted} from './d1budget';
+import {websiteDigestFor} from './website';
 const week=(now:number)=>{const d=new Date(now);d.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7));return d.toISOString().slice(0,10);};
 /** IDs only are retained. Each rendering re-reads content and current rights.
  * This deterministic digest uses database names/type metadata as labels, never
@@ -25,8 +26,19 @@ export async function buildDigest(env:Env,uid:string,now=Date.now()){
   return [{id:r.id,title:r.data.title,dueDate:r.data.dueDate,status:r.data.status,category,overdue:due&&String(r.data.dueDate)<today,url:`/boards/${String(r.data.boardId??'board-default')}/tasks/${r.id}`}];
  });
  const pendingApprovals=[...approvals.values()].map(r=>({id:r.id,title:r.data.title??r.data.name,url:'/inbox'}));
- if(!await scoped.READ_GATE!.validateObserved())return {week:week(now),today,records:[],pendingApprovals:[],truncated:true,accessChanged:true,aiSummary:{status:'disabled',text:null}};
- return {week:week(now),today,records,pendingApprovals,truncated:rows.length>500||approvalIds.length>100,aiSummary:{status:'disabled',text:null}};
+ const website=await websiteWeek(scoped,now);
+ if(!await scoped.READ_GATE!.validateObserved())return {week:week(now),today,records:[],pendingApprovals:[],website:null,truncated:true,accessChanged:true,aiSummary:{status:'disabled',text:null}};
+ return {week:week(now),today,records,pendingApprovals,website,truncated:rows.length>500||approvalIds.length>100,aiSummary:{status:'disabled',text:null}};
+}
+/** The digest's Website part: counts by family, patron pipeline movement and
+ * the oldest open submissions over the last seven days, from the same
+ * deterministic summary the MCP website_digest tool returns. Null when the
+ * Website inbox is absent or unreadable for this person. */
+async function websiteWeek(env:Env,now:number){
+ if(!hasD1Budget(env.DB,8))return null;
+ const d=await websiteDigestFor(env,'',{},now);
+ if('error' in d)return null;
+ return {received:d.received.count,byFamily:d.byFamily.map(p=>({label:p.label,count:p.count})),patronMovement:d.patronMovement.map(p=>({label:p.label,count:p.count})),oldestOpen:d.oldestOpen.slice(0,5),replyFirst:d.replyFirst.slice(0,5).map(r=>({recordId:r.recordId,url:r.url,title:r.title})),truncated:d.truncated};
 }
 export async function runWeeklyDigests(env:Env,now=Date.now()){
  const due=(await env.DB.prepare(`SELECT id FROM users u WHERE disabled_at IS NULL AND NOT EXISTS(SELECT 1 FROM ai_digest_runs d WHERE d.user_id=u.id AND d.week=? AND (d.delivered=1 OR d.attempts>=8 OR d.retry_at>?)) ORDER BY id LIMIT 1`).bind(week(now),now).all<{id:string}>()).results;

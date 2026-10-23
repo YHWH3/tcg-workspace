@@ -56,6 +56,86 @@ Setup per client:
 
 Settings → AI connectors shows the URL to copy, per-client steps, and your connected apps with Revoke (revoking kills the grant's tokens immediately). AI changes are undoable from Activity — entries carry an Undo button, the 'AI changes' chip filters to connector writes, and Settings → Recent AI changes lists the last 20 change sets with Undo.
 
+## Website section (The Common Ground)
+
+The Common Ground website and this workspace are connected as specified in [`docs/integrations/the-common-ground.md`](docs/integrations/the-common-ground.md). The website repository keeps an identical copy; change both in the same change.
+
+The website's form relay emails every submission to the team and also forwards it, signed, to `POST https://<host>/api/ingest/website`. Every patron event (`patron.applied`, `approved`, `paid`, `minted`, `refund_needed`) is forwarded the same way.
+
+**Website inbox.** Each event becomes a record in the built-in **Website inbox** database:
+- Status: New, In review, Replied or Done.
+- Built-in fields: Family, Source, Email, Page, Received and Event.
+- Patron fields: Patron stage, Tier, Edition, Application id, Paid and Token.
+- AI and reply fields: Topic, Spam and First reply.
+- Typed fields from the v2 `form` block, created once per field name per family:
+  - `choice` becomes a select and `choices` a multi-select;
+  - `url` stays a URL;
+  - `email` and `tel` become text, because the workspace has no email or phone field type;
+  - `textarea` answers stay in the body only.
+- Titles read "Subject · Name".
+- The body holds each question as a heading with the answer below. Visitor text can never become a mention, a page link, an image fetch or an embed.
+- Later patron events with the same `application_id` update one record. They only move Event and Patron stage forward, and append a line with the amount, edition, token and tx. They never change the title or Status the team has set.
+
+**Views:** All, New, one view per family, and a Patron pipeline board grouped by Patron stage.
+
+**People.** Each sender's email is matched to a People record, or a new one is created. A person who sent five forms is one person with five linked submissions. The People database is chosen in this order, and the choice is pinned on the inbox board as `peopleDatabaseId`:
+1. the database already pinned;
+2. a team database named "People" with an Email field;
+3. a built-in "People" database, created only if neither exists.
+
+**Website page.** `/website`, in the sidebar and in the compact menu drawer, shows:
+- new this week by family;
+- open patron applications, and editions left per tier;
+- median time to first reply, from the First reply date an automation records when a submission moves to Replied;
+- the oldest unanswered submissions;
+- links to every view.
+
+Admins get an Inbox notification for each event.
+
+**Built-in AI** is optional, labelled as AI, and only ever suggests:
+- An admin's client seeds an `ai_classify` automation that suggests Priority, Topic and Spam on new records. It runs only when `AI_PROVIDER=workers-ai` and `AI_CLASSIFICATION=1`, and suggestions change nothing until someone accepts them in AI review.
+- The existing suggestion limit of 100 per person per day still applies, so bulk work goes through MCP.
+- The weekly digest has a Website part.
+- Keyword and semantic search cover the inbox answers.
+
+**MCP** runs on `/mcp`, with the usual permission checks:
+- `website_query({family?, status?, since?, text?, cursor?})` returns records with named fields, linked people and the answers (marked untrusted).
+- `website_digest({since?, family?})` gives deterministic counts, themes, patron movement, who to reply to first, spam likely and the oldest open, each point with record links.
+- `propose_website_triage` takes up to 500 records per call and is always one frozen preview that a person approves.
+- The `triage_inbox` prompt covers the Website inbox.
+- The `draft_reply` prompt drafts a reply for a person to send. AI never emails anyone.
+
+**Settings:**
+
+```bash
+npx wrangler secret put WEBSITE_INGEST_SECRET   # the same value as the relay's FORWARD_SECRET
+```
+
+Also set `WEBSITE_INGEST_ENABLED=true` (or `1`) as a plain-text variable, in the Workers dashboard under Settings → Variables. Without both settings the endpoint answers 503. Locally, put both in the gitignored `.dev.vars`. The joint test in the integration doc uses the test value `local-test`.
+
+**Request contract** (section 2–3 of the integration doc):
+- `X-TCG-Timestamp`: unix seconds, which must be within ±300 s.
+- `X-TCG-Signature: sha256=<hex>`: the HMAC-SHA256 of `<timestamp>.<raw body>`.
+- The body is `v` (1 or 2), `id` (1–64 chars), `event`, `occurred_at`, optional `form_id`, `subject`, `page` and `reply_to`, the v2 `form` block `{id, title, family, fields[]}`, `answers` (up to 40, with string values of at most 5,000 chars) and `patron` (required for `patron.*`).
+- Version 1 events have no `form` block; their family comes from the form id.
+- **Responses:**
+  - 200 `{ok, id, recordId, action, family, personId?}`;
+  - 400 when the body fails the schema;
+  - 401 for a bad or expired signature;
+  - 409 when the same `id` arrives with a different body;
+  - 413 over 64 KB;
+  - 503 when ingest is not configured, or `{retryable:true}` when the write did not land.
+- **Retries:** the same `id` with the same body returns the first result, even when re-signed. 400, 401, 409 and 413 are final; retry 503 and other 5xx.
+- **D1 budget:** each event stays within the per-request D1 budget, and notifications go through the durable event outbox.
+
+**The `/notion` redirect.** The website's `thecommonground.living/notion` redirect may point at the app root or keep the prefix. Either way, `/notion/boards/x` lands on `/boards/x`, and signed-out visitors see the sign-in screen at that URL.
+
+**Checks:**
+- `npm test` covers ingest, the 1,000-submission bulk case, AI and MCP.
+- `node scripts/verify-website-ui.mjs` runs Chromium, Firefox and WebKit at compact, tablet and desktop sizes against a disposable built Worker.
+
+**Known limit:** while per-space access control is enabled, the `website` writer is not a workspace member, the same as public forms. Ingest then answers 503 and the relay keeps retrying.
+
 ## Storage & files
 
 - Files live in D1 (`files` + `file_chunks` tables, 1 MiB chunks) — no R2 needed.

@@ -8,7 +8,7 @@ import {AdaptiveDialog,Button} from './ui';
 /** Uses the existing atomic closure move; generic mutations cannot change scope. */
 export function MoveSpaceButton({root}:{root:LocalRow}){
  const access=useStore(accessClientStore),[open,setOpen]=useState(false),[destination,setDestination]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
- if(access.manifest?.protocol!==3||access.status!=='ready'||['board-default','board-inbox'].includes(root.id))return null;
+ if(access.manifest?.protocol!==3||access.status!=='ready'||['board-default','board-inbox','board-website-inbox'].includes(root.id))return null;
  const spaces=access.manifest.spaces.filter(s=>['editor','admin','owner'].includes(s.role)),source=spaces.find(s=>s.id===root._spaceId);
  if(!source||spaces.length<2)return null;
  async function move(){setBusy(true);setMessage('');try{await api('/api/spaces/move',{method:'POST',body:{recordId:root.id,toSpaceId:destination,expectedRev:root._serverRev,requestId:crypto.randomUUID()}});await syncNow();setOpen(false);}catch(e){setMessage(e instanceof Error?e.message:'Move interrupted. Refresh the record before retrying.');}finally{setBusy(false);}}

@@ -126,5 +126,9 @@
   {
     "name": "0032_assistant_conversations.sql",
     "sha256": "8979e22b1a6019b8a7a3d6b20aa84b5528fb3c01f8f4d4dab7ca38a6953bfb85"
+  },
+  {
+    "name": "0033_website_ingest.sql",
+    "sha256": "afb634470d941ce6c3445a3e2c185d9d836e5facbf09b7d21749f2972903ff67"
   }
 ]

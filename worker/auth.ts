@@ -29,6 +29,10 @@ export interface Env {
   /** Hosted ChatGPT plan usage requires OpenAI approval; only the literal 'approved' changes its status text. */
   OPENAI_CHATGPT_HOSTED_APPROVAL?:string;
   TURNSTILE_LOCAL_TEST?: string;
+  /** Shared HMAC secret for POST /api/ingest/website (worker/websiteIngest.ts). Secret, never a var. */
+  WEBSITE_INGEST_SECRET?: string;
+  /** '1' or 'true' turns the website inbox on; anything else answers 503. */
+  WEBSITE_INGEST_ENABLED?: string;
   DB: D1Database;
   AI: Ai;
   LIVE: DurableObjectNamespace;
