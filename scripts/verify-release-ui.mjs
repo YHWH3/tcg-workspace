@@ -8,6 +8,7 @@ import {join,resolve} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {chromium,firefox,webkit} from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
+import {WCAG_AA_TAGS} from './accessibility-tags.mjs';
 import {startFixture,bootstrap,push,eventually} from './phase4-fixture.mjs';
 import {freePort,fingerprint} from './certification/core.mjs';
 import {createCertificationReporter} from './certification-report.mjs';
@@ -46,7 +47,7 @@ try{
      context=await browser.newContext({viewport:{width,height:900},hasTouch:true,serviceWorkers:'block',reducedMotion:'reduce'});
      await context.addInitScript(a=>{localStorage.setItem('ws_token',a.token);localStorage.setItem('ws_uid',a.user.id);localStorage.setItem('ws_user',JSON.stringify(a.user));},admin);
      page=await context.newPage();page.setDefaultTimeout(20000);page.on('pageerror',e=>errors.push(e.message));
-     const audit=async surface=>{const scan=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa','wcag22aa']).analyze();const path=join(output,`${engine}-${width}-${surface}-axe.json`);writeFileSync(path,JSON.stringify(scan,null,2));reporter.artifacts.push(path);accessibility.push(...scan.violations.map(v=>({surface,id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})));};
+     const audit=async surface=>{const scan=await new AxeBuilder({page}).withTags(WCAG_AA_TAGS).analyze();const path=join(output,`${engine}-${width}-${surface}-axe.json`);writeFileSync(path,JSON.stringify(scan,null,2));reporter.artifacts.push(path);accessibility.push(...scan.violations.map(v=>({surface,id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})));};
      const screenshot=async surface=>{await page.evaluate(async()=>{await Promise.allSettled(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished));});const path=join(output,`${engine}-${width}-${surface}.png`);await page.screenshot({path,fullPage:true});reporter.artifacts.push(path);};
      const reflow=async surface=>{await assertControlGeometry(page,surface);const actual=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,main:document.querySelectorAll('main').length,positiveTabs:[...document.querySelectorAll('[tabindex]')].filter(e=>Number(e.getAttribute('tabindex'))>0).length}));assert.ok(actual.scroll<=actual.width+1,`${surface}: root overflow ${JSON.stringify(actual)}`);assert.ok(actual.main>=1,`${surface}: missing main landmark`);assert.equal(actual.positiveTabs,0,`${surface}: positive tab order`);};
      await page.goto(fixture.base+'/pages/release-ui-page');await page.getByPlaceholder('Untitled',{exact:true}).waitFor();await reflow('page');await audit('page');await screenshot('page');

@@ -54,3 +54,5 @@ Use the existing `npm run certify:ai`, Website UI gate and native review alongsi
 Before changing the catalog, update `requiredCases` with the exact test names. Coverage uses an explicit plan, so a missing case cannot quietly disappear from the report.
 
 Task draft recovery checks settle the in-flight foreground reads after switching offline, click the actual editor, and assert focus and each entered value immediately before crossing the responsive boundary. This distinguishes a received edit from a fill attempted while the control was remounting. Persistence, reconnect and reload assertions remain mandatory, without automatic test retries. Diagnostic sync recovery uses the protocol minimum of eight rows.
+
+Accessibility tags are shared with the Website/release UI gates in `scripts/accessibility-tags.mjs`: all A and AA levels through WCAG 2.2. The negative-control case must catch both clipped controls and an intentionally mismatched visible/accessibility label, then pass on the restored page. This protects against a tag selection that silently omits a level-A rule.

@@ -1,3 +1,5 @@
+import AxeBuilder from '@axe-core/playwright';
+import {WCAG_AA_TAGS} from '../accessibility-tags.mjs';
 import {test,expect,open,health,fixture,request,readRecord,setOfflineForTest} from './support.mjs';
 import {randomUUID} from 'node:crypto';
 import {readAccountStore} from '../certification/browser-db.mjs';
@@ -33,11 +35,20 @@ test('approvals network failure and recovery',async({page,context},info)=>{
   await expect(page.getByText('Nothing waiting on you.',{exact:true})).toBeVisible();await expect(page.getByText(/Needs a connection/)).toHaveCount(0);
   await health(page,'approvals-recovered',info);
 });
-test('negative control: clipped labels must be detected',async({page})=>{
+test('negative controls: clipped labels and mismatched names must be detected',async({page},info)=>{
   await open(page,surfaces.find(s=>s.id==='task-detail'));
   const style=await page.addStyleTag({content:'select {height:28px!important;min-height:0!important;padding-top:8px!important;padding-bottom:8px!important;line-height:20px!important;}'});
   await expect(assertControlGeometry(page,'injected old clipping defect')).rejects.toThrow(/clipped control labels/);
   await style.evaluate(e=>e.remove());await assertControlGeometry(page,'restored controls');
+  // Confirm that the configured tags detect a visible-label/name mismatch.
+  // This deliberately inserted defect is removed before the restored audit.
+  await page.evaluate(()=>{const button=document.createElement('button');button.id='ux-negative-label';button.textContent='Save changes';button.setAttribute('aria-label','Different action');button.style.cssText='position:fixed;top:80px;left:16px;z-index:99999;padding:8px;background:white;color:black;font-size:16px';(document.querySelector('[aria-label="Task title"]').closest('[role="dialog"]')??document.querySelector('main')).append(button);});
+  await expect(page.locator('#ux-negative-label')).toBeVisible();
+  try{
+    const result=await new AxeBuilder({page}).include('#ux-negative-label').withTags(WCAG_AA_TAGS).analyze();
+    expect(result.violations.map(v=>v.id)).toContain('label-content-name-mismatch');
+  }finally{await page.locator('#ux-negative-label').evaluate(e=>e.remove());}
+  await health(page,'restored negative controls',info);
 });
 test('profile: every avatar palette colour remains readable',async({page},info)=>{
   await open(page,surfaces.find(s=>s.id==='settings'));
@@ -50,14 +61,15 @@ test('opened view controls: filters, sorting and properties',async({page},info)=
   const viewId='ux-controls-'+info.project.name;
   await request('/api/sync/push',{protocol:3,changes:[{id:viewId,collection:'views',ts:Date.now(),patch:{databaseId:'ux-records',name:'Controls '+info.project.name,type:'table',config:{filters:[],sorts:[],visible:['title','status']},order:'z0'}}]});
   await open(page,{...surfaces.find(s=>s.id==='records-table'),path:'/boards/ux-records/views/'+viewId});
-  for(const name of ['Filters','Sort','Properties']){
-    const trigger=page.getByRole('button',{name,exact:true});await trigger.focus();await trigger.press('Enter');
+  for(const [name,match] of [['Filter',/^Filter(?: · \d+)?$/],['Sort',/^Sort(?: · \d+)?$/],['Properties','Properties']]){
+    const trigger=page.getByRole('toolbar',{name:'View controls',exact:true}).getByRole('button',{name:match,exact:true});await trigger.focus();await trigger.press('Enter');
     const dialog=page.getByRole('dialog');await expect(dialog).toBeVisible();
-    if(name==='Filters')await dialog.getByRole('button',{name:'Add filter',exact:true}).click();
+    if(name==='Filter')await dialog.getByRole('button',{name:'Add filter',exact:true}).click();
     if(name==='Sort')await dialog.getByRole('button',{name:'Add sort',exact:true}).click();
+    if(name==='Filter'||name==='Sort')await expect(trigger).toHaveAccessibleName(name+' · 1');
     await health(page,'opened '+name,info);
     await info.attach('opened '+name,{body:await page.screenshot(),contentType:'image/png'});
-    if(name==='Filters')await dialog.getByRole('button',{name:'Remove filter',exact:true}).click();
+    if(name==='Filter')await dialog.getByRole('button',{name:'Remove filter',exact:true}).click();
     if(name==='Sort')await dialog.getByRole('button',{name:'Remove sort',exact:true}).click();
     await page.keyboard.press('Escape');await expect(dialog).toBeHidden();await expect(trigger).toBeFocused();
   }

@@ -1,6 +1,7 @@
 import {readFileSync} from 'node:fs';
 import {test as base,expect} from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import {WCAG_AA_TAGS} from '../accessibility-tags.mjs';
 import {assertControlGeometry} from '../control-geometry.mjs';
 export {expect};
 export const fixture=JSON.parse(readFileSync(process.env.UX_FIXTURE,'utf8'));
@@ -111,7 +112,7 @@ export async function health(page,label,info,{axe=true}={}){
   expect(layout.scroll,`${label}: root overflow`).toBeLessThanOrEqual(layout.width+1);
   expect(layout.positiveTabs,`${label}: positive tabindex`).toBe(0);
   if(axe){
-    const result=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa','wcag22aa']).analyze();
+    const result=await new AxeBuilder({page}).withTags(WCAG_AA_TAGS).analyze();
     await info.attach(`${label}-axe`,{body:JSON.stringify(result.violations,null,2),contentType:'application/json'});
     expect(result.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})),label+' whole-page accessibility').toEqual([]);
   }

@@ -18,6 +18,7 @@ import {mkdirSync,writeFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {chromium,firefox,webkit} from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
+import {WCAG_AA_TAGS} from './accessibility-tags.mjs';
 import {startFixture,bootstrap,eventually} from './phase4-fixture.mjs';
 import {freePort} from './certification/core.mjs';
 
@@ -70,7 +71,7 @@ try{
           await context.addInitScript(a=>{localStorage.setItem('ws_token',a.token);localStorage.setItem('ws_uid',a.user.id);localStorage.setItem('ws_user',JSON.stringify(a.user));},admin);
           const page=await context.newPage();page.setDefaultTimeout(30000);page.on('pageerror',e=>errors.push(e.message));
           // Both the section and its shared shell are required accessibility surfaces.
-          const audit=async surface=>{const tags=['wcag2a','wcag2aa','wcag21aa','wcag22aa'];const scan=await new AxeBuilder({page}).include('main').withTags(tags).analyze();const whole=await new AxeBuilder({page}).withTags(tags).analyze();writeFileSync(join(output,`${engine}-${vp.name}-${surface}-axe.json`),JSON.stringify({section:scan.violations,wholePage:whole.violations},null,2));violations.push(...whole.violations.map(v=>({surface,id:v.id,impact:v.impact,targets:v.nodes.map(n=>n.target)})));outside.push(...whole.violations.filter(v=>!scan.violations.some(s=>s.id===v.id)).map(v=>({surface,id:v.id,html:v.nodes.map(n=>n.html.slice(0,160))})));};
+          const audit=async surface=>{const tags=WCAG_AA_TAGS;const scan=await new AxeBuilder({page}).include('main').withTags(tags).analyze();const whole=await new AxeBuilder({page}).withTags(tags).analyze();writeFileSync(join(output,`${engine}-${vp.name}-${surface}-axe.json`),JSON.stringify({section:scan.violations,wholePage:whole.violations},null,2));violations.push(...whole.violations.map(v=>({surface,id:v.id,impact:v.impact,targets:v.nodes.map(n=>n.target)})));outside.push(...whole.violations.filter(v=>!scan.violations.some(s=>s.id===v.id)).map(v=>({surface,id:v.id,html:v.nodes.map(n=>n.html.slice(0,160))})));};
           const reflow=async surface=>{const m=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth}));assert.ok(m.scroll<=m.width+1,`${surface}: root horizontal overflow ${JSON.stringify(m)}`);};
           // Arrive the way the website sends people: /notion/... lands on the same route.
           await page.goto(fixture.base+'/notion/website');
@@ -110,7 +111,7 @@ try{
             const resize=page.getByRole('separator',{name:'Resize Title',exact:true});const before=Number(await resize.getAttribute('aria-valuenow'));await resize.focus();await resize.press('ArrowRight');assert.equal(Number(await resize.getAttribute('aria-valuenow')),before+24,'Keyboard resize updates announced width');
           }
           const tabs=page.getByRole('tablist',{name:'Views',exact:true});await tabs.getByRole('tab',{name:'All',exact:true}).focus();await page.keyboard.press('ArrowRight');await page.getByRole('tab',{name:'New',exact:true}).waitFor();await eventually(async()=>await page.getByRole('tab',{name:'New',exact:true}).getAttribute('aria-selected')==='true');await page.keyboard.press('Home');await eventually(async()=>await page.getByRole('tab',{name:'All',exact:true}).getAttribute('aria-selected')==='true');
-          for(const name of ['Mine','Filters','Sort','Properties']){const bounds=await page.getByRole('toolbar',{name:'View controls',exact:true}).getByRole('button',{name,exact:true}).boundingBox();assert.ok(bounds&&bounds.x>=0&&bounds.x+bounds.width<=vp.width+1,`Toolbar ${name} is visible without scrolling the view tabs`);}
+          for(const name of ['Mine','Filter','Sort','Properties']){const bounds=await page.getByRole('toolbar',{name:'View controls',exact:true}).getByRole('button',{name:name==='Filter'?/^Filter(?: · \d+)?$/:name==='Sort'?/^Sort(?: · \d+)?$/:name,exact:true}).boundingBox();assert.ok(bounds&&bounds.x>=0&&bounds.x+bounds.width<=vp.width+1,`Toolbar ${name} is visible without scrolling the view tabs`);}
           await assertControlGeometry(page,'Website inbox table');await reflow('inbox table');await audit('inbox-table');
           await page.emulateMedia({colorScheme:'dark'});await page.reload();
           await page.getByRole('heading',{name:'🌐 Website inbox',exact:true}).waitFor();

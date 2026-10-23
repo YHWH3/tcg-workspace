@@ -365,6 +365,8 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
 
   const filters = cfg.filters ?? [];
   const sorts = cfg.sorts ?? [];
+  const filterLabel = `Filter${filters.length ? ` · ${filters.length}` : ''}`;
+  const sortLabel = `Sort${sorts.length ? ` · ${sorts.length}` : ''}`;
   const visible = cfg.visible?.length ? cfg.visible : defaultVisibleKeys(board);
 
   return (
@@ -390,8 +392,8 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       <Popover
         align="right"
         trigger={
-          <button className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', filters.length ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800')} style={{ minHeight: 32 }} aria-label="Filters">
-            <Filter size={12} /> <span className="hidden sm:inline">Filter{filters.length ? ` · ${filters.length}` : ''}</span>
+          <button className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', filters.length ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800')} style={{ minHeight: 32 }} aria-label={filterLabel}>
+            <Filter size={12} /> <span className="hidden sm:inline">{filterLabel}</span>
           </button>
         }
       >
@@ -410,8 +412,8 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       <Popover
         align="right"
         trigger={
-          <button className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', sorts.length ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800')} style={{ minHeight: 32 }} aria-label="Sort">
-            <ArrowUpDown size={12} /> <span className="hidden sm:inline">Sort{sorts.length ? ` · ${sorts.length}` : ''}</span>
+          <button className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', sorts.length ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800')} style={{ minHeight: 32 }} aria-label={sortLabel}>
+            <ArrowUpDown size={12} /> <span className="hidden sm:inline">{sortLabel}</span>
           </button>
         }
       >
@@ -460,7 +462,7 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
         align="right"
         trigger={
           <button className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800" style={{ minHeight: 32 }} aria-label="Properties">
-            <span className="hidden sm:inline">Props</span>
+            <span className="hidden sm:inline">Properties</span>
             <span className="sm:hidden">▦</span>
           </button>
         }
