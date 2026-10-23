@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import {randomUUID} from 'node:crypto';
-import {test,expect,fixture,request,health} from './support.mjs';
+import {test,expect,fixture,request,health,readRecord,setOfflineForTest} from './support.mjs';
 const titles=['UX café 👩🏽‍💻','UX العربية é 日本語','UX '+('long-answer-'.repeat(12))];
 class Action{
   constructor(kind,value){this.kind=kind;this.value=value;}
@@ -11,10 +11,10 @@ class Action{
     if(this.kind==='stage'){
       await page.getByRole('combobox',{name:'Stage',exact:true}).selectOption(this.value);model.stage=this.value;
     }else if(this.kind==='title'||this.kind==='offline-edit'){
-      if(this.kind==='offline-edit')await context.setOffline(true);
+      if(this.kind==='offline-edit')await setOfflineForTest(page,context,true);
       const title=page.getByRole('textbox',{name:'Task title',exact:true});await title.fill(this.value);await title.press('Tab');model.title=this.value;
       await expect(title).toHaveValue(model.title);
-      if(this.kind==='offline-edit')await context.setOffline(false);
+      if(this.kind==='offline-edit')await setOfflineForTest(page,context,false);
     }else if(this.kind==='reload'){
       await synced(model,real);await page.reload();
     }else if(this.kind==='theme')await page.emulateMedia({colorScheme:this.value});
@@ -32,9 +32,7 @@ class Action{
 }
 async function synced(model,{taskId}){
   await expect.poll(async()=>{
-    const manifest=await request('/api/access',undefined,'GET');
-    const data=await request('/api/sync/pull',{protocol:3,etag:manifest.etag,cursor:0,joining:manifest.spaces.map(s=>({space:s.id,after:0,base:0})),limit:500});
-    const rec=data.records.find(r=>r.id===taskId);return rec?{title:rec.data?.title??rec.title,status:rec.data?.status??rec.status}:null;
+    const rec=await readRecord(taskId);return rec?{title:rec.data?.title??rec.title,status:rec.data?.status??rec.status}:null;
   },{timeout:20_000,message:'Local edit must reach the disposable server before reload'}).toEqual({title:model.title,status:model.stage});
 }
 test('seeded interaction exploration: edit, offline, reload, resize, theme and search',async({page,context},info)=>{

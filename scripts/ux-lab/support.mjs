@@ -10,13 +10,52 @@ export async function request(path,body,method='POST'){
   const response=await fetch(fixture.base+path,{method,headers:{'Content-Type':'application/json',Authorization:'Bearer '+fixture.admin.token},...(body?{body:JSON.stringify(body)}:{})});
   const data=await response.json();expect(response.status,JSON.stringify(data)).toBe(200);return data;
 }
+export async function readRecord(id){
+  const manifest=await request('/api/access',undefined,'GET');
+  let cursor=0,joining=manifest.spaces.map(s=>({space:s.id,after:0,base:0}));
+  for(let page=0;page<20;page++){
+    const reply=await request('/api/sync/pull',{protocol:3,etag:manifest.etag,cursor,joining,limit:500});
+    const row=reply.records.find(r=>r.id===id);if(row)return row;
+    if(!reply.hasMore)return null;
+    cursor=reply.cursor;joining=reply.joining;
+  }
+  throw new Error('Disposable UX data exceeded the bounded verification scan');
+}
+export async function setOfflineForTest(page,context,offline){
+  if(offline)page._uxFaultWindows.push({start:Date.now(),end:Infinity});
+  await context.setOffline(offline);
+  if(!offline){const active=page._uxFaultWindows.at(-1);if(active?.end===Infinity)active.end=Date.now();}
+}
 export const test=base.extend({page:async({page,context,browser,browserName},use,info)=>{
   await context.route('**/*',route=>new URL(route.request().url()).origin===origin.origin?route.continue():route.abort());
   await context.addInitScript(a=>{localStorage.setItem('ws_token',a.token);localStorage.setItem('ws_uid',a.user.id);localStorage.setItem('ws_user',JSON.stringify(a.user));localStorage.setItem('ws_theme','system');},fixture.admin);
-  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const errors=[],failedRequests=[],unhandled=[],navigations=[];page._uxFaultWindows=[];
+  await page.exposeFunction('__uxUnhandled',message=>unhandled.push(message));
+  await context.addInitScript(()=>{
+    addEventListener('unhandledrejection',e=>{void globalThis.__uxUnhandled(String(e.reason?.stack??e.reason)).catch(()=>{});});
+    addEventListener('error',e=>{if(e.message)void globalThis.__uxUnhandled(e.error?.stack??e.message).catch(()=>{});});
+  });
+  page.on('pageerror',e=>errors.push({message:e.message,stack:e.stack,time:Date.now()}));
+  page.on('requestfailed',r=>failedRequests.push({url:r.url(),time:Date.now(),reason:r.failure()?.errorText}));
+  page.on('request',r=>{if(r.isNavigationRequest()&&r.resourceType()==='document')navigations.push(Date.now());});
   await info.attach('runtime.json',{body:JSON.stringify({engine:browserName,version:browser.version(),viewport:info.project.use.viewport,colorScheme:info.project.use.colorScheme,deviceScaleFactor:info.project.use.deviceScaleFactor,hasTouch:info.project.use.hasTouch,physicalDevice:false}),contentType:'application/json'});
   await use(page);
-  expect(errors,'Uncaught browser errors').toEqual([]);
+  // Playwright WebKit 1.63 maps javascript-source console errors to pageerror
+  // (wkPage._onConsoleMessage), including handled offline Fetch refusals.
+  // Correlate only exact local failed requests in our explicit fault windows.
+  // Real window errors/rejections and all unmatched diagnostics still fail.
+  const expected=errors.filter(e=>{
+    if(browserName!=='webkit'||!e.stack?.startsWith('Fetch API cannot load '+fixture.base+'/api/')||!e.stack.includes('due to access control checks.'))return false;
+    const injected=failedRequests.some(r=>e.stack.includes(r.url)&&Math.abs(r.time-e.time)<1000&&page._uxFaultWindows.some(w=>r.time>=w.start-50&&r.time<=w.end+200));
+    // WebKit may cancel an entire old document's request group without emitting
+    // requestfailed for every member. Only known read-only API diagnostics
+    // in a correlated document-navigation cancellation are expected here.
+    const cancelledRead=/^Fetch API cannot load https:\/\/[^ ]+\/api\/(?:notifications\/badge|approvals|access|sync\/pull)(?:\?| )/.test(e.stack)&&navigations.some(t=>Math.abs(t-e.time)<1000)&&failedRequests.some(r=>r.reason==='cancelled'&&Math.abs(r.time-e.time)<100);
+    return injected||cancelledRead;
+  });
+  await info.attach('injected-network-diagnostics.json',{body:JSON.stringify({expected,failedRequests,faultWindows:page._uxFaultWindows,navigations},null,2),contentType:'application/json'});
+  expect(unhandled,'Unhandled JavaScript errors/rejections, including injected-fault paths').toEqual([]);
+  expect(errors.filter(e=>!expected.includes(e)),'Unmatched browser errors').toEqual([]);
 }});
 export async function open(page,surface){
   await page.goto(fixture.base+surface.path);

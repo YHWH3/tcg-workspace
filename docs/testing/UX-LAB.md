@@ -35,9 +35,11 @@ Reports/traces are local-only and may contain disposable session credentials. Do
 
 The explicit matrix is Chromium/Firefox/WebKit × 390/820/1440px × light/dark: 18 projects. The catalog covers 20 named rendered states: home/page, database index, six record views, task detail, moodboard/form/automation empty states, approvals, Activity, Inbox, Settings, AI library with inference off, Website dashboard and Website inbox.
 
-Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
+The complete plan has 30 cases × 18 projects = 540 cases. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
 
 Fast-check generates bounded sequences of stage changes, Unicode/long title edits, offline edits, reloads, breakpoint changes, theme changes and keyboard search. It compares title/stage with a small model and verifies server persistence before reload. Every generated case resets its starting viewport/theme/connectivity; failures retain seed, shrink path, command sequence and a replay command. The default is three generated sequences per project, each with 6–14 commands. This is bounded exploration, not all possible sequences.
+
+The task-draft regression checks that focus alone writes nothing, preserves both text fields through offline edits and a responsive remount, verifies that all wrapped lines are visible, and confirms server persistence and reload.
 
 The negative control deliberately recreates the old clipped-select CSS in a disposable page, requires the geometry detector to reject it, then removes it and requires a pass. The production stylesheet is never modified by that test.
 

@@ -116,7 +116,7 @@ export function CalendarView({ board, view, records }: { board: BoardRow; view: 
               key={m}
               role="tab"
               aria-selected={effMode === m}
-              className={cn('rounded-md px-2 py-1 capitalize', effMode === m ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900' : 'text-neutral-500')}
+              className={cn('rounded-md px-2 py-1 capitalize', effMode === m ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900' : 'text-neutral-600 dark:text-neutral-400')}
               onClick={() => setMode(m)}
               style={{ minHeight: 24 }}
             >

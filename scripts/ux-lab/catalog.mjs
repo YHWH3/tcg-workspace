@@ -32,5 +32,6 @@ export const requiredCases=[...surfaces.map(s=>'surface: '+s.id),
   'table: horizontal recovery exposes complete controls',
   'text enlargement: 200 percent in inbox and task detail',
   'seeded interaction exploration: edit, offline, reload, resize, theme and search',
+  'task draft: focus, cross-field edits and responsive recovery',
 ];
 export const requiredProjects=['chromium','firefox','webkit'].flatMap(e=>['compact','tablet','desktop'].flatMap(v=>['light','dark'].map(t=>`${e}-${v}-${t}`)));

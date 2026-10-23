@@ -25,6 +25,7 @@ The first lab runs retained failures as evidence instead of suppressing them:
 | UI10 | Calendar/timeline date labels, database/form actions, approval empty/failure text and inactive Activity tabs were too faint. Fading the entire outside-month cell also faded its contents. | Readable existing neutral tones in both themes; outside-month dates use a background distinction instead of opacity on content. |
 | UI11 | Notification row was a button containing buttons; unread dot had an invalid accessible name on a generic span. | A real content button sits beside independent row actions; unread indicator has an image role. |
 | UI12 | Empty-search feedback and pagination were children of the ARIA results list instead of options. | Feedback/status and pagination sit outside the listbox. Empty-result and result-recovery states are tested. |
+| UI14 | Focus could rewrite stale task text; a delayed save could lose title/description on a responsive or access-state remount. Long textareas hid wrapped lines. | Immediate account-owned durable drafts and ordinary gated mutations, no focus-only write, source-aware recovery/retry, state above the responsive boundary, and growing textareas. Offline cross-field editing, resizing, persistence and reload are tested. |
 | UI13 | Added filter/sort dropdowns lacked names and remove actions were undersized. | Named field/operator/value/direction controls and minimum 24px remove actions; actual opened/added controls are audited. |
 
 One exploratory random action tried to focus the inert shell behind a compact modal. That was a test-model error, not counted as a product defect: exploration now invokes the supported keyboard search shortcut from the detail surface. Each generated case resets its environment for reliable shrinking/replay.
@@ -33,8 +34,12 @@ An intermittent local Chromium HTTPS stylesheet request failed with `ERR_TOO_MAN
 
 ## Evidence and durable continuation
 
-Implementation: `scripts/qa-ux.mjs`, `scripts/ux-lab/`, and [the run guide](../testing/UX-LAB.md). The full planned matrix is 29 named cases × 18 projects = 522 cases. A case may contain multiple assertions/scans; the case count is not a count of devices or unique bugs.
+Implementation: `scripts/qa-ux.mjs`, `scripts/ux-lab/`, and [the run guide](../testing/UX-LAB.md). The full planned matrix is 30 named cases × 18 projects = 540 cases. A case may contain multiple assertions/scans; the case count is not a count of devices or unique bugs.
 
 The machine-readable run summary records executed/failed/missing cells, source fingerprint, exact browser builds, generated actions and replay information. The coverage page marks unexecuted states NOT RUN. Reference-capture runs remain distinct from ordinary comparison runs and from genuine human review. Final run results are recorded in ignored artifacts after the committed source is frozen; this document does not predeclare their outcome.
 
 Earlier source `5293660` passed the affected v4/v7/v8/v9/Phase5-sync/Phase5-workflows/Phase6-workflows/assistant suites (33/114/140/75/33/36/42/27 cases respectively), and v6/Website/release-UI follow-up (150/9/18). Those exact-source results remain historical evidence; the added UI fixes and development dependencies require current-source validation.
+
+The first complete 522-case discovery run at `2f78028` passed 481 and failed 41. These were repeated instances of a few causes, not 41 unique defects: remaining dark-theme contrast, task draft persistence and harness timing/cancellation classification. Failures are retained under `.artifacts/ux-lab/final-matrix/`. The expanded 540-case regression matrix must be run after the remediation commit; the discovery run is not acceptance.
+
+WebKit 1.63 promotes some handled Fetch console diagnostics to `pageerror`. The harness retains every diagnostic and accepts only exact local requests correlated with injected offline windows or known read-only requests cancelled during document navigation. Independent window error/unhandled-rejection listeners still fail, including during fault injection. No accessibility rules are excluded. View-control tests use unique view records and verify cleanup on the server, preventing shared-fixture timing from contaminating another project.

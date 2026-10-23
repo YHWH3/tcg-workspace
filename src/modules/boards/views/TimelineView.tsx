@@ -155,7 +155,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
           <div>
             {groupBars.map((g) => (
               <div key={g.key || 'all'}>
-                {g.key && <p className="sticky top-0 bg-neutral-50 px-3 py-1.5 text-xs font-semibold text-neutral-500 dark:bg-neutral-900">{groupKeyLabel(board, cfg.groupBy!, g.key)}</p>}
+                {g.key && <p className="sticky top-0 bg-neutral-50 px-3 py-1.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400">{groupKeyLabel(board, cfg.groupBy!, g.key)}</p>}
                 {g.bars.map((b) => {
                   const conflict = conflicts.has(b.id);
                   return (
