@@ -101,6 +101,7 @@ export async function open(page,surface){
   await page.goto(fixture.base+surface.path);
   const ready=surface.ready.placeholder?page.getByPlaceholder(surface.ready.placeholder,{exact:true}):page.getByRole(surface.ready.role,{name:surface.ready.name,exact:true});
   await expect(ready.first()).toBeVisible();
+  if(surface.id?.startsWith('records-')||surface.id==='website-inbox')await expect(page.getByRole('toolbar',{name:'View controls',exact:true}).getByRole('combobox',{name:'Group by',exact:true})).toBeVisible();
   await page.evaluate(()=>document.fonts.ready);
 }
 export async function health(page,label,info,{axe=true}={}){

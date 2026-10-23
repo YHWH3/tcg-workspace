@@ -49,6 +49,12 @@ test('negative controls: clipped labels and mismatched names must be detected',a
     expect(result.violations.map(v=>v.id)).toContain('label-content-name-mismatch');
   }finally{await page.locator('#ux-negative-label').evaluate(e=>e.remove());}
   await health(page,'restored negative controls',info);
+  await open(page,surfaces.find(s=>s.id==='website-inbox'));
+  await expect(page.getByRole('combobox',{name:'Group by',exact:true})).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'Group by',exact:true})).toHaveValue('');
+  const widthStyle=await page.addStyleTag({content:'select[aria-label="Group by"] {width:80px!important;max-width:80px!important;}'});
+  await expect(assertControlGeometry(page,'injected inline clipping')).rejects.toThrow(/clipped control labels/);
+  await widthStyle.evaluate(e=>e.remove());await health(page,'restored grouping caption',info);
 });
 test('profile: every avatar palette colour remains readable',async({page},info)=>{
   await open(page,surfaces.find(s=>s.id==='settings'));

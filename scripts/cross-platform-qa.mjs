@@ -266,18 +266,43 @@ try{
     // The browser DOM can respond behind Chrome's native first-run modal.
     // Inspect a fresh hierarchy and decline notifications before claiming real
     // touch/IME acceptance. Never grant a permission or adopt a personal profile.
-    const setupDump=execFileSync(adb,['-s',serial,'shell','uiautomator','dump','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8',timeout:30000});
-    assert.ok(setupDump.includes('dumped'),'Fresh Chrome setup hierarchy required');
-    const setup=execFileSync(adb,['-s',serial,'shell','cat','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8'});
-    writeFileSync(join(output,`android-${name}-setup.xml`),setup);
-    if(setup.includes('Chrome notifications make things easier')){
-     const button=[...setup.matchAll(/<node\b[^>]*>/g)].map(m=>m[0]).find(n=>n.includes('text="No thanks"')&&n.includes('clickable="true"'));
-     const bounds=button?.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);assert.ok(bounds,'Observed decline-notifications button required');
-     execFileSync(adb,['-s',serial,'shell','input','tap',String((Number(bounds[1])+Number(bounds[3]))/2),String((Number(bounds[2])+Number(bounds[4]))/2)]);
-     const afterDump=execFileSync(adb,['-s',serial,'shell','uiautomator','dump','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8',timeout:30000});assert.ok(afterDump.includes('dumped'));
-     const after=execFileSync(adb,['-s',serial,'shell','cat','/sdcard/tcg-browser-setup.xml'],{encoding:'utf8'});writeFileSync(join(output,`android-${name}-setup-after.xml`),after);
-     assert.ok(!after.includes('Chrome notifications make things easier'),'Native setup must be dismissed before page interactions');
+    // Use one UiAutomation owner. A separate `uiautomator dump` process
+    // returned 137 even after printing its XML receipt in the retained run.
+    // Initialize the public native driver, inspect the real prompt, and only
+    // treat only its explicit missing-widget response as absence; transport
+    // and driver errors still fail.
+    await device.wait({pkg:'com.android.chrome'},{timeout:20000});
+    const nativeInfo=async selector=>{
+     try{return await device.info(selector);}
+     catch(error){
+      // In the pinned Java driver, info(findObject(...)) dereferences null
+      // for an absent widget. Match that exact lookup result, never a generic
+      // NullPointerException or an ADB/transport/timeout failure.
+      const missing="androidDevice.info: java.lang.NullPointerException: Attempt to invoke virtual method 'java.lang.String androidx.test.uiautomator.UiObject2.getClassName()' on a null object reference";
+      if(error.message.split('\n')[0]===missing)return null;
+      throw error; // A disconnected/hung driver is never widget absence.
+     }
+    };
+    assert.ok(await nativeInfo({pkg:'com.android.chrome'}),'Native present-widget contract');
+    assert.equal(await nativeInfo({pkg:'com.android.chrome',text:'__TCG_absent_preflight_widget__'}),null,'Native absence query contract');
+    const prompt={pkg:'com.android.chrome',text:'Chrome notifications make things easier'},detectStarted=Date.now();
+    const detected=await eventually(async()=>{const info=await nativeInfo(prompt);return info||Date.now()-detectStarted>=3000?{info}:false;},{timeout:5000});
+    const promptVisible=!!detected.info;
+    const setupEvidence={promptVisible,nativeApi:'Playwright AndroidDevice',permissionDecision:'No permission granted'};
+    if(promptVisible){
+     const decline={pkg:'com.android.chrome',text:'No thanks',clickable:true,enabled:true};
+     await device.wait(decline,{timeout:5000});
+     setupEvidence.declineTarget=await device.info(decline);
+     writeFileSync(join(output,`android-${name}-setup.png`),await device.screenshot());
+     writeFileSync(join(output,`android-${name}-setup-decline-target.json`),JSON.stringify(setupEvidence.declineTarget,null,2));
+     await device.tap(decline,{timeout:5000});
+     writeFileSync(join(output,`android-${name}-setup-after-tap.png`),await device.screenshot());
+     // Playwright 1.63's Java wait handler ignores `state: gone`. Probe
+     // explicit native absence; the exact missing-widget response is allowed.
+     await eventually(async()=>(await nativeInfo(prompt))===null,{timeout:5000});
+     setupEvidence.declined=true;
     }
+    writeFileSync(join(output,`android-${name}-setup.json`),JSON.stringify(setupEvidence,null,2));
     await device.wait({pkg:'com.android.chrome',clazz:'android.webkit.WebView'},{timeout:15000});
     await journey(context,`android-${version}-chrome-${name}`,admin.token,(name==='small'||name==='tablet')?device:undefined);writeFileSync(join(output,`android-${name}.png`),await device.screenshot());
     if(name==='small'&&process.argv.includes('--android-pwa'))await test('android-chrome','Native Home Screen PWA installation and standalone launch',async()=>{

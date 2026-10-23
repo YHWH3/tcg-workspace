@@ -447,9 +447,9 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       <Select density="compact"
         value={cfg.groupBy ?? ''}
         onChange={(e) => setCfg({ groupBy: (e.target.value || null) as ViewConfig['groupBy'] })}
-        className="w-auto max-w-28"
+        className="w-auto max-w-full"
         aria-label="Group by"
-        title="Group by"
+        title={cfg.groupBy ? `Group by: ${fieldKeyLabel(board, cfg.groupBy)}` : 'Group by: No grouping'}
       >
         <option value="">No grouping</option>
         {keys.map((k) => (
