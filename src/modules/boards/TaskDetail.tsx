@@ -64,13 +64,13 @@ function DetailBody({ taskId, task, titleDraft, descriptionDraft, onClose }: { t
     });
     fit();
     // Width and text-size changes can rewrap existing text without an input.
-    let dimensions = '';
+    let dimensions = '', frame = 0;
     const observer = new ResizeObserver(() => {
       const next = elements.map(el => `${el.clientWidth}:${getComputedStyle(el).fontSize}`).join('|');
-      if (next !== dimensions) { dimensions = next;fit(); }
+      if (next !== dimensions) { dimensions = next;cancelAnimationFrame(frame);frame = requestAnimationFrame(fit); }
     });
     elements.forEach(el => observer.observe(el));
-    return () => observer.disconnect();
+    return () => { cancelAnimationFrame(frame);observer.disconnect(); };
   }, [titleDraft.value, descriptionDraft.value, !!task]);
 
   useEffect(() => {

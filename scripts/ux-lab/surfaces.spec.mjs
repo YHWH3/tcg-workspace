@@ -97,6 +97,11 @@ test('task draft: focus, cross-field edits and responsive recovery',async({page,
   await page.waitForTimeout(1200);
   const pending=await readAccountStore(page,'outbox');
   expect([...writes,...pending.filter(r=>r.id===taskId).map(r=>r.patch)],'Focus-only navigation must not rewrite task text').toEqual([]);
+  // A focused but unedited field must follow newly synchronized source text.
+  // Compact sheets focus the title before the initial pull may finish.
+  await title.focus();
+  await request('/api/sync/push',{protocol:3,changes:[{id:taskId,collection:'tasks',ts:Date.now(),patch:{title:'Updated while focused'}}]});
+  await expect(title).toHaveValue('Updated while focused',{timeout:20_000});
   await setOfflineForTest(page,context,true);
   const draft='Preserved café 👩🏽‍💻 '+('long text '.repeat(12)),body=('Description survives title changes and responsive remounts.\n').repeat(8);
   await title.fill(draft);await description.fill(body);

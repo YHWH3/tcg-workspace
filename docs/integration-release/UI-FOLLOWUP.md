@@ -28,3 +28,6 @@ Baseline evidence: `.artifacts/website-table-baseline.log` reproduces the clippe
 Final commands, source hashes, exact exits, screenshots and platform results are recorded in the ignored machine ledger and follow-up report after checks finish. Source changes invalidate affected evidence. Original checkouts, unrelated PRs, website design/content and integration event contracts remain unchanged.
 
 This is a targeted audit of shared controls and the reachable database/Website workflows. It does not establish that every screen or every UX state in the product has been exhaustively reviewed. Physical devices and manual assistive technology remain separate acceptance gates.
+
+## Wider public-tool follow-up
+The reusable UX lab and additional findings UI09–UI14 are documented in QA-TOOLS.md. UI14 includes a distinct source-hydration race: a compact sheet can focus a title before its first server pull, so focus alone must not freeze stale text. Actual edits retain their durable candidate; clean fields follow synchronized source. Growing textareas resize outside ResizeObserver delivery to avoid observer-loop errors. The lab includes a 540-case browser/size/theme plan and repeatable generated sequences; visiting these named states is not exhaustive workflow/device acceptance.

@@ -50,7 +50,7 @@ export function useTaskTextDraft(taskId: string, field: 'title' | 'description',
 
   useEffect(() => {
     if (source === latest.current) dirty.current = false;
-    if (dirty.current || focused.current) return;
+    if (dirty.current) return;
     latest.current = source;
     setValue(source);
   }, [source]);

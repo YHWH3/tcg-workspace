@@ -39,7 +39,7 @@ The complete plan has 30 cases × 18 projects = 540 cases. Additional cases open
 
 Fast-check generates bounded sequences of stage changes, Unicode/long title edits, offline edits, reloads, breakpoint changes, theme changes and keyboard search. It compares title/stage with a small model and verifies server persistence before reload. Every generated case resets its starting viewport/theme/connectivity; failures retain seed, shrink path, command sequence and a replay command. The default is three generated sequences per project, each with 6–14 commands. This is bounded exploration, not all possible sequences.
 
-The task-draft regression checks that focus alone writes nothing, preserves both text fields through offline edits and a responsive remount, verifies that all wrapped lines are visible, and confirms server persistence and reload.
+The task-draft regression checks that focus alone writes nothing, updates a focused unedited field when synchronized source changes, preserves both text fields through offline edits and a responsive remount, verifies that all wrapped lines are visible, and confirms server persistence and reload.
 
 The negative control deliberately recreates the old clipped-select CSS in a disposable page, requires the geometry detector to reject it, then removes it and requires a pass. The production stylesheet is never modified by that test.
 
