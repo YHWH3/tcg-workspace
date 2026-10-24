@@ -1,7 +1,7 @@
 // Disposable synthetic review. Creates a proposal and opens it; never approves.
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import {mkdirSync,writeFileSync} from 'node:fs';
+import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {chromium} from 'playwright';
@@ -34,15 +34,17 @@ try {
  const proposal=await client.callTool({name:'propose_website_triage',arguments:{updates:records.map(recordId=>({recordId,status:'in_review',priority:'low'}))}});assert.ok(!proposal.isError,JSON.stringify(proposal));const pending=JSON.parse(proposal.content[0].text);assert.ok(pending.previewId&&pending.reviewUrl);
  // No /decision or execute_preview call: approval and execution remain with the human.
  const source={sha:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),fingerprint:fingerprint(root)};
+ // Trust only this generated test certificate in the owned browser process.
+ // Waiting for the decision control proves the proposal loaded, not just its heading.
  // Human review must use the real window and Retina scale. Emulating a fixed
  // viewport/device scale in a native desktop window displaces OS select menus.
- browser=await chromium.launch({headless:false,args:['--window-size=1440,960']});
+ browser=await chromium.launch({headless:false,args:['--window-size=1440,960','--ignore-certificate-errors-spki-list='+crypto.createHash('sha256').update(new crypto.X509Certificate(readFileSync(tls.cert)).publicKey.export({type:'spki',format:'der'})).digest('base64')]});
  const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:null});
  await context.route('**/*',route=>route.request().url().startsWith(fixture.base+'/')?route.continue():route.abort());
- await context.addInitScript(a=>{localStorage.setItem('ws_token',a.token);localStorage.setItem('ws_uid',a.user.id);localStorage.setItem('ws_user',JSON.stringify(a.user));},admin);
- const page=await context.newPage();await page.goto(pending.reviewUrl);await page.getByRole('heading',{name:'Review proposed changes',exact:true}).waitFor();await page.screenshot({path:join(out,'pending-review.png'),fullPage:true});
+ await context.addInitScript(a=>{if(location.origin!==a.origin)return;localStorage.setItem('ws_token',a.token);localStorage.setItem('ws_uid',a.user.id);localStorage.setItem('ws_user',JSON.stringify(a.user));},{...admin,origin:fixture.base});
+ const page=await context.newPage();await page.goto(pending.reviewUrl);await page.getByRole('heading',{name:'Review proposed changes',exact:true}).waitFor();await page.getByRole('button',{name:'Approve exact changes',exact:true}).waitFor({timeout:45000});await page.screenshot({path:join(out,'pending-review.png'),fullPage:true});
  const inbox=await context.newPage();await inbox.goto(fixture.base+'/boards/board-website-inbox/views/view-wi-all');
- await inbox.getByRole('heading',{name:'🌐 Website inbox',exact:true}).waitFor();
+ await inbox.getByRole('heading',{name:'🌐 Website inbox',exact:true}).waitFor({timeout:45000});
  await inbox.getByRole('combobox',{name:'Stage',exact:true}).first().waitFor();
  await inbox.screenshot({path:join(out,'inbox.png'),fullPage:true});
  const display=await inbox.evaluate(()=>({width:innerWidth,height:innerHeight,devicePixelRatio,screenWidth:screen.width,screenHeight:screen.height}));
