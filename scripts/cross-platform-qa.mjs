@@ -96,6 +96,23 @@ async function journey(context,platform,token,androidDevice){
  });
  if(platform!=='mac-chrome')await page.close();
 }
+async function androidNativeInfo(device,selector){
+ try{return await device.info(selector);}
+ catch(error){
+  const missing="androidDevice.info: java.lang.NullPointerException: Attempt to invoke virtual method 'java.lang.String androidx.test.uiautomator.UiObject2.getClassName()' on a null object reference";
+  if(error.message.split('\n')[0]===missing)return null;
+  throw error; // A transport/driver error is never a missing native widget.
+ }
+}
+async function stableAndroidControl(device,selector,label){
+ const deadline=Date.now()+15000;let previous;
+ while(Date.now()<deadline){
+  const current=await androidNativeInfo(device,selector);
+  if(current&&previous&&current.text===label&&current.enabled&&current.clickable&&JSON.stringify(current.bounds)===JSON.stringify(previous.bounds))return current;
+  previous=current;await new Promise(resolve=>setTimeout(resolve,100));
+ }
+ throw new Error('Native control did not become stable: '+label);
+}
 async function androidRotation(context,platform,token,device,page){
  await test(platform,'Native Android landscape and background retain a durable unacknowledged edit',async()=>{
   await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
@@ -143,11 +160,11 @@ async function androidInteractions(context,platform,token,device){
  let nativeStep=0;
  async function nativeTap(label){
   if(label==='Send message')await page.waitForFunction(()=>document.querySelector('[data-testid=assistant-send]')?.disabled===false);
-  const selector={pkg:'com.android.chrome',text:new RegExp('^'+label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$'),enabled:true,clickable:true};
+  const selector={pkg:'com.android.chrome',text:label,enabled:true,clickable:true};
   const step=++nativeStep;
   try{
-   await device.wait(selector,{timeout:15000});
-   const observed=await device.info(selector);
+   // DOM visibility can precede Android accessibility readiness after IME/layout changes.
+   const observed=await stableAndroidControl(device,selector,label);
    writeFileSync(join(output,platform+'-native-button-'+step+'.json'),JSON.stringify({label,...observed}));
    const image=await device.screenshot();writeFileSync(join(output,platform+'-native-button-'+step+'.png'),image);
    const b=observed.bounds;assert.ok(b.width>0&&b.height>0&&b.x>=0&&b.y>=0&&b.x+b.width<=image.readUInt32BE(16)&&b.y+b.height<=image.readUInt32BE(20),'Native target must fit inside the actual device screen');
@@ -272,17 +289,7 @@ try{
     // treat only its explicit missing-widget response as absence; transport
     // and driver errors still fail.
     await device.wait({pkg:'com.android.chrome'},{timeout:20000});
-    const nativeInfo=async selector=>{
-     try{return await device.info(selector);}
-     catch(error){
-      // In the pinned Java driver, info(findObject(...)) dereferences null
-      // for an absent widget. Match that exact lookup result, never a generic
-      // NullPointerException or an ADB/transport/timeout failure.
-      const missing="androidDevice.info: java.lang.NullPointerException: Attempt to invoke virtual method 'java.lang.String androidx.test.uiautomator.UiObject2.getClassName()' on a null object reference";
-      if(error.message.split('\n')[0]===missing)return null;
-      throw error; // A disconnected/hung driver is never widget absence.
-     }
-    };
+    const nativeInfo=selector=>androidNativeInfo(device,selector);
     assert.ok(await nativeInfo({pkg:'com.android.chrome'}),'Native present-widget contract');
     assert.equal(await nativeInfo({pkg:'com.android.chrome',text:'__TCG_absent_preflight_widget__'}),null,'Native absence query contract');
     const prompt={pkg:'com.android.chrome',text:'Chrome notifications make things easier'},detectStarted=Date.now();
