@@ -32,6 +32,9 @@ Workspace integration merge a069103 combines release b6c3c4a4105fc3f6ebdba557e86
 ## Final execution state
 Integration draft PRs have been published. Current UI follow-up validation and certification require the final frozen source. Historical results below remain bound to their named source. Runtime progress and exact-source evidence live in ignored .artifacts/ directories, preserving the tested source fingerprint. No ENGINEERING GO is claimed by this document.
 
+## SEC01: current dependency audit remediation
+The 24 October complete run at `0e824d7` passed all 1,512 unit and 668 dedicated D1 checks, then failed the mandatory security gate with eight package findings. The failed run was stopped for remediation. Targeted dependency updates now resolve that audit, including an exact Zod pin and a scoped Miniflare/Undici override; the patch and primary advisories are documented in [SECURITY-DEPENDENCIES.md](SECURITY-DEPENDENCIES.md). The previous UX matrix passed 558/558 and Android passed 17/17 at `0e824d7`; these remain historical evidence. The changed source requires a new freeze and fresh final verification. No security finding is waived or relabelled external.
+
 ## Remaining external gates
 Genuine human approval (automated sessions are fixtures), physical devices, human screen readers, CA/legal/privacy policy approval, production payment/email/account setup, real chain/provider checks and authorized deployment. None may be reported as locally certified.
 
