@@ -1,5 +1,5 @@
 import {HistoryButton} from '../../core/History';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Archive, ArchiveRestore, ImagePlus, Paperclip, Trash2, X } from 'lucide-react';
 import { authStore } from '../../core/auth';
@@ -11,10 +11,11 @@ import { useIsMobile } from '../../core/mobile';
 import { PresenceStack } from '../../core/presence';
 import { AskAiMenu } from '../../core/assistant/AskAiMenu';
 import { useAssistantContext } from '../../core/assistant/store';
-import { Avatar, IconButton, Select, Sheet } from '../../core/ui';
+import { Avatar, Button, IconButton, Select, Sheet } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { useStore } from '../../core/store';
-import { cn, debounce, todayISO } from '../../core/utils';
+import { cn, todayISO } from '../../core/utils';
+import { useTaskTextDraft } from './useTaskTextDraft';
 import { modules } from '..';
 import { Slot } from '../slots';
 import { columnsOf, columnIdFor, deleteTask, isDone, moveTaskToBoard, PRIORITIES, setTaskField, taskBoardId, useBoards, type TaskRow } from './api';
@@ -24,14 +25,28 @@ import { FieldRow } from './FieldValue';
 import { archivePatch, isArchived } from '../../../shared/archive';
 
 export function TaskDetail({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+  return <TaskDetailState key={taskId} taskId={taskId} onClose={onClose} />;
+}
+
+function TaskDetailState({ taskId, onClose }: { taskId: string; onClose: () => void }) {
   const mobile = useIsMobile();
-  const inner = <DetailBody taskId={taskId} onClose={onClose} />;
+  const result = useLiveQuery(async () => ({ task: await db.tasks.get(taskId) }), [taskId]);
+  const task = result?.task as TaskRow | undefined;
+  // Drafts belong to the record, above the responsive sheet/aside boundary.
+  const titleDraft = useTaskTextDraft(taskId, 'title', String(task?.title ?? ''), Number(task?._ts.title ?? 0), !!task && !task.deleted);
+  const descriptionDraft = useTaskTextDraft(taskId, 'description', String(task?.description ?? ''), Number(task?._ts.description ?? 0), !!task && !task.deleted);
+  const drafts = useRef({ titleDraft, descriptionDraft });
+  drafts.current = { titleDraft, descriptionDraft };
+  useEffect(() => {
+    drafts.current.titleDraft.blur();
+    drafts.current.descriptionDraft.blur();
+  }, [mobile]);
+  const inner = <DetailBody taskId={taskId} task={task} loading={!result} titleDraft={titleDraft} descriptionDraft={descriptionDraft} onClose={onClose} />;
   if (mobile) return <Sheet onClose={onClose} side="bottom">{inner}</Sheet>;
   return <aside className="anim-slide-right flex w-[400px] shrink-0 flex-col border-l border-neutral-200/80 bg-white dark:border-neutral-800 dark:bg-neutral-950">{inner}</aside>;
 }
 
-function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }) {
-  const task = useLiveQuery(() => db.tasks.get(taskId), [taskId]) as TaskRow | undefined;
+function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClose }: { taskId: string; task: TaskRow | undefined; loading: boolean; titleDraft: ReturnType<typeof useTaskTextDraft>; descriptionDraft: ReturnType<typeof useTaskTextDraft>; onClose: () => void }) {
   useAssistantContext(task && !task.deleted ? { kind: 'record', id: task.id } : null);
   const users = useUsers();
   const boards = useBoards();
@@ -39,6 +54,25 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
   const [lightbox, setLightbox] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const photoInput = useRef<HTMLInputElement>(null);
+  const titleInput = useRef<HTMLTextAreaElement>(null);
+  const descriptionInput = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const elements = [titleInput.current, descriptionInput.current].filter((el): el is HTMLTextAreaElement => !!el);
+    const fit = () => elements.forEach(el => {
+      el.style.height = 'auto';
+      const css = getComputedStyle(el);
+      el.style.height = `${el.scrollHeight + parseFloat(css.borderTopWidth) + parseFloat(css.borderBottomWidth)}px`;
+    });
+    fit();
+    // Width and text-size changes can rewrap existing text without an input.
+    let dimensions = '', frame = 0;
+    const observer = new ResizeObserver(() => {
+      const next = elements.map(el => `${el.clientWidth}:${getComputedStyle(el).fontSize}`).join('|');
+      if (next !== dimensions) { dimensions = next;cancelAnimationFrame(frame);frame = requestAnimationFrame(fit); }
+    });
+    elements.forEach(el => observer.observe(el));
+    return () => { cancelAnimationFrame(frame);observer.disconnect(); };
+  }, [titleDraft.value, descriptionDraft.value, !!task]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -48,27 +82,8 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, lightbox]);
 
-  const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [editingTitle, setEditingTitle] = useState(false);
-  const debouncedDesc = useRef(debounce((id: string, v: string) => void setTaskField(id, { description: v }), 400));
-  const debouncedTitle = useRef(debounce((id: string, v: string) => void setTaskField(id, { title: v }), 400));
-
-  useEffect(() => {
-    if (task) {
-      if (!editingTitle) setTitle(String(task.title ?? ''));
-      setDesc(String(task.description ?? ''));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId, task?.title]);
-
-  useEffect(() => {
-    if (task && !editingTitle) setDesc(String(task.description ?? ''));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task?.description]);
-
-  if (!task || task.deleted) {
-    return <div className="flex h-full items-center justify-center text-sm text-neutral-400">Task not found</div>;
+  if (loading || !task || task.deleted) {
+    return <div role="status" aria-label={loading ? 'Loading task' : 'Task not found'} className="flex h-full items-center justify-center text-sm text-neutral-600 dark:text-neutral-400">{loading ? 'Loading task…' : 'Task not found'}</div>;
   }
 
   const board = boards.find((b) => b.id === taskBoardId(task));
@@ -132,21 +147,20 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
           </div>
         )}
         <div className="p-4">
+          {(titleDraft.error || descriptionDraft.error) && <div role="alert" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-neutral-800 dark:border-amber-800 dark:bg-amber-950 dark:text-neutral-100">
+            <p>{titleDraft.error || descriptionDraft.error}</p>
+            <Button size="sm" className="mt-2" onClick={() => { if (titleDraft.error) titleDraft.retry(); if (descriptionDraft.error) descriptionDraft.retry(); }}>Retry saving text</Button>
+          </div>}
           <textarea
-            value={title}
+            ref={titleInput}
+            value={titleDraft.value}
             rows={1}
             aria-label="Task title"
             placeholder="Task title"
             className="w-full resize-none overflow-hidden bg-transparent text-lg font-semibold outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
-            onFocus={() => setEditingTitle(true)}
-            onBlur={() => {
-              setEditingTitle(false);
-              debouncedTitle.current.flush(task.id, title);
-            }}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              debouncedTitle.current(task.id, e.target.value);
-            }}
+            onFocus={titleDraft.focus}
+            onBlur={titleDraft.blur}
+            onChange={(e) => titleDraft.change(e.target.value)}
           />
           <div className="mt-3 grid grid-cols-[88px_1fr] items-center gap-y-2.5 text-sm">
             <span className="text-xs text-neutral-500 dark:text-neutral-400">Board</span>
@@ -205,16 +219,15 @@ function DetailBody({ taskId, onClose }: { taskId: string; onClose: () => void }
           <div className="mt-4">
             <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">Description</span>
             <textarea
-              value={desc}
+              ref={descriptionInput}
+              value={descriptionDraft.value}
               rows={4}
               aria-label="Task description"
               placeholder="Add details…"
               className="-m-1 w-full resize-none overflow-hidden rounded-lg bg-transparent p-1 text-base sm:text-sm leading-6 outline-none placeholder:text-neutral-300 focus:bg-neutral-50 dark:placeholder:text-neutral-600 dark:focus:bg-neutral-900/60"
-              onChange={(e) => {
-                setDesc(e.target.value);
-                debouncedDesc.current(task.id, e.target.value);
-              }}
-              onBlur={() => debouncedDesc.current.flush(task.id, desc)}
+              onFocus={descriptionDraft.focus}
+              onChange={(e) => descriptionDraft.change(e.target.value)}
+              onBlur={descriptionDraft.blur}
             />
           </div>
 

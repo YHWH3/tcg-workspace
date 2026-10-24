@@ -13,7 +13,7 @@ import { runAutomationsForEvent } from './automations';
 import { fnv1a64hex } from '../shared/linkid';
 import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
 
-export type EventSource = 'client' | 'mcp' | 'automation' | 'form' | 'undo';
+export type EventSource = 'client' | 'mcp' | 'automation' | 'form' | 'undo' | 'website';
 
 export interface ChangeEvent {
   source: EventSource;

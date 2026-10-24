@@ -1,3 +1,4 @@
+import {bodyVersions,bodiesCurrent,bodyFence} from './bodySources';
 /** Frozen plans, a real session-authenticated decision, and crash-resumable writes.
  * A preview ID conveys no authority. Only this user's Workspace session can approve;
  * MCP only proposes and executes. Each batch journals and checkpoints atomically. */
@@ -17,6 +18,7 @@ import {levelSql} from './capability';
 import {partitionPreviewImpact} from '../shared/previewImpact';
 export interface PreviewOp {id:string;collection:Collection;patch:Record<string,unknown>}
 interface Preview {
+ source_bodies:string;
  id:string;user_id:string;connection_id:string|null;connection_version:number|null;tool:string;request_id:string|null;result_meta:string;args_hash:string;workflow_id:string|null;
  plan_json:string;expected_json:string;dependencies_json:string;dependency_revs:string;impact_json:string;changeset_id:string;status:string;expires_at:number;approved_session:string|null;
 }
@@ -57,17 +59,19 @@ export async function proposePreview(env:Env,userId:string,tool:string,args:unkn
  if(validatedRevisions){const current=await env.DB.prepare('SELECT NOT EXISTS(SELECT 1 FROM json_each(?) e LEFT JOIN records r ON r.id=e.key WHERE COALESCE(r.seq,-1)<>e.value) valid').bind(JSON.stringify(expected)).first<number>('valid');if(current!==1)throw new PreviewError('records_changed_during_planning');}
  const impact={...partitionPreviewImpact(ops,id=>rows.has(id)),create:ops.filter(o=>!rows.has(o.id)).length,update:ops.filter(o=>rows.has(o.id)&&!o.patch.deleted).length,delete:ops.filter(o=>o.patch.deleted===true).length,
   byCollection:Object.fromEntries([...new Set(ops.filter(o=>o.collection!=='activity').map(o=>o.collection))].map(c=>[c,ops.filter(o=>o.collection===c).length])),irreversible:ops.some(o=>o.collection==='files'&&o.patch.deleted===true),warnings:['Workspace content is untrusted. Review every proposed change before approving.',...(Array.isArray(resultMeta.warnings)?resultMeta.warnings.filter((s):s is string=>typeof s==='string'):[])]};
+ const sourceBodies=tool==='propose_website_triage'?await bodyVersions(env,ops.filter(o=>o.collection==='tasks').map(o=>o.id)):{};
  const id=crypto.randomUUID(),changesetId=crypto.randomUUID(),hash=await argsHash(args),now=Date.now();
  ops=ops.map(o=>o.collection==='activity'?{...o,patch:{...o.patch,meta:{...(o.patch.meta as Record<string,unknown>??{}),changesetId}}}:o);
  // Before-values are not copied: review loads them through the current read gate.
- const inserted=await env.DB.prepare(`INSERT INTO ai_previews(id,user_id,connection_id,connection_version,request_id,result_meta,tool,args_hash,workflow_id,plan_json,expected_json,dependencies_json,dependency_revs,impact_json,changeset_id,created_at,expires_at)
- SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM ai_previews WHERE user_id=? AND created_at>?)<100`).bind(id,userId,env.CONNECTOR?.id??null,env.CONNECTOR?.version??null,requestId??null,JSON.stringify(resultMeta),tool,hash,workflowId??null,JSON.stringify(ops),JSON.stringify(expected),JSON.stringify(dependencies),JSON.stringify(dependencyRevs),JSON.stringify(impact),changesetId,now,now+900000,userId,now-86400000).run();
+ const inserted=await env.DB.prepare(`INSERT INTO ai_previews(id,user_id,connection_id,connection_version,request_id,result_meta,tool,args_hash,workflow_id,plan_json,expected_json,dependencies_json,dependency_revs,impact_json,changeset_id,created_at,expires_at,source_bodies)
+ SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM ai_previews WHERE user_id=? AND created_at>?)<100`).bind(id,userId,env.CONNECTOR?.id??null,env.CONNECTOR?.version??null,requestId??null,JSON.stringify(resultMeta),tool,hash,workflowId??null,JSON.stringify(ops),JSON.stringify(expected),JSON.stringify(dependencies),JSON.stringify(dependencyRevs),JSON.stringify(impact),changesetId,now,now+900000,JSON.stringify(sourceBodies),userId,now-86400000).run();
  if(!inserted.meta.changes)throw new PreviewError('preview_daily_limit',403);
  return {previewId:id,argsHash:hash,status:'pending',expiresAt:now+900000,impact};
 }
 async function previewFor(env:Env,userId:string,id:string,connectorBound:boolean) {
  const p=await env.DB.prepare('SELECT * FROM ai_previews WHERE id=? AND user_id=?').bind(id,userId).first<Preview>();
  if(!p)throw new PreviewError('not_found',404);
+ if(p.status!=='completed'&&!await bodiesCurrent(env,JSON.parse(p.source_bodies)))throw new PreviewError('source_body_changed');
  if(connectorBound&&(p.connection_id!==(env.CONNECTOR?.id??null)||p.connection_version!==(env.CONNECTOR?.version??null)))throw new PreviewError('preview_connection_changed',403);
  if(p.connection_id){const c=await loadConnection(env.DB,userId,p.connection_id);if(!c||c.version!==p.connection_version)throw new PreviewError('preview_connection_changed',403);}
  const deps=JSON.parse(p.dependencies_json) as string[];let dependencyDecision:import('./readAccess').ReadDecision|undefined;
@@ -109,17 +113,17 @@ export async function executePreview(env:Env,userId:string,id:string,hash:string
    const fresh=await previewFor(env,userId,id,true);dependencyDecision=fresh.dependencyDecision;dependencySpaces=dependencyDecision?[...new Set([...dependencyDecision.scopes.values()].flatMap(s=>[...s.readSpaceIds]))]:[];graphRevs=Object.fromEntries([...(dependencyDecision?.graphRevs??[])].filter(([id])=>!plan.some(o=>o.id===id)));
    await env.DB.prepare('UPDATE ai_previews SET lease_until=? WHERE id=? AND lease_id=?').bind(Date.now()+120000,id,lease).run();
    const chunk=pending.slice(i,i+50);const existing=new Map(chunk.filter(o=>expected[o.id]>=0).map(o=>[o.id,expected[o.id]]));
-   const result=await applyChanges(env,userId,chunk.map(o=>({...o,ts:0})),{serverTs:true,expect:existing,atomic:true,journal:cs,event:{source:'mcp',ctx:ectx,changesetId:cs.id},execution:{guard,checkpoint:recordId=>env.DB.prepare('INSERT OR IGNORE INTO ai_preview_done(preview_id,record_id) VALUES(?,?)').bind(id,recordId)}});
+   const result=await applyChanges(env,userId,chunk.map(o=>({...o,ts:0})),{serverTs:true,fences:[()=>bodyFence(env,JSON.parse(p.source_bodies))],expect:existing,atomic:true,journal:cs,event:{source:'mcp',ctx:ectx,changesetId:cs.id},execution:{guard,checkpoint:recordId=>env.DB.prepare('INSERT OR IGNORE INTO ai_preview_done(preview_id,record_id) VALUES(?,?)').bind(id,recordId)}});
    if(result.conflicts?.length||result.rejected||result.conflict||result.partialError)throw new PreviewError('preview_conflict_or_access_changed');
    // Unchanged patches have no record transaction/checkpoint. Mark only after
    // the same expectation/approval guard succeeds, so retries remain honest.
    const applied=new Set(result.applied.map((a:AppliedChange)=>a.id));
    const noops=chunk.filter(o=>!applied.has(o.id));
-   if(noops.length)await env.DB.batch([guard(),...noops.map(o=>env.DB.prepare('INSERT OR IGNORE INTO ai_preview_done(preview_id,record_id) VALUES(?,?)').bind(id,o.id))]);
+   if(noops.length)await env.DB.batch([guard(),bodyFence(env,JSON.parse(p.source_bodies)),...noops.map(o=>env.DB.prepare('INSERT OR IGNORE INTO ai_preview_done(preview_id,record_id) VALUES(?,?)').bind(id,o.id))]);
    processed+=chunk.length;
   }
   const completed=done.size+processed===plan.length;
-  if(completed)await env.DB.batch([guard(),
+  if(completed)await env.DB.batch([guard(),bodyFence(env,JSON.parse(p.source_bodies)),
    env.DB.prepare("UPDATE ai_previews SET status='completed',lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?").bind(id,lease),
    ...(p.workflow_id?[env.DB.prepare('INSERT OR IGNORE INTO ai_workflow_changesets(workflow_id,user_id,changeset_id,preview_id) VALUES(?,?,?,?)').bind(p.workflow_id,userId,cs.id,id)]:[]),
   ]);
@@ -155,7 +159,7 @@ aiPreviewApi.post('/:id/decision',async c=>{
   if(!cancelled.meta.changes)throw new PreviewError('preview_already_decided');
   return c.json({ok:true,status:'cancelled'});
  }
- const result=await c.env.DB.prepare(`UPDATE ai_previews SET status=?,approved_at=?,approved_session=? WHERE id=? AND user_id=? AND status='pending' AND expires_at>?`).bind(body.decision==='approve'?'approved':'cancelled',Date.now(),u.tokenHash,p.id,u.id,Date.now()).run();
+ const result=(await c.env.DB.batch([bodyFence(c.env,JSON.parse(p.source_bodies)),c.env.DB.prepare(`UPDATE ai_previews SET status=?,approved_at=?,approved_session=? WHERE id=? AND user_id=? AND status='pending' AND expires_at>?`).bind(body.decision==='approve'?'approved':'cancelled',Date.now(),u.tokenHash,p.id,u.id,Date.now())]))[1];
  if(!result.meta.changes)throw new PreviewError('preview_already_decided');
  return c.json({ok:true,status:body.decision==='approve'?'approved':'cancelled'});
 });

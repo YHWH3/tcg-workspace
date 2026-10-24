@@ -110,7 +110,7 @@ function GroupColumn({ board, view, group, groups, onAdd, onMove }: { board: Boa
           <GroupCard key={r.id} board={board} view={view} rec={r} groups={groups} onMove={onMove} />
         ))}
       </div>
-      <button onClick={onAdd} className="mt-1.5 flex items-center gap-1 rounded-lg px-2 py-2 text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800" style={{ minHeight: 40 }}>
+      <button onClick={onAdd} className="mt-1.5 flex items-center gap-1 rounded-lg px-2 py-2 text-xs text-neutral-600 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800" style={{ minHeight: 40 }}>
         <Plus size={13} /> New
       </button>
     </div>
@@ -122,7 +122,7 @@ function GroupCard({ board, view, rec, groups, onMove }: { board: BoardRow; view
   const resolve = useTokenResolver();
   const tasks = useTasks();
   const links = useLinks();
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: rec.id });
+  const { listeners, setNodeRef, isDragging } = useDraggable({ id: rec.id });
   const edges = dependencyEdges(links);
   const done = (id: string) => {
     const t = tasks.find((x) => x.id === id);
@@ -132,15 +132,15 @@ function GroupCard({ board, view, rec, groups, onMove }: { board: BoardRow; view
   const visible = (view.config?.visible?.length ? view.config.visible : []).filter((k) => k !== 'title' && !k.startsWith('rel_')).slice(0, 3);
   const cur = groups.find((g) => g.rows.some((x) => x.id === rec.id))?.key ?? '';
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className={cn('group rounded-xl border border-neutral-200/70 bg-white p-3 text-sm shadow-sm dark:border-neutral-800 dark:bg-neutral-900', isDragging && 'opacity-40')}>
+    <div ref={setNodeRef} onPointerDown={(e) => listeners?.onPointerDown?.(e)} role="group" aria-label={recordTitle(rec)} className={cn('group rounded-xl border border-neutral-200/70 bg-white p-3 text-sm shadow-sm dark:border-neutral-800 dark:bg-neutral-900', isDragging && 'opacity-40')}>
       <div className="flex items-start gap-1">
-        <button className="min-w-0 flex-1 text-left" onClick={() => navigate(`/boards/${board.id}/views/${view.id}/records/${rec.id}`)}>
+        <button className="min-h-6 min-w-0 flex-1 text-left" onClick={() => navigate(`/boards/${board.id}/views/${view.id}/records/${rec.id}`)}>
           <span className="block truncate font-medium">{renderPlain(recordTitle(rec), resolve)}</span>
         </button>
         <Popover
           align="right"
           trigger={
-            <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-400 opacity-0 hover:bg-neutral-100 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-neutral-800" aria-label="Card menu" onClick={(e) => e.stopPropagation()}>
+            <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-500 sm:opacity-0 hover:bg-neutral-100 focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:text-neutral-400 dark:hover:bg-neutral-800" aria-label="Card menu" onClick={(e) => e.stopPropagation()}>
               ⋯
             </button>
           }

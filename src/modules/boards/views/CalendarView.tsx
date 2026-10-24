@@ -54,9 +54,9 @@ function RecChip({ rec, board, onOpen }: { rec: TaskRow; board: BoardRow; onOpen
 /** Pick-a-date control for the unscheduled tray — a real input, no dragging needed. */
 function DatePicker({ onPick }: { onPick: (d: string) => void }) {
   return (
-    <Input
+    <Input density="compact"
       type="date"
-      className="h-7 w-32 text-xs"
+      className="w-32"
       aria-label="Pick date"
       onChange={(e) => {
         if (e.target.value) onPick(e.target.value);
@@ -116,7 +116,7 @@ export function CalendarView({ board, view, records }: { board: BoardRow; view: 
               key={m}
               role="tab"
               aria-selected={effMode === m}
-              className={cn('rounded-md px-2 py-1 capitalize', effMode === m ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900' : 'text-neutral-500')}
+              className={cn('rounded-md px-2 py-1 capitalize', effMode === m ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900' : 'text-neutral-600 dark:text-neutral-400')}
               onClick={() => setMode(m)}
               style={{ minHeight: 24 }}
             >
@@ -133,7 +133,7 @@ export function CalendarView({ board, view, records }: { board: BoardRow; view: 
         {effMode === 'month' ? (
           <div className="grid h-full grid-cols-7 auto-rows-fr">
             {WDAYS.map((d) => (
-              <div key={d} className="border-b border-neutral-200/70 px-1 py-1 text-center text-[10px] font-semibold uppercase text-neutral-400 dark:border-neutral-800/70">
+              <div key={d} className="border-b border-neutral-200/70 px-1 py-1 text-center text-[10px] font-semibold uppercase text-neutral-600 dark:text-neutral-400 dark:border-neutral-800/70">
                 {d}
               </div>
             ))}
@@ -143,7 +143,7 @@ export function CalendarView({ board, view, records }: { board: BoardRow; view: 
               return (
                 <div
                   key={cell.date}
-                  className={cn('min-h-20 border-b border-r border-neutral-100 p-1 dark:border-neutral-800/60', !cell.inMonth && 'opacity-40', isToday && 'bg-blue-50/50 dark:bg-blue-950/20')}
+                  className={cn('min-h-20 border-b border-r border-neutral-100 p-1 dark:border-neutral-800/60', !cell.inMonth && 'bg-neutral-50 dark:bg-neutral-900/40', isToday && 'bg-blue-50/50 dark:bg-blue-950/20')}
                   onDragOver={(e) => {
                     if (fine()) e.preventDefault();
                   }}
@@ -153,7 +153,7 @@ export function CalendarView({ board, view, records }: { board: BoardRow; view: 
                     if (rec) void setRecordDate(rec, dateKey, cell.date);
                   }}
                 >
-                  <div className={cn('mb-0.5 text-[10px] font-medium', isToday ? 'text-blue-600 dark:text-blue-400' : 'text-neutral-400')}>{Number(cell.date.slice(8))}</div>
+                  <div className={cn('mb-0.5 text-[10px] font-medium', isToday ? 'text-blue-600 dark:text-blue-400' : 'text-neutral-600 dark:text-neutral-400')}>{Number(cell.date.slice(8))}</div>
                   <div className="grid gap-0.5">
                     {recs.slice(0, 3).map((r) => (
                       <RecChip key={r.id} rec={r} board={board} onOpen={() => open(r)} />
@@ -161,7 +161,7 @@ export function CalendarView({ board, view, records }: { board: BoardRow; view: 
                     {recs.length > 3 && (
                       <Popover
                         trigger={
-                          <button className="px-1 text-left text-[10px] text-neutral-400 hover:text-neutral-600" aria-label={`${recs.length - 3} more`}>
+                          <button className="px-1 text-left text-[10px] text-neutral-600 dark:text-neutral-400 hover:text-neutral-600" aria-label={`${recs.length - 3} more`}>
                             +{recs.length - 3} more
                           </button>
                         }
@@ -200,7 +200,7 @@ export function CalendarView({ board, view, records }: { board: BoardRow; view: 
                 </div>
               ))}
             {byDay.size === 0 && (
-              <div className="flex h-32 items-center justify-center text-sm text-neutral-400">
+              <div className="flex h-32 items-center justify-center text-sm text-neutral-600 dark:text-neutral-400">
                 <Calendar size={16} className="mr-2" /> Nothing scheduled this {MONTHS[a.m - 1]}
               </div>
             )}
@@ -210,8 +210,8 @@ export function CalendarView({ board, view, records }: { board: BoardRow; view: 
 
       {trayOpen && (
         <div className="max-h-44 shrink-0 overflow-y-auto border-t border-neutral-200/70 bg-neutral-50/60 p-2 dark:border-neutral-800/70 dark:bg-neutral-900/40">
-          <p className="px-1 pb-1 text-[11px] font-semibold uppercase text-neutral-400">Unscheduled — pick a date</p>
-          {unsched.length === 0 && <p className="px-1 text-xs text-neutral-400">Everything is scheduled.</p>}
+          <p className="px-1 pb-1 text-[11px] font-semibold uppercase text-neutral-600 dark:text-neutral-400">Unscheduled — pick a date</p>
+          {unsched.length === 0 && <p className="px-1 text-xs text-neutral-600 dark:text-neutral-400">Everything is scheduled.</p>}
           <div className="grid gap-1">
             {unsched.map((r) => (
               <div key={r.id} className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">

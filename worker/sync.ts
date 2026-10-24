@@ -154,6 +154,8 @@ function exceedsRecordBudget(plan: Plan, existing: RecordRow | null): boolean {
 }
 
 export interface ApplyOptions {
+  /** Additional server-owned source/configuration fences in each write transaction. */
+  fences?: (() => D1PreparedStatement)[];
   /** Request-bound writes (client push, authenticated routes): the credential that
    * authenticated the request is fenced into the commit batch. */
   session?: { tokenHash: string };
@@ -546,6 +548,7 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
       const statements: D1PreparedStatement[] = [];
       if (authority) statements.push(...writeAuthorityFences(db, authority));
       if (opts.execution) statements.push(opts.execution.guard());
+      for (const fence of opts.fences ?? []) statements.push(fence());
       const chunkAtomic=opts.atomic===true || (isAtomic&&chunk.some(p=>expected.has(p.id)));
       if (chunkAtomic) statements.push(expectationGuard(db, new Map(chunk.map(p => [p.id, p.baseSeq]))));
       if(opts.journal) {

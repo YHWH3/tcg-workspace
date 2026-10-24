@@ -6,6 +6,7 @@
 import { Check } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { authStore } from '../auth';
+import { fieldOptionStyle } from '../fieldColors';
 import { db } from '../db';
 import { mutate } from '../sync/engine';
 import { Avatar, Popover, Select } from '../ui';
@@ -20,7 +21,7 @@ import { stagesOf, showBuiltinsOf } from '../records';
 import { RelationPicker } from './picker';
 
 const cellInput =
-  'w-full min-w-0 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-[13px] focus:border-neutral-200 focus:bg-white focus:outline-none dark:focus:border-neutral-700 dark:focus:bg-neutral-900';
+  'w-full min-w-0 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-base text-ellipsis sm:text-[13px] focus:border-neutral-200 focus:bg-white focus:outline-none dark:focus:border-neutral-700 dark:focus:bg-neutral-900';
 
 export async function setRecordProp(recordId: string, key: string, value: unknown): Promise<void> {
   await mutate('tasks', recordId, { [key]: value ?? null });
@@ -119,7 +120,7 @@ function PropValue({ field, raw }: { field: FieldDef; raw: unknown }) {
   if (field.type === 'select') {
     const o = (field.options ?? []).find((x) => x.id === raw);
     return o ? (
-      <span className="inline-flex max-w-32 items-center truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={{ background: `${o.color}22`, color: o.color }}>
+      <span className="inline-flex max-w-32 items-center truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={fieldOptionStyle(o.color)}>
         {o.name}
       </span>
     ) : null;
@@ -129,7 +130,7 @@ function PropValue({ field, raw }: { field: FieldDef; raw: unknown }) {
     return (
       <span className="inline-flex items-center gap-0.5">
         {opts.slice(0, 2).map((o) => (
-          <span key={o!.id} className="inline-flex max-w-28 truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={{ background: `${o!.color}22`, color: o!.color }}>
+          <span key={o!.id} className="inline-flex max-w-28 truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={fieldOptionStyle(o!.color)}>
             {o!.name}
           </span>
         ))}
@@ -165,6 +166,7 @@ export function CellEditor({ board, rec, keyName, onCommit }: { board: BoardRow 
         className={cn(cellInput, 'font-medium')}
         placeholder="Untitled"
         aria-label="Title"
+        title={String(rec.title ?? 'Untitled')}
         onBlur={(e) => {
           const v = e.target.value;
           if (v !== String(rec.title ?? '')) void mutate('tasks', rec.id, { title: v });
@@ -178,7 +180,7 @@ export function CellEditor({ board, rec, keyName, onCommit }: { board: BoardRow 
   }
   if (keyName === 'status' && cols.length) {
     return (
-      <Select value={columnIdFor(rec, board)} onChange={(e) => void mutate('tasks', rec.id, { status: e.target.value })} className="h-7 py-0.5 text-xs" aria-label="Stage">
+      <Select density="compact" value={columnIdFor(rec, board)} onChange={(e) => void mutate('tasks', rec.id, { status: e.target.value })} className="py-0.5" aria-label="Stage">
         {cols.map((c) => (
           <option key={c.id} value={c.id}>
             {c.name}
@@ -189,7 +191,7 @@ export function CellEditor({ board, rec, keyName, onCommit }: { board: BoardRow 
   }
   if (keyName === 'assigneeId') {
     return (
-      <Select value={String(rec.assigneeId ?? '')} onChange={(e) => void mutate('tasks', rec.id, { assigneeId: e.target.value || null })} className="h-7 py-0.5 text-xs" aria-label="Assignee">
+      <Select density="compact" value={String(rec.assigneeId ?? '')} onChange={(e) => void mutate('tasks', rec.id, { assigneeId: e.target.value || null })} className="py-0.5" aria-label="Assignee">
         <option value="">—</option>
         {users.map((u) => (
           <option key={u.id} value={u.id}>
@@ -204,7 +206,7 @@ export function CellEditor({ board, rec, keyName, onCommit }: { board: BoardRow 
   }
   if (keyName === 'priority') {
     return (
-      <Select value={rec.priority ?? 'none'} onChange={(e) => void mutate('tasks', rec.id, { priority: e.target.value })} className="h-7 py-0.5 text-xs" aria-label="Priority">
+      <Select density="compact" value={rec.priority ?? 'none'} onChange={(e) => void mutate('tasks', rec.id, { priority: e.target.value })} className="py-0.5" aria-label="Priority">
         {PRIORITIES.map((p) => (
           <option key={p.id} value={p.id}>
             {p.label}
@@ -237,7 +239,7 @@ function PropCell({ field, rec }: { field: FieldDef; rec: TaskRow }) {
       return <input type="checkbox" checked={raw === true} onChange={(e) => set(e.target.checked)} className="h-4 w-4 accent-neutral-900 dark:accent-neutral-200" aria-label={field.name} />;
     case 'select':
       return (
-        <Select value={typeof raw === 'string' ? raw : ''} onChange={(e) => set(e.target.value || null)} className="h-7 py-0.5 text-xs" aria-label={field.name}>
+        <Select density="compact" value={typeof raw === 'string' ? raw : ''} onChange={(e) => set(e.target.value || null)} className="py-0.5" aria-label={field.name}>
           <option value="">—</option>
           {(field.options ?? []).map((o) => (
             <option key={o.id} value={o.id}>
@@ -276,7 +278,7 @@ function PropCell({ field, rec }: { field: FieldDef; rec: TaskRow }) {
     }
     case 'person':
       return (
-        <Select value={typeof raw === 'string' ? raw : ''} onChange={(e) => set(e.target.value || null)} className="h-7 py-0.5 text-xs" aria-label={field.name}>
+        <Select density="compact" value={typeof raw === 'string' ? raw : ''} onChange={(e) => set(e.target.value || null)} className="py-0.5" aria-label={field.name}>
           <option value="">—</option>
           {users.map((u) => (
             <option key={u.id} value={u.id}>
@@ -296,6 +298,7 @@ function PropCell({ field, rec }: { field: FieldDef; rec: TaskRow }) {
           onBlur={(e) => set(e.target.value === '' ? null : Number(e.target.value))}
           className={cellInput}
           aria-label={field.name}
+          title={String(raw ?? '')}
         />
       );
     case 'url':
@@ -314,6 +317,7 @@ function PropCell({ field, rec }: { field: FieldDef; rec: TaskRow }) {
           }}
           className={cellInput}
           aria-label={field.name}
+          title={String(raw ?? '')}
         />
       );
   }

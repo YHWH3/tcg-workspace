@@ -169,22 +169,15 @@ function NotifRow({
   return (
     <li className={cn('border-b border-neutral-100 last:border-0 dark:border-neutral-800', !n.readAt && 'bg-neutral-50/60 dark:bg-neutral-900/40')}>
       <div
-        role="button"
-        tabIndex={0}
-        onClick={() => onOpen(n)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onOpen(n);
-          }
-        }}
-        className="flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900"
+        className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900"
       >
         <Avatar name={actor?.name ?? '·'} color={actor?.color} size={26} className="mt-0.5" />
         <div className="min-w-0 flex-1 text-sm">
-          <p className={cn('text-neutral-800 dark:text-neutral-200', !n.readAt && 'font-medium')}>{n.title}</p>
-          {n.body && <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">{n.body}</p>}
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-neutral-400">
+          <button type="button" onClick={() => onOpen(n)} className="block min-h-6 w-full rounded text-left focus-visible:outline-2 focus-visible:outline-offset-2">
+            <span className={cn('block text-neutral-800 dark:text-neutral-200', !n.readAt && 'font-medium')}>{n.title}</span>
+            {n.body && <span className="mt-0.5 block truncate text-xs text-neutral-600 dark:text-neutral-400">{n.body}</span>}
+          </button>
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-neutral-600 dark:text-neutral-400">
             <span>{relTime(n.createdAt)}</span>
             {grouped && (
               <button
@@ -225,7 +218,7 @@ function NotifRow({
             <Check size={14} />
           </button>
         )}
-        {!n.readAt && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-label="unread" />}
+        {!n.readAt && <span role="img" className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-label="unread" />}
       </div>
       {aiRecord && (
         <div className="flex justify-end px-3 pb-2">

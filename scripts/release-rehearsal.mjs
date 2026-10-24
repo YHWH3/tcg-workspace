@@ -78,7 +78,7 @@ export async function runReleaseRehearsal() {
  const callIndexer=async pathname=>{const start=performance.now();const response=await mf.dispatchFetch('http://localhost'+pathname);assert.equal(response.status,200);const result=await response.json();measurements.push({operation:pathname,durationMs:performance.now()-start,...result.metrics});assert.ok(result.metrics.bindings<=45);return result.result;};
  try {
   let manifest;
-  await check(releaseRehearsalCases[0],async()=>{manifest=verifyMigrationManifest();assert.equal(manifest.length,32);for(const m of manifest.filter(m=>m.name<'0012')){const old=execFileSync('git',['show',`${LEGACY_SHA}:migrations/${m.name}`],{cwd:ROOT});assert.equal(createHash('sha256').update(old).digest('hex'),m.sha256,`Previously shipped migration changed: ${m.name}`);}});
+  await check(releaseRehearsalCases[0],async()=>{manifest=verifyMigrationManifest();assert.equal(manifest.length,34);for(const m of manifest.filter(m=>m.name<'0012')){const old=execFileSync('git',['show',`${LEGACY_SHA}:migrations/${m.name}`],{cwd:ROOT});assert.equal(createHash('sha256').update(old).digest('hex'),m.sha256,`Previously shipped migration changed: ${m.name}`);}});
   await open(join(folder,'initial-state'));
   await apply(manifest.filter(m=>m.name<'0012').map(m=>m.name));
   await check(releaseRehearsalCases[1],async()=>{

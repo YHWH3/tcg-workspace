@@ -4,9 +4,71 @@ import type { Env, AuthUser } from './auth';
 import type { PublicUser } from '../shared/types';
 import { maintainDateIndex } from './events';
 import { revokeAllGrants } from './ratelimit';
+import {websiteAuthority,websiteGrantFence,defaultWebsiteDestinations} from './websiteAuthority';
+import {loadAccessContext,spaceAccess} from './access';
+import {canEdit} from '../shared/access';
+import {levelSql} from './capability';
+import {fieldsOf,propKey} from '../shared/fields';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 admin.use('*', requireAuth);
+
+function adminSessionFence(env:Env,user:AuthUser,spaceId?:string){
+ return env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
+ WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL AND u.role='admin')
+ ${spaceId?`AND ${levelSql('?','?')}>=3`:''} THEN 1 ELSE json_extract('{','$') END`)
+ .bind(user.tokenHash,user.id,Date.now(),...(spaceId?[spaceId,user.id]:[]));
+}
+
+admin.get('/admin/website-ingest',requireAdmin,async c=>{
+ const grant=await c.env.DB.prepare('SELECT * FROM website_ingest_grant WHERE id=1').first<{space_id:string}>();
+ const readable=grant&&canEdit(spaceAccess(await loadAccessContext(c.env.DB,c.get('user').id,[grant.space_id]),grant.space_id));
+ return c.json({grant:readable?grant:null,available:readable&&!!await websiteAuthority(c.env),defaults:defaultWebsiteDestinations});
+});
+admin.put('/admin/website-ingest',requireAdmin,async c=>{
+ const body=await c.req.json().catch(()=>null),uid=c.get('user').id;
+ if(!body||typeof body.spaceId!=='string'||!body.spaceId||body.spaceId.length>64||body.peopleId!==undefined&&(typeof body.peopleId!=='string'||!body.peopleId||body.peopleId.length>64))return c.json({error:'invalid_destination'},400);
+ const access=await loadAccessContext(c.env.DB,uid,[body.spaceId]);
+ if(!canEdit(spaceAccess(access,body.spaceId)))return c.json({error:'destination_not_authorized'},403);
+ const peopleId=body.peopleId??defaultWebsiteDestinations.peopleId;
+ const invalid=await c.env.DB.prepare(`SELECT id FROM records WHERE id IN (?,?) AND (collection!='boards' OR space_id!=? OR COALESCE(json_extract(data,'$.deleted'),0)=1 OR COALESCE(json_extract(data,'$.archived'),0)=1)`).bind(defaultWebsiteDestinations.inboxId,peopleId,body.spaceId).first();
+ if(invalid)return c.json({error:'destination_unavailable'},409);
+ await c.env.DB.batch([adminSessionFence(c.env,c.get('user'),body.spaceId),c.env.DB.prepare(`INSERT INTO website_ingest_grant(id,sponsor_id,space_id,inbox_id,people_id,updated_at) VALUES(1,?,?,?,?,?)
+ ON CONFLICT(id) DO UPDATE SET sponsor_id=excluded.sponsor_id,space_id=excluded.space_id,inbox_id=excluded.inbox_id,people_id=excluded.people_id,version=version+1,revoked_at=NULL,updated_at=excluded.updated_at`)
+ .bind(uid,body.spaceId,defaultWebsiteDestinations.inboxId,peopleId,Date.now())]);
+ const grant=await websiteAuthority(c.env);
+ if(!grant)return c.json({error:'authority_changed'},409);
+ await c.env.DB.batch([websiteGrantFence(c.env,grant)]);
+ return c.json({ok:true,grant});
+});
+admin.delete('/admin/website-ingest',requireAdmin,async c=>{
+ await c.env.DB.batch([adminSessionFence(c.env,c.get('user')),c.env.DB.prepare('UPDATE website_ingest_grant SET revoked_at=?,version=version+1,updated_at=? WHERE id=1').bind(Date.now(),Date.now())]);
+ return c.json({ok:true});
+});
+
+// Explicit operator recovery only: never resurrect or replace an erased identity.
+admin.post('/admin/website-ingest/people-rebind',requireAdmin,async c=>{
+ const body=await c.req.json().catch(()=>null);
+ if(!body||typeof body.email!=='string'||typeof body.personId!=='string'||body.personId.length>200)return c.json({error:'invalid_rebind'},400);
+ const email=body.email.trim().toLowerCase();
+ if(!email||email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return c.json({error:'invalid_email'},400);
+ const grant=await websiteAuthority(c.env);if(!grant)return c.json({error:'authority_unavailable'},503);
+ const actor=c.get('user');
+ if(!canEdit(spaceAccess(await loadAccessContext(c.env.DB,actor.id,[grant.space_id]),grant.space_id)))return c.json({error:'destination_not_authorized'},403);
+ const board=await c.env.DB.prepare("SELECT data FROM records WHERE id=? AND collection='boards'").bind(grant.people_id).first<{data:string}>();
+ const field=board&&fieldsOf(JSON.parse(board.data)).find(f=>f.name.toLowerCase()==='email');
+ if(!field)return c.json({error:'people_destination_unavailable'},409);
+ const key=propKey(field.id);
+ const target=await c.env.DB.prepare("SELECT seq FROM records WHERE id=? AND collection='tasks' AND space_id=? AND json_extract(data,'$.boardId')=? AND COALESCE(json_extract(data,'$.deleted'),0)=0 AND COALESCE(json_extract(data,'$.archived'),0)=0 AND lower(trim(json_extract(data,?)))=?")
+ .bind(body.personId,grant.space_id,grant.people_id,'$.'+key,email).first<{seq:number}>();
+ if(!target)return c.json({error:'person_unusable'},409);
+ await c.env.DB.batch([adminSessionFence(c.env,actor,grant.space_id),websiteGrantFence(c.env,grant),
+ c.env.DB.prepare("SELECT CASE WHEN EXISTS(SELECT 1 FROM records WHERE id=? AND seq=?) THEN 1 ELSE json_extract('{','$') END").bind(body.personId,target.seq),
+ c.env.DB.prepare('INSERT INTO form_people_keys(database_id,field_key,email,record_id) VALUES(?,?,?,?) ON CONFLICT(database_id,field_key,email) DO UPDATE SET record_id=excluded.record_id').bind(grant.people_id,key,email,body.personId),
+ c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,space_id,action,after_json,generation,created_at) VALUES(?,?,?,'website_people_rebind',?,(SELECT generation FROM access_state WHERE id=1),?)")
+ .bind(crypto.randomUUID(),actor.id,grant.space_id,JSON.stringify({personId:body.personId,databaseId:grant.people_id}),Date.now())]);
+ return c.json({ok:true,personId:body.personId});
+});
 
 admin.get('/users', async (c) => {
   const { results } = await c.env.DB

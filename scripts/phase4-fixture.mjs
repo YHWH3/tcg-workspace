@@ -65,16 +65,16 @@ export async function command(args,{cwd=PROJECT,log,timeout=180_000,detached=tru
   if(code!==0)throw new Error(`${args[0]} exited ${code}, signal ${signal??'none'}; ${output.slice(-1500)}`);
   return {code,signal,output,durationMs:Date.now()-started};
 }
-function fixtureSettings(directory) {
+function fixtureSettings(directory,vars={}) {
   return {name:'tcg-phase4-local',main:join(directory,'workspace/index.js'),no_bundle:true,
     compatibility_date:'2026-09-25',compatibility_flags:['nodejs_compat'],rules:[{type:'ESModule',globs:['**/*.js','**/*.mjs']}],
     assets:{directory:join(directory,'client'),not_found_handling:'single-page-application',run_worker_first:['/api/*','/mcp','/mcp/*','/oauth/*','/token','/register','/.well-known/*']},
     d1_databases:[{binding:'DB',database_name:'workspace-db',database_id:'00000000-0000-0000-0000-000000000004',migrations_dir:resolve(PROJECT,'migrations')}],
     kv_namespaces:[{binding:'OAUTH_KV',id:'00000000000000000000000000000004'}],
     durable_objects:{bindings:[{name:'LIVE',class_name:'LiveRoom'}]},migrations:[{tag:'v1',new_sqlite_classes:['LiveRoom']}],
-    vars:{WORKSPACE_ENV:'local-test',TURNSTILE_LOCAL_TEST:'1'},triggers:{crons:['*/15 * * * *']}};
+    vars:{WORKSPACE_ENV:'local-test',TURNSTILE_LOCAL_TEST:'1',...vars},triggers:{crons:['*/15 * * * *']}};
 }
-export async function startFixture({port=8799,build=true,artifactDirectory,startupTimeout=60_000,commandTimeout=180_000,tls}={}) {
+export async function startFixture({port=8799,build=true,artifactDirectory,startupTimeout=60_000,commandTimeout=180_000,tls,vars={}}={}) {
   await assertPortAvailable(port);
   if(build) await command(['npm','run','build'],{timeout:commandTimeout});
   if(!existsSync(join(PROJECT,'dist/workspace/index.js')))throw new Error('Built Worker missing; run certification build stage first');
@@ -87,7 +87,7 @@ export async function startFixture({port=8799,build=true,artifactDirectory,start
   cpSync(join(PROJECT,'dist/client'),join(directory,'client'),{recursive:true});
   cpSync(join(PROJECT,'dist/workspace/assets'),join(directory,'assets'),{recursive:true});
   const config=join(directory,'wrangler.json');
-  const settings=fixtureSettings(directory);
+  const settings=fixtureSettings(directory,vars);
   writeFileSync(config,JSON.stringify(settings));
   const state=join(directory,'state');
   const migrationFiles=readdirSync(join(PROJECT,'migrations')).filter(file=>file.endsWith('.sql')).sort();

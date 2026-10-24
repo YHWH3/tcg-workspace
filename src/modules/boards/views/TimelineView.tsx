@@ -142,7 +142,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
           Today
         </Button>
         <span className="flex-1" />
-        <Select value={scale} onChange={(e) => void mutate('views', view.id, { config: { ...cfg, timelineScale: e.target.value } })} className="h-8 w-24 text-xs" aria-label="Scale" disabled={!view.id}>
+        <Select density="compact" value={scale} onChange={(e) => void mutate('views', view.id, { config: { ...cfg, timelineScale: e.target.value } })} className="w-24" aria-label="Scale" disabled={!view.id}>
           <option value="week">Week</option>
           <option value="month">Month</option>
           <option value="quarter">Quarter</option>
@@ -155,7 +155,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
           <div>
             {groupBars.map((g) => (
               <div key={g.key || 'all'}>
-                {g.key && <p className="sticky top-0 bg-neutral-50 px-3 py-1.5 text-xs font-semibold text-neutral-500 dark:bg-neutral-900">{groupKeyLabel(board, cfg.groupBy!, g.key)}</p>}
+                {g.key && <p className="sticky top-0 bg-neutral-50 px-3 py-1.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400">{groupKeyLabel(board, cfg.groupBy!, g.key)}</p>}
                 {g.bars.map((b) => {
                   const conflict = conflicts.has(b.id);
                   return (
@@ -164,22 +164,22 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
                         {recordTitle(b.record as TaskRow)}
                       </button>
                       <div className="mt-1.5 flex items-center gap-2">
-                        <Input type="date" value={b.start} className="h-7 flex-1 text-xs" aria-label="Start date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, e.target.value, endKey ? b.end : null)} />
-                        {endKey && <Input type="date" value={b.end} className="h-7 flex-1 text-xs" aria-label="End date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, b.start, e.target.value)} />}
+                        <Input density="compact" type="date" value={b.start} className="flex-1" aria-label="Start date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, e.target.value, endKey ? b.end : null)} />
+                        {endKey && <Input density="compact" type="date" value={b.end} className="flex-1" aria-label="End date" onChange={(e) => e.target.value && void setDates(b.record as TaskRow, dateKey, endKey, b.start, e.target.value)} />}
                       </div>
                     </div>
                   );
                 })}
               </div>
             ))}
-            {groupBars.every((g) => !g.bars.length) && <p className="p-6 text-center text-sm text-neutral-400">No dated records in range.</p>}
+            {groupBars.every((g) => !g.bars.length) && <p className="p-6 text-center text-sm text-neutral-600 dark:text-neutral-400">No dated records in range.</p>}
           </div>
         ) : (
           <div className="relative" style={{ width: days * dayW + 160 }}>
             {/* tick header */}
             <div className="sticky top-0 z-10 flex h-8 items-end border-b border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900">
               {range.ticks.map((t) => (
-                <div key={t} className="absolute border-l border-neutral-200 pb-1 pl-1 text-[10px] text-neutral-400 dark:border-neutral-800" style={{ left: x(t), height: '100%' }}>
+                <div key={t} className="absolute border-l border-neutral-200 pb-1 pl-1 text-[10px] text-neutral-600 dark:text-neutral-400 dark:border-neutral-800" style={{ left: x(t), height: '100%' }}>
                   {tickLabel(scale, t)}
                 </div>
               ))}
@@ -192,7 +192,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
             <div className="relative">
               {groupLayouts.map((g) => (
                 <div key={g.key || 'all'}>
-                  {g.key && <p className="sticky left-0 px-2 py-1 text-[11px] font-semibold uppercase text-neutral-400">{groupKeyLabel(board, cfg.groupBy!, g.key)}</p>}
+                  {g.key && <p className="sticky left-0 px-2 py-1 text-[11px] font-semibold uppercase text-neutral-600 dark:text-neutral-400">{groupKeyLabel(board, cfg.groupBy!, g.key)}</p>}
                   <div className="relative" style={{ height: g.rows.length * 30 }}>
                     {g.rows.map(({ bar, pos }) => {
                       const conflict = conflicts.has(bar.id);
@@ -229,7 +229,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
                 })}
               </svg>
             </div>
-            {groupBars.every((g) => !g.bars.length) && <p className="p-6 text-center text-sm text-neutral-400">No dated records in range.</p>}
+            {groupBars.every((g) => !g.bars.length) && <p className="p-6 text-center text-sm text-neutral-600 dark:text-neutral-400">No dated records in range.</p>}
           </div>
         )}
       </div>

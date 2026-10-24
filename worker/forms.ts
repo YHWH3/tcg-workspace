@@ -101,7 +101,7 @@ const PRIORITY_OPTIONS = [
   { id: 'urgent', name: 'Urgent' },
 ];
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function normalizeEmail(v: unknown): string {
   return typeof v === 'string' ? v.trim().toLowerCase() : '';

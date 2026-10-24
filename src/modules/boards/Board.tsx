@@ -240,7 +240,7 @@ function ColumnHeader({ board, col, count }: { board: BoardRow; col: BoardColumn
         <span className="flex items-center gap-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: col.color }} />
           {col.name}
-          <span className="font-normal text-neutral-400">{count}</span>
+          <span className="font-normal text-neutral-600 dark:text-neutral-400">{count}</span>
         </span>
       )}
       <Popover

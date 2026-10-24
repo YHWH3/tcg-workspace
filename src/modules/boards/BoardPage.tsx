@@ -138,7 +138,7 @@ export function BoardPage() {
             ) : (
               <NewTaskButton board={board} />
             )}
-            <BoardMenu board={board} deletable={board.id !== 'board-default' && board.id !== 'board-inbox'} />
+            <BoardMenu board={board} deletable={board.id !== 'board-default' && board.id !== 'board-inbox' && board.id !== 'board-website-inbox'} />
           </div>
         </header>
         {isArchived(board) && (

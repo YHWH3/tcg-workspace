@@ -106,7 +106,7 @@ function ActivityPage() {
             ['ai', 'AI changes'],
           ] as const
         ).map(([v, label]) => (
-          <button key={v} onClick={() => setTab(v)} className={cn('rounded-md px-3 py-1.5 font-medium transition-colors', tab === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-500')}>
+          <button key={v} onClick={() => setTab(v)} className={cn('rounded-md px-3 py-1.5 font-medium transition-colors', tab === v ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-white' : 'text-neutral-600 dark:text-neutral-300')}>
             {label}
           </button>
         ))}

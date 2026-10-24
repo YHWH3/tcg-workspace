@@ -357,10 +357,10 @@ async function runSuite(engineName, engine, viewportName, vp) {
     if (viewportName === 'compact') {
       // spec: compact list presentation — no grid on narrow viewport
       await page.waitForSelector('text=Ada Lovelace', { timeout: 15000 });
-      C('table view: compact list renders rows', (await page.locator('text=Ada Lovelace').count()) >= 1 && (await page.locator('[role="grid"]').count()) === 0);
+      C('table view: compact list renders rows', (await page.locator('text=Ada Lovelace').count()) >= 1 && (await page.locator('[data-testid="record-table"]').count()) === 0);
     } else {
-      await page.waitForSelector('[role="grid"]', { timeout: 15000 });
-      C('table view renders grid + rows', (await page.locator('[role="grid"] tbody tr').count()) >= 2);
+      await page.waitForSelector('[data-testid="record-table"]', { timeout: 15000 });
+      C('table view renders grid + rows', (await page.locator('[data-testid="record-table"] tbody tr').count()) >= 2);
       C('table sticky title column', (await page.locator('tbody td.sticky').count()) >= 1);
       C('table resize handles', (await page.locator('[role="separator"]').count()) >= 1);
     }
@@ -375,7 +375,7 @@ async function runSuite(engineName, engine, viewportName, vp) {
     C('board view groups by field', (await page.locator('text=Friend').count()) >= 1 || (await page.locator('text=No value').count()) >= 1);
     await page.getByRole('tab', { name: 'Table' }).click();
     if (viewportName === 'compact') await page.waitForSelector('text=Ada Lovelace');
-    else await page.waitForSelector('[role="grid"]');
+    else await page.waitForSelector('[data-testid="record-table"]');
 
     /* --- record create via UI --- */
     await page.getByRole('button', { name: /new person/i }).click();

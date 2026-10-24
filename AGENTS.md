@@ -20,6 +20,8 @@ Local-first mini-Notion: Vite + React + TS client, Hono Worker API, D1, Dexie ou
 
 Roadmap and build specs for upcoming phases live in `docs/architecture/` (start with `README.md`; Phase 0 and 1 are implementation-ready).
 
+The Common Ground website integration (signed form ingest → Website inbox, People matching, Website section, AI/MCP tools) is specified in `docs/integrations/the-common-ground.md`. The website repository keeps an identical copy (`INTEGRATION-WORKSPACE.md`): **change both copies in the same change** whenever the contract moves. Code: `shared/websiteInbox.ts` (board, fields, views, families), `worker/websiteIngest.ts` (route), `shared/websiteStats.ts` (dashboard and digest figures), `worker/website.ts` (gated reads and MCP tools), `src/modules/website/` (section UI).
+
 - Before implementing a feature, read `docs/architecture/cross-platform-responsive-web.md` and the relevant phase. One responsive HTTPS application, optional PWA installation, full mobile functional parity and WCAG 2.2 AA are permanent requirements. Use existing core primitives/modules and `mutate()`/`applyChanges()` paths; no separate platform codebases.
 - Verify delivered workflows across compact/tablet/desktop layouts, keyboard/touch, Playwright Chromium/Firefox/WebKit and the applicable real-device checks in that specification. Emulated WebKit is not real iOS Safari. Report exact checks and missing gates; desktop Chromium alone is insufficient. Keep local-save/server-sync/media states distinct and provide capability/recovery fallbacks. The Phase 0 §0.1 security fix remains first and may ship independently of platform retrofits.
 
@@ -116,7 +118,7 @@ Delete its entry from `modules` in `src/modules/index.ts` — nav, routes, sideb
 
 ## Cross-phase invariants (from the 2026-10 audit — see `docs/reviews/cross-phase-audit.md`)
 
-- **Server-only tables, not collections.** `notifications`, `approvals`, `form_tokens`, `form_submissions`, `rate_limits`, `event_outbox`, `date_index`, `reminder_sent`, `automation_runs`, `changesets`/`changeset_items`, `undo_*`, `mcp_requests`, `mcp_write_jobs`, `search_documents`/`search_fts`/`search_dirty` are D1 tables read through authenticated endpoints. Never add them to `COLLECTIONS`.
+- **Server-only tables, not collections.** `notifications`, `approvals`, `form_tokens`, `form_submissions`, `website_ingest`, `rate_limits`, `event_outbox`, `date_index`, `reminder_sent`, `automation_runs`, `changesets`/`changeset_items`, `undo_*`, `mcp_requests`, `mcp_write_jobs`, `search_documents`/`search_fts`/`search_dirty` are D1 tables read through authenticated endpoints. Never add them to `COLLECTIONS`.
 - **Client input is untrusted.** Timestamps are bounded (`shared/clock.ts`: server clamps to now+60 s, client refuses to observe larger); record size is bounded (`record_too_large`); a MIME string, SVG bytes and `kind` are attacker-chosen.
 - **One serving policy.** Stored files are served only through `servedFile()`/`servedFileHeaders()` (`worker/files.ts`); object URLs are created only through `renderableBlob()` (`src/core/renderable.ts`). Never emit an uploader-supplied `Content-Type`.
 - **A policy refusal is item-wise.** Anything that can reject a write must be a pre-check in `applyChanges` returning a `rejectedItems` reason; a SQL guard that aborts the batch is only a race backstop (`gateTransition` is the single gate predicate).

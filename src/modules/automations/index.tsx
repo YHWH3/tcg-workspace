@@ -58,7 +58,7 @@ const dateFieldKeys = (board: BoardRow | undefined): FieldKey[] => {
 
 const personFields = (board: BoardRow | undefined): FieldDef[] => fieldsOf(board).filter((f) => f.type === 'person');
 
-const selectCls = 'h-8 min-w-0 flex-1 text-xs';
+const selectCls = 'min-w-0 flex-1';
 const labelCls = 'mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-neutral-400';
 
 function SectionLabel({ children }: { children: string }) {
@@ -76,7 +76,7 @@ function TriggerEditor({ board, allForms, trigger, onChange }: {
   const keys = availableFieldKeys(board);
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <Select
+      <Select density="compact"
         value={t.kind}
         className={selectCls}
         onChange={(e) => onChange({ kind: e.target.value as AutomationTrigger['kind'] })}
@@ -87,7 +87,7 @@ function TriggerEditor({ board, allForms, trigger, onChange }: {
         ))}
       </Select>
       {t.kind === 'stage_changed' && (
-        <Select value={t.to ?? ''} className={selectCls} onChange={(e) => onChange({ ...t, to: e.target.value || undefined })} aria-label="Target stage">
+        <Select density="compact" value={t.to ?? ''} className={selectCls} onChange={(e) => onChange({ ...t, to: e.target.value || undefined })} aria-label="Target stage">
           <option value="">any stage</option>
           {columns.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
@@ -95,7 +95,7 @@ function TriggerEditor({ board, allForms, trigger, onChange }: {
         </Select>
       )}
       {t.kind === 'field_changed' && (
-        <Select value={t.fieldId ?? ''} className={selectCls} onChange={(e) => onChange({ ...t, fieldId: (e.target.value || undefined) as FieldKey | undefined })} aria-label="Field">
+        <Select density="compact" value={t.fieldId ?? ''} className={selectCls} onChange={(e) => onChange({ ...t, fieldId: (e.target.value || undefined) as FieldKey | undefined })} aria-label="Field">
           <option value="">any field</option>
           {keys.map((k) => (
             <option key={k} value={k}>{fieldKeyLabel(board, k)}</option>
@@ -104,15 +104,15 @@ function TriggerEditor({ board, allForms, trigger, onChange }: {
       )}
       {t.kind === 'date_offset' && (
         <>
-          <Input
+          <Input density="compact"
             type="number"
             value={t.days ?? -1}
-            className="h-8 w-20 text-xs"
+            className="w-20"
             onChange={(e) => onChange({ ...t, days: Number(e.target.value) })}
             aria-label="Days offset"
           />
           <span className="text-xs text-neutral-400">days from</span>
-          <Select value={t.dateKey ?? 'dueDate'} className={selectCls} onChange={(e) => onChange({ ...t, dateKey: e.target.value })} aria-label="Date field">
+          <Select density="compact" value={t.dateKey ?? 'dueDate'} className={selectCls} onChange={(e) => onChange({ ...t, dateKey: e.target.value })} aria-label="Date field">
             {dateFieldKeys(board).map((k) => (
               <option key={k} value={k}>{fieldKeyLabel(board, k)}</option>
             ))}
@@ -120,7 +120,7 @@ function TriggerEditor({ board, allForms, trigger, onChange }: {
         </>
       )}
       {t.kind === 'form.submitted' && (
-        <Select value={t.formId ?? ''} className={selectCls} onChange={(e) => onChange({ ...t, formId: e.target.value || undefined })} aria-label="Form">
+        <Select density="compact" value={t.formId ?? ''} className={selectCls} onChange={(e) => onChange({ ...t, formId: e.target.value || undefined })} aria-label="Form">
           <option value="">any form</option>
           {allForms.map((f) => (
             <option key={f.id} value={f.id}>{f.title ?? f.id}</option>
@@ -140,12 +140,12 @@ function ConditionRow({ board, keys, filter, onChange }: {
   const noValue = NO_VALUE_OPS.includes(filter.op);
   return (
     <div className="mb-1 flex items-center gap-1">
-      <Select value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className={selectCls} aria-label="Condition field">
+      <Select density="compact" value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className={selectCls} aria-label="Condition field">
         {keys.map((k) => (
           <option key={k} value={k}>{fieldKeyLabel(board, k)}</option>
         ))}
       </Select>
-      <Select value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as FilterOp })} className="h-8 w-24 shrink-0 text-xs" aria-label="Condition operator">
+      <Select density="compact" value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as FilterOp })} className="w-24 shrink-0" aria-label="Condition operator">
         {FILTER_OPS.map((o) => (
           <option key={o.id} value={o.id}>{o.label}</option>
         ))}
@@ -177,13 +177,13 @@ function UserFieldOrIds({ board, userField, userIds, onField, onIds }: {
   const pf = personFields(board);
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <Select value={userField ?? ''} className={selectCls} onChange={(e) => onField(e.target.value || undefined)} aria-label="Person field">
+      <Select density="compact" value={userField ?? ''} className={selectCls} onChange={(e) => onField(e.target.value || undefined)} aria-label="Person field">
         <option value="">person field…</option>
         {pf.map((f) => (
           <option key={f.id} value={f.id}>{f.name} (record field)</option>
         ))}
       </Select>
-      <Select
+      <Select density="compact"
         value=""
         className={selectCls}
         onChange={(e) => {
@@ -226,7 +226,7 @@ function ActionEditor({ board, allBoards, action, onChange, onMove, onDelete, fi
   return (
     <div className="mb-1.5 rounded-lg border border-neutral-200/70 p-2 dark:border-neutral-800">
       <div className="mb-1.5 flex items-center gap-1">
-        <Select value={a.type} className="h-8 min-w-0 flex-1 text-xs" onChange={(e) => onChange({ type: e.target.value as AutomationAction['type'] })} aria-label="Action type">
+        <Select density="compact" value={a.type} className="min-w-0 flex-1" onChange={(e) => onChange({ type: e.target.value as AutomationAction['type'] })} aria-label="Action type">
           {ACTION_TYPES.map((t) => (
             <option key={t.id} value={t.id}>{t.label}</option>
           ))}
@@ -238,14 +238,14 @@ function ActionEditor({ board, allBoards, action, onChange, onMove, onDelete, fi
 
       {a.type === 'create_record' && (
         <div className="space-y-1.5">
-          <Select value={a.databaseId ?? ''} className={selectCls} onChange={(e) => onChange({ ...a, databaseId: e.target.value || undefined })} aria-label="Target database">
+          <Select density="compact" value={a.databaseId ?? ''} className={selectCls} onChange={(e) => onChange({ ...a, databaseId: e.target.value || undefined })} aria-label="Target database">
             <option value="">database…</option>
             {allBoards.map((b) => (
               <option key={b.id} value={b.id}>{String(b.icon ?? '')} {String(b.name ?? b.id)}</option>
             ))}
           </Select>
-          <Input value={a.title ?? ''} placeholder="Title — {{record.title}} works" className="h-8 text-xs" onChange={(e) => onChange({ ...a, title: e.target.value })} aria-label="Record title" />
-          <Select
+          <Input density="compact" value={a.title ?? ''} placeholder="Title — {{record.title}} works" className="" onChange={(e) => onChange({ ...a, title: e.target.value })} aria-label="Record title" />
+          <Select density="compact"
             value={a.link === undefined ? '' : a.link === null ? '__none' : (a.link.fieldId ?? '__related')}
             className={selectCls}
             onChange={(e) => {
@@ -266,20 +266,20 @@ function ActionEditor({ board, allBoards, action, onChange, onMove, onDelete, fi
       )}
 
       {a.type === 'create_from_template' && (
-        <Input value={a.templateId ?? ''} placeholder="Template page id" className="h-8 text-xs" onChange={(e) => onChange({ ...a, templateId: e.target.value })} aria-label="Template id" />
+        <Input density="compact" value={a.templateId ?? ''} placeholder="Template page id" className="" onChange={(e) => onChange({ ...a, templateId: e.target.value })} aria-label="Template id" />
       )}
 
       {a.type === 'ai_classify' && <div className="space-y-2"><p className="text-xs">Optional; creates a suggestion only. Requires operator configuration and budget.</p><Select value={a.fieldKey??''} aria-label="Classification field" onChange={e=>onChange({...a,fieldKey:e.target.value})}><option value="">Choose field</option>{availableFieldKeys(board).filter(k=>!k.startsWith('rel_')).map(k=><option key={k} value={k}>{fieldKeyLabel(board,k)}</option>)}</Select><Input value={(a.options??[]).join(', ')} aria-label="Classification options" placeholder="Comma-separated labels" onChange={e=>onChange({...a,options:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})}/></div>}
 
       {a.type === 'set_field' && (
         <div className="flex items-center gap-1.5">
-          <Select value={a.fieldKey ?? ''} className={selectCls} onChange={(e) => onChange({ ...a, fieldKey: e.target.value || undefined })} aria-label="Field to set">
+          <Select density="compact" value={a.fieldKey ?? ''} className={selectCls} onChange={(e) => onChange({ ...a, fieldKey: e.target.value || undefined })} aria-label="Field to set">
             <option value="">field…</option>
             {availableFieldKeys(board).map((k) => (
               <option key={k} value={k}>{fieldKeyLabel(board, k)}</option>
             ))}
           </Select>
-          <Input value={typeof a.value === 'string' ? a.value : String(a.value ?? '')} placeholder="value" className="h-8 w-24 shrink-0 text-xs" onChange={(e) => onChange({ ...a, value: e.target.value })} aria-label="Value" />
+          <Input density="compact" value={typeof a.value === 'string' ? a.value : String(a.value ?? '')} placeholder="value" className="w-24 shrink-0" onChange={(e) => onChange({ ...a, value: e.target.value })} aria-label="Value" />
         </div>
       )}
 
@@ -293,7 +293,7 @@ function ActionEditor({ board, allBoards, action, onChange, onMove, onDelete, fi
       {a.type === 'request_approval' && (
         <div className="space-y-1.5">
           <UserFieldOrIds board={board} userField={a.approverField} userIds={a.approverId ? [a.approverId] : []} onField={(v) => onChange({ ...a, approverField: v, approverId: v ? undefined : a.approverId })} onIds={(v) => onChange({ ...a, approverId: v[0], approverField: v[0] ? undefined : a.approverField })} />
-          <Input value={a.note ?? ''} placeholder="Note for the approver (optional)" className="h-8 text-xs" onChange={(e) => onChange({ ...a, note: e.target.value })} aria-label="Approval note" />
+          <Input density="compact" value={a.note ?? ''} placeholder="Note for the approver (optional)" className="" onChange={(e) => onChange({ ...a, note: e.target.value })} aria-label="Approval note" />
         </div>
       )}
 
@@ -392,7 +392,7 @@ function AutomationCard({ row, board, allBoards, allForms }: {
   return (
     <section className="mb-3 rounded-xl border border-neutral-200/70 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mb-2 flex items-center gap-2">
-        <Input value={row.name ?? ''} placeholder="Automation name" className="h-8 min-w-0 flex-1 border-transparent px-0 text-sm font-semibold focus:border-neutral-200 dark:focus:border-neutral-700" onChange={(e) => patch({ name: e.target.value })} aria-label="Automation name" />
+        <Input density="compact" value={row.name ?? ''} placeholder="Automation name" className="min-w-0 flex-1 border-transparent px-0 text-sm font-semibold focus:border-neutral-200 dark:focus:border-neutral-700" onChange={(e) => patch({ name: e.target.value })} aria-label="Automation name" />
         <button
           onClick={() => patch({ enabled: row.enabled === false })}
           aria-pressed={row.enabled !== false}

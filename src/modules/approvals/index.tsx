@@ -74,7 +74,7 @@ export function ApprovalsSection({ targetType, targetId }: { targetType: Approva
         </button>
       </div>
 
-      {error && <p className="mb-2 text-xs text-neutral-400">Approvals need a connection — {error}</p>}
+      {error && <p className="mb-2 text-xs text-neutral-600 dark:text-neutral-400">Approvals need a connection — {error}</p>}
 
       {gatedAttempt && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 dark:border-amber-900/50 dark:bg-amber-950/30">
@@ -158,7 +158,7 @@ function PendingRow({ approval, me, stageName, users, onDone }: { approval: Appr
         from <span className="font-semibold">{approver?.name ?? 'a member'}</span>
       </p>
       {approval.note && <p className="mt-1 text-xs italic text-neutral-500 dark:text-neutral-400">“{approval.note}”</p>}
-      <p className="mt-0.5 text-[11px] text-neutral-400">{relTime(approval.createdAt)}</p>
+      <p className="mt-0.5 text-[11px] text-neutral-600 dark:text-neutral-400">{relTime(approval.createdAt)}</p>
 
       {isApprover && (
         <div className="mt-2">
@@ -190,7 +190,7 @@ function PendingRow({ approval, me, stageName, users, onDone }: { approval: Appr
         <button
           disabled={busy}
           onClick={() => void act(() => approvalsApi.cancel(approval.id))}
-          className="mt-2 text-[11px] font-medium text-neutral-400 hover:text-neutral-600 disabled:opacity-40 dark:hover:text-neutral-300"
+          className="mt-2 text-[11px] font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-600 disabled:opacity-40 dark:hover:text-neutral-300"
         >
           Cancel request
         </button>
@@ -398,7 +398,7 @@ function ApprovalPageRow({ a, me, onDone }: { a: Approval; me: string; onDone: (
         </div>
       )}
       {isRequester && (
-        <button disabled={busy} onClick={() => void act(() => approvalsApi.cancel(a.id))} className="mt-2 text-[11px] font-medium text-neutral-400 hover:text-neutral-600 disabled:opacity-40 dark:hover:text-neutral-300">
+        <button disabled={busy} onClick={() => void act(() => approvalsApi.cancel(a.id))} className="mt-2 text-[11px] font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-600 disabled:opacity-40 dark:hover:text-neutral-300">
           Cancel request
         </button>
       )}
@@ -421,23 +421,23 @@ export function ApprovalsPage() {
         <ShieldCheck size={18} /> Approvals
       </h1>
 
-      <p className="mb-2 text-xs font-semibold tracking-wide text-neutral-400 uppercase">Needs my decision</p>
-      {inbox.error && <p className="mb-2 text-xs text-neutral-400">Needs a connection — {inbox.error}</p>}
+      <p className="mb-2 text-xs font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">Needs my decision</p>
+      {inbox.error && <p className="mb-2 text-xs text-neutral-600 dark:text-neutral-400">Needs a connection — {inbox.error}</p>}
       <ul className="mb-6 space-y-2">
         {(inbox.rows ?? []).map((a) => (
           <ApprovalPageRow key={a.id} a={a} me={me} onDone={refreshAll} />
         ))}
       </ul>
-      {inbox.rows !== null && inbox.rows.length === 0 && <p className="mb-6 text-xs text-neutral-400">Nothing waiting on you.</p>}
+      {inbox.rows !== null && inbox.rows.length === 0 && <p className="mb-6 text-xs text-neutral-600 dark:text-neutral-400">Nothing waiting on you.</p>}
 
-      <p className="mb-2 text-xs font-semibold tracking-wide text-neutral-400 uppercase">My requests</p>
-      {mine.error && <p className="mb-2 text-xs text-neutral-400">Needs a connection — {mine.error}</p>}
+      <p className="mb-2 text-xs font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">My requests</p>
+      {mine.error && <p className="mb-2 text-xs text-neutral-600 dark:text-neutral-400">Needs a connection — {mine.error}</p>}
       <ul className="space-y-2">
         {(mine.rows ?? []).map((a) => (
           <ApprovalPageRow key={a.id} a={a} me={me} onDone={refreshAll} />
         ))}
       </ul>
-      {mine.rows !== null && mine.rows.length === 0 && <p className="text-xs text-neutral-400">No requests sent.</p>}
+      {mine.rows !== null && mine.rows.length === 0 && <p className="text-xs text-neutral-600 dark:text-neutral-400">No requests sent.</p>}
     </div>
   );
 }

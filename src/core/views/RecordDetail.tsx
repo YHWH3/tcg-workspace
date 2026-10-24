@@ -191,7 +191,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           {cols.length > 0 && (
             <>
               <span className="text-xs text-neutral-400">Stage</span>
-              <Select value={columnIdFor(rec, board)} onChange={(e) => void mutate('tasks', rec.id, { status: e.target.value })} className="h-8 w-48 text-xs" aria-label="Stage">
+              <Select density="compact" value={columnIdFor(rec, board)} onChange={(e) => void mutate('tasks', rec.id, { status: e.target.value })} className="w-48" aria-label="Stage">
                 {cols.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -203,7 +203,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           {builtins.priority && (
             <>
               <span className="text-xs text-neutral-400">Priority</span>
-              <Select value={rec.priority ?? 'none'} onChange={(e) => void mutate('tasks', rec.id, { priority: e.target.value })} className="h-8 w-48 text-xs" aria-label="Priority">
+              <Select density="compact" value={rec.priority ?? 'none'} onChange={(e) => void mutate('tasks', rec.id, { priority: e.target.value })} className="w-48" aria-label="Priority">
                 {PRIORITIES.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label}
@@ -217,7 +217,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
               <span className="flex items-center gap-1 text-xs text-neutral-400">
                 <Users size={11} /> Assignee
               </span>
-              <Select value={String(rec.assigneeId ?? '')} onChange={(e) => void mutate('tasks', rec.id, { assigneeId: e.target.value || null })} className="h-8 w-48 text-xs" aria-label="Assignee">
+              <Select density="compact" value={String(rec.assigneeId ?? '')} onChange={(e) => void mutate('tasks', rec.id, { assigneeId: e.target.value || null })} className="w-48" aria-label="Assignee">
                 <option value="">Unassigned</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>

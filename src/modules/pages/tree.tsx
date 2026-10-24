@@ -171,7 +171,7 @@ export function PagesTree() {
       {renderLevel(null, 0)}
       {visible.length === 0 && (
         <button
-          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800/60"
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800/60"
           onClick={async () => {
             const id = await createPage(null);
             navigate(`/pages/${id}`);

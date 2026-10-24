@@ -131,7 +131,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
           <Popover
             align="right"
             trigger={
-              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Database menu">
+              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800" aria-label="Database menu">
                 <MoreHorizontal size={17} />
               </button>
             }
@@ -170,31 +170,40 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
         )}
 
         {/* view tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto border-b border-neutral-200/70 px-3 py-1.5 dark:border-neutral-800/70" role="tablist" aria-label="Views">
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-neutral-200/70 px-3 py-1.5 dark:border-neutral-800/70">
+          <div className="flex shrink-0 items-center gap-1" role="tablist" aria-label="Views">
           {(views.length ? views : [view!]).map((v) => {
             const Icon = VIEW_ICONS[v.type ?? 'table'];
             const active = v.id === view?.id;
             return (
-              <div key={v.id || 'implicit'} className={cn('group flex items-center rounded-lg text-xs', active && 'bg-neutral-100 dark:bg-neutral-800')}>
+              <div key={v.id || 'implicit'} role="presentation" className={cn('group flex shrink-0 items-center rounded-lg text-xs', active && 'bg-neutral-100 dark:bg-neutral-800')}>
                 <button
                   role="tab"
                   aria-selected={active}
-                  className={cn('flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 font-medium transition-colors', active ? 'text-neutral-900 dark:text-white' : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200')}
+                  tabIndex={active ? 0 : -1}
+                  onKeyDown={(e) => {
+                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+                    e.preventDefault();
+                    const tabs = [...e.currentTarget.closest('[role="tablist"]')!.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+                    const i = tabs.indexOf(e.currentTarget);
+                    const next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+                    tabs[next].focus(); tabs[next].click();
+                  }}
+                  className={cn('flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 font-medium transition-colors', active ? 'text-neutral-900 dark:text-white' : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200')}
                   style={{ minHeight: 32 }}
                   onClick={() => pickView(v)}
                 >
                   <Icon size={13} />
                   {v.name}
                 </button>
-                {active && v.id !== '' && (
-                  <ViewTabMenu view={v} board={board} onDeleted={() => navigate(`/boards/${board.id}`)} />
-                )}
               </div>
             );
           })}
+          </div>
+          {view?.id && <ViewTabMenu view={view} board={board} onDeleted={() => navigate(`/boards/${board.id}`)} />}
           <Popover
             trigger={
-              <button className="flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800" aria-label="New view" style={{ minHeight: 32 }}>
+              <button className="flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-xs text-neutral-600 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800" aria-label="New view" style={{ minHeight: 32 }}>
                 <Plus size={12} /> View
               </button>
             }
@@ -213,7 +222,8 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
               />
             )}
           </Popover>
-          <span className="flex-1" />
+          </div>
+        <div className="border-b border-neutral-200/70 px-3 py-1 dark:border-neutral-800/70">
           <ViewToolbar board={board} view={view!} noun={noun} />
         </div>
 
@@ -355,14 +365,17 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
 
   const filters = cfg.filters ?? [];
   const sorts = cfg.sorts ?? [];
+  const filterLabel = `Filter${filters.length ? ` · ${filters.length}` : ''}`;
+  const sortLabel = `Sort${sorts.length ? ` · ${sorts.length}` : ''}`;
   const visible = cfg.visible?.length ? cfg.visible : defaultVisibleKeys(board);
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1" role="toolbar" aria-label="View controls">
       <button
+        aria-label="Mine"
         onClick={() => setCfg({ mine: !cfg.mine })}
         aria-pressed={!!cfg.mine}
-        className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', cfg.mine ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800')}
+        className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', cfg.mine ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800')}
         style={{ minHeight: 32 }}
       >
         <Users size={12} /> <span className="hidden sm:inline">Mine</span>
@@ -370,7 +383,7 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       <button
         onClick={() => setCfg({ includeArchived: !cfg.includeArchived })}
         aria-pressed={!!cfg.includeArchived}
-        className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', cfg.includeArchived ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800')}
+        className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', cfg.includeArchived ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800')}
         style={{ minHeight: 32 }}
         title="Include archived records"
       >
@@ -379,14 +392,14 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       <Popover
         align="right"
         trigger={
-          <button className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', filters.length ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800')} style={{ minHeight: 32 }} aria-label="Filters">
-            <Filter size={12} /> <span className="hidden sm:inline">Filter{filters.length ? ` · ${filters.length}` : ''}</span>
+          <button className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', filters.length ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800')} style={{ minHeight: 32 }} aria-label={filterLabel}>
+            <Filter size={12} /> <span className="hidden sm:inline">{filterLabel}</span>
           </button>
         }
       >
         {() => (
           <div className="w-72 max-w-[calc(100vw-2rem)] p-2 text-xs">
-            <p className="px-1 pb-1.5 font-semibold text-neutral-500">Filters</p>
+            <p className="px-1 pb-1.5 font-semibold text-neutral-600 dark:text-neutral-400">Filters</p>
             {filters.map((f, i) => (
               <FilterRow key={i} board={board} keys={keys} filter={f} onChange={(nf) => setCfg({ filters: nf ? filters.map((x, j) => (j === i ? nf : x)) : filters.filter((_, j) => j !== i) })} />
             ))}
@@ -399,28 +412,28 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       <Popover
         align="right"
         trigger={
-          <button className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', sorts.length ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800')} style={{ minHeight: 32 }} aria-label="Sort">
-            <ArrowUpDown size={12} /> <span className="hidden sm:inline">Sort{sorts.length ? ` · ${sorts.length}` : ''}</span>
+          <button className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', sorts.length ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800')} style={{ minHeight: 32 }} aria-label={sortLabel}>
+            <ArrowUpDown size={12} /> <span className="hidden sm:inline">{sortLabel}</span>
           </button>
         }
       >
         {() => (
           <div className="w-64 p-2 text-xs">
-            <p className="px-1 pb-1.5 font-semibold text-neutral-500">Sort</p>
+            <p className="px-1 pb-1.5 font-semibold text-neutral-600 dark:text-neutral-400">Sort</p>
             {sorts.map((s, i) => (
               <div key={i} className="mb-1 flex items-center gap-1">
-                <Select value={s.key} onChange={(e) => setCfg({ sorts: sorts.map((x, j) => (j === i ? { ...x, key: e.target.value as FieldKey } : x)) })} className="h-8 flex-1 text-xs">
+                <Select density="compact" aria-label="Sort field" value={s.key} onChange={(e) => setCfg({ sorts: sorts.map((x, j) => (j === i ? { ...x, key: e.target.value as FieldKey } : x)) })} className="flex-1">
                   {keys.map((k) => (
                     <option key={k} value={k}>
                       {fieldKeyLabel(board, k)}
                     </option>
                   ))}
                 </Select>
-                <Select value={s.dir} onChange={(e) => setCfg({ sorts: sorts.map((x, j) => (j === i ? { ...x, dir: e.target.value as 'asc' | 'desc' } : x)) })} className="h-8 w-20 text-xs">
+                <Select density="compact" aria-label="Sort direction" value={s.dir} onChange={(e) => setCfg({ sorts: sorts.map((x, j) => (j === i ? { ...x, dir: e.target.value as 'asc' | 'desc' } : x)) })} className="w-20">
                   <option value="asc">Asc</option>
                   <option value="desc">Desc</option>
                 </Select>
-                <button className="text-neutral-400 hover:text-red-500" onClick={() => setCfg({ sorts: sorts.filter((_, j) => j !== i) })} aria-label="Remove sort">
+                <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-600 hover:text-red-600 dark:text-neutral-400" onClick={() => setCfg({ sorts: sorts.filter((_, j) => j !== i) })} aria-label="Remove sort">
                   <Trash2 size={12} />
                 </button>
               </div>
@@ -431,12 +444,12 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
           </div>
         )}
       </Popover>
-      <Select
+      <Select density="compact"
         value={cfg.groupBy ?? ''}
         onChange={(e) => setCfg({ groupBy: (e.target.value || null) as ViewConfig['groupBy'] })}
-        className="h-8 w-auto max-w-28 text-xs"
+        className="w-auto max-w-full"
         aria-label="Group by"
-        title="Group by"
+        title={cfg.groupBy ? `Group by: ${fieldKeyLabel(board, cfg.groupBy)}` : 'Group by: No grouping'}
       >
         <option value="">No grouping</option>
         {keys.map((k) => (
@@ -448,15 +461,15 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       <Popover
         align="right"
         trigger={
-          <button className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" style={{ minHeight: 32 }} aria-label="Properties">
-            <span className="hidden sm:inline">Props</span>
+          <button className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800" style={{ minHeight: 32 }} aria-label="Properties">
+            <span className="hidden sm:inline">Properties</span>
             <span className="sm:hidden">▦</span>
           </button>
         }
       >
         {() => (
           <div className="w-52 p-1.5 text-xs">
-            <p className="px-1 pb-1 font-semibold text-neutral-500">Shown properties</p>
+            <p className="px-1 pb-1 font-semibold text-neutral-600 dark:text-neutral-400">Shown properties</p>
             {keys.map((k) => {
               const on = visible.includes(k);
               return (
@@ -477,10 +490,10 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       </Popover>
       {(view.type === 'calendar' || view.type === 'timeline') && (
         <>
-          <Select
+          <Select density="compact"
             value={cfg.dateKey ?? 'dueDate'}
             onChange={(e) => setCfg({ dateKey: e.target.value as DateFieldKey })}
-            className="h-8 w-auto max-w-32 text-xs"
+            className="w-auto max-w-32"
             aria-label="Date field"
             title="Date field"
           >
@@ -491,10 +504,10 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
             ))}
           </Select>
           {view.type === 'timeline' && (
-            <Select
+            <Select density="compact"
               value={cfg.endDateKey ?? ''}
               onChange={(e) => setCfg({ endDateKey: (e.target.value || null) as DateFieldKey | null })}
-              className="h-8 w-auto max-w-32 text-xs"
+              className="w-auto max-w-32"
               aria-label="End date field"
               title="End date field"
             >
@@ -570,22 +583,22 @@ function FilterRow({ board, keys, filter, onChange }: { board: BoardRow; keys: F
   const noValue = ['empty', 'not_empty', 'checked', 'unchecked', 'me'].includes(filter.op);
   return (
     <div className="mb-1 flex items-center gap-1">
-      <Select value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className="h-8 flex-1 text-xs">
+      <Select density="compact" aria-label="Filter field" value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className="flex-1">
         {keys.map((k) => (
           <option key={k} value={k}>
             {fieldKeyLabel(board, k)}
           </option>
         ))}
       </Select>
-      <Select value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as VFilter['op'] })} className="h-8 w-24 text-xs">
+      <Select density="compact" aria-label="Filter operator" value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as VFilter['op'] })} className="w-24">
         {FILTER_OPS.map((o) => (
           <option key={o.id} value={o.id}>
             {o.label}
           </option>
         ))}
       </Select>
-      {!noValue && <input value={String(filter.value ?? '')} placeholder="value" onChange={(e) => onChange({ ...filter, value: e.target.value })} className="h-8 w-20 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700" />}
-      <button className="text-neutral-400 hover:text-red-500" onClick={() => onChange(null)} aria-label="Remove filter">
+      {!noValue && <input aria-label="Filter value" value={String(filter.value ?? '')} placeholder="value" onChange={(e) => onChange({ ...filter, value: e.target.value })} className="h-8 w-20 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700" />}
+      <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-600 hover:text-red-600 dark:text-neutral-400" onClick={() => onChange(null)} aria-label="Remove filter">
         <Trash2 size={12} />
       </button>
     </div>

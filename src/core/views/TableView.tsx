@@ -71,14 +71,14 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
     void updateView(view.id, { config: { ...cfg, sorts: [{ key, dir }] } });
   };
 
-  const widthFor = (k: FieldKey) => colWidths[k] ?? (k === 'title' ? 240 : 140);
+  const widthFor = (k: FieldKey) => colWidths[k] ?? (k === 'title' ? 320 : k.includes('email') ? 220 : 160);
 
   const resizeStart = (key: FieldKey) => (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     const startW = widthFor(key);
-    const onMove = (ev: PointerEvent) => setColWidths((w) => ({ ...w, [key]: Math.max(64, startW + ev.clientX - startX) }));
+    const onMove = (ev: PointerEvent) => setColWidths((w) => ({ ...w, [key]: Math.min(1600, Math.max(64, startW + ev.clientX - startX)) }));
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
@@ -139,7 +139,9 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
       ref={containerRef}
       className="h-full overflow-auto"
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
-      role="grid"
+      role="region"
+      tabIndex={0}
+      data-testid="record-table"
       aria-label={`${view.name ?? 'Table'} view`}
     >
       <table className="w-full border-collapse text-sm" style={{ minWidth: 'max(100%, 480px)' }}>
@@ -163,13 +165,17 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
                   role="separator"
                   aria-orientation="vertical"
                   aria-label={`Resize ${fieldKeyLabel(board, key)}`}
+                  aria-valuenow={widthFor(key)}
+                  aria-valuemin={64}
+                  aria-valuemax={1600}
+                  aria-valuetext={`${widthFor(key)} pixels`}
                   onPointerDown={resizeStart(key)}
-                  onDoubleClick={() => setColWidths((w) => ({ ...w, [key]: key === 'title' ? 240 : 140 }))}
+                  onDoubleClick={() => setColWidths((w) => ({ ...w, [key]: key === 'title' ? 320 : key.includes('email') ? 220 : 160 }))}
                   className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none hover:bg-blue-400/40 focus:bg-blue-400/60"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'ArrowLeft') setColWidths((w) => ({ ...w, [key]: Math.max(64, widthFor(key) - 24) }));
-                    if (e.key === 'ArrowRight') setColWidths((w) => ({ ...w, [key]: widthFor(key) + 24 }));
+                    if (e.key === 'ArrowRight') setColWidths((w) => ({ ...w, [key]: Math.min(1600, widthFor(key) + 24) }));
                   }}
                 />
               </th>
@@ -212,7 +218,7 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
                           <span className="w-6 shrink-0" />
                         )}
                         <button
-                          className="mr-1 shrink-0 rounded px-0.5 text-[10px] text-neutral-300 opacity-0 transition-opacity hover:text-neutral-500 focus:opacity-100 group-hover/row:opacity-100 dark:text-neutral-600"
+                          className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-neutral-500 transition-opacity hover:bg-neutral-100 focus:opacity-100 sm:opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
                           onClick={() => navigate(`/boards/${board.id}/views/${view.id}/records/${rec.id}`)}
                           aria-label="Open record detail"
                           title="Open record"
@@ -251,7 +257,7 @@ function AddRow({ board }: { board: BoardRow }) {
   const noun = isRecordsDb(board) ? 'record' : 'task';
   return (
     <button
-      className="flex items-center gap-1.5 rounded-lg px-2 py-2 text-xs text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+      className="flex items-center gap-1.5 rounded-lg px-2 py-2 text-xs text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
       style={{ minHeight: 40 }}
       onClick={async () => {
         const id = await createRecord(board.id, {});
