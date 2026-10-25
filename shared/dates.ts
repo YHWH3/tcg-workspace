@@ -58,6 +58,24 @@ export function addDays(date: string | DateOnly, n: number): string | null {
   return toDateOnly(fromMs(toMs(d) + Math.round(n) * DAY_MS));
 }
 
+/** Resolve a bounded relative day using the caller's explicit calendar context. */
+export function resolveRelativeDate(value: unknown, today: string | undefined): unknown {
+  if (!parseDateOnly(today) || typeof value !== 'string') return value;
+  if (value === 'today') return today;
+  const match = /^today([+-])(\d+)$/.exec(value);
+  if (!match || match[0] !== value || Number(match[2]) > 3650) return value;
+  const result = addDays(today!, Number(match[2]) * (match[1] === '-' ? -1 : 1));
+  return parseDateOnly(result) ? result : value;
+}
+
+/** A date-like spelling, used only in date filter/condition validation. */
+export function relativeDateError(value: unknown): string | null {
+  if (typeof value !== 'string' || !/^\s*today(?:$|[^a-z])/i.test(value)) return null;
+  if (value === 'today') return null;
+  const match = /^today[+-](\d+)$/.exec(value);
+  return match && match[0] === value && Number(match[1]) <= 3650 ? null : 'Use today, today+N or today-N, with N from 0 to 3650 and no spaces.';
+}
+
 /** Whole days from a to b (b − a). Null when either input is invalid. */
 export function daysBetween(a: string, b: string): number | null {
   const pa = parseDateOnly(a);

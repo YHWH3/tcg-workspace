@@ -125,6 +125,25 @@ describe('renderTemplate', () => {
 });
 
 describe('conditionsMatch', () => {
+  it('R1 uses a bounded relative window in automation conditions', () => {
+    const filters = [{ key: 'p_f_deadline', op: 'on_or_before', value: 'today+14' }] as const;
+    expect(conditionsMatch([...filters], { p_f_deadline: '2026-11-01' }, { today: '2026-10-24' })).toBe(true);
+    expect(conditionsMatch([...filters], { p_f_deadline: '2027-01-01' }, { today: '2026-10-24' })).toBe(false);
+    expect(conditionsMatch([...filters], { p_f_deadline: '2026-11-01' })).toBe(false);
+  });
+  it('R1 rejects malformed date operands without rejecting literal text', () => {
+    const auto = (key: 'dueDate' | 'title' | 'p_f_deadline', value: string, op: 'is' | 'before' = 'is'): AutomationConfig => ({
+      name: 'Relative condition', databaseId: 'db1', trigger: { kind: 'record.created' },
+      conditions: [{ key, op, value }], actions: [{ type: 'set_field', fieldKey: 'title', value: 'Matched' }],
+    });
+    const context = { boardsById: new Map([['db1', board()]]) };
+    for (const value of ['today+3651', 'today + 3', 'Today+3']) {
+      for (const key of ['dueDate', 'p_f_deadline'] as const) expect(validateAutomation(auto(key, value), context).join(' ')).toContain('0 to 3650');
+      expect(validateAutomation(auto('title', value, 'before'), context).join(' ')).toContain('0 to 3650');
+      expect(validateAutomation(auto('title', value), context)).toEqual([]);
+    }
+    expect(validateAutomation(auto('dueDate', 'today+14'), context)).toEqual([]);
+  });
   const rec = { id: 'r1', title: 'Pump', status: 'done', p_f_membership: ['member', 'volunteer'] };
   it('ANDs filters on the after snapshot', () => {
     expect(conditionsMatch([{ key: 'status', op: 'is', value: 'done' }], rec)).toBe(true);

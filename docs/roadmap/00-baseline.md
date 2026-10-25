@@ -86,6 +86,9 @@ planned work, L = inconsistency.
 | N10 | M | New D1 test files outside `(phase[456]|audit|assistant)-*-d1.test.ts` are silently excluded from the d1 gate. | `scripts/certify-phase4.mjs:118` | 7.0 |
 | N11 | H (process) | Earlier attempts lacked complete evidence; the source-bound resumed certificate now passes 34/34 (§3). | BASE-EVIDENCE.json | Historical base evidence verified; release target D1 pending |
 | N12 | L | Comment updates are restricted to the author or space administrators when permissions are enabled. "Resolve" by a non-author would be rejected if implemented as a plain comment patch. | unit test "restricts comment updates to the author or space administrators" | 9.4 design |
+| N13 | M | MCP query_records omitted today context entirely, so relative-date parity required more than the shared resolver. | worker/mcp.ts query_records; audit-relative-dates-d1.test.ts | R1 supplies explicit UTC today; timezone unification remains 7.2 |
+| N14 | M | Populated automation editor labels, Off badge and run-history button failed AA contrast, while the old UX catalog visited only its empty state. | New relative-dates UX case, retained failed browser-probe-2 artifact | R1 adjusts existing tokens and adds populated-editor coverage |
+| N15 | L | A D1 SQL export cannot establish current OAuth grant count or connection IDs: grants are in OAUTH_KV. The historical two-grant inventory is not current verification. | Release storage architecture; prod-copy report | R2 explicitly requires separate owner KV inventory |
 
 Add new findings as N13+ with the same columns.
 
@@ -93,7 +96,7 @@ Add new findings as N13+ with the same columns.
 
 | ID | Decision | Needed by | Recommended default |
 |---|---|---|---|
-| D1 | Certify `528b889` as is, or certify R1's head and release both together | R0/R1 | Certify R1's head (one full run saves a cycle) |
+| D1 | Certify `528b889` as is, or certify R1's head and release both together | R0/R1 | **Owner selected R1's corrected head in this chat, 2026-10-25.** |
 | D2 | Workspace timezone and currency | 7.2 | `Asia/Kolkata`, `INR` |
 | D3 | Does disabling an account keep its seat? | 7.3 | Yes. Remove (existing DELETE) frees it. |
 | D4 | Who triages the Website inbox (the unassigned queue audience) | 8.3 | All admins |

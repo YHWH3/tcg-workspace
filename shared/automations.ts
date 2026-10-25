@@ -10,6 +10,7 @@
 //     actions: AutomationAction[] }
 
 import { evalFilter, type Filter, type FilterOp, type ViewCtx, type ViewRecord } from './views';
+import { relativeDateError } from './dates';
 import { formatFieldValue, fieldsOf, propKey, type FieldDef } from './fields';
 import { addDays, todayUtc } from './recurrence';
 import { fnv1a64hex } from './linkid';
@@ -295,6 +296,11 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
   if (!Array.isArray(conditions)) errors.push('conditions must be an array');
   for (const [i, c] of (Array.isArray(conditions) ? conditions : []).entries()) {
     if (!c || typeof c.key !== 'string' || !FILTER_OPS.has(c.op)) errors.push(`condition ${i + 1} is invalid`);
+    else if (['before', 'after', 'on_or_before', 'on_or_after'].includes(c.op)
+      || c.key === 'dueDate' || fieldDefByKey(board, c.key)?.type === 'date') {
+      const error = relativeDateError(c.value);
+      if (error) errors.push(`condition ${i + 1}: ${error}`);
+    }
   }
 
   const actions = auto.actions ?? [];

@@ -128,3 +128,9 @@ Every phase has a cross-platform Definition of Done. Record exact engines/device
 - MCP Apps (in-chat UI) support per host: documented for Claude; ChatGPT uses its own Apps SDK; Gemini unconfirmed (Phase 2 §7).
 - Cloudflare Cron Triggers on the free plan (Phase 4).
 - Exact supported browser/OS builds, editor input/undo on real software keyboards, recording/playback codecs, quota/cache/update recovery and Phase 5 offline permission freshness (platform specification §11). No universal Safari retention period or background sync guarantee.
+
+## Next phases release track (2026-10-25)
+
+The owner-supplied execution roadmap is `../roadmap/README.md`; current progress and decisions are in `../roadmap/PROGRESS.md`. R1 fixes stored `today±N` filters through the shared date evaluator, with MCP UTC context, validation and accessible hints. Existing installs need no data migration. Missing/invalid date context fails closed for relative temporal comparisons. Workspace timezone/currency and created-date conversions remain Phase 7.
+
+Release preparation includes a local SQL-copy rehearsal and an ordered owner runbook (`../roadmap/RELEASE-RUNBOOK.md`). It neither authorizes deployment nor verifies KV grants through D1. Historical base evidence is indexed in `../roadmap/BASE-EVIDENCE.json`; each changed release candidate requires new source-bound verification.

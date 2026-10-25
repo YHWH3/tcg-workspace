@@ -9,7 +9,7 @@ import {MoveSpaceButton} from '../MoveSpace';
  * BoardPage (kind 'tasks', unchanged UX) and this shell (kind 'records',
  * or when a database has views).
  */
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, ClipboardList, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users, Zap } from 'lucide-react';
 import { authStore } from '../auth';
@@ -581,26 +581,31 @@ function NewViewMenu({ board, cols, onCreate }: { board: BoardRow; cols: { id: s
 
 function FilterRow({ board, keys, filter, onChange }: { board: BoardRow; keys: FieldKey[]; filter: VFilter; onChange: (f: VFilter | null) => void }) {
   const noValue = ['empty', 'not_empty', 'checked', 'unchecked', 'me'].includes(filter.op);
+  const helpId = useId();
+  const isDate = filter.key === 'dueDate' || fieldsOf(board).some(f => `p_${f.id}` === filter.key && f.type === 'date');
   return (
-    <div className="mb-1 flex items-center gap-1">
-      <Select density="compact" aria-label="Filter field" value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className="flex-1">
+    <div className="mb-1">
+    <div className={isDate ? 'grid grid-cols-[minmax(0,1fr)_2rem] gap-1' : 'flex items-center gap-1'}>
+      <Select density="compact" aria-label="Filter field" value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className={isDate ? 'col-span-2 w-full' : 'flex-1'}>
         {keys.map((k) => (
           <option key={k} value={k}>
             {fieldKeyLabel(board, k)}
           </option>
         ))}
       </Select>
-      <Select density="compact" aria-label="Filter operator" value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as VFilter['op'] })} className="w-24">
+      <Select density="compact" aria-label="Filter operator" value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as VFilter['op'] })} className={isDate ? 'col-span-2 w-full' : 'w-24'}>
         {FILTER_OPS.map((o) => (
           <option key={o.id} value={o.id}>
             {o.label}
           </option>
         ))}
       </Select>
-      {!noValue && <input aria-label="Filter value" value={String(filter.value ?? '')} placeholder="value" onChange={(e) => onChange({ ...filter, value: e.target.value })} className="h-8 w-20 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700" />}
+      {!noValue && <input aria-label="Filter value" aria-describedby={isDate ? helpId : undefined} value={String(filter.value ?? '')} placeholder={isDate ? 'yyyy-mm-dd or today±N' : 'value'} onChange={(e) => onChange({ ...filter, value: e.target.value })} className={cn('h-8 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700', isDate ? 'w-full min-w-0' : 'w-20')} />}
       <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-600 hover:text-red-600 dark:text-neutral-400" onClick={() => onChange(null)} aria-label="Remove filter">
         <Trash2 size={12} />
       </button>
+    </div>
+    {isDate && !noValue && <p id={helpId} className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">Use yyyy-mm-dd, today, today+30 or today-7. Relative days: 0 to 3650.</p>}
     </div>
   );
 }
