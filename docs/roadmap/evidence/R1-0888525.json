@@ -1,0 +1,128 @@
+{
+  "decision": "ENGINEERING GO / EXTERNAL BLOCKED",
+  "scope": "Release track R1 engineering and R2 local preparation only; roadmap later phases not complete",
+  "source": {
+    "sha": "088852563d3fd2955f2f778f7563ef830db4906c",
+    "tree": "9a29550bb35adc4712a551b12f4a98e292c6e24c",
+    "fingerprint": "c0389b9b28e62e40b7b1d6215cb12a47360fd63729a6e71037d00c7fb7a3c6eb"
+  },
+  "pr": "https://github.com/YHWH3/tcg-workspace/pull/15",
+  "certificate": {
+    "path": ".artifacts/certification/088852563d3fd2955f2f778f7563ef830db4906c-2026-10-25T14-18-37-664Z-complete",
+    "summarySha256": "f8bfd3433a8da9a06ac5fdf4633d7c7eeb77b21b92c6e808f0948ba3c760174c",
+    "pass": 34,
+    "fail": 0,
+    "notRun": 0,
+    "executionMode": "fresh canonical npm run certify:ai",
+    "unit": 1551,
+    "dedicatedD1": 675,
+    "countsOverlap": true,
+    "releaseUi": 21,
+    "releaseUiSummarySha256": "a7299ee011f4ba01c95cd9746920885d75ef22fdd59a335705ed1aea230ede3b"
+  },
+  "integrationContract": {
+    "websiteSource": "1bbc617da62168bbf094a2ad65b0140867f74fa5",
+    "contractCopiesIdentical": true,
+    "sha256": "fee8510a12a390b85ff7f58c65ada217e1bf7673972586c258d77736f264a5a4"
+  },
+  "ux": {
+    "path": ".artifacts/roadmap-r1/attempt-2/ux/summary.json",
+    "sha256": "69decda8563b4c56fb1c4d48ccfb1948bed6a902f6ad778e5143684389a243d5",
+    "pass": 576,
+    "projects": 18,
+    "retries": 0,
+    "scope": "32 named cases; image reference comparisons for Website inbox only; other screenshots, geometry, accessibility and bounded generated interactions"
+  },
+  "safari": {
+    "path": ".artifacts/roadmap-r1/attempt-2/safari/results.json",
+    "sha256": "5e2d199eac8d92dac9485de5f93573550c314609038feacba403d2585ca439f4",
+    "profiles": 5,
+    "journeys": 25,
+    "physicalDevice": false,
+    "authenticationModes": [
+      {
+        "device": "TCG compact SE3 acceptance",
+        "mode": "Interactive Safari sign-in"
+      },
+      {
+        "device": "iPhone 17",
+        "mode": "Interactive Safari sign-in"
+      },
+      {
+        "device": "iPhone 17 Pro Max",
+        "mode": "Interactive Safari sign-in"
+      },
+      {
+        "device": "iPad (A16)",
+        "mode": "Interactive Safari sign-in"
+      },
+      {
+        "device": "iPad Pro 13-inch (M5)",
+        "mode": "Interactive Safari sign-in"
+      }
+    ],
+    "ownedClonesRemoved": true
+  },
+  "android": {
+    "path": ".artifacts/roadmap-r1/attempt-2/android-validation/chrome/results.json",
+    "sha256": "78b2be8b1830bb05530fdd7f2822f7ef9b7285d159471c0d5434bfad46dc3a30",
+    "pass": 17,
+    "physicalDevice": false,
+    "installedPwa": "NOT RUN; browser-only qualification",
+    "ownedAvdRemoved": true
+  },
+  "ownerDecisions": {
+    "recordedAt": "2026-10-25",
+    "D1": "Certify corrected R1 head",
+    "D2": {
+      "timeZone": "Asia/Kolkata",
+      "currency": "INR"
+    },
+    "D3": {
+      "disabledAccountsConsumeSeat": false,
+      "consequence": "Restoring an account requires a free active-account place; retain history; enforce across signup, guest invitations and restoration."
+    },
+    "source": "Explicit owner answers in this chat, 2026-10-25. Copy D4/D5/D6 into tracked roadmap at the next implementation commit after frozen R1 verification.",
+    "D4": {
+      "websiteUnassignedTriagers": "all admins"
+    },
+    "D5": {
+      "responseAgeBandsDays": [
+        [
+          0,
+          2
+        ],
+        [
+          3,
+          7
+        ],
+        [
+          8,
+          null
+        ]
+      ],
+      "firstReplyTargetDays": 3
+    },
+    "D6": {
+      "sources": "Roadmap Phase 8 proposed sources accepted: own approvals, AI reviews, overdue/due work, unread mentions; configured triage work; admin automation failures."
+    }
+  },
+  "notRun": [
+    "Physical hardware",
+    "Human assistive technology and native 400% zoom",
+    "Genuine human acceptance",
+    "Owner production SQL export and relay backup/restore",
+    "Remote staging and production release",
+    "Real providers, email, push notifications, payments and token minting"
+  ],
+  "retainedFailures": [
+    {
+      "path": ".artifacts/roadmap-r1/attempt-2/android/chrome/results.json",
+      "sha256": "c11c671dd4e8205947aefa5421371c16674c0117e0cd306074715d3c2a7ba45a",
+      "status": "FAIL; 12 PASS, 2 FAIL, incomplete 17-check workflow",
+      "reason": "Playwright AndroidDevice closed during tablet IME observation; no app exception established; root cause unconfirmed",
+      "followup": "Fresh instrumented diagnostic 17/17 and fresh unmodified acceptance 17/17; no source or assertion changes; no automatic test retries"
+    }
+  ],
+  "rawEvidencePolicy": "Local only; never publish credentials, raw SQL, fixture state or traces."
+}

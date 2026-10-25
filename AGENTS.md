@@ -20,6 +20,10 @@ Local-first mini-Notion: Vite + React + TS client, Hono Worker API, D1, Dexie ou
 
 Roadmap and build specs for upcoming phases live in `docs/architecture/` (start with `README.md`; Phase 0 and 1 are implementation-ready).
 
+Phase 7 foundations follow `docs/roadmap/07-foundations.md`; current implementation
+and limits are in `docs/architecture/phase-7-implementation.md`. D1 certification
+selection lives in `scripts/certification/test-files.mjs` and covers Phase 4–13.
+
 The Common Ground website integration (signed form ingest → Website inbox, People matching, Website section, AI/MCP tools) is specified in `docs/integrations/the-common-ground.md`. The website repository keeps an identical copy (`INTEGRATION-WORKSPACE.md`): **change both copies in the same change** whenever the contract moves. Code: `shared/websiteInbox.ts` (board, fields, views, families), `worker/websiteIngest.ts` (route), `shared/websiteStats.ts` (dashboard and digest figures), `worker/website.ts` (gated reads and MCP tools), `src/modules/website/` (section UI).
 
 - Before implementing a feature, read `docs/architecture/cross-platform-responsive-web.md` and the relevant phase. One responsive HTTPS application, optional PWA installation, full mobile functional parity and WCAG 2.2 AA are permanent requirements. Use existing core primitives/modules and `mutate()`/`applyChanges()` paths; no separate platform codebases.

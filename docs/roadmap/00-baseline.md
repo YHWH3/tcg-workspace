@@ -101,9 +101,9 @@ Add new findings as N17+ with the same columns.
 | D1 | Certify `528b889` as is, or certify R1's head and release both together | R0/R1 | **Owner selected R1's corrected head in this chat, 2026-10-25.** |
 | D2 | Workspace timezone and currency | 7.2 | **Owner selected `Asia/Kolkata`, `INR` in this chat, 2026-10-25.** |
 | D3 | Does disabling an account keep its seat? | 7.3 | **Owner selected: free the place while disabled, 2026-10-25. Restore requires available active-account capacity; history remains.** |
-| D4 | Who triages the Website inbox (the unassigned queue audience) | 8.3 | All admins |
-| D5 | Response-age bands and target first-reply time | 8.3 | 0–2, 3–7, 8+ days; target 3 days |
-| D6 | Attention queue sources per role | 8.1 | As specified in 08 §8.1 |
+| D4 | Who triages the Website inbox (the unassigned queue audience) | 8.3 | **Owner selected all admins in this chat, 2026-10-25.** |
+| D5 | Response-age bands and target first-reply time | 8.3 | **Owner selected 0–2, 3–7, 8+ days; target 3 days, 2026-10-25.** |
+| D6 | Attention queue sources per role | 8.1 | **Owner accepted the proposed sources in 08 §8.1, 2026-10-25.** |
 | D7 | Email provider and sending domain (Resend, same account as relay?), and whether emails may include record titles (titles pass through the provider) | Phase 10 | Resend, `notifications@<domain>`; titles off |
 | D8 | Web push VAPID keys and whether iOS installation is promoted | Phase 10 | Generate keys; promote install in Settings |
 | D9 | R2 bucket creation and payment method on the Cloudflare account | Phase 11 | Owner provisions |

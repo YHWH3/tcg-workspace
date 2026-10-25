@@ -172,12 +172,10 @@ order.
 11. Cross-platform is part of done: compact/tablet/desktop layouts,
     keyboard + touch alternatives for every drag or hover, WCAG 2.2 AA, light and
     dark, offline states that distinguish "saved on this device" from "synced".
-12. D1 test files must match the certification regex
-    `(phase[456]|audit|assistant)-.*-d1\.test\.ts` (`scripts/certify-phase4.mjs:118`)
-    or they are silently excluded from the d1 gate and its cost evidence. Either
-    name new files `phase7-…-d1.test.ts` etc. **and extend the regex to
-    `phase([4-9]|1[0-3])`**, or reuse an existing prefix. Extending the regex is
-    item 7.0 of Phase 7.
+12. D1 test files must match the Phase 4–13 / audit / assistant selector in
+    `scripts/certification/test-files.mjs`. Phase 7.0 extends the older Phase
+    4–6 regex and tests discovery. New files use `phase<N>-<topic>-d1.test.ts`;
+    pure tests omit `-d1`. Keep dedicated cost evidence for every new server path.
 
 ## 7. Definition of done (every item)
 
