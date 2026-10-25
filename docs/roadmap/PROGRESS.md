@@ -1,19 +1,35 @@
 # Next phases progress
 
-Execution started 2026-10-25. Original roadmap supplied by the owner; changes
-below correct verified execution state, without expanding authorization.
+Execution started 2026-10-25. This release branch is `sol/r1-date-window`, based
+on plan-only commit `6d02933` (application unchanged from `528b889`). Original
+integration branches and existing PRs remain unchanged.
 
 | Item | Status | Source / commit | Evidence | Notes |
 |---|---|---|---|---|
-| Plan base | done in this docs-only commit | Parent 528b889e6351a2955ca2c893725a89da088336c6 | git diff, BASE-EVIDENCE.json | Application code unchanged; 14 supplied roadmap documents preserved. |
-| R0 historical base | done | 528b889e6351a2955ca2c893725a89da088336c6 | BASE-EVIDENCE.json | Complete resumed 34/34; Safari five simulator profiles / 25 journeys. No physical or human acceptance. |
-| D1 release target | pending owner | — | Question in this chat | Roadmap requires explicit selection before final certification. |
-| R1 N01 | in progress | To branch sol/r1-date-window from this plan commit | Pending | Reproduce before correction, then regression / MCP / browser checks. |
-| R2 preparation | not started | — | — | Scripts and runbook only; no remote commands. |
-| R3 production | owner-only | — | — | No merge/deploy/remote mutation authorized. |
-| Phase 7 | not started | — | — | Requires R1 tests and draft PR, then D2/D3 decisions at named items. |
-| Phases 8–13 / A | not started | — | — | Follow dependencies and owner gates. |
+| Plan base | done | 6d02933 | BASE-EVIDENCE.json; Git docs-only diff | Roadmap saved and historical acceptance corrected. |
+| R0 historical base | verified | 528b889e6351a2955ca2c893725a89da088336c6 | BASE-EVIDENCE.json | Complete resumed 34/34 and five Safari simulator profiles / 25 journeys. Earlier failures retained. |
+| D1 release target | owner selected | This chat, 2026-10-25 | Explicit owner reply | Certify R1's corrected head. |
+| R1 N01 / N13 | implemented at 984328c; certification pending | 984328cd80dd4bb6ae309e98cf603731163c2092 | .artifacts/roadmap-r1/baseline-N01.json; focused-freeze.json | Baseline 3 failures reproduced. Focused 114/114 PASS, exit 0; actual-D1 permission modes, sorted/paged MCP/metric parity and validation. No migration. UTC/device timezone difference remains N02. |
+| R1 UI / N14 | implemented at 984328c; final matrix pending | 984328cd80dd4bb6ae309e98cf603731163c2092 | .artifacts/roadmap-r1/browser-probe-2.log; browser-probe-3.log | Retained populated-editor contrast failure, then 2-project PASS. Visual review found shortened selectors; date controls now stack and have caption-width checks. Exploratory 18-project run invalidated by tracked source changes; final frozen-source run required. |
+| R2 copy rehearsal | implemented at 984328c | 984328cd80dd4bb6ae309e98cf603731163c2092 | scripts/prod-copy-rehearsal.mjs; audit-prod-copy-rehearsal-d1.test.ts; parser self-tests | Synthetic 0001–0003 export passes 31 pending migrations, preservation, bounded real backfills and closed-copy restore. Wrong ledger HOLD before any migration. Four parser/path self-tests PASS. No owner production export available. |
+| R2 runbook / N15 | prepared | Containing commit | RELEASE-RUNBOOK.md | Owner-only merge/staging/backup/migrate/deploy/reconnect. D1 cannot verify KV grants. Export with FTS has provider limitations. |
+| R0 attempt 1 | FAIL, preserved | 984328cd80dd4bb6ae309e98cf603731163c2092 | .artifacts/certification/984328cd80dd4bb6ae309e98cf603731163c2092-2026-10-25T10-08-17-645Z-complete | Fresh canonical command completed: 33/34 gates PASS; unit 1551/1551, dedicated D1 675/675 (overlap), 89 harness checks. Release UI 16 PASS / 2 FAIL, WebKit 768/1024 hard-navigation diagnostics. No host pause. Never relabel this run. |
+| N16 release UI harness | fixed; fresh certificate pending | Containing commit | .artifacts/roadmap-r1/release-ui-isolated-controls/results.json | Explicit API request tracking before hard navigation, bounded wait; isolated premature-navigation and uncaught-JS controls. Targeted 21/21 PASS (3 controls + 18 width cases), exit 0; all original error/axe/geometry checks remain. Earlier failed probes retained. |
+| R1 date control matrix | targeted PASS | Parent application plus containing harness change | .artifacts/ux-lab/2026-10-25T13-52-35.508Z/summary.json | 18/18, exit 0, no retries/skips/flaky. Three engines × compact/tablet/desktop × light/dark. Compact screenshots inspected; full date operator captions readable. Does not replace full matrix. |
+| R0 final candidate | pending fresh serial run | Containing commit | .artifacts/roadmap-r1/attempt-2/owner.json | Full 576-case UX matrix first, then fresh canonical npm run certify:ai, then five Safari simulator profiles. Clean source frozen throughout. No prior result counts as current. |
+| R3 production | owner-only; not executed | — | RELEASE-RUNBOOK.md | No merge, remote command, staging resource, deployment or external side effect. |
+| D2 locale | owner selected | Explicit chat reply, 2026-10-25 | 00-baseline.md; 07-foundations.md | Asia/Kolkata and INR. |
+| D3 disabled account capacity | owner selected | Explicit chat reply, 2026-10-25 | 00-baseline.md; 07-foundations.md | Free the place while disabled; restore requires active capacity. Retain history; enforce signup/guest redemption/restore; bootstrap counts total users. |
+| Phase 7 | not started | — | 07-foundations.md | Requires R1 verification. Draft PR #15 is open; D2/D3 resolved. |
+| Phases 8–13 / A | not started | — | README.md dependency order | Keep owner gates and one stacked draft PR per phase. |
 
-Each implementation commit updates this file. A row saying “this commit” is
-bound by the containing Git commit; a commit cannot contain its own full SHA.
-Raw fixtures, credentials, screenshots and traces remain ignored and local.
+Each implementation commit updates this file. “Containing commit” is bound by
+Git history: a commit cannot contain its own full SHA. Source remains frozen
+during final verification. Raw credentials, SQL exports, fixture state, logs,
+screenshots and traces remain ignored/local; publish sanitized result summaries
+with exact tested source identity in the draft PR. Current runs are authoritative
+only when their source fingerprint, exit and mandatory completion all agree.
+
+External gates remain physical hardware, human screen readers/native zoom,
+genuine human acceptance, owner production backup/staging/provider/legal and
+release decisions. Automated approvals are labelled disposable fixtures.

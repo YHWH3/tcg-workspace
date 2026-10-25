@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { aggregate, applyView, evalFilter, fieldValue, resolveDateKey, sortRecords, VIEW_TYPES, type Filter, type ViewConfig, type ViewCtx, type ViewRecord, type ViewRow, type ViewType } from '../shared/views';
 import type { FieldDef } from '../shared/fields';
+import pack from '../templates/tcg-pack.json';
 
 const tags: FieldDef = { id: 'ftags', name: 'Tags', type: 'multi_select', options: [
   { id: 'o1', name: 'Video', color: '#0091ff' },
@@ -26,6 +27,41 @@ const ctx: ViewCtx = {
 
 const rec = (id: string, data: Record<string, unknown>): ViewRecord => ({ id, ...data });
 const evalOn = (r: ViewRecord) => (f: Filter) => evalFilter(r, f, ctx);
+
+describe('R1 relative deadline windows', () => {
+  const today = '2026-10-24';
+  const records = [
+    rec('near', { p_f_deadline: '2026-10-30', status: 'open' }),
+    rec('next-year', { p_f_deadline: '2027-12-31', status: 'open' }),
+    rec('distant', { p_f_deadline: '2099-01-01', status: 'open' }),
+    rec('past', { p_f_deadline: '2026-10-23', status: 'open' }),
+    rec('won', { p_f_deadline: '2026-10-30', status: 'won' }),
+  ];
+  it('N01 excludes dates beyond the thirty-day window', () => {
+    const filter: Filter = { key: 'p_f_deadline', op: 'on_or_before', value: 'today+30' };
+    expect(records.slice(0, 3).map(r => evalFilter(r, filter, { today }))).toEqual([true, false, false]);
+  });
+  it('evaluates the actual installed pack metric filters', () => {
+    const metrics: { filters: Filter[] }[] = [];
+    const visit = (value: unknown) => {
+      if (!value || typeof value !== 'object') return;
+      const object = value as Record<string, unknown>;
+      if (object.type === 'metric' && object.label === 'Deadlines in the next 30 days') metrics.push(object as unknown as { filters: Filter[] });
+      Object.values(value).forEach(visit);
+    };
+    visit(pack);
+    expect(metrics).toHaveLength(3);
+    for (const metric of metrics) expect(aggregate(records, { agg: 'count', filters: metric.filters }, { today })).toMatchObject({ value: 1, ids: ['near'] });
+  });
+  it('fails closed for unresolved relative temporal operands', () => {
+    for (const op of ['before', 'after', 'on_or_before', 'on_or_after'] as const) {
+      for (const today of [undefined, 'invalid', '2026-02-30']) {
+        expect(evalFilter(records[0], { key: 'p_f_deadline', op, value: 'today+30' }, { today })).toBe(false);
+      }
+      expect(evalFilter(records[0], { key: 'p_f_deadline', op, value: 'today+3651' }, { today })).toBe(false);
+    }
+  });
+});
 
 describe('evalFilter — equality ops', () => {
   const r = rec('r1', { title: 'Launch', status: 'c-doing', assigneeId: 'u-me', p_ftags: ['o1', 'o3'], p_fstage: 's2', rel: undefined });

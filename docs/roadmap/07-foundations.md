@@ -98,7 +98,8 @@ VALUES ('workspace', 'UTC', 'INR', 1, 0);
 ```
 
 - The default `time_zone` stays `UTC`, so behaviour is unchanged until an admin
-  sets it (owner decision D2 recommends `Asia/Kolkata`).
+  sets it. Owner decision D2 selects `Asia/Kolkata` and `INR`; expose these
+  selections without modifying a real workspace during local certification.
 - This is a server-only table; add it to the AGENTS.md list.
 
 ### Server
@@ -199,7 +200,8 @@ VALUES ('workspace', 'UTC', 'INR', 1, 0);
 ## 7.3 Account disable (N06)
 
 **Goal:** an admin can immediately cut someone off without deleting their
-history or freeing the seat (owner decision D3).
+history. Owner decision D3 frees its place while disabled; restoring access
+requires a free place under the seven-active-account limit.
 
 ### Server (no migration; `users.disabled_at` exists from 0012)
 
@@ -224,8 +226,12 @@ history or freeing the seat (owner decision D3).
   - the live socket sweep closes sockets;
   - pending guest invites the user issued become unredeemable, because the
     issuer must hold admin capability at redemption (`guestInvites.ts:4`).
-- **Seat cap:** disabled accounts still count toward 7 (D3). Removing via
-  `DELETE` frees the seat as today.
+- **Seat cap (owner D3):** disabled accounts do not count toward the seven
+  active accounts. Signup (including guest redemption) and restoration must
+  enforce the active limit atomically. Restoring a disabled account when all
+  seven places are occupied returns a recoverable capacity error. Removing via
+  `DELETE` frees a place as today. Bootstrap remains based on zero total users,
+  never zero active users. Preserve disabled users and their history.
 - **Fix the last-admin checks** in `PATCH /users/:id` and `DELETE /users/:id`
   to use `COALESCE(workspace_role, role)` and ignore disabled admins. Add
   regression tests.
@@ -240,7 +246,7 @@ history or freeing the seat (owner decision D3).
   - a "Disabled" badge;
   - a "Disable access" / "Restore access" action with a confirmation dialog
     explaining the effects (signed out everywhere, AI connectors revoked, seat
-    kept, history kept);
+    freed while disabled, restore needs a free place, history kept);
   - keyboard accessible.
 - People pickers and mentions show disabled users greyed out with "(disabled)"
   and exclude them from new assignments. Existing assignments remain.

@@ -24,6 +24,7 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[...surfaces.map(s=>'surface: '+s.id),
+  'relative dates: filter and automation hints with bounded results',
   'visual reference: website inbox',
   'opened search: focus, empty results and recovery',
   'approvals network failure and recovery',

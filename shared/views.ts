@@ -5,6 +5,7 @@
 
 import { cmpOrder } from './order';
 import { isSelectType, optionByName, type FieldDef } from './fields';
+import { resolveRelativeDate } from './dates';
 
 export type ViewType = 'board' | 'table' | 'list' | 'gallery' | 'calendar' | 'timeline';
 
@@ -88,7 +89,7 @@ export type ViewRecord = { id?: unknown; deleted?: unknown } & Record<string, un
 export interface ViewCtx {
   /** Current user id — the `me` filter op and `mine` view shortcut. */
   meId?: string | null;
-  /** ISO 'yyyy-mm-dd'; a filter value of 'today' resolves against this. */
+  /** ISO 'yyyy-mm-dd'; today and today±N resolve against this explicit context. */
   today?: string;
   /** Field defs by field id for `p_<id>` keys (option order, coercions). */
   fieldsById?: Map<string, FieldDef> | Record<string, FieldDef>;
@@ -196,8 +197,9 @@ function matchesMe(v: unknown, meId: string | null | undefined): boolean {
 /** Evaluate one filter against a record. Unknown/missing values never match value ops. */
 export function evalFilter(record: ViewRecord, filter: Filter, ctx: ViewCtx = {}): boolean {
   const v = fieldValue(record, filter.key, ctx);
-  let want = filter.value;
-  if (want === 'today' && ctx.today) want = ctx.today;
+  const want = resolveRelativeDate(filter.value, ctx.today);
+  if (typeof want === 'string' && /^today(?:[+-]\d+)?$/.test(want)
+    && ['before', 'after', 'on_or_before', 'on_or_after'].includes(filter.op)) return false;
   switch (filter.op) {
     case 'empty':
       return isEmptyValue(v);

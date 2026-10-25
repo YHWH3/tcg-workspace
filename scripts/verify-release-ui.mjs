@@ -12,6 +12,8 @@ import {WCAG_AA_TAGS} from './accessibility-tags.mjs';
 import {startFixture,bootstrap,push,eventually} from './phase4-fixture.mjs';
 import {freePort,fingerprint} from './certification/core.mjs';
 import {createCertificationReporter} from './certification-report.mjs';
+import {navigateReady} from './navigation-ready.mjs';
+import {randomUUID} from 'node:crypto';
 const engines={chromium,firefox,webkit},only=process.argv.find(a=>a.startsWith('--only='))?.slice(7);
 if(only&&!engines[only])throw new Error('Unknown required browser engine');
 const widths=[320,390,430,768,1024,1440],selected=Object.entries(engines).filter(([e])=>!only||e===only);
@@ -19,7 +21,7 @@ const output=resolve(process.env.CERT_ARTIFACT_DIR??`.artifacts/release-candidat
 mkdirSync(output,{recursive:true});process.env.CERT_ARTIFACT_DIR=output;process.env.CERT_RESULT_PATH??=join(output,'results.json');
 process.env.CERT_SOURCE_SHA??=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
 const initialFingerprint=fingerprint(process.cwd());
-const reporter=createCertificationReporter('verify-release-ui',selected.flatMap(([engine])=>widths.map(width=>`${engine}/${width}x900/core release UI`)));
+const reporter=createCertificationReporter('verify-release-ui',selected.flatMap(([engine])=>[`${engine}/local/navigation readiness`,...widths.map(width=>`${engine}/${width}x900/core release UI`)]));
 reporter.setMetadata('permissionMode','ENABLED');reporter.setMetadata('sourceFingerprint',initialFingerprint);
 reporter.setMetadata('scope','Rendered shell, settings, AI library and search; keyboard/touch/reflow. Physical devices, native zoom and manual assistive technology are external checks.');
 let fixture;
@@ -33,6 +35,37 @@ try{
   let browser;
   try{
    browser=await type.launch({headless:true});await reporter.trackBrowser(browser,engine);
+   await reporter.run('navigation readiness',engine,'local',async()=>{
+    const probeContext=await browser.newContext({serviceWorkers:'block'});
+    try{
+     for(const ready of [false,true]){
+      const probe=await probeContext.newPage();probe.setDefaultTimeout(20000);
+      await navigateReady(probe,fixture.base);
+      await probe.waitForLoadState('networkidle');
+      const path='/api/release-readiness-'+randomUUID();let readFinished=false,early=false;
+      let resolveStarted;const started=new Promise(resolve=>{resolveStarted=resolve;});
+      await probeContext.route('**'+path,async route=>{
+       resolveStarted();await new Promise(resolve=>setTimeout(resolve,150));
+       // The raw-navigation negative control deliberately cancels this one read.
+       await route.fulfill({status:200,contentType:'application/json',body:'{"ok":true}'}).catch(()=>{});
+      });
+      const finished=request=>{if(new URL(request.url()).pathname===path)readFinished=true;};
+      probe.on('requestfinished',finished);
+      await probe.evaluate(path=>{void fetch(path).catch(()=>{});},path);await started;
+      const destination=fixture.base+'/?navigation-proof='+randomUUID();
+      const navigated=request=>{if(request.isNavigationRequest()&&request.url()===destination)early=!readFinished;};
+      probe.on('request',navigated);
+      if(ready)await navigateReady(probe,destination);else await probe.goto(destination);
+      assert.equal(early,!ready,ready?'Ready navigation must finish the controlled read':'Negative control must detect premature navigation');
+      probe.off('requestfinished',finished);probe.off('request',navigated);await probeContext.unroute('**'+path);await probe.close();
+     }
+     const probe=await probeContext.newPage();await probe.goto(fixture.base);
+     const actualError=probe.waitForEvent('pageerror',{predicate:e=>e.message.includes('release-readiness-negative-control')});
+     await probe.evaluate(()=>{setTimeout(()=>{throw new Error('release-readiness-negative-control');},0);});
+     assert.match((await actualError).message,/release-readiness-negative-control/,'Real uncaught JavaScript must still be observable');
+     reporter.record(engine,'local','navigation readiness','PASS');
+    }finally{await probeContext.close();}
+   });
    for(const width of widths){
     const size=`${width}x900`,name='core release UI',started=performance.now();let context,page;const errors=[],accessibility=[];
     try{
@@ -50,7 +83,7 @@ try{
      const audit=async surface=>{const scan=await new AxeBuilder({page}).withTags(WCAG_AA_TAGS).analyze();const path=join(output,`${engine}-${width}-${surface}-axe.json`);writeFileSync(path,JSON.stringify(scan,null,2));reporter.artifacts.push(path);accessibility.push(...scan.violations.map(v=>({surface,id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})));};
      const screenshot=async surface=>{await page.evaluate(async()=>{await Promise.allSettled(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished));});const path=join(output,`${engine}-${width}-${surface}.png`);await page.screenshot({path,fullPage:true});reporter.artifacts.push(path);};
      const reflow=async surface=>{await assertControlGeometry(page,surface);const actual=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,main:document.querySelectorAll('main').length,positiveTabs:[...document.querySelectorAll('[tabindex]')].filter(e=>Number(e.getAttribute('tabindex'))>0).length}));assert.ok(actual.scroll<=actual.width+1,`${surface}: root overflow ${JSON.stringify(actual)}`);assert.ok(actual.main>=1,`${surface}: missing main landmark`);assert.equal(actual.positiveTabs,0,`${surface}: positive tab order`);};
-     await page.goto(fixture.base+'/pages/release-ui-page');await page.getByPlaceholder('Untitled',{exact:true}).waitFor();await reflow('page');await audit('page');await screenshot('page');
+     await navigateReady(page,fixture.base+'/pages/release-ui-page');await page.getByPlaceholder('Untitled',{exact:true}).waitFor();await reflow('page');await audit('page');await screenshot('page');
      if(width<768){const menu=page.getByRole('button',{name:'Menu',exact:true});await menu.focus();await menu.press('Enter');await page.getByRole('dialog').waitFor();await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});assert.equal(await menu.evaluate(e=>e===document.activeElement),true,'Keyboard drawer must restore trigger focus');await menu.tap();await page.getByRole('dialog').waitFor();await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});}
      const trigger=page.getByRole('button',{name:/^Search/}).first();await trigger.focus();await trigger.press('Enter');
      const input=page.getByRole('combobox',{name:'Search workspace',exact:true});await input.waitFor();await input.fill('Release acceptance');
@@ -66,14 +99,14 @@ try{
      await page.keyboard.press('Shift+Tab');assert.equal(await page.evaluate(()=>!!document.activeElement?.closest('[role="dialog"]')),true);
      await audit('search');await screenshot('search');await page.keyboard.press('Escape');await input.waitFor({state:'hidden'});assert.equal(await trigger.evaluate(e=>e===document.activeElement),true,'Search must restore trigger focus');
      await trigger.tap();await input.fill('Release acceptance');await eventually(async()=>await page.getByRole('listbox',{name:'Search results',exact:true}).getByRole('option').filter({hasText:'Release acceptance journal'}).count()>0);await page.getByRole('listbox',{name:'Search results',exact:true}).getByRole('option').filter({hasText:'Release acceptance journal'}).first().tap();await input.waitFor({state:'hidden'});assert.ok(page.url().endsWith('/pages/release-ui-page'));
-     await page.goto(fixture.base+'/boards/release-ui-board/tasks/release-ui-task');await page.getByRole('textbox',{name:'Task title',exact:true}).waitFor();
+     await navigateReady(page,fixture.base+'/boards/release-ui-board/tasks/release-ui-task');await page.getByRole('textbox',{name:'Task title',exact:true}).waitFor();
      for(const name of ['Board','Stage','Priority','Assignee'])await page.getByRole('combobox',{name,exact:true}).waitFor();
      await page.getByLabel('Due date',{exact:true}).waitFor();const nextPriority=widths.indexOf(width)%2?'medium':'high';await page.getByRole('combobox',{name:'Priority',exact:true}).selectOption(nextPriority);await eventually(async()=>await page.getByRole('combobox',{name:'Priority',exact:true}).inputValue()===nextPriority);
      await reflow('task detail');await audit('task-detail');await screenshot('task-detail');
-     await page.goto(fixture.base+'/settings');await page.getByRole('heading',{name:'Settings',exact:true}).waitFor();await page.getByRole('heading',{name:'AI connectors',exact:true}).waitFor();await reflow('settings');await audit('settings');await screenshot('settings');
-     await page.goto(fixture.base+'/ai');await page.getByRole('heading',{name:'AI workflows',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Copy instructions',exact:true}).count(),7);await page.getByRole('heading',{name:'Optional AI and budget',exact:true}).waitFor();await reflow('AI workflows');await audit('ai');await screenshot('ai');
-     await page.goto(fixture.base+'/inbox');await page.getByRole('heading',{name:'Inbox',exact:true}).waitFor();await reflow('Inbox');await audit('inbox');
-     if(width===320||width===1440){await page.emulateMedia({colorScheme:'dark'});for(const [surface,path,heading]of [['page','/pages/release-ui-page',null],['task-detail','/boards/release-ui-board/tasks/release-ui-task',null],['settings','/settings','Settings'],['ai','/ai','AI workflows'],['inbox','/inbox','Inbox']]){await page.goto(fixture.base+path);if(heading)await page.getByRole('heading',{name:heading,exact:true}).waitFor();else if(surface==='task-detail')await page.getByRole('textbox',{name:'Task title',exact:true}).waitFor();else await page.getByPlaceholder('Untitled',{exact:true}).waitFor();await reflow(surface+' dark');await audit(surface+'-dark');await screenshot(surface+'-dark');}}
+     await navigateReady(page,fixture.base+'/settings');await page.getByRole('heading',{name:'Settings',exact:true}).waitFor();await page.getByRole('heading',{name:'AI connectors',exact:true}).waitFor();await reflow('settings');await audit('settings');await screenshot('settings');
+     await navigateReady(page,fixture.base+'/ai');await page.getByRole('heading',{name:'AI workflows',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Copy instructions',exact:true}).count(),7);await page.getByRole('heading',{name:'Optional AI and budget',exact:true}).waitFor();await reflow('AI workflows');await audit('ai');await screenshot('ai');
+     await navigateReady(page,fixture.base+'/inbox');await page.getByRole('heading',{name:'Inbox',exact:true}).waitFor();await reflow('Inbox');await audit('inbox');
+     if(width===320||width===1440){await page.emulateMedia({colorScheme:'dark'});for(const [surface,path,heading]of [['page','/pages/release-ui-page',null],['task-detail','/boards/release-ui-board/tasks/release-ui-task',null],['settings','/settings','Settings'],['ai','/ai','AI workflows'],['inbox','/inbox','Inbox']]){await navigateReady(page,fixture.base+path);if(heading)await page.getByRole('heading',{name:heading,exact:true}).waitFor();else if(surface==='task-detail')await page.getByRole('textbox',{name:'Task title',exact:true}).waitFor();else await page.getByPlaceholder('Untitled',{exact:true}).waitFor();await reflow(surface+' dark');await audit(surface+'-dark');await screenshot(surface+'-dark');}}
      assert.deepEqual(errors,[],'No uncaught browser errors');
      assert.deepEqual(accessibility,[],'Automated applicable WCAG A/AA rules must pass');
      reporter.record(engine,size,name,'PASS',null,{durationMs:Math.round(performance.now()-started),permissionMode:'ENABLED'});console.log(`PASS [${engine}/${size}] ${name}`);

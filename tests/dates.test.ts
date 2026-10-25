@@ -1,4 +1,38 @@
 import { describe, expect, it } from 'vitest';
+import { resolveRelativeDate, relativeDateError } from '../shared/dates';
+
+describe('R1 relative date contract', () => {
+  it.each([
+    ['today', '2026-10-24', '2026-10-24'],
+    ['today+0', '2026-10-24', '2026-10-24'],
+    ['today-0', '2026-10-24', '2026-10-24'],
+    ['today+30', '2026-10-24', '2026-11-23'],
+    ['today-7', '2026-10-24', '2026-10-17'],
+    ['today+1', '2026-12-31', '2027-01-01'],
+    ['today-1', '2026-01-01', '2025-12-31'],
+    ['today+1', '2024-02-28', '2024-02-29'],
+    ['today+1', '2024-02-29', '2024-03-01'],
+    ['today+3650', '2026-10-24', '2036-10-21'],
+    ['today-3650', '2026-10-24', '2016-10-26'],
+  ])('resolves %s against %s', (value, today, expected) => {
+    expect(resolveRelativeDate(value, today)).toBe(expected);
+    expect(relativeDateError(value)).toBeNull();
+  });
+  it.each(['today+3651', 'today-3651', 'today + 3', 'Today+3', 'today+1.5', 'today++1', 'today+', 'today-NaN', 'today+Infinity', 'today+99999999999999999999', 'today+30\n'])('preserves but rejects malformed/out-of-range %s', value => {
+    expect(resolveRelativeDate(value, '2026-10-24')).toBe(value);
+    expect(relativeDateError(value)).toBeTypeOf('string');
+  });
+  it.each([undefined, 'invalid', '2026-02-30', '2026-1-1'])('does not guess when today is %s', today => {
+    for (const value of ['today', 'today+30', 'today-7']) expect(resolveRelativeDate(value, today)).toBe(value);
+  });
+  it('preserves literals and non-strings, and refuses date overflow', () => {
+    for (const value of ['a title', 'todayish', '2026-11-23', 30, null, undefined]) {
+      expect(resolveRelativeDate(value, '2026-10-24')).toBe(value);
+      expect(relativeDateError(value)).toBeNull();
+    }
+    expect(resolveRelativeDate('today+1', '9999-12-31')).toBe('today+1');
+  });
+});
 import {
   addDays,
   cmpDateOnly,

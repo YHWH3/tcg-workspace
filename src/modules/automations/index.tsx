@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, ChevronRight, History, Plus, Trash2, Zap } from 'lucide-react';
@@ -59,7 +59,7 @@ const dateFieldKeys = (board: BoardRow | undefined): FieldKey[] => {
 const personFields = (board: BoardRow | undefined): FieldDef[] => fieldsOf(board).filter((f) => f.type === 'person');
 
 const selectCls = 'min-w-0 flex-1';
-const labelCls = 'mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-neutral-400';
+const labelCls = 'mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-neutral-600 dark:text-neutral-400';
 
 function SectionLabel({ children }: { children: string }) {
   return <p className={labelCls}>{children}</p>;
@@ -138,14 +138,17 @@ function ConditionRow({ board, keys, filter, onChange }: {
   onChange: (f: Filter | null) => void;
 }) {
   const noValue = NO_VALUE_OPS.includes(filter.op);
+  const helpId = useId();
+  const isDate = filter.key === 'dueDate' || fieldsOf(board).some(f => `p_${f.id}` === filter.key && f.type === 'date');
   return (
-    <div className="mb-1 flex items-center gap-1">
-      <Select density="compact" value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className={selectCls} aria-label="Condition field">
+    <div className="mb-1">
+    <div className={isDate ? 'grid grid-cols-[minmax(0,1fr)_2rem] gap-1' : 'flex items-center gap-1'}>
+      <Select density="compact" value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className={isDate ? 'col-span-2 w-full' : selectCls} aria-label="Condition field">
         {keys.map((k) => (
           <option key={k} value={k}>{fieldKeyLabel(board, k)}</option>
         ))}
       </Select>
-      <Select density="compact" value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as FilterOp })} className="w-24 shrink-0" aria-label="Condition operator">
+      <Select density="compact" value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as FilterOp })} className={isDate ? 'col-span-2 w-full' : 'w-24 shrink-0'} aria-label="Condition operator">
         {FILTER_OPS.map((o) => (
           <option key={o.id} value={o.id}>{o.label}</option>
         ))}
@@ -153,15 +156,18 @@ function ConditionRow({ board, keys, filter, onChange }: {
       {!noValue && (
         <input
           value={String(filter.value ?? '')}
-          placeholder="value"
+          placeholder={isDate ? 'yyyy-mm-dd or today±N' : 'value'}
+          aria-describedby={isDate ? helpId : undefined}
           onChange={(e) => onChange({ ...filter, value: e.target.value })}
-          className="h-8 w-20 shrink-0 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700"
+          className={`h-8 shrink-0 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700 ${isDate ? 'w-full min-w-0' : 'w-20'}`}
           aria-label="Condition value"
         />
       )}
       <button className="min-h-8 min-w-8 shrink-0 rounded-md text-neutral-400 hover:text-red-500 focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => onChange(null)} aria-label="Remove condition">
         <Trash2 size={12} />
       </button>
+    </div>
+    {isDate && !noValue && <p id={helpId} className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">Use yyyy-mm-dd, today, today+30 or today-7. Relative days: 0 to 3650.</p>}
     </div>
   );
 }
@@ -396,7 +402,7 @@ function AutomationCard({ row, board, allBoards, allForms }: {
         <button
           onClick={() => patch({ enabled: row.enabled === false })}
           aria-pressed={row.enabled !== false}
-          className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${row.enabled !== false ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400' : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'}`}
+          className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${row.enabled !== false ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400' : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'}`}
           style={{ minHeight: 28 }}
         >
           {row.enabled !== false ? 'On' : 'Off'}
@@ -447,7 +453,7 @@ function AutomationCard({ row, board, allBoards, allForms }: {
         </button>
       </div>
 
-      <button className="mt-2 flex min-h-8 items-center gap-1 rounded-md px-1 text-xs text-neutral-400 hover:text-neutral-600 focus-visible:outline-2 focus-visible:outline-offset-2 dark:hover:text-neutral-300" aria-expanded={showRuns} onClick={() => setShowRuns((s) => !s)}>
+      <button className="mt-2 flex min-h-8 items-center gap-1 rounded-md px-1 text-xs text-neutral-600 dark:text-neutral-400 hover:text-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-2 dark:hover:text-neutral-300" aria-expanded={showRuns} onClick={() => setShowRuns((s) => !s)}>
         {showRuns ? <ChevronDown size={12} /> : <ChevronRight size={12} />} <History size={12} /> Run history
       </button>
       {showRuns && <RunHistory autoId={row.id} />}

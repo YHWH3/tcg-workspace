@@ -166,3 +166,10 @@ Spec: `docs/architecture/unified-ai-mcp.md`.
 - Retained assistant dependencies are authoritative read-gate evidence, separate from citations. Derived replies and pending calls inherit consumed sources and the exact principal role captured before reading. Legacy/incomplete coverage is withheld without purging originals; never model user-directory IDs as record IDs.
 - Assistant UI responses are account/token/access-epoch/status bound. Observed access transitions discard retained source-derived memory and abort streams; this is not instantaneous offline revocation. Keep ordinary stream cancellation separate from authority invalidation so provider discovery can finish.
 - Apple Safari testing uses a temporary test-only XCUITest bundle (`scripts/apple-safari.mjs`). It does not create a native production app or certify physical hardware, human VoiceOver or native 400% zoom. Preserve compact input text sizes and keyboard-visible search results.
+
+## Roadmap release track R1
+
+- `shared/dates.ts` resolves explicit-context `today±N` (0–3650) using UTC-midnight date-only arithmetic; invalid or missing contexts are never guessed. Temporal operands that remain unresolved fail closed.
+- `query_records` supplies UTC today, validates date-like operands and shares `evalFilter` with metrics and automation conditions. Device/workspace timezone unification remains Phase 7.2; do not claim it is fixed by R1.
+- `scripts/prod-copy-rehearsal.mjs` accepts only an owner-exported local SQL file with a registered-prefix migration ledger, uses fresh local D1, validates preservation/backfills/restore, and never verifies KV grants or remote recovery.
+- The UX lab includes populated relative-date filters and automation conditions, with 32 cases across 18 projects.

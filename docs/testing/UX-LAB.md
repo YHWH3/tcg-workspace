@@ -35,7 +35,7 @@ Reports/traces are local-only and may contain disposable session credentials. Do
 
 The explicit matrix is Chromium/Firefox/WebKit × 390/820/1440px × light/dark: 18 projects. The catalog covers 21 named rendered states: home/page, database index, six record views, task detail and unavailable task, moodboard/form/automation empty states, approvals, Activity, Inbox, Settings, AI library with inference off, Website dashboard and Website inbox.
 
-The complete plan has 31 cases × 18 projects = 558 cases. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
+The complete plan has 32 cases × 18 projects = 576 cases. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
 
 Fast-check generates bounded sequences of stage changes, Unicode/long title edits, offline edits, reloads, breakpoint changes, theme changes and keyboard search. It compares title/stage with a small model and verifies server persistence before reload. Every generated case resets its starting viewport/theme/connectivity; failures retain seed, shrink path, command sequence and a replay command. The default is three generated sequences per project, each with 6–14 commands. This is bounded exploration, not all possible sequences.
 
@@ -60,3 +60,14 @@ Accessibility tags are shared with the Website/release UI gates in `scripts/acce
 Geometry checks also measure the fixed “No grouping” caption's rendered text width against the selector content box. This is scoped to that fixed caption, not a claim that every arbitrary user value fits every bounded field. The negative-control case narrows the selector, requires detection, restores it and runs the full-page audit.
 
 Native Android setup uses one public widget driver, with real positive/negative lookup probes and prompt-disappearance checks. The pinned 1.63 Java bridge's exact missing-widget lookup response is handled explicitly; generic errors and transport failures are not absence. See QA-TOOLS.md for the upstream source and retained diagnostics. Record-view state readiness includes the rendered toolbar before geometry/accessibility scanning.
+
+R1 adds a relative-date case for the filter overlay and a populated, disabled automation. It verifies date syntax hints and accessible descriptions, bounded filter results, focus recovery, geometry and whole-page axe in every project. The earlier 558-case evidence remains tied to its older source.
+
+Release UI hard-navigation readiness is separate from this lab. The runner
+tracks foreground `/api/` requests and waits for completion and a short quiet
+window before document teardown. A stalled read fails within 20 seconds. Each
+engine tests deliberate premature navigation, successful read completion before
+navigation, and visibility of an injected uncaught JavaScript error. Negative
+controls use separate pages so deliberately cancelled requests cannot pollute
+the positive tracker. No error filtering is added. The release UI runner now
+contains 21 checks: 18 viewport journeys and three engine controls.
