@@ -1,3 +1,4 @@
+import {useWorkspaceLocale} from '../../core/workspaceLocale';
 import {MoveSpaceButton} from '../../core/MoveSpace';
 import { useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
@@ -305,6 +306,7 @@ function TaskList({ tasks, board, sort, onOpen }: { tasks: TaskRow[]; board: Boa
 }
 
 function ListRow({ task, board, onOpen }: { task: TaskRow; board: BoardRow; onOpen: (id: string) => void }) {
+  useWorkspaceLocale();
   const users = useUsers();
   const me = authStore.get().user;
   const assignee = resolveUser(task.assigneeId ?? null, users, me);

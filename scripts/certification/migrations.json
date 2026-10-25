@@ -134,5 +134,9 @@
   {
     "name": "0034_website_source_authority.sql",
     "sha256": "87c96e5d7ae7a374a5ae536ca1ab96e3b9704fe6460973e54d202a584d9b76f8"
+  },
+  {
+    "name": "0035_workspace_settings.sql",
+    "sha256": "8c2c8d3a2b659e77486cf33defcdc1bfc1bb85648c2c0fe0a57506627f518fa8"
   }
 ]

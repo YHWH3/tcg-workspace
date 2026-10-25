@@ -188,7 +188,7 @@ function CommentItem({ comment, isOwn, authorName, authorColor }: { comment: Com
  * shows the count and the thread opens as a bottom sheet — entry point is the
  * block "…" menu (openCommentThread) or tapping the badge.
  */
-function CommentBadge({ targetType, targetId, overlay }: { targetType: CommentTarget; targetId: string; overlay?: boolean }) {
+function CommentBadge({ targetType, targetId, overlay,alwaysVisible }: { targetType: CommentTarget; targetId: string; overlay?: boolean;alwaysVisible?:boolean }) {
   const mobile = useIsMobile();
   const count = useCommentCount(targetId);
   const openTarget = useStore(commentTargetStore);
@@ -207,10 +207,11 @@ function CommentBadge({ targetType, targetId, overlay }: { targetType: CommentTa
         setOpen(true);
       }}
       className={cn(
-        'flex items-center gap-1 rounded-md px-1.5 py-1 text-neutral-400 transition-all hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300',
+        'flex items-center gap-1 rounded-md px-1.5 py-1 text-neutral-500 transition-all hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200',
+        (overlay||alwaysVisible)&&'min-h-8 min-w-8 justify-center',
         overlay
           ? 'bg-white/90 shadow-sm dark:bg-neutral-900/90'
-          : cn('mt-0.5', mobile ? (count > 0 ? '' : 'hidden') : count > 0 ? '' : 'opacity-0 group-hover:opacity-100'),
+          : cn('mt-0.5', alwaysVisible?'':mobile ? (count > 0 ? '' : 'hidden') : count > 0 ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'),
       )}
     >
       <MessageSquare size={overlay ? 12 : 13} />

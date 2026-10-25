@@ -19,7 +19,7 @@ function readsFor(page) {
   return state;
 }
 
-export async function navigateReady(page, url) {
+export async function waitForApiReads(page) {
   const state = readsFor(page);
   await new Promise((resolve, reject) => {
     let quiet;
@@ -34,5 +34,7 @@ export async function navigateReady(page, url) {
     const deadline = setTimeout(() => finish(new Error('Foreground API requests did not settle before navigation')), 20000);
     state.changed.add(check); check();
   });
-  return page.goto(url);
 }
+
+export async function navigateReady(page,url){await waitForApiReads(page);return page.goto(url);}
+export async function reloadReady(page){await waitForApiReads(page);return page.reload();}

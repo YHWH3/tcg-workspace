@@ -1,3 +1,4 @@
+import {WorkspaceSettingsPanel} from './WorkspaceSettingsPanel';
 import {Usage} from './Usage';
 import {Spaces} from './Spaces';
 import { useCallback, useEffect, useState } from 'react';
@@ -44,6 +45,7 @@ export function SettingsPage() {
       <h1 className="mb-6 text-xl font-semibold tracking-tight">Settings</h1>
       <div className="flex flex-col gap-5">
         <ProfileSection user={user} />
+        <Section title="Workspace"><WorkspaceSettingsPanel/></Section>
         <Section title="Spaces and guests"><Spaces/></Section>
         <div id="ai-assistant" className="scroll-mt-4"><Section title="AI assistant"><AssistantSettings /></Section></div>
         <AIConnectorsSection />

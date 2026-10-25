@@ -8,7 +8,7 @@ const tools = vi.hoisted(() => new Map<string, (args: Record<string, unknown>) =
 vi.mock('@modelcontextprotocol/server', () => ({ McpServer: class { registerTool(name: string, meta: {inputSchema:{safeParse:(value:unknown)=>{success:boolean}}}, fn: never) { tools.set(name, fn); schemas.set(name,meta.inputSchema); } registerPrompt() {} registerResource() {} }, ResourceTemplate: class {} }));
 vi.mock('agents/mcp/server', () => ({ createMcpHandler: vi.fn() }));
 vi.mock('../worker/events', async original => ({ ...(await original<typeof import('../worker/events')>()), scheduleOutbox: vi.fn() }));
-vi.mock('../shared/recurrence', async original => ({ ...(await original<typeof import('../shared/recurrence')>()), todayUtc: () => '2026-10-24' }));
+vi.mock('../worker/workspaceSettings', async original => ({ ...(await original<typeof import('../worker/workspaceSettings')>()), serverDateContext: async () => ({timeZone:'UTC',currency:'INR',weekStart:1,version:1,updatedAt:0,today:'2026-10-24'}) }));
 import { createWorkspaceServer } from '../worker/mcp';
 
 let fx: AuditFixture | undefined;

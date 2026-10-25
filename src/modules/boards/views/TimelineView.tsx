@@ -1,3 +1,5 @@
+import {useWorkspaceLocale} from '../../../core/workspaceLocale';
+import type {Weekday} from '../../../../shared/dates';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -19,10 +21,7 @@ import type { ViewRow } from '../../../core/records';
 type Scale = 'week' | 'month' | 'quarter';
 const DAY_W: Record<Scale, number> = { week: 64, month: 14, quarter: 4 };
 
-function todayStr(): string {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-}
+
 
 const tickLabel = (scale: Scale, d: string) => {
   const p = parseDateOnly(d)!;
@@ -74,7 +73,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
   const tasks = useTasks();
   const links = useLinks();
   const me = useStore(authStore).user?.id;
-  const today = todayStr();
+  const locale=useWorkspaceLocale(),today=locale.today,weekStart=(locale.settings?.weekStart??1) as Weekday;
   const [anchor, setAnchor] = useState(today);
   const [editBar, setEditBar] = useState<TimelineBar | null>(null);
 
@@ -82,7 +81,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
   const dateKey = resolveDateKey(cfg);
   const endKey = (cfg.endDateKey ?? null) as FieldKey | null;
   const scale: Scale = cfg.timelineScale === 'week' || cfg.timelineScale === 'quarter' ? cfg.timelineScale : 'month';
-  const ctx = useMemo(() => viewCtx(board, tasks, links, me, today), [board, tasks, links, me, today]);
+  const ctx = useMemo(() => viewCtx(board, tasks, links, me, today), [board, tasks, links, me, today,locale.settings?.timeZone]);
 
   const grouped = useMemo(() => applyView(records, cfg, ctx), [records, cfg, ctx]);
   const groups = grouped.groups ?? [{ key: '', rows: grouped.rows }];
@@ -97,7 +96,7 @@ export function TimelineView({ board, view, records }: { board: BoardRow; view: 
   );
   const conflicts = useMemo(() => timelineConflicts(groupBars.flatMap((g) => g.bars), edges), [groupBars, edges]);
 
-  const range = scaleRange(scale, anchor);
+  const range = scaleRange(scale, anchor,weekStart);
   const dayW = DAY_W[scale];
   const days = range ? (daysBetween(range.start, range.end) ?? 0) + 1 : 0;
   const open = (rec: TaskRow) => navigate(recordHref(board.id, view.id || undefined, rec.id));

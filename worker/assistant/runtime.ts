@@ -1,3 +1,4 @@
+import {serverToday} from '../workspaceSettings';
 /** Embedded assistant runtime: one bounded STEP per HTTP request.
  *
  * step 0      (send)      store the user message (+ resolved, permission-checked
@@ -91,7 +92,7 @@ async function resolveContext(env:Env,bridge:Bridge,user:StepUser,refs:ContextRe
 const dedupe=(s:SourceRef[])=>[...new Map(s.map(x=>[x.id,x])).values()].slice(0,30);
 
 /* ---------- model history ---------- */
-function systemPrompt(actionId:string|null){
+function systemPrompt(actionId:string|null,today:string){
  const a=actionId?aiAction(actionId):undefined;
  return [
   'You are Workspace Assistant, embedded in TCG Workspace. You help the signed-in user with their authorized workspace data.',
@@ -103,7 +104,7 @@ function systemPrompt(actionId:string|null){
   '5. Never write SQL. Use structured tools such as query_records.',
   WORKFLOW_SAFETY,
   a?`Requested action — ${a.label}: ${a.instruction}`:'',
-  `Today is ${new Date().toISOString().slice(0,10)}.`,
+  `Today in this workspace is ${today}.`,
  ].filter(Boolean).join('\n');
 }
 function turnsFrom(rows:MessageRow[]):ChatTurn[]{
@@ -192,7 +193,7 @@ async function modelSegment(env:Env,user:StepUser,run:RunRow,io:StepIO){
  const secret=['openai','anthropic'].includes(run.provider)?await loadCredential(env,user.id,run.provider):null;
  const messageId=crypto.randomUUID();let text='';const calls:{id:string;name:string;arguments:string}[]=[];let error:ProviderEvent&{type:'error'}|null=null;
  const offered=new Set(tools.map(t=>t.name));
- for await(const ev of PROVIDERS[run.provider as ProviderId].stream(env,{model:run.model,system:systemPrompt(run.action_id),turns:turnsFrom(visible),tools,signal:io.signal,userId:user.id},secret)){
+ for await(const ev of PROVIDERS[run.provider as ProviderId].stream(env,{model:run.model,system:systemPrompt(run.action_id,await serverToday(env)),turns:turnsFrom(visible),tools,signal:io.signal,userId:user.id},secret)){
   if(ev.type==='text'){text+=ev.delta;if(text.length>40000){error={type:'error',code:'provider_failed',retryable:false,message:'Reply exceeded the size limit.'};break;}await io.emit({type:'text',messageId,delta:ev.delta});}
   else if(ev.type==='tool_call'){if(calls.length<MAX_TOOL_CALLS_PER_SEGMENT)calls.push({id:ev.id.slice(0,64),name:ev.name.slice(0,64),arguments:ev.arguments.slice(0,20000)});}
   else if(ev.type==='error'){error=ev;break;}

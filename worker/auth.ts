@@ -8,6 +8,8 @@ import { clearLoginFailures, clientAddress, loginRetryAfter, recordLoginFailure,
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 
 export interface Env {
+  /** Server-created context, replaced at every request/cron boundary. */
+  WORKSPACE_CONTEXT?: import('./workspaceSettings').WorkspaceContext;
   TURNSTILE_SECRET?: string;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_HOSTNAMES?: string;

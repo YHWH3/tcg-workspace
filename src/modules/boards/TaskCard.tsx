@@ -1,3 +1,4 @@
+import {useWorkspaceLocale} from '../../core/workspaceLocale';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -15,6 +16,7 @@ import { columnsOf } from './model';
 import { FieldChips } from './FieldValue';
 
 export function TaskCard({ task, board, overlay }: { task: TaskRow; board: BoardRow | undefined; overlay?: boolean }) {
+  useWorkspaceLocale();
   const navigate = useNavigate();
   const users = useUsers();
   const me = authStore.get().user;

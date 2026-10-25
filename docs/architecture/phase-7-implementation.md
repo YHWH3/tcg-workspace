@@ -23,7 +23,21 @@ Do not describe an unconfirmed interruption cause as a fixed application defect.
   presets, invalid-input preservation, reload, axe and bottom-action reachability
   are checked. Compact dark screenshot reviewed. Earlier failing native-keyboard
   harness probes remain retained; this is not the final Phase 7 certificate.
-- **7.2–7.4:** not yet implemented. Follow
+- **7.2:** implemented; focused verification passes. Server-only migration 0035,
+  canonical-admin settings with version/session commit fences, request-scoped
+  server dates, shared money formatting and account-bound client cache. Local
+  midnight/visibility/live changes refresh date-sensitive views. UTC provider
+  usage quotas and audit/export timestamps remain intentional.
+  The final 54-case browser matrix passes across all 18 projects: populated
+  settings, field editor/creation, defaults and explicit USD, keyboard/touch,
+  recovery, whole-page axe and geometry. Screenshot review corrected a squeezed
+  new-field name input; compact field controls stack with touch targets.
+  All failures remain retained. The full development test run ended 1591 PASS /
+  1 FAIL because its wall-clock-based eight-retry fixture crossed into Monday.
+  It now uses a fixed UTC midweek date and separately tests the week boundary;
+  affected digest and reproduced cache-edge regressions pass 22/22. This does
+  not relabel that failed full run or replace final Phase 7 certification.
+- **7.3–7.4:** not yet implemented. Follow
   [the ordered feature specification](../roadmap/07-foundations.md).
 
 ## Decisions and constraints

@@ -1,3 +1,4 @@
+import {useWorkspaceLocale,workspaceCurrency,workspaceTimeZone} from '../workspaceLocale';
 /**
  * Field-key → compact cell editors/renderers shared by TableView, ListView
  * and GalleryView. Builtin keys render read/write controls; p_* keys reuse
@@ -15,7 +16,7 @@ import { cn, formatDate } from '../utils';
 import { useTokenResolver } from '../resolveMentions';
 import { renderPlain } from '../mentions';
 import { columnIdFor, lastColumnId, PRIORITIES, type BoardRow, type TaskRow } from '../../modules/boards/api';
-import { fieldsOf, propKey, type FieldDef } from '../../../shared/fields';
+import { fieldsOf, propKey,formatNumber, type FieldDef } from '../../../shared/fields';
 import { isRelationField, useLinks, type RelationFieldDef } from '../links';
 import { stagesOf, showBuiltinsOf } from '../records';
 import { RelationPicker } from './picker';
@@ -31,6 +32,7 @@ export async function setRecordProp(recordId: string, key: string, value: unknow
 
 /** Compact display value for chips/cards (no editing). */
 export function CellValue({ board, rec, keyName }: { board: BoardRow | undefined; rec: TaskRow; keyName: string }) {
+  useWorkspaceLocale();
   const users = useUsers();
   const me = authStore.get().user;
   const links = useLinks();
@@ -58,7 +60,7 @@ export function CellValue({ board, rec, keyName }: { board: BoardRow | undefined
     const p = PRIORITIES.find((x) => x.id === rec.priority);
     return p && p.id !== 'none' ? <span className={p.cls}>{p.label}</span> : null;
   }
-  if (keyName === 'createdAt') return rec.createdAt ? <span className="text-neutral-500 dark:text-neutral-400">{new Date(Number(rec.createdAt)).toLocaleDateString()}</span> : null;
+  if (keyName === 'createdAt') return rec.createdAt ? <span className="text-neutral-500 dark:text-neutral-400">{new Date(Number(rec.createdAt)).toLocaleDateString(undefined,{timeZone:workspaceTimeZone()})}</span> : null;
   if (keyName === 'createdBy') {
     const u = resolveUser(rec.createdBy ? String(rec.createdBy) : null, users, me);
     return u ? <span className="truncate text-neutral-500 dark:text-neutral-400">{u.name}</span> : null;
@@ -114,6 +116,7 @@ function RelChipTitles({ ids }: { ids: string[] }) {
 }
 
 function PropValue({ field, raw }: { field: FieldDef; raw: unknown }) {
+  useWorkspaceLocale();
   const users = useUsers();
   const me = authStore.get().user;
   if (raw === undefined || raw === null || raw === '' || (Array.isArray(raw) && !raw.length)) return null;
@@ -147,7 +150,7 @@ function PropValue({ field, raw }: { field: FieldDef; raw: unknown }) {
       </span>
     ) : null;
   }
-  return <span className="truncate text-neutral-500 dark:text-neutral-400">{String(raw)}</span>;
+  return <span className="truncate text-neutral-500 dark:text-neutral-400">{field.type==='number'?formatNumber(Number(raw),field,workspaceCurrency()):String(raw)}</span>;
 }
 
 /* ---------- editable cells (table) ---------- */
@@ -290,17 +293,7 @@ function PropCell({ field, rec }: { field: FieldDef; rec: TaskRow }) {
     case 'date':
       return <input type="date" value={typeof raw === 'string' ? raw : ''} onChange={(e) => set(e.target.value || null)} className={cellInput} aria-label={field.name} />;
     case 'number':
-      return (
-        <input
-          type="number"
-          key={rec.id + field.id + String(raw ?? '')}
-          defaultValue={typeof raw === 'number' ? raw : ((raw ?? '') as string | number)}
-          onBlur={(e) => set(e.target.value === '' ? null : Number(e.target.value))}
-          className={cellInput}
-          aria-label={field.name}
-          title={String(raw ?? '')}
-        />
-      );
+      return <NumberCell field={field} raw={raw} recordId={rec.id} onCommit={set}/>;
     case 'url':
     case 'text':
     default:
@@ -329,4 +322,12 @@ function PropCell({ field, rec }: { field: FieldDef; rec: TaskRow }) {
 export function subProgress(rec: TaskRow, allTasks: TaskRow[], board: BoardRow | undefined): { done: number; total: number } {
   const kids = allTasks.filter((t) => !t.deleted && String(t.parentId ?? '') === rec.id);
   return { done: kids.filter((k) => columnIdFor(k, board) === lastColumnId(board) && stagesOf(board).length > 0).length, total: kids.length };
+}
+
+function NumberCell({field,raw,recordId,onCommit}:{field:FieldDef;raw:unknown;recordId:string;onCommit:(value:unknown)=>void}){
+ useWorkspaceLocale();const currency=field.currency??workspaceCurrency(),formatted=field.format&&field.format!=='plain',empty=raw===null||raw===undefined||raw==='';
+ return <div className="relative w-full" title={field.format==='currency'?currency+(field.currency?', field currency':', workspace default'):undefined}>
+  <input type="number" key={recordId+field.id+String(raw??'')} defaultValue={typeof raw==='number'?raw:((raw??'') as string|number)} onBlur={e=>onCommit(e.target.value===''?null:Number(e.target.value))} className={cn(cellInput,formatted&&'peer text-transparent focus:text-neutral-900 dark:focus:text-white')} aria-label={field.name+(field.format==='currency'?' ('+currency+')':'')}/>
+  {formatted&&<span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center truncate px-1.5 text-[13px] peer-focus:hidden">{empty?'':formatNumber(Number(raw),field,workspaceCurrency())}</span>}
+ </div>;
 }

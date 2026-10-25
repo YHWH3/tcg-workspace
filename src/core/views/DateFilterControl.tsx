@@ -1,3 +1,4 @@
+import {useWorkspaceLocale} from '../workspaceLocale';
 import {useEffect,useId,useRef,useState} from 'react';
 import {parseDateOnly,resolveDateBound} from '../../../shared/dates';
 import type {FieldDef} from '../../../shared/fields';
@@ -63,6 +64,7 @@ function DateBoundControl({value,onChange,label,today}:{value:unknown;onChange:(
 
 /** Shared by database filters and automation conditions; values use one contract. */
 export function DateFilterControl({filter,onChange,label,fields}:{filter:Filter;onChange:(filter:Filter)=>void;label:string;fields:readonly FieldDef[]}) {
+  useWorkspaceLocale();
   const today=todayISO();
   if(filter.op!=='within')return <DateBoundControl value={filter.value} onChange={value=>onChange({...filter,value})} label={label} today={today}/>;
   const range=filter.value&&typeof filter.value==='object'?filter.value as {from?:unknown;to?:unknown}:{};

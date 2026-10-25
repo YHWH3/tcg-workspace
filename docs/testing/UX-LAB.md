@@ -35,7 +35,7 @@ Reports/traces are local-only and may contain disposable session credentials. Do
 
 The explicit matrix is Chromium/Firefox/WebKit × 390/820/1440px × light/dark: 18 projects. The catalog covers 21 named rendered states: home/page, database index, six record views, task detail and unavailable task, moodboard/form/automation empty states, approvals, Activity, Inbox, Settings, AI library with inference off, Website dashboard and Website inbox.
 
-The complete plan has 33 cases × 18 projects = 594 cases. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
+The complete plan has 34 cases × 18 projects = 612 cases. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
 
 Fast-check generates bounded sequences of stage changes, Unicode/long title edits, offline edits, reloads, breakpoint changes, theme changes and keyboard search. It compares title/stage with a small model and verifies server persistence before reload. Every generated case resets its starting viewport/theme/connectivity; failures retain seed, shrink path, command sequence and a replay command. The default is three generated sequences per project, each with 6–14 commands. This is bounded exploration, not all possible sequences.
 
@@ -78,3 +78,16 @@ bounds, invalid offset refusal, reload recovery and touch presets, then reaches
 the bottom action in the compact filter sheet. Native select text search is
 used for keyboard acceptance on macOS headless engines; every selection is
 asserted. The named date workflow replaces R1’s free-text hint interaction.
+
+The locale case edits Workspace settings through the authenticated UI, checks invalid input, verifies its account-specific offline cache and opens a populated INR metric. Fixture settings are restored after each project. These actions affect only the disposable local workspace.
+
+Phase 7 locale coverage also opens the populated field editor, refuses an invalid
+currency override, stores and clears an explicit override, measures the empty
+new-name placeholder and creates a Number field through keyboard/touch controls.
+Dashboard comment actions use normal flow so they cannot cover Configure actions.
+The test reads the rendered metric total for drill-down, retaining its native
+visible-text accessible name. Normal hard navigation/reload waits for API reads.
+The bounded WebKit handled-read recovery list includes the new settings GET only
+when an actual authenticated 200 response has valid timezone/currency/week/version;
+self-tests require offline, invalid, unauthorized and failed responses to refuse.
+Real window errors/rejections, unmatched diagnostics and all axe nodes still fail.

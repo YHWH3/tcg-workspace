@@ -1,3 +1,4 @@
+import {useWorkspaceLocale} from '../../core/workspaceLocale';
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { CheckSquare } from 'lucide-react';
@@ -11,6 +12,7 @@ import { FieldChips } from './FieldValue';
 
 /** /tasks — "My tasks" across all boards, grouped by board. */
 export function MyTasksPage() {
+  useWorkspaceLocale();
   const tasks = useTasks();
   const boards = useBoards();
   const users = useUsers();

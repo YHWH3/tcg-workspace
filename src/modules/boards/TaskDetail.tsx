@@ -1,3 +1,5 @@
+import {workspaceTimeZone} from '../../core/workspaceLocale';
+import {useWorkspaceLocale} from '../../core/workspaceLocale';
 import {HistoryButton} from '../../core/History';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -47,6 +49,7 @@ function TaskDetailState({ taskId, onClose }: { taskId: string; onClose: () => v
 }
 
 function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClose }: { taskId: string; task: TaskRow | undefined; loading: boolean; titleDraft: ReturnType<typeof useTaskTextDraft>; descriptionDraft: ReturnType<typeof useTaskTextDraft>; onClose: () => void }) {
+  useWorkspaceLocale();
   useAssistantContext(task && !task.deleted ? { kind: 'record', id: task.id } : null);
   const users = useUsers();
   const boards = useBoards();
@@ -248,7 +251,7 @@ function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClo
 
           <div className="mt-3 flex items-center gap-2 text-xs text-neutral-400">
             {task.createdBy && <Creator id={String(task.createdBy)} />}
-            {task.createdAt && <span>{new Date(Number(task.createdAt)).toLocaleDateString()}</span>}
+            {task.createdAt && <span>{new Date(Number(task.createdAt)).toLocaleDateString(undefined,{timeZone:workspaceTimeZone()})}</span>}
           </div>
         </div>
         <Slot modules={modules} kind="taskDetail" props={{ taskId: task.id }} />

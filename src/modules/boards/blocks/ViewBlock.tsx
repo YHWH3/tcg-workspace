@@ -1,3 +1,4 @@
+import {useWorkspaceLocale} from '../../../core/workspaceLocale';
 /**
  * `view` dashboard block (§3): embeds the REAL view component for a database —
  * no grid re-implementation. `databaseId` picks the database; `viewId` pins a
@@ -44,6 +45,7 @@ function renderBlockView(board: BoardRow, view: ViewRow, records: TaskRow[]) {
 }
 
 function ViewBlockInner({ block }: { block: LocalRow }) {
+  useWorkspaceLocale();
   const boards = useBoardsQuery();
   const tasks = useTasksQuery();
   const links = useLinks();

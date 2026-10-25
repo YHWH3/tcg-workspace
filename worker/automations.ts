@@ -1,3 +1,4 @@
+import {serverDateContext,readWorkspaceSettings,withWorkspaceContext} from './workspaceSettings';
 // Phase 4 — automation engine (Workstream E). Config is a synced `automations`
 // collection; this file is the only executor: matches triggers on derived
 // semantic events, evaluates conditions on the post-write record, then runs
@@ -29,7 +30,7 @@ import {
 } from '../shared/automations';
 import type { ViewCtx } from '../shared/views';
 import { coerceFieldValue, fieldsOf, type FieldDef } from '../shared/fields';
-import { addDays, todayUtc } from '../shared/recurrence';
+import { addDays } from '../shared/recurrence';
 import { linkId } from '../shared/linkid';
 import { planTemplateInstantiation } from '../shared/templates';
 import { loadTemplateSnapshot } from './templateSnapshot';
@@ -474,6 +475,7 @@ async function advanceDateOffsetPage(env: Env, scan: DateOffsetScan, today: stri
   const validation = await loadValidationCtx(env, scan.auto.data, candidates.flatMap((candidate) => candidate.boardId ? [candidate.boardId] : []));
   const boards = validation.boardsById instanceof Map ? validation.boardsById : new Map<string, Record<string, unknown>>();
   const configErrors = validateAutomation(scan.auto.data, validation);
+  const {timeZone}=await readWorkspaceSettings(env);
   try {
     for (const candidate of candidates) {
       if (candidate.ineligible || !candidate.rec || !candidate.event) {
@@ -492,7 +494,7 @@ async function advanceDateOffsetPage(env: Env, scan: DateOffsetScan, today: stri
         const fieldsById = new Map(fieldsOf(board).map((field) => [field.id, field]));
         matches = conditionsMatch(scan.auto.data.conditions, { id: candidate.rec.id, ...candidate.rec.data }, {
           meId: String(candidate.rec.data.createdBy ?? ''),
-          today,
+          today,timeZone,
           fieldsById,
         } satisfies ViewCtx);
       } catch {
@@ -536,8 +538,9 @@ async function advanceDateOffsetPage(env: Env, scan: DateOffsetScan, today: stri
  * and stores how far it got. Later eligible rows are not stuck behind a
  * completed prefix, and a budget stop is not a failed automation.
  */
-export async function runDateOffsetAutomations(env: { DB: D1Database }, today: string = todayUtc()): Promise<void> {
-  const e = env as Env;
+export async function runDateOffsetAutomations(env: { DB: D1Database }, today?: string): Promise<void> {
+  const e = ((env as Env).WORKSPACE_CONTEXT?env:withWorkspaceContext(env)) as Env;
+  today??=(await serverDateContext(e)).today;
   if (!hasD1Budget(e.DB, 4)) return;
   const scans: DateOffsetScan[] = [];
   for (const auto of (await enabledAutomations(e)).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
@@ -693,7 +696,8 @@ export async function runAutomationsForEvent(
   semantic: SemanticEvent[],
   ctx: EventCtx
 ): Promise<void> {
-  const today = todayUtc();
+  env=(env as Env).WORKSPACE_CONTEXT?env:withWorkspaceContext(env);
+  const dateContext=await serverDateContext(env),today=dateContext.today;
   const recCache = new Map<string, { id: string; collection: string; data: Record<string, unknown> } | null>();
   const fetchRec = async (id: string) => {
     if (!recCache.has(id)) recCache.set(id, (await getRec(env as Env, id)) ?? null);
@@ -712,7 +716,7 @@ export async function runAutomationsForEvent(
         if (!matchesScope(auto.data, ev2)) continue;
         if (auto.data.trigger?.kind==='date_offset' || !matchesTrigger(auto.data.trigger, ev2, { today })) continue;
         const board = ev2.boardId ? (await fetchRec(ev2.boardId))?.data : undefined;
-        const vctx: ViewCtx = { meId: ctx.userId, today, fieldsById: new Map(fieldsOf(board).map((f: FieldDef) => [f.id, f])) };
+        const vctx: ViewCtx = { meId: ctx.userId, today,timeZone:dateContext.timeZone, fieldsById: new Map(fieldsOf(board).map((f: FieldDef) => [f.id, f])) };
         try {
           if (!conditionsMatch(auto.data.conditions, { id: rec.id, ...(ev.snapshot??rec.data) }, vctx)) continue;
         } catch {

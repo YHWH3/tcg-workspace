@@ -436,6 +436,7 @@ function BlockItem(props: BlockItemProps) {
   // Registered media blocks (image, video, audio, file, tasks…) render via the registry.
   const Media = blockRenderer(type);
   if (Media) {
+    const dashboard=['metric','view','calendar','mywork','activity'].includes(type);
     return (
       <div
         className={cn('group relative flex items-start gap-0.5 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-blue-300', props.dragOver && 'border-t-2 border-blue-400')}
@@ -459,7 +460,7 @@ function BlockItem(props: BlockItemProps) {
         <Handle {...props} />
         <div className="relative min-w-0 flex-1">
           <Media block={block} onNewBelow={props.onNewBelow} onDelete={props.onDelete} />
-          <Slot modules={modules} kind="commentBadge" props={{ targetType: 'block', targetId: block.id, overlay: true }} />
+          <Slot modules={modules} kind="commentBadge" props={{ targetType: 'block', targetId: block.id, overlay: !dashboard, alwaysVisible:dashboard }} />
         </div>
         <BlockMenu {...props} />
       </div>

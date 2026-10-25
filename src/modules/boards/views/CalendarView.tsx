@@ -1,3 +1,5 @@
+import {useWorkspaceLocale} from '../../../core/workspaceLocale';
+import type {Weekday} from '../../../../shared/dates';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -20,10 +22,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 const WDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const fine = () => typeof window !== 'undefined' && window.matchMedia('(pointer:fine)').matches;
 
-function todayStr(): string {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-}
+
 
 async function setRecordDate(rec: TaskRow, key: FieldKey, value: string | null): Promise<void> {
   await mutate('tasks', rec.id, { [key]: value });
@@ -71,19 +70,19 @@ export function CalendarView({ board, view, records }: { board: BoardRow; view: 
   const tasks = useTasks();
   const links = useLinks();
   const me = useStore(authStore).user?.id;
-  const today = todayStr();
+  const locale=useWorkspaceLocale(),today=locale.today,weekStart=(locale.settings?.weekStart??1) as Weekday;
   const [anchor, setAnchor] = useState(today);
   const [mode, setMode] = useState<'month' | 'agenda' | null>(null);
   const [trayOpen, setTrayOpen] = useState(false);
 
   const cfg = view.config ?? {};
   const dateKey = resolveDateKey(cfg);
-  const ctx = useMemo(() => viewCtx(board, tasks, links, me, today), [board, tasks, links, me, today]);
+  const ctx = useMemo(() => viewCtx(board, tasks, links, me, today), [board, tasks, links, me, today,locale.settings?.timeZone]);
   const byDay = useMemo(() => recordsForCalendar(records, cfg, ctx) as Map<string, TaskRow[]>, [records, cfg, ctx]);
   const unsched = useMemo(() => unscheduled(records, cfg, ctx) as TaskRow[], [records, cfg, ctx]);
 
   const a = parseDateOnly(anchor) ?? parseDateOnly(today)!;
-  const cells = monthGrid(a.y, a.m, 1);
+  const cells = monthGrid(a.y, a.m, weekStart);
   const effMode = mode ?? (compact ? 'agenda' : 'month');
 
   const open = (rec: TaskRow) => navigate(recordHref(board.id, view.id || undefined, rec.id));
@@ -132,7 +131,7 @@ export function CalendarView({ board, view, records }: { board: BoardRow; view: 
       <div className="min-h-0 flex-1 overflow-auto">
         {effMode === 'month' ? (
           <div className="grid h-full grid-cols-7 auto-rows-fr">
-            {WDAYS.map((d) => (
+            {Array.from({length:7},(_,i)=>WDAYS[(weekStart+i+6)%7]).map((d) => (
               <div key={d} className="border-b border-neutral-200/70 px-1 py-1 text-center text-[10px] font-semibold uppercase text-neutral-600 dark:text-neutral-400 dark:border-neutral-800/70">
                 {d}
               </div>

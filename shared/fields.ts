@@ -1,3 +1,4 @@
+import {validCurrency} from './workspaceSettings';
 /* Pure custom-field model for boards — shared by client UI, worker/MCP tools and tests. */
 
 export type FieldType = 'text' | 'number' | 'select' | 'multi_select' | 'person' | 'date' | 'url' | 'checkbox' | 'relation';
@@ -12,6 +13,8 @@ export interface FieldDef {
   id: string;
   name: string;
   type: FieldType;
+  format?: 'plain' | 'currency' | 'percent';
+  currency?: string;
   /** select / multi_select options */
   options?: FieldOption[];
   /** render as a chip on board cards */
@@ -131,10 +134,12 @@ export function isSelectType(t: FieldType): boolean {
 export function formatFieldValue(
   def: FieldDef,
   value: unknown,
-  lookups?: { userName?: (id: string) => string | undefined },
+  lookups?: { userName?: (id: string) => string | undefined; workspaceCurrency?:string },
 ): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   switch (def.type) {
+    case 'number':
+      return formatNumber(Number(value),def,lookups?.workspaceCurrency??'INR');
     case 'checkbox':
       return value === true ? '✓' : undefined;
     case 'select': {
@@ -161,4 +166,12 @@ export function formatFieldValue(
 export function staleOptionIds(def: FieldDef, value: unknown): string[] {
   const vals = Array.isArray(value) ? value : value === undefined ? [] : [value];
   return vals.filter((v): v is string => typeof v === 'string' && !isValidOption(def, v));
+}
+
+/** Display only; no exchange conversion. An explicit field currency always wins. */
+export function formatNumber(value:number,def:Pick<FieldDef,'format'|'currency'>,workspaceCurrency:string):string {
+ if(!Number.isFinite(value))return '';
+ if(def.format==='currency'){const currency=def.currency??workspaceCurrency;return validCurrency(currency)?new Intl.NumberFormat('en-IN',{style:'currency',currency}).format(value):`${currency} ${value}`;}
+ if(def.format==='percent')return new Intl.NumberFormat('en-IN',{style:'percent',maximumFractionDigits:2}).format(value);
+ return String(value);
 }

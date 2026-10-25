@@ -122,7 +122,7 @@ Delete its entry from `modules` in `src/modules/index.ts` — nav, routes, sideb
 
 ## Cross-phase invariants (from the 2026-10 audit — see `docs/reviews/cross-phase-audit.md`)
 
-- **Server-only tables, not collections.** `notifications`, `approvals`, `form_tokens`, `form_submissions`, `website_ingest`, `rate_limits`, `event_outbox`, `date_index`, `reminder_sent`, `automation_runs`, `changesets`/`changeset_items`, `undo_*`, `mcp_requests`, `mcp_write_jobs`, `search_documents`/`search_fts`/`search_dirty` are D1 tables read through authenticated endpoints. Never add them to `COLLECTIONS`.
+- **Server-only tables, not collections.** `workspace_settings`, `notifications`, `approvals`, `form_tokens`, `form_submissions`, `website_ingest`, `rate_limits`, `event_outbox`, `date_index`, `reminder_sent`, `automation_runs`, `changesets`/`changeset_items`, `undo_*`, `mcp_requests`, `mcp_write_jobs`, `search_documents`/`search_fts`/`search_dirty` are D1 tables read through authenticated endpoints. Never add them to `COLLECTIONS`.
 - **Client input is untrusted.** Timestamps are bounded (`shared/clock.ts`: server clamps to now+60 s, client refuses to observe larger); record size is bounded (`record_too_large`); a MIME string, SVG bytes and `kind` are attacker-chosen.
 - **One serving policy.** Stored files are served only through `servedFile()`/`servedFileHeaders()` (`worker/files.ts`); object URLs are created only through `renderableBlob()` (`src/core/renderable.ts`). Never emit an uploader-supplied `Content-Type`.
 - **A policy refusal is item-wise.** Anything that can reject a write must be a pre-check in `applyChanges` returning a `rejectedItems` reason; a SQL guard that aborts the batch is only a race backstop (`gateTransition` is the single gate predicate).

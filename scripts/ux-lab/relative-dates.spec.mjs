@@ -1,3 +1,4 @@
+import {reloadReady} from '../navigation-ready.mjs';
 import {test,expect,open,health,request} from './support.mjs';
 import {readAccountStore} from '../certification/browser-db.mjs';
 import {surfaces} from './catalog.mjs';
@@ -79,7 +80,7 @@ test('date ranges: keyboard creation, touch presets, validation and reload',asyn
     expect((await value()).value.to).toBe('today+30');await days.fill('7');await days.press('Tab');await expect.poll(async()=>(await value()).value.to).toBe('today+7');
     await page.keyboard.press('Escape');await expect(preset).toBeHidden();
     await expect(page.getByText('Far deadline '+suffix,{exact:true})).toHaveCount(0);
-    await page.reload();await page.getByRole('toolbar',{name:'View controls',exact:true}).waitFor();
+    await reloadReady(page);await page.getByRole('toolbar',{name:'View controls',exact:true}).waitFor();
     const reopen=page.getByRole('button',{name:'Filter · 1',exact:true});
     if(info.project.use.hasTouch)await reopen.tap();else {await reopen.focus();await reopen.press('Enter');}
     await expect(page.getByRole('spinbutton',{name:'Filter to days',exact:true})).toHaveValue('7');

@@ -1,3 +1,5 @@
+import {startWorkspaceSettings} from './workspaceSettings';
+import {WorkspaceDateNotice} from './WorkspaceSettingsPanel';
 import {SpaceSwitcher} from './SpaceHome';
 import { useEffect, useState } from 'react';
 import { matchPath, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router';
@@ -530,6 +532,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function Shell() {
+  const localeAccount=useStore(authStore).user?.id;
+  useEffect(()=>startWorkspaceSettings(),[localeAccount]);
   const mobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
   const location = useLocation();
@@ -597,6 +601,7 @@ export function Shell() {
           </header>
         )}
         {mobile && <SyncIndicator heldOnly />}
+        <WorkspaceDateNotice/>
 
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
           {matchPath('boards/:boardId/*', location.pathname) || matchPath('boards/:boardId', location.pathname) ? (
