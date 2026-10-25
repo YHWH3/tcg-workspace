@@ -5,7 +5,7 @@
 
 import { cmpOrder } from './order';
 import { isSelectType, optionByName, type FieldDef } from './fields';
-import { resolveRelativeDate } from './dates';
+import { isDateBound, parseDateOnly, relativeDateError, resolveDateBound, resolveRelativeDate, toDateOnlyInZone } from './dates';
 
 export type ViewType = 'board' | 'table' | 'list' | 'gallery' | 'calendar' | 'timeline';
 
@@ -25,20 +25,8 @@ export type FieldKey =
   | `p_${string}`
   | `rel_${string}`;
 
-export type FilterOp =
-  | 'is'
-  | 'is_not'
-  | 'contains'
-  | 'not_contains'
-  | 'empty'
-  | 'not_empty'
-  | 'before'
-  | 'after'
-  | 'on_or_before'
-  | 'on_or_after'
-  | 'checked'
-  | 'unchecked'
-  | 'me';
+export const FILTER_OPERATORS = ['is','is_not','contains','not_contains','empty','not_empty','before','after','on_or_before','on_or_after','within','checked','unchecked','me'] as const;
+export type FilterOp = typeof FILTER_OPERATORS[number];
 
 export interface Filter {
   key: FieldKey;
@@ -91,6 +79,8 @@ export interface ViewCtx {
   meId?: string | null;
   /** ISO 'yyyy-mm-dd'; today and today±N resolve against this explicit context. */
   today?: string;
+  /** Calendar zone for createdAt date comparisons; date-only fields never shift. */
+  timeZone?: string;
   /** Field defs by field id for `p_<id>` keys (option order, coercions). */
   fieldsById?: Map<string, FieldDef> | Record<string, FieldDef>;
   /** Relation display titles for a `rel_<fieldId>` key on a record. */
@@ -118,6 +108,39 @@ function fieldDef(ctx: ViewCtx, key: FieldKey): FieldDef | undefined {
   const src = ctx.fieldsById;
   if (!src) return undefined;
   return src instanceof Map ? src.get(id) : (src as Record<string, FieldDef>)[id];
+}
+
+export function isDateFilterKey(key: string, fields: readonly FieldDef[] = []): boolean {
+  return key === 'dueDate' || key === 'createdAt' || fields.some(f => f.type === 'date' && `p_${f.id}` === key);
+}
+
+export function dateFilterError(filter: Pick<Filter,'key'|'op'|'value'>, fields: readonly FieldDef[] = []): string | null {
+  const dateKey = isDateFilterKey(filter.key, fields);
+  if (filter.op === 'within') {
+    if (!dateKey) return 'Within requires a date or created-date field.';
+    const range = filter.value as {from?:unknown;to?:unknown} | null;
+    if (!range || typeof range !== 'object' || Array.isArray(range) || !isDateBound(range.from) || !isDateBound(range.to))
+      return 'Choose valid from and to dates: yyyy-mm-dd, today or today±N (0 to 3650 days).';
+    if (parseDateOnly(range.from) && parseDateOnly(range.to) && range.from > range.to) return 'The from date must be on or before the to date.';
+    return null;
+  }
+  const temporal = ['before','after','on_or_before','on_or_after'].includes(filter.op);
+  if (dateKey && ['is','is_not','before','after','on_or_before','on_or_after'].includes(filter.op)) {
+    // Numeric createdAt predicates from existing callers retain their ms contract.
+    if (filter.key === 'createdAt' && typeof filter.value === 'number' && Number.isFinite(filter.value)) return null;
+    return isDateBound(filter.value) ? null : 'Choose a date or a relative day (0 to 3650 days).';
+  }
+  return temporal ? relativeDateError(filter.value) : null;
+}
+
+/** Keep operator changes from leaking a range object into a scalar input. */
+export function changeFilterOperator(filter: Filter, op: FilterOp): Filter {
+  if (op === 'within' && filter.op !== 'within') return {...filter,op,value:{from:'today',to:'today+30'}};
+  if (filter.op === 'within' && op !== 'within') {
+    const from = (filter.value as {from?:unknown}|null)?.from;
+    return {...filter,op,value:isDateBound(from) ? from : 'today'};
+  }
+  return {...filter,op};
 }
 
 function recordId(record: ViewRecord): string {
@@ -196,8 +219,23 @@ function matchesMe(v: unknown, meId: string | null | undefined): boolean {
 
 /** Evaluate one filter against a record. Unknown/missing values never match value ops. */
 export function evalFilter(record: ViewRecord, filter: Filter, ctx: ViewCtx = {}): boolean {
-  const v = fieldValue(record, filter.key, ctx);
+  let v = fieldValue(record, filter.key, ctx);
+  let comparisonRecord = record;
   const want = resolveRelativeDate(filter.value, ctx.today);
+  const dateOps = ['is','is_not','before','after','on_or_before','on_or_after'];
+  if (filter.key === 'createdAt' && (filter.op === 'within' || dateOps.includes(filter.op) && typeof filter.value === 'string')) {
+    v = toDateOnlyInZone(v as number, ctx.timeZone ?? 'UTC');
+    if (v === null) return false;
+    comparisonRecord = {...record,createdAt:v};
+  }
+  if (filter.op === 'within') {
+    const range = filter.value as {from?:unknown;to?:unknown} | null;
+    if (!range || typeof range !== 'object' || Array.isArray(range)) return false;
+    const from = resolveDateBound(range.from,ctx.today), to = resolveDateBound(range.to,ctx.today);
+    return !!from && !!to && from <= to && !!parseDateOnly(v) && String(v) >= from && String(v) <= to;
+  }
+  if ((filter.key === 'dueDate' || filter.key === 'createdAt' || fieldDef(ctx,filter.key)?.type === 'date')
+    && dateOps.includes(filter.op) && typeof filter.value !== 'number' && !resolveDateBound(filter.value,ctx.today)) return false;
   if (typeof want === 'string' && /^today(?:[+-]\d+)?$/.test(want)
     && ['before', 'after', 'on_or_before', 'on_or_after'].includes(filter.op)) return false;
   switch (filter.op) {
@@ -212,9 +250,9 @@ export function evalFilter(record: ViewRecord, filter: Filter, ctx: ViewCtx = {}
     case 'me':
       return matchesMe(v, ctx.meId);
     case 'is':
-      return valueIs(record, { ...filter, value: want }, ctx);
+      return valueIs(comparisonRecord, { ...filter, value: want }, ctx);
     case 'is_not':
-      return !valueIs(record, { ...filter, value: want }, ctx);
+      return !valueIs(comparisonRecord, { ...filter, value: want }, ctx);
     case 'contains':
       return valueContains(record, { ...filter, value: want }, ctx);
     case 'not_contains':

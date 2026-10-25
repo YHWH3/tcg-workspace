@@ -9,8 +9,7 @@
 //     conditions: Filter[] (view-filter shape, evaluated on the event AFTER state),
 //     actions: AutomationAction[] }
 
-import { evalFilter, type Filter, type FilterOp, type ViewCtx, type ViewRecord } from './views';
-import { relativeDateError } from './dates';
+import { dateFilterError, evalFilter, FILTER_OPERATORS, type Filter, type FilterOp, type ViewCtx, type ViewRecord } from './views';
 import { formatFieldValue, fieldsOf, propKey, type FieldDef } from './fields';
 import { addDays, todayUtc } from './recurrence';
 import { fnv1a64hex } from './linkid';
@@ -220,10 +219,7 @@ const inSet = (set: Set<string> | string[] | undefined, id: string): boolean =>
 const BUILTIN_FIELD_KEYS = new Set(['title', 'status', 'assigneeId', 'dueDate', 'priority', 'createdAt', 'createdBy']);
 const ACTION_FIELD_KEYS=new Set(['title','status','assigneeId','dueDate','priority','description']);
 
-const FILTER_OPS: ReadonlySet<FilterOp> = new Set([
-  'is', 'is_not', 'contains', 'not_contains', 'empty', 'not_empty',
-  'before', 'after', 'on_or_before', 'on_or_after', 'checked', 'unchecked', 'me',
-]);
+const FILTER_OPS: ReadonlySet<FilterOp> = new Set(FILTER_OPERATORS);
 
 function fieldDefByKey(board: Record<string, unknown> | undefined, key: string): FieldDef | undefined {
   if (typeof key !== 'string' || !key.startsWith('p_')) return undefined;
@@ -296,9 +292,8 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
   if (!Array.isArray(conditions)) errors.push('conditions must be an array');
   for (const [i, c] of (Array.isArray(conditions) ? conditions : []).entries()) {
     if (!c || typeof c.key !== 'string' || !FILTER_OPS.has(c.op)) errors.push(`condition ${i + 1} is invalid`);
-    else if (['before', 'after', 'on_or_before', 'on_or_after'].includes(c.op)
-      || c.key === 'dueDate' || fieldDefByKey(board, c.key)?.type === 'date') {
-      const error = relativeDateError(c.value);
+    else {
+      const error = dateFilterError(c,fieldsOf(board));
       if (error) errors.push(`condition ${i + 1}: ${error}`);
     }
   }

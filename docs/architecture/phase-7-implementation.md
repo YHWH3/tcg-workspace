@@ -14,7 +14,16 @@ Do not describe an unconfirmed interruption cause as a fixed application defect.
   assistant D1 tests for the existing dedicated database gate. The orchestrator
   imports that selector; two discovery self-tests pass. The earlier gate and
   resource evidence remain required.
-- **7.1–7.4:** not yet implemented. Follow
+- **7.1:** implemented; narrowly verified. Shared inclusive `within` evaluation, strict date-bound
+  validation, createdAt calendar comparisons (numeric sorts remain unchanged),
+  MCP schemas/tool errors and a shared native/relative date editor are implemented.
+  Compact filters use the existing scrollable sheet. Focused 120 tests
+  and actual-D1 MCP 12 tests pass; 36 browser cases pass across all 18 projects,
+  with no skips or flaky cases. Typecheck/build pass. Keyboard creation, touch
+  presets, invalid-input preservation, reload, axe and bottom-action reachability
+  are checked. Compact dark screenshot reviewed. Earlier failing native-keyboard
+  harness probes remain retained; this is not the final Phase 7 certificate.
+- **7.2–7.4:** not yet implemented. Follow
   [the ordered feature specification](../roadmap/07-foundations.md).
 
 ## Decisions and constraints

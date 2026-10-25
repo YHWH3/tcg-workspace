@@ -69,9 +69,9 @@ describe.each([false, true])('R1 actual D1, permissions enabled=%s (disposable)'
         expect(out.isError).toBe(true);
         expect(JSON.stringify(out.json)).toContain('0 to 3650');
       }
-      // Read handlers return MCP error content when called through the actual server;
-      // direct registered-handler probes observe the same validation exception.
-      await expect(call('query_records', { databaseId: 'opportunities', filters })).rejects.toThrow('0 to 3650');
+      const invalidRead = await call('query_records', { databaseId: 'opportunities', filters });
+      expect(invalidRead.isError).toBe(true);
+      expect(JSON.stringify(invalidRead.json)).toContain('0 to 3650');
     }
     const row = await fx!.db.prepare("SELECT data FROM records WHERE id='existing-view'").first<{ data: string }>();
     expect(JSON.parse(row!.data).config).toEqual({});
