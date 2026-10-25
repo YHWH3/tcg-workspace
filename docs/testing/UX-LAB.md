@@ -62,3 +62,12 @@ Geometry checks also measure the fixed “No grouping” caption's rendered text
 Native Android setup uses one public widget driver, with real positive/negative lookup probes and prompt-disappearance checks. The pinned 1.63 Java bridge's exact missing-widget lookup response is handled explicitly; generic errors and transport failures are not absence. See QA-TOOLS.md for the upstream source and retained diagnostics. Record-view state readiness includes the rendered toolbar before geometry/accessibility scanning.
 
 R1 adds a relative-date case for the filter overlay and a populated, disabled automation. It verifies date syntax hints and accessible descriptions, bounded filter results, focus recovery, geometry and whole-page axe in every project. The earlier 558-case evidence remains tied to its older source.
+
+Release UI hard-navigation readiness is separate from this lab. The runner
+tracks foreground `/api/` requests and waits for completion and a short quiet
+window before document teardown. A stalled read fails within 20 seconds. Each
+engine tests deliberate premature navigation, successful read completion before
+navigation, and visibility of an injected uncaught JavaScript error. Negative
+controls use separate pages so deliberately cancelled requests cannot pollute
+the positive tracker. No error filtering is added. The release UI runner now
+contains 21 checks: 18 viewport journeys and three engine controls.

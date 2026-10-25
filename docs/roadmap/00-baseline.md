@@ -90,15 +90,17 @@ planned work, L = inconsistency.
 | N14 | M | Populated automation editor labels, Off badge and run-history button failed AA contrast, while the old UX catalog visited only its empty state. | New relative-dates UX case, retained failed browser-probe-2 artifact | R1 adjusts existing tokens and adds populated-editor coverage |
 | N15 | L | A D1 SQL export cannot establish current OAuth grant count or connection IDs: grants are in OAUTH_KV. The historical two-grant inventory is not current verification. | Release storage architecture; prod-copy report | R2 explicitly requires separate owner KV inventory |
 
-Add new findings as N13+ with the same columns.
+| N16 | M (QA) | Hard navigation during outstanding foreground API reads causes WebKit fetch diagnostics in the release UI runner. Network-idle lifecycle alone missed dynamically started reads. A deliberately cancelled negative control also left an orphan request when its page was reused. | Retained 984328c full certificate: 33/34 PASS, release-ui 16 PASS / 2 FAIL; request-tracking and isolated-control reports | R1 adds explicit foreground request tracking with a bounded quiet window; isolates intentional cancellation in its own page. All browser-error assertions remain; premature navigation and injected uncaught-error controls prove the harness. Targeted release UI 21/21 and relative-date matrix 18/18 PASS; fresh complete certification required. |
+
+Add new findings as N17+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 
 | ID | Decision | Needed by | Recommended default |
 |---|---|---|---|
 | D1 | Certify `528b889` as is, or certify R1's head and release both together | R0/R1 | **Owner selected R1's corrected head in this chat, 2026-10-25.** |
-| D2 | Workspace timezone and currency | 7.2 | `Asia/Kolkata`, `INR` |
-| D3 | Does disabling an account keep its seat? | 7.3 | Yes. Remove (existing DELETE) frees it. |
+| D2 | Workspace timezone and currency | 7.2 | **Owner selected `Asia/Kolkata`, `INR` in this chat, 2026-10-25.** |
+| D3 | Does disabling an account keep its seat? | 7.3 | **Owner selected: free the place while disabled, 2026-10-25. Restore requires available active-account capacity; history remains.** |
 | D4 | Who triages the Website inbox (the unassigned queue audience) | 8.3 | All admins |
 | D5 | Response-age bands and target first-reply time | 8.3 | 0–2, 3–7, 8+ days; target 3 days |
 | D6 | Attention queue sources per role | 8.1 | As specified in 08 §8.1 |
