@@ -1,0 +1,95 @@
+{
+  "decision": "PASS",
+  "mode": "complete",
+  "executionMode": "resumed",
+  "startingSha": "528b889e6351a2955ca2c893725a89da088336c6",
+  "finalTestedSha": "528b889e6351a2955ca2c893725a89da088336c6",
+  "sourceFingerprint": "f9f1486626db21fedca363ba636f272881d43511a2669bd1a96616d525b5134e",
+  "startedAt": "2026-10-25T07:12:57.213Z",
+  "endedAt": "2026-10-25T07:47:17.719Z",
+  "mandatorySuites": [
+    "prerequisites",
+    "dependencies",
+    "lockfile",
+    "whitespace",
+    "migrations",
+    "harness",
+    "typecheck",
+    "unit",
+    "build",
+    "d1",
+    "security",
+    "performance-evidence",
+    "source-integrity",
+    "browsers",
+    "smoke",
+    "mcp-base",
+    "mcp-multiuser",
+    "mcp-phase1",
+    "mcp-phase2",
+    "mcp-phase3",
+    "mcp-phase4",
+    "v4",
+    "v6",
+    "v7",
+    "v8",
+    "v9",
+    "phase5-sync",
+    "phase5-workflows",
+    "phase5-mcp",
+    "phase6-workflows",
+    "release-preflight",
+    "release-rehearsal",
+    "release-ui",
+    "assistant-e2e"
+  ],
+  "pass": 34,
+  "fail": 0,
+  "notRun": 0,
+  "completeLocalCertification": true,
+  "productionReleaseCertified": false,
+  "externalGates": [
+    {
+      "name": "Physical iPhone/iPad Safari",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Physical Android",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Manual assistive technology",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Native 400% browser zoom",
+      "status": "NOT RUN",
+      "reason": "320px reflow equivalent is automated; not native zoom"
+    }
+  ],
+  "certificateSummary": "/Users/trinity/.codex/worktrees/website-workspace-integration/notion mock/.artifacts/certification/528b889e6351a2955ca2c893725a89da088336c6-2026-10-25T07-12-57-213Z-complete/summary.json",
+  "certificateSummarySha256": "178cb1177849024804f2318d9d1c6e931544c91a33ad1f3ef29b6ab48b94de77",
+  "provenance": {
+    "executionMode": "resumed",
+    "origin": "/Users/trinity/.codex/worktrees/website-workspace-integration/notion mock/.artifacts/certification/528b889e6351a2955ca2c893725a89da088336c6-2026-10-24T20-42-03-324Z-complete",
+    "unitReportSha256": "a042e74dc68cad0ab2377a950a14326f3b2b10ca643e43872a0c5ce63cc97c89",
+    "originalGateRowsSha256": "5d30e847175610324839867983228cb6b410f4492f85aeaeed2a57776de0293a",
+    "canonicalOrchestratorSha256": "071609aed13531d03540d11e26ce1fd5fb2c285d6199e103dca66a2bc9327b0e",
+    "verifierSha256": "56f7cd60cc59fa2c7e68bd62d24887c9c558addb12514b65ab35fbb245bbf1e2",
+    "wrapperSha256": "c95a16c36890355cc0abde5a6bf78f171cd1bd8012474e6978c1e19cce915986",
+    "unitReused": true
+  },
+  "safari": {
+    "status": "PASS",
+    "source": {
+      "sha": "528b889e6351a2955ca2c893725a89da088336c6",
+      "fingerprint": "f9f1486626db21fedca363ba636f272881d43511a2669bd1a96616d525b5134e"
+    },
+    "profiles": 5,
+    "journeysPerProfile": 5,
+    "artifact": "/Users/trinity/.codex/worktrees/website-workspace-integration/notion mock/.artifacts/ux-release-528b889/safari-1/results.json",
+    "sha256": "98afded507d8bd7054974c82321aff9089e0d01a1c1ef9b5aa01ec1ab2ffdb67",
+    "physicalDevice": false
+  },
+  "scope": "Sanitized historical evidence index. Does not certify later source changes or substitute human approval."
+}
