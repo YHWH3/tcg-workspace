@@ -92,7 +92,10 @@ planned work, L = inconsistency.
 
 | N16 | M (QA) | Hard navigation during outstanding foreground API reads causes WebKit fetch diagnostics in the release UI runner. Network-idle lifecycle alone missed dynamically started reads. A deliberately cancelled negative control also left an orphan request when its page was reused. | Retained 984328c full certificate: 33/34 PASS, release-ui 16 PASS / 2 FAIL; request-tracking and isolated-control reports | R1 adds explicit foreground request tracking with a bounded quiet window; isolates intentional cancellation in its own page. All browser-error assertions remain; premature navigation and injected uncaught-error controls prove the harness. Targeted release UI 21/21 and relative-date matrix 18/18 PASS; fresh complete certification required. |
 
-Add new findings as N17+ with the same columns.
+| N17 | M (QA) | Canvas pointer hit-point helper selected a nested comment button when earlier fixtures overlapped the note. Its pointer-down stops by design, so WebKit's geometry assertion observed no move. | Full 79cc6e5 certificate v7 trace: start (837.117, 293.880) in comment control; three-engine static overlap regression reproduces the wrong target | Phase 7 harness correction: exclude interactive children and resize handles, retain covered-item refusal and original geometry assertions; full v7 114/114 PASS. |
+| N18 | M (QA) | Release rehearsal retained a 34-migration assertion after Phase 7 added 0035. It failed before running upgrade/restore checkpoints. | Full 79cc6e5 certificate release-rehearsal: 35 !== 34 | Phase 7 updates the expected count to 35 and adds manifest/count self-test; actual rehearsal 12/12 PASS. |
+
+Add new findings as N19+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

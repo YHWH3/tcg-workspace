@@ -133,3 +133,16 @@ Explicit dangling-reference controls and the original concurrent downgrade/acces
 refusal assertions remain. Focused verification passes 36/36. These changes affect
 only tests/documentation, with no runtime or browser-harness change from the full
 UX source. A fresh canonical certificate and native harness runs remain required.
+
+
+The second clean canonical attempt, at `79cc6e5`, completed all gates and
+returned FAIL: 32/34 mandatory gates passed. Unit 1644/1644, dedicated D1
+732/732 (overlap), security, release UI 21/21 and assistant 27/27 passed.
+N17 corrects the canvas test's drag hit-point selection: nested comment buttons,
+editors and resize handles cannot initiate body drags; covered items stay refused.
+Three-engine negative controls reproduce the old helper failure and pass after
+correction. Actual full v7 passes 114/114 with original movement assertions.
+N18 corrects the rehearsal's missed 34-to-35 migration count; manifest/count
+self-testing and the actual 12-checkpoint upgrade/restore rehearsal pass.
+These are harness changes, not product gesture changes. A fresh clean certificate
+and native harnesses remain required before Phase 7 acceptance.

@@ -102,3 +102,11 @@ formats and a missing view, then reloads and verifies an empty second plan.
 Each project resets only stable pack IDs inside the provenance-verified owned
 local fixture. Private fixture-session metadata never goes into published evidence.
 The 648-cell complete plan is required; these targeted matrices alone are partial.
+
+
+The separate v7 canvas runner uses `scripts/canvas-hit-point.mjs` to choose an
+exposed body point. It rejects nested interactive controls, editors, resize
+handles and fully covered items. Three-engine static overlap controls reproduce
+the old comment-button selection before verifying the correction. Actual movement,
+persistence and hit-test semantics remain mandatory; no product events are bypassed
+to make the geometry assertion pass. This change does not alter the UX lab matrix.

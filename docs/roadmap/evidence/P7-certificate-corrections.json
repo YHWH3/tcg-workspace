@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "phase": "7 certification corrections",
+  "decision": "HOLD; focused corrections PASS, fresh full certificate and native checks pending",
+  "failedCertificate": {
+    "source": "79cc6e5d2e35da990fb780ba33beec14ab5f7ab7",
+    "artifact": ".artifacts/certification/79cc6e5d2e35da990fb780ba33beec14ab5f7ab7-2026-10-26T09-36-41-803Z-complete/summary.json",
+    "sha256": "507b042a4db50ce5143f77a951c1f45b73b3a33f4ecb99c9c03bc5a86c6413d1",
+    "exitCode": 1,
+    "pass": 32,
+    "fail": 2,
+    "unit": 1644,
+    "dedicatedD1": 732,
+    "countsOverlap": true,
+    "releaseUi": 21,
+    "assistant": 27
+  },
+  "corrections": [
+    {
+      "id": "N17",
+      "change": "Canvas hit point excludes interactive children and resize handles; no product code or movement assertion changed.",
+      "baseline": ".artifacts/phase7/certificate-harness-baseline.log",
+      "after": ".artifacts/phase7/certificate-harness-corrections.log",
+      "fullV7": ".artifacts/phase7/harness-corrections-full/summary.json",
+      "passed": 114,
+      "failed": 0,
+      "externalNotRun": 3
+    },
+    {
+      "id": "N18",
+      "change": "Expected release migration count 35, protected by manifest/count self-test.",
+      "actualRehearsal": ".artifacts/phase7/harness-corrections/rehearsal.log",
+      "passed": 12,
+      "failed": 0
+    }
+  ],
+  "focusedHarness": {
+    "passed": 10,
+    "failed": 0,
+    "skipped": 0,
+    "artifact": ".artifacts/phase7/certificate-harness-corrections.log"
+  },
+  "retainedUx": {
+    "source": "120d52879700204993b20ea600bfb210ec509498",
+    "artifact": ".artifacts/phase7/final-attempt-1/ux/summary.json",
+    "sha256": "42bb73b47936fb786f2c080c708c4eef18b18c6508cb5c2e190823dafec3f677",
+    "passed": 648,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "qualification": "Application and UX lab unchanged since report; subsequent changes are tests, other certification scripts and documentation. Original source identity is retained, not relabelled."
+  },
+  "limits": [
+    "No physical-device or genuine human acceptance.",
+    "No production operation, remote migration, real external notification or paid inference.",
+    "Native Safari/Android harnesses require the new certificate to pass first."
+  ]
+}
