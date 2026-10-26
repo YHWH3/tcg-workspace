@@ -281,7 +281,7 @@ describe('embedded assistant authorization (actual D1, permissions ENABLED)',()=
    if(key==='all')return async()=>{const result=await target.all();if(!interrupted){interrupted=true;await f.db.prepare("UPDATE users SET workspace_role='guest' WHERE id='bob'").run();}return result;};
    const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
   }});
-  f.env.DB=new Proxy(f.db,{get(target,key){if(key==='prepare')return (sql:string)=>/^SELECT id,username,name FROM users WHERE/.test(sql)?wrap(target.prepare(sql)):target.prepare(sql);const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});
+  f.env.DB=new Proxy(f.db,{get(target,key){if(key==='prepare')return (sql:string)=>/^SELECT id,username,name(?:,[\s\S]+?)? FROM users WHERE/.test(sql)?wrap(target.prepare(sql)):target.prepare(sql);const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});
   const result=await req(`/runs/${end.runId}/continue`,{step:end.step},'bob');
   expect(interrupted).toBe(true);expect(errorOf(result.events)?.code).toBe('access_changed');
   expect(await count("SELECT COUNT(*) n FROM assistant_messages WHERE role='tool'")).toBe(0);

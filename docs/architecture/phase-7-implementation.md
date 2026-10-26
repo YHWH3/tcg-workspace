@@ -115,3 +115,21 @@ devices and human assistive technology remain separately named acceptance gates.
 At phase end, commit source before a fresh full `npm run certify:ai`; preserve
 failed attempts and bind all reports to the actual tested head. R1 evidence
 cannot certify later Phase 7 changes.
+
+
+## First full Phase 7 verification attempt
+
+At clean `120d52879700204993b20ea600bfb210ec509498`, full UX completed
+648/648 PASS (18 projects, zero failed/skipped/flaky, exit 0). The canonical
+certificate remains FAIL/incomplete: unit 1641 PASS / 2 FAIL, dedicated D1
+731 PASS / 1 FAIL (overlap); later mandatory workflows did not complete.
+The process termination cause is unconfirmed and is not described as a fixed
+application or sleep defect.
+
+Two existing tests needed compatibility updates: stable templateItemKey metadata
+is intentionally an authored key, while actual references still must remap; and
+the directory race interceptor must match the added disabled-status column.
+Explicit dangling-reference controls and the original concurrent downgrade/access
+refusal assertions remain. Focused verification passes 36/36. These changes affect
+only tests/documentation, with no runtime or browser-harness change from the full
+UX source. A fresh canonical certificate and native harness runs remain required.
