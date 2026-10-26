@@ -1,3 +1,4 @@
+import {mutationGuardMatches,validMutationGuard,type MutationGuard} from '../../../shared/mutationGuard';
 import { PERMISSION_PROTOCOL } from '../../../shared/protocol';
 import { isCollection, type Collection } from '../../../shared/collections';
 import { WEBSITE_INBOX_BOARD, WEBSITE_INBOX_ID, websiteAutomations, websiteInboxViews } from '../../../shared/websiteInbox';
@@ -140,25 +141,26 @@ async function seedWebsiteInbox(): Promise<void> {
 }
 
 /** Local write API: apply patch to the local row + enqueue for sync, in one tx. */
-export async function mutate(collection: Collection, id: string, patch: Record<string, unknown>): Promise<void> {
+export async function mutate(collection: Collection, id: string, patch: Record<string, unknown>,ifUnchanged?:MutationGuard): Promise<void> {
   sameAccount();
   assertClientMutationReady();
   const table = db.collection(collection);
   const ts = hlc.next();
   await db.transaction('rw', table, db.outbox, async () => {
     const existing = await table.get(id);
+    if(ifUnchanged&&!mutationGuardMatches(ifUnchanged,existing??null))throw new Error('Pack source changed. Refresh the preview before applying.');
     const row = { ...(existing ?? { id, _ts: {} }), ...patch };
     const fieldTs = { ...((existing?._ts as Record<string, number> | undefined) ?? {}) };
     for (const field of Object.keys(patch)) fieldTs[field] = ts;
     row._ts = fieldTs;
     await table.put(row);
-    await db.outbox.add({ id, collection, patch, ts, createIntent: !existing });
+    await db.outbox.add({ id, collection, patch, ts, createIntent: !existing,...(ifUnchanged?{ifUnchanged}:{}) });
   });
   refreshPending();
   scheduleSync();
 }
 
-function validOutboxEntry(e: { id: unknown; collection: unknown; patch: unknown; ts: unknown }): boolean {
+function validOutboxEntry(e: { id: unknown; collection: unknown; patch: unknown; ts: unknown; ifUnchanged?:unknown }): boolean {
   return (
     typeof e.id === 'string' &&
     e.id.length > 0 &&
@@ -169,7 +171,7 @@ function validOutboxEntry(e: { id: unknown; collection: unknown; patch: unknown;
     e.patch !== null &&
     !Array.isArray(e.patch) &&
     typeof e.ts === 'number' &&
-    Number.isFinite(e.ts)
+    Number.isFinite(e.ts) && (e.ifUnchanged===undefined||validMutationGuard(e.ifUnchanged))
   );
 }
 
@@ -233,7 +235,11 @@ async function pushOutbox(access: ReconciledAccess, assertCurrent: () => void): 
   for (;;) {
     assertCurrent();
     // Pending only — rejected rows stay retained until retried/exported.
-    const entries = (await db.outbox.orderBy('autoId').toArray()).filter((e) => (e.state ?? 'pending') === 'pending').slice(0, PUSH_CHUNK);
+    const pending=(await db.outbox.orderBy('autoId').toArray()).filter(e=>(e.state??'pending')==='pending');
+    // Keep guarded upgrades separate from ordinary edits and repeated ids, so
+    // every restriction is checked against exactly one server baseline.
+    const entries:OutboxEntry[]=[],seen=new Set<string>();
+    for(const entry of pending){if(entries.length>=PUSH_CHUNK||entries.length&&(!!entry.ifUnchanged!==!!entries[0].ifUnchanged||entry.ifUnchanged&&seen.has(entry.id)))break;entries.push(entry);seen.add(entry.id);}
     if (entries.length === 0) return true;
     // Poison entries the server would reject are RETAINED as rejected
     // (previously deleted — unrecoverable; review B5).
@@ -245,7 +251,7 @@ async function pushOutbox(access: ReconciledAccess, assertCurrent: () => void): 
     }
     const good = entries.filter(validOutboxEntry);
     if (good.length === 0) continue;
-    const changes: Mutation[] = good.map((e) => ({ id: e.id, collection: e.collection, patch: e.patch, ts: e.ts }));
+    const changes: Mutation[] = good.map((e) => ({ id: e.id, collection: e.collection, patch: e.patch, ts: e.ts,...(e.ifUnchanged?{ifUnchanged:e.ifUnchanged}:{}) }));
     const res = await api<{ ok: boolean; accessEtag?: string; rejected: number; rejectedItems?: { id: string; collection: string; reason: string }[] }>('/api/sync/push', { method: 'POST', body: { changes, ...(access.protocol === PERMISSION_PROTOCOL ? { protocol: PERMISSION_PROTOCOL } : {}) } });
     assertCurrent();
     // Only acknowledged entries are deleted — server-rejected items stay
@@ -260,7 +266,7 @@ async function pushOutbox(access: ReconciledAccess, assertCurrent: () => void): 
     });
     await updatePending();
     if (access.protocol === PERMISSION_PROTOCOL && res.accessEtag !== access.etag) throw new Error('reauthorization_required');
-    if (entries.length < PUSH_CHUNK) return true;
+    if (pending.length===entries.length) return true;
   }
 }
 

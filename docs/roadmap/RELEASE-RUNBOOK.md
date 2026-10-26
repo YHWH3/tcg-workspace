@@ -144,3 +144,27 @@ revocations; do not recover old sessions/grants or purge account history. Softwa
 rollback alone cannot undo a disable action. Use current authorized admin access
 and the restore workflow for deliberate recovery. No real account or grant was
 changed during certification fixtures.
+
+
+## Phase 7.4 pack upgrade prerequisite and recovery
+
+No additional SQL migration, binding, secret or feature flag is required. Review
+and certify the Phase 7 source separately before including it in a release.
+The operating pack is version 2; existing installations are not silently upgraded.
+Use Settings → Template gallery → Update available, inspect every addition, then
+apply while online with ordinary write permission. Existing money fields gain
+workspace-default currency formatting only when their format is unset; explicit
+formats and currencies remain. This changes display, never converts amounts.
+
+A stale preview requires Refresh preview. Changed server fields cause retained
+sync rejections rather than overwrite; use sync recovery, then preview again.
+Partial additions remain saved, with the old version until all additions are
+acknowledged. Do not manually advance templateVersion or erase rejected outbox
+entries to report completion. Deleted/archived reserved items are not resurrected;
+restore only through a separate authorized action if intended. Resolve ambiguous
+legacy matches rather than guessing. Inventory overflow holds the upgrade.
+MCP install_template with mode:upgrade uses its existing frozen browser approval
+and resumable execution; dry-run output alone is not approval or application.
+Rollback preserves applied additions and user data. A software rollback does not
+remove fields/items or reverse currency display choices; deliberate edits need
+normal reviewed mutation paths. No real installation was upgraded in certification.

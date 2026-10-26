@@ -1,3 +1,4 @@
+import {validMutationGuard,mutationGuardMatches,exactGuardedReplay,type MutationGuard} from '../shared/mutationGuard';
 import {historyStatement} from './historyPersistence';
 import { Hono } from 'hono';
 import { isCollection } from '../shared/collections';
@@ -64,7 +65,7 @@ function validChange(ch: unknown): ch is Mutation {
     isCollection(ch.collection) &&
     isPlainObject(ch.patch) &&
     typeof ch.ts === 'number' &&
-    Number.isFinite(ch.ts)
+    Number.isFinite(ch.ts) && (ch.ifUnchanged===undefined||validMutationGuard(ch.ifUnchanged))
   );
 }
 
@@ -76,6 +77,7 @@ interface Plan {
   patches: { patch: Record<string, unknown>; ts: number }[];
   /** seq of the row we merged against; -1 when the row didn't exist. */
   baseSeq: number;
+  guard?:MutationGuard;
   data: Record<string, unknown>;
   field_ts: Record<string, number>;
   changed: boolean;
@@ -362,6 +364,17 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     }
   }
 
+  const grouped=new Map<string,number>();for(const ch of incoming)grouped.set(ch.id,(grouped.get(ch.id)??0)+1);
+  incoming=incoming.filter(ch=>{
+    if(!ch.ifUnchanged)return true;
+    if(grouped.get(ch.id)!==1){reject(ch.id,ch.collection,'guarded_write_requires_isolation');return false;}
+    const row=existing.get(ch.id),data=row?JSON.parse(row.data):null,fieldTs=row?JSON.parse(row.field_ts):{};
+    if(mutationGuardMatches(ch.ifUnchanged,data))return true;
+    // Lost acknowledgements replay the exact immutable mutation, including ts.
+    if(exactGuardedReplay(ch.patch,ch.ts,data,fieldTs))return false;
+    reject(ch.id,ch.collection,'source_changed_refresh_preview');return false;
+  });
+
   // Phase 4 approval gates: entering a gated stage (by status or board) or
   // re-pinning its approver without a matching approved decision is refused
   // item-wise here — on EVERY pathway (client push, MCP, automation, undo).
@@ -390,6 +403,7 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
       reject(ch.id, ch.collection, 'collection_mismatch');
       continue;
     }
+    if(ch.ifUnchanged)plan.guard=ch.ifUnchanged;
     plan.patches.push({ patch: ch.patch, ts: ch.ts });
   }
 
@@ -661,6 +675,7 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
     for (const p of failed) {
       const row = fresh.get(p.id);
       if (row && row.collection !== p.collection) { conflicts.push({id:p.id,collection:p.collection,expectedRev:p.baseSeq,currentRev:row.seq,current:null,updatedBy:row.updated_by,updatedAt:row.updated_at}); continue; }
+      if(p.guard&&!mutationGuardMatches(p.guard,row?JSON.parse(row.data):null)){refusedOnRetry.push({id:p.id,collection:p.collection,reason:'source_changed_refresh_preview'});continue;}
       applyPatches(p, row ?? null);
       if (p.changed && exceedsRecordBudget(p, row ?? null)) { refusedOnRetry.push({ id: p.id, collection: p.collection, reason: 'record_too_large' }); continue; }
       if(row&&opts.createOnly?.has(p.id)) p.changed=false;

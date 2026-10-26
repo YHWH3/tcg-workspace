@@ -53,8 +53,45 @@ Do not describe an unconfirmed interruption cause as a fixed application defect.
   The focused 51-check run passes. Earlier failures remain retained; the new
   live-sweep test must wait for the same initial presence message the app sends
   before testing closure. Original production socket code passes unchanged.
-- **7.4:** not yet implemented. Follow
-  [the ordered feature specification](../roadmap/07-foundations.md).
+- **7.4:** implemented with focused verification; phase certification pending.
+  Pack version 2 adds stable item provenance and the seven currency formats.
+  Legacy authored IDs and deterministic installed IDs are preserved by a golden
+  fixture. The additive planner preserves team labels, filters, stages, records,
+  deleted items and existing field formats. It holds ambiguous matches.
+  Client previews list every operation; guarded mutations persist with the local
+  outbox, are rechecked on the server and on rebase, and never grant authority.
+  All additions must be acknowledged before the version marker is sent. Partial
+  failure retains changes for explicit sync recovery and a fresh preview.
+  MCP upgrade uses the existing significant-write frozen preview, authenticated
+  approval fixture, revision fences and resumable execution. It is not a new tool
+  or an approval bypass. Targeted read-gated inventory refuses excessive results.
+  Final upgrade browser coverage passes 18/18 projects, including reload,
+  preservation, keyboard/touch, full-page axe and geometry. Focused checks pass
+  105/105 in 13 files; a subsequent cache/permission interplay run passes 56/56
+  in eight files (overlap). Compact light and tablet dark previews were inspected.
+  See [the checkpoint](../roadmap/evidence/P7-pack-checkpoint.json).
+
+## Pack matching and recovery rules
+
+Exact deterministic installed IDs take precedence, surviving renames and moves.
+Next come database keys and unique item keys or structural matches within the
+known installation. A deleted or archived reserved ID stays reserved. Descendants
+of unavailable parents are skipped; ambiguity prevents applying or marking the
+version complete. Arbitrarily imported, renamed content with neither provenance
+nor a verifiable installed identity is not guessed to belong to the pack.
+
+Client inventory loads exact authored IDs and targeted page bodies/database views;
+server inventory additionally follows the installed root subtree. Each bounded
+inventory refuses overflow rather than silently certifying a partial plan. Client
+plans over 450 additions require the reviewed MCP route. These limits protect the
+existing sync and D1 budgets. Added views, pages and blocks are appended without
+changing existing order values. No record answers, assignments or links are edited.
+
+A guarded write has an absent-record or field-baseline precondition. Ordinary
+session, permission, approval and CAS checks remain mandatory. Lost acknowledgements
+accept only an exact immutable mutation replay; changed source is retained as an
+item-wise rejection. A stale/rejected optimistic upgrade must not paint over newer
+server fields during permission reconciliation or ordinary pull rebase.
 
 ## Decisions and constraints
 

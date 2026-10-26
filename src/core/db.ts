@@ -10,6 +10,7 @@ export interface LocalRow {
 }
 
 export interface OutboxEntry {
+  ifUnchanged?: import('../../shared/mutationGuard').MutationGuard;
   autoId?: number;
   id: string;
   collection: Collection;

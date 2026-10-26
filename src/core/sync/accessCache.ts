@@ -174,7 +174,7 @@ async function activate(store: LocalDB, manifest: ClientAccessManifest, feed: Fe
   // Accepted offline creations were not part of the server feed. Recreate/rebase them.
   for (const [id, entries] of plan.entries) if (!plan.denied.has(id) && !delivered.has(id)) {
     const row = plan.rows.get(id); if (row?.confirmed) continue;
-    const record = rebaseRecord({ data: {}, field_ts: {} }, entries);
+    const record = rebaseRecord({ data: {}, field_ts: {} }, entries,false);
     await store.collection(entries[0].collection).put({ ...record.data, id, _ts: record.field_ts });
   }
   feed.joining = Object.create(null); feed.legacyUpgrade = false;

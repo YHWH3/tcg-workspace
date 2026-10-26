@@ -23,6 +23,12 @@ Roadmap and build specs for upcoming phases live in `docs/architecture/` (start 
 Phase 7 foundations follow `docs/roadmap/07-foundations.md`; current implementation
 and limits are in `docs/architecture/phase-7-implementation.md`. D1 certification
 selection lives in `scripts/certification/test-files.mjs` and covers Phase 4–13.
+Pack upgrades use `shared/bundled.ts` (additive planner), `worker/packUpgrade.ts`
+(targeted gated inventory), and `src/core/packUpgrades.ts` (reviewed client apply).
+`Mutation.ifUnchanged` is a restriction-only precondition, retained in the outbox
+and rechecked by server CAS and client rebase; it conveys no write authority.
+Never mark a pack version complete before its additions are acknowledged.
+Legacy stable IDs and deleted reservations must survive template changes.
 
 The Common Ground website integration (signed form ingest → Website inbox, People matching, Website section, AI/MCP tools) is specified in `docs/integrations/the-common-ground.md`. The website repository keeps an identical copy (`INTEGRATION-WORKSPACE.md`): **change both copies in the same change** whenever the contract moves. Code: `shared/websiteInbox.ts` (board, fields, views, families), `worker/websiteIngest.ts` (route), `shared/websiteStats.ts` (dashboard and digest figures), `worker/website.ts` (gated reads and MCP tools), `src/modules/website/` (section UI).
 

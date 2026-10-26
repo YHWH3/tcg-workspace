@@ -1,3 +1,4 @@
+import {PackUpgradeControl} from './PackUpgradeControl';
 import {WorkspaceSettingsPanel} from './WorkspaceSettingsPanel';
 import {Usage} from './Usage';
 import {Spaces} from './Spaces';
@@ -301,7 +302,7 @@ function TemplateGallerySection() {
         {BUNDLED_TEMPLATES.map((t) => {
           const isIn = installed(t.key);
           return (
-            <li key={t.key} className="flex items-center gap-3 rounded-xl border border-neutral-200/70 px-3 py-2.5 dark:border-neutral-800">
+            <li key={t.key} className="flex flex-wrap items-center gap-3 rounded-xl border border-neutral-200/70 px-3 py-2.5 dark:border-neutral-800">
               <span className="text-lg" aria-hidden>{t.icon}</span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">
@@ -310,6 +311,7 @@ function TemplateGallerySection() {
                 </span>
                 <span className="block truncate text-xs text-neutral-500 dark:text-neutral-400">{t.description}</span>
               </span>
+              {isIn&&<PackUpgradeControl bundle={t}/>}
               <Button size="sm" variant="secondary" onClick={() => setPreview(t)}>
                 <Eye size={14} /> Preview
               </Button>

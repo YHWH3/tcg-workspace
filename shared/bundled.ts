@@ -15,9 +15,10 @@
 import { linkId } from './linkid';
 import type { FieldDef } from './fields';
 import type { Filter } from './views';
-import type { RecSnapshot } from './templates';
+import {planTemplateInstantiation,installRecordId,type RecSnapshot,type PlannedWrite} from './templates';
 
 export interface BundledTemplate {
+  version: number;
   key: string;
   name: string;
   description: string;
@@ -36,6 +37,7 @@ export interface AuthorCaptureTarget {
 }
 
 export interface AuthorView {
+  key?: string;
   id: string;
   name: string;
   type?: string;
@@ -74,6 +76,7 @@ export interface AuthorDb {
 
 /** Object-form block inside `pages[].blocks` (string lines also accepted). */
 export interface AuthorBlock {
+  key?: string;
   type:
     | 'text' | 'h1' | 'h2' | 'h3' | 'bulleted' | 'todo' | 'divider' | 'callout' | 'tasks'
     | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'embed';
@@ -96,6 +99,7 @@ export interface AuthorBlock {
 }
 
 export interface AuthorPage {
+  key?: string;
   id: string;
   title: string;
   icon?: string;
@@ -114,6 +118,7 @@ export interface AuthorLink {
 }
 
 export interface AuthorTemplate {
+  version?: number;
   $schema?: string;
   name: string;
   description: string;
@@ -182,7 +187,7 @@ export function toBundled(key: string, t: AuthorTemplate): BundledTemplate {
     let viewOrder = 'a0';
     for (const v of d.views ?? []) {
       viewOrder += '0';
-      views[v.id] = { databaseId: d.id, name: v.name, type: v.type ?? 'table', config: v.config ?? {}, order: v.order ?? viewOrder };
+      views[v.id] = { templateItemKey:v.key??v.id, databaseId: d.id, name: v.name, type: v.type ?? 'table', config: v.config ?? {}, order: v.order ?? viewOrder };
     }
     let recOrder = 'a0';
     for (const r of d.records ?? []) {
@@ -215,6 +220,8 @@ export function toBundled(key: string, t: AuthorTemplate): BundledTemplate {
 
   for (const pg of t.pages ?? []) {
     pages[pg.id] = {
+      templateItemKey:pg.key??pg.id,
+      ...(pg.id===t.pages[0]?.id?{templateVersion:t.version??1}:{}),
       title: pg.title,
       icon: pg.icon,
       parentId: pg.parentId ?? null,
@@ -224,7 +231,7 @@ export function toBundled(key: string, t: AuthorTemplate): BundledTemplate {
     let blockOrder = 'a0';
     for (const entry of pg.blocks ?? []) {
       blockOrder += '0';
-      const id = oid();
+      const legacyId=oid(),id=typeof entry==='object'&&entry.key?entry.key:legacyId;
       if (typeof entry === 'string') {
         const m = EMBED_RE.exec(entry.trim());
         if (m && dbIds.has(m[1])) {
@@ -233,8 +240,9 @@ export function toBundled(key: string, t: AuthorTemplate): BundledTemplate {
           blocks[id] = { pageId: pg.id, order: blockOrder, type: 'p', text: entry };
         }
       } else {
-        blocks[id] = toStoredBlock(entry, pg.id, blockOrder);
+        blocks[id] = {...toStoredBlock(entry, pg.id, blockOrder),templateItemKey:entry.key??id};
       }
+      blocks[id].templateItemKey=typeof entry==='object'?(entry.key??id):id;
     }
   }
 
@@ -263,7 +271,7 @@ export function toBundled(key: string, t: AuthorTemplate): BundledTemplate {
   }
 
   const root = t.pages[0]?.id ?? 'root';
-  return { key, name: t.name, description: t.description, icon: t.icon, root, snapshot: { pages, blocks, boards, tasks, views, links, automations, forms } };
+  return { version:t.version??1, key, name: t.name, description: t.description, icon: t.icon, root, snapshot: { pages, blocks, boards, tasks, views, links, automations, forms } };
 }
 
 /* ---------- install preview + reuse ---------- */
@@ -378,4 +386,91 @@ export function planInstallPreview(bundle: BundledTemplate, existing: ExistingBo
     blocks,
     reused: { views: authoredViews.length - views, records: authoredRecords.length - recordIds.size, links: reusedLinks },
   };
+}
+
+/** Additive upgrade planner. Stable install ids are the first legacy fallback:
+ * they survive team renames and moves. Keys and structural matches cover older
+ * imported installs; ambiguous matches are held, never guessed. Deleted ids stay
+ * reserved. Records, links, stage columns and existing item content are untouched. */
+export interface PackRecord {id:string;collection:string;data:Record<string,unknown>;rev?:number}
+export interface PackUpgradeWrite extends PlannedWrite {reason:string;before:Record<string,unknown>|null}
+export interface PackUpgradePlan {rootPageId:string|null;version:number;writes:PackUpgradeWrite[];warnings:string[]}
+export function planPackUpgrade(bundle:BundledTemplate,existing:PackRecord[],options:{now?:number;actorId?:string}={}):PackUpgradePlan {
+ const warnings:string[]=[],writes:PackUpgradeWrite[]=[],version=bundle.version??1;
+ const byId=new Map(existing.map(r=>[r.id,r]));
+ const stable=(collection:string,id:string)=>installRecordId(bundle.key,collection,id);
+ const roots=existing.filter(r=>r.collection==='pages'&&r.data.templateKey===bundle.key);
+ const root=byId.get(stable('pages',bundle.root))??(roots.length===1?roots[0]:undefined);
+ if(!root||root.collection!=='pages'||root.data.deleted||root.data.archived||roots.length>1)return {rootPageId:null,version,writes,warnings:['A single active installed root is required. Restore or resolve the existing installation first.']};
+ if(Number(root.data.templateVersion??0)>version)return {rootPageId:root.id,version,writes,warnings:['This installation uses a newer pack version. Update the application before upgrading.']};
+ const plan=planTemplateInstantiation(bundle.snapshot,{templateId:bundle.root,templateKey:bundle.key,stableIds:true,packInstall:true,preserveTemplates:true,actorId:options.actorId},{id:()=>{throw new Error('stable pack ids required');},now:options.now??0});
+ if(!plan)throw new Error('invalid bundled root');
+ const desired=plan.writes.filter(w=>['boards','pages','views','blocks'].includes(w.collection)&&!(w.collection==='blocks'&&w.patch.parentType==='record'));
+ const maps=new Map<string,string>([[stable('pages',bundle.root),root.id]]),held=new Set<string>();
+ const remap=(value:unknown):unknown=>{
+  if(typeof value==='string')return maps.get(value)??value;
+  if(Array.isArray(value))return value.map(remap);
+  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,remap(v)]));
+  return value;
+ };
+ function resolve(w:PlannedWrite){
+  if(maps.has(w.id))return;
+  const exact=byId.get(w.id);
+  if(exact){if(exact.collection===w.collection)maps.set(w.id,exact.id);else{held.add(w.id);warnings.push(`Reserved id has another type: ${w.id}`);}return;}
+  const data=remap(w.patch) as Record<string,unknown>;
+  const candidates=existing.filter(r=>{
+   if(r.collection!==w.collection)return false;
+   if(w.collection==='boards')return !!data.templateDbKey&&r.data.templateDbKey===data.templateDbKey;
+   const parent=w.collection==='pages'?'parentId':w.collection==='views'?'databaseId':'pageId';
+   if((r.data[parent]??null)!==(data[parent]??null))return false;
+   if(data.templateItemKey&&r.data.templateItemKey===data.templateItemKey)return true;
+   if(w.collection==='pages')return r.data.title===data.title;
+   if(w.collection==='views')return r.data.name===data.name;
+   return r.data.type===data.type&&String(r.data.label??r.data.heading??r.data.text??'')===String(data.label??data.heading??data.text??'');
+  });
+  if(candidates.length===1)maps.set(w.id,candidates[0].id);
+  else if(candidates.length>1){held.add(w.id);warnings.push(`Ambiguous ${w.collection} match: ${String(data.title??data.name??data.label??w.id)}`);}
+ }
+ for(const w of desired.filter(w=>w.collection==='boards'))resolve(w);
+ // Resolve parents before their children, regardless of authored order.
+ const pages=desired.filter(w=>w.collection==='pages');
+ for(let n=0;n<=pages.length;n++)for(const w of pages)if(!w.patch.parentId||maps.has(String(w.patch.parentId))||!pages.some(p=>p.id===w.patch.parentId))resolve(w);
+ for(const w of pages)resolve(w);
+ for(const c of ['views','blocks'])for(const w of desired.filter(w=>w.collection===c))resolve(w);
+ const unavailable=new Set<string>();
+ const unusable=(id:unknown)=>typeof id==='string'&&(unavailable.has(id)||held.has(id)||!!byId.get(maps.get(id)??id)?.data.deleted||!!byId.get(maps.get(id)??id)?.data.archived);
+ for(let pass=0;pass<desired.length;pass++){let changed=false;for(const w of desired)if(!unavailable.has(w.id)&&(unusable(w.id)||unusable(w.patch.parentId)||unusable(w.patch.pageId)||unusable(w.patch.databaseId)||unusable(w.patch.boardId))){unavailable.add(w.id);changed=true;}if(!changed)break;}
+ for(const w of desired){
+  if(held.has(w.id)||unusable(w.id)||unusable(w.patch.parentId)||unusable(w.patch.pageId)||unusable(w.patch.databaseId)||unusable(w.patch.boardId))continue;
+  const id=maps.get(w.id)??w.id,old=byId.get(id),patch=remap(w.patch) as Record<string,unknown>;
+  if(!old){
+   // Never place additions before/reorder existing siblings. A deterministic
+   // suffix follows the current last item; preserve every existing order value.
+   const parent=w.collection==='pages'?'parentId':w.collection==='views'?'databaseId':w.collection==='blocks'?'pageId':null;
+   const orders=existing.filter(r=>r.collection===w.collection&&(!parent||(r.data[parent]??null)===(patch[parent]??null))).map(r=>String(r.data.order??'')).sort();
+   patch.order=(orders.at(-1)??'')+'z'+w.id;
+   writes.push({...w,id,patch,before:null,reason:`Add missing ${w.collection==='boards'?'database':w.collection.slice(0,-1)}: ${String(patch.title??patch.name??patch.label??patch.heading??patch.type??id)}`});
+   continue;
+  }
+  if(w.collection!=='boards')continue;
+  const prior=Array.isArray(old.data.fields)?structuredClone(old.data.fields) as FieldDef[]:[];
+  const fields=structuredClone(prior),reasons:string[]=[];
+  for(const wanted of (patch.fields??[]) as FieldDef[]){
+   const field=fields.find(f=>f.id===wanted.id);
+   if(!field){fields.push(structuredClone(wanted));reasons.push(`Add field ${wanted.name}`);continue;}
+   // A changed type, name, format, currency or option label belongs to the team.
+   if(field.type!==wanted.type)continue;
+   if(field.type==='number')for(const key of ['format','currency'] as const)if(field[key]===undefined&&wanted[key]!==undefined){Object.assign(field,{[key]:wanted[key]});reasons.push(key==='format'?`Show ${field.name} as ${wanted.format}`:`Set ${field.name} currency to ${wanted.currency}`);}
+   if(Array.isArray(wanted.options)){
+    const opts=field.options??[];
+    for(const option of wanted.options)if(!opts.some(o=>o.id===option.id||o.name.toLocaleLowerCase()===option.name.toLocaleLowerCase())){opts.push(structuredClone(option));reasons.push(`Add option ${option.name} to ${field.name}`);}
+    field.options=opts;
+   }
+  }
+  if(reasons.length)writes.push({collection:'boards',id,patch:{fields},before:{fields:old.data.fields??null},reason:reasons.join('; ')});
+ }
+ // An unresolved item prevents marking the bundle version complete. Partial
+ // additive work can be reviewed, but never silently declare a held plan done.
+ if(!warnings.length&&Number(root.data.templateVersion??0)<version)writes.push({collection:'pages',id:root.id,patch:{templateVersion:version},before:{templateVersion:root.data.templateVersion??null},reason:`Update pack to version ${version}`});
+ return {rootPageId:root.id,version,writes,warnings};
 }

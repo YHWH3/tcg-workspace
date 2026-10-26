@@ -1,4 +1,5 @@
 export interface Mutation {
+  ifUnchanged?: import('./mutationGuard').MutationGuard;
   id: string;
   collection: string;
   patch: Record<string, unknown>;

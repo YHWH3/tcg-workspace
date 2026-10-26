@@ -68,7 +68,8 @@
               "rel_f_projects"
             ],
             "showSubrecords": true
-          }
+          },
+          "key": "v_programs_table"
         },
         {
           "id": "v_programs_board",
@@ -76,7 +77,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_programs_board"
         }
       ]
     },
@@ -168,7 +170,8 @@
         {
           "id": "f_budget",
           "name": "Budget",
-          "type": "number"
+          "type": "number",
+          "format": "currency"
         },
         {
           "id": "f_program",
@@ -317,7 +320,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_projects_board"
         },
         {
           "id": "v_projects_table",
@@ -340,7 +344,8 @@
                 "dir": "asc"
               }
             ]
-          }
+          },
+          "key": "v_projects_table"
         },
         {
           "id": "v_projects_active",
@@ -360,7 +365,8 @@
                 "value": "active"
               }
             ]
-          }
+          },
+          "key": "v_projects_active"
         },
         {
           "id": "v_projects_timeline",
@@ -370,7 +376,8 @@
             "dateKey": "p_f_start",
             "endDateKey": "p_f_end",
             "timelineScale": "month"
-          }
+          },
+          "key": "v_projects_timeline"
         },
         {
           "id": "v_projects_calendar",
@@ -378,7 +385,8 @@
           "type": "calendar",
           "config": {
             "dateKey": "p_f_start"
-          }
+          },
+          "key": "v_projects_calendar"
         },
         {
           "id": "v_projects_archive",
@@ -392,7 +400,8 @@
               "p_f_owner",
               "rel_f_program"
             ]
-          }
+          },
+          "key": "v_projects_archive"
         }
       ]
     },
@@ -445,7 +454,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_tasks_board"
         },
         {
           "id": "v_tasks_table",
@@ -471,7 +481,8 @@
                 "dir": "asc"
               }
             ]
-          }
+          },
+          "key": "v_tasks_table"
         },
         {
           "id": "v_tasks_mine",
@@ -493,7 +504,8 @@
               "priority",
               "rel_f_project"
             ]
-          }
+          },
+          "key": "v_tasks_mine"
         },
         {
           "id": "v_tasks_calendar",
@@ -501,7 +513,8 @@
           "type": "calendar",
           "config": {
             "dateKey": "dueDate"
-          }
+          },
+          "key": "v_tasks_calendar"
         },
         {
           "id": "v_tasks_timeline",
@@ -510,7 +523,8 @@
           "config": {
             "dateKey": "dueDate",
             "timelineScale": "month"
-          }
+          },
+          "key": "v_tasks_timeline"
         },
         {
           "id": "v_tasks_archive",
@@ -524,7 +538,8 @@
               "assigneeId",
               "dueDate"
             ]
-          }
+          },
+          "key": "v_tasks_archive"
         }
       ]
     },
@@ -712,7 +727,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_experiments_board"
         },
         {
           "id": "v_experiments_table",
@@ -729,7 +745,8 @@
               "p_f_pub_status"
             ],
             "showSubrecords": true
-          }
+          },
+          "key": "v_experiments_table"
         },
         {
           "id": "v_experiments_calendar",
@@ -737,7 +754,8 @@
           "type": "calendar",
           "config": {
             "dateKey": "p_f_target_date"
-          }
+          },
+          "key": "v_experiments_calendar"
         }
       ]
     },
@@ -832,7 +850,8 @@
                 "dir": "desc"
               }
             ]
-          }
+          },
+          "key": "v_fieldlog_table"
         },
         {
           "id": "v_fieldlog_calendar",
@@ -840,7 +859,8 @@
           "type": "calendar",
           "config": {
             "dateKey": "p_f_date"
-          }
+          },
+          "key": "v_fieldlog_calendar"
         }
       ]
     },
@@ -1028,7 +1048,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_ideas_board"
         },
         {
           "id": "v_ideas_table",
@@ -1045,7 +1066,8 @@
               "rel_f_converted_project"
             ],
             "showSubrecords": true
-          }
+          },
+          "key": "v_ideas_table"
         }
       ]
     },
@@ -1129,7 +1151,8 @@
                 "dir": "desc"
               }
             ]
-          }
+          },
+          "key": "v_decisions_table"
         },
         {
           "id": "v_decisions_board",
@@ -1137,7 +1160,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_decisions_board"
         }
       ]
     },
@@ -1291,7 +1315,8 @@
                 "dir": "desc"
               }
             ]
-          }
+          },
+          "key": "v_meetings_table"
         },
         {
           "id": "v_meetings_calendar",
@@ -1299,7 +1324,8 @@
           "type": "calendar",
           "config": {
             "dateKey": "p_f_date"
-          }
+          },
+          "key": "v_meetings_calendar"
         },
         {
           "id": "v_meetings_board",
@@ -1307,7 +1333,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_meetings_board"
         }
       ]
     },
@@ -1411,12 +1438,14 @@
         {
           "id": "f_budget",
           "name": "Budget",
-          "type": "number"
+          "type": "number",
+          "format": "currency"
         },
         {
           "id": "f_revenue",
           "name": "Revenue",
-          "type": "number"
+          "type": "number",
+          "format": "currency"
         },
         {
           "id": "f_place",
@@ -1508,7 +1537,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_events_board"
         },
         {
           "id": "v_events_table",
@@ -1531,7 +1561,8 @@
                 "dir": "asc"
               }
             ]
-          }
+          },
+          "key": "v_events_table"
         },
         {
           "id": "v_events_calendar",
@@ -1539,7 +1570,8 @@
           "type": "calendar",
           "config": {
             "dateKey": "p_f_start"
-          }
+          },
+          "key": "v_events_calendar"
         },
         {
           "id": "v_events_timeline",
@@ -1549,7 +1581,8 @@
             "dateKey": "p_f_start",
             "endDateKey": "p_f_end",
             "timelineScale": "month"
-          }
+          },
+          "key": "v_events_timeline"
         }
       ]
     },
@@ -1718,7 +1751,8 @@
               "rel_f_projects"
             ],
             "showSubrecords": true
-          }
+          },
+          "key": "v_places_table"
         },
         {
           "id": "v_places_board",
@@ -1726,7 +1760,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_places_board"
         }
       ],
       "records": [
@@ -1876,7 +1911,8 @@
         {
           "id": "f_amount",
           "name": "Amount",
-          "type": "number"
+          "type": "number",
+          "format": "currency"
         },
         {
           "id": "f_deadline",
@@ -1933,7 +1969,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_opportunities_board"
         },
         {
           "id": "v_opportunities_table",
@@ -1956,7 +1993,8 @@
                 "dir": "asc"
               }
             ]
-          }
+          },
+          "key": "v_opportunities_table"
         },
         {
           "id": "v_opportunities_deadlines",
@@ -1964,7 +2002,8 @@
           "type": "calendar",
           "config": {
             "dateKey": "p_f_deadline"
-          }
+          },
+          "key": "v_opportunities_deadlines"
         },
         {
           "id": "v_opportunities_next",
@@ -1972,7 +2011,8 @@
           "type": "calendar",
           "config": {
             "dateKey": "p_f_next_action_date"
-          }
+          },
+          "key": "v_opportunities_next"
         }
       ]
     },
@@ -2184,7 +2224,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_media_board"
         },
         {
           "id": "v_media_table",
@@ -2206,7 +2247,8 @@
                 "dir": "desc"
               }
             ]
-          }
+          },
+          "key": "v_media_table"
         },
         {
           "id": "v_media_calendar",
@@ -2214,7 +2256,8 @@
           "type": "calendar",
           "config": {
             "dateKey": "p_f_publish_date"
-          }
+          },
+          "key": "v_media_calendar"
         }
       ]
     },
@@ -2334,7 +2377,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_courses_board"
         },
         {
           "id": "v_courses_table",
@@ -2351,7 +2395,8 @@
               "rel_f_events"
             ],
             "showSubrecords": true
-          }
+          },
+          "key": "v_courses_table"
         }
       ]
     },
@@ -2394,7 +2439,8 @@
         {
           "id": "f_amount",
           "name": "Amount",
-          "type": "number"
+          "type": "number",
+          "format": "currency"
         },
         {
           "id": "f_date",
@@ -2522,7 +2568,8 @@
                 "dir": "desc"
               }
             ]
-          }
+          },
+          "key": "v_transactions_table"
         },
         {
           "id": "v_transactions_income",
@@ -2549,7 +2596,8 @@
                 "dir": "desc"
               }
             ]
-          }
+          },
+          "key": "v_transactions_income"
         },
         {
           "id": "v_transactions_expense",
@@ -2576,7 +2624,8 @@
                 "dir": "desc"
               }
             ]
-          }
+          },
+          "key": "v_transactions_expense"
         },
         {
           "id": "v_transactions_calendar",
@@ -2584,7 +2633,8 @@
           "type": "calendar",
           "config": {
             "dateKey": "p_f_date"
-          }
+          },
+          "key": "v_transactions_calendar"
         }
       ]
     },
@@ -2626,12 +2676,14 @@
         {
           "id": "f_price",
           "name": "Price",
-          "type": "number"
+          "type": "number",
+          "format": "currency"
         },
         {
           "id": "f_cost",
           "name": "Cost",
-          "type": "number"
+          "type": "number",
+          "format": "currency"
         },
         {
           "id": "f_margin",
@@ -2677,7 +2729,8 @@
           "type": "board",
           "config": {
             "groupBy": "status"
-          }
+          },
+          "key": "v_products_board"
         },
         {
           "id": "v_products_table",
@@ -2694,7 +2747,8 @@
               "rel_f_producer_org"
             ],
             "showSubrecords": true
-          }
+          },
+          "key": "v_products_table"
         }
       ]
     },
@@ -3012,7 +3066,8 @@
               "p_f_tags"
             ],
             "showSubrecords": true
-          }
+          },
+          "key": "v_people_table"
         },
         {
           "id": "v_people_volunteers",
@@ -3032,7 +3087,8 @@
               "p_f_skills",
               "p_f_availability"
             ]
-          }
+          },
+          "key": "v_people_volunteers"
         },
         {
           "id": "v_people_team",
@@ -3052,7 +3108,8 @@
               "p_f_email",
               "p_f_phone"
             ]
-          }
+          },
+          "key": "v_people_team"
         }
       ]
     },
@@ -3266,7 +3323,8 @@
               "p_f_partnership"
             ],
             "showSubrecords": true
-          }
+          },
+          "key": "v_orgs_table"
         },
         {
           "id": "v_orgs_partners",
@@ -3286,7 +3344,8 @@
               "rel_f_people",
               "p_f_since"
             ]
-          }
+          },
+          "key": "v_orgs_partners"
         }
       ]
     }
@@ -3300,11 +3359,13 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "The Common Ground operating system — programs, projects, land, people, money and media in one graph."
+          "text": "The Common Ground operating system — programs, projects, land, people, money and media in one graph.",
+          "key": "tpl_2"
         },
         {
           "type": "h2",
-          "text": "This week"
+          "text": "This week",
+          "key": "tpl_3"
         },
         {
           "type": "metric",
@@ -3317,7 +3378,8 @@
               "op": "is",
               "value": "active"
             }
-          ]
+          ],
+          "key": "tpl_4"
         },
         {
           "type": "metric",
@@ -3330,7 +3392,8 @@
               "op": "is",
               "value": "blocked"
             }
-          ]
+          ],
+          "key": "tpl_5"
         },
         {
           "type": "metric",
@@ -3358,11 +3421,13 @@
               "op": "is_not",
               "value": "lost"
             }
-          ]
+          ],
+          "key": "tpl_6"
         },
         {
           "type": "h2",
-          "text": "Upcoming"
+          "text": "Upcoming",
+          "key": "tpl_7"
         },
         {
           "type": "calendar",
@@ -3387,18 +3452,22 @@
               "dateKey": "p_f_deadline",
               "color": "#f59e0b"
             }
-          ]
+          ],
+          "key": "tpl_8"
         },
         {
           "type": "h2",
-          "text": "Recent activity"
+          "text": "Recent activity",
+          "key": "tpl_9"
         },
         {
           "type": "activity",
           "scope": "all",
-          "limit": 20
+          "limit": 20,
+          "key": "tpl_a"
         }
-      ]
+      ],
+      "key": "pg_home"
     },
     {
       "id": "pg_mywork",
@@ -3408,14 +3477,17 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Everything assigned to you, and the records you own."
+          "text": "Everything assigned to you, and the records you own.",
+          "key": "tpl_b"
         },
         {
-          "type": "mywork"
+          "type": "mywork",
+          "key": "tpl_c"
         },
         {
           "type": "h2",
-          "text": "My tasks"
+          "text": "My tasks",
+          "key": "tpl_d"
         },
         {
           "type": "view",
@@ -3447,11 +3519,13 @@
             ]
           },
           "limit": 15,
-          "heading": "My open tasks"
+          "heading": "My open tasks",
+          "key": "tpl_e"
         },
         {
           "type": "h2",
-          "text": "Things I own"
+          "text": "Things I own",
+          "key": "tpl_f"
         },
         {
           "type": "view",
@@ -3475,7 +3549,8 @@
             ]
           },
           "limit": 10,
-          "heading": "My projects"
+          "heading": "My projects",
+          "key": "tpl_g"
         },
         {
           "type": "view",
@@ -3495,9 +3570,11 @@
             ]
           },
           "limit": 10,
-          "heading": "My opportunities"
+          "heading": "My opportunities",
+          "key": "tpl_h"
         }
-      ]
+      ],
+      "key": "pg_mywork"
     },
     {
       "id": "pg_programs",
@@ -3507,7 +3584,8 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Programs are the long arcs; projects hang underneath them. Keep one note per program here."
+          "text": "Programs are the long arcs; projects hang underneath them. Keep one note per program here.",
+          "key": "tpl_i"
         },
         {
           "type": "metric",
@@ -3520,33 +3598,40 @@
               "op": "is",
               "value": "active"
             }
-          ]
+          ],
+          "key": "tpl_j"
         },
         {
           "type": "view",
           "databaseId": "db_programs",
           "viewId": "v_programs_table",
-          "heading": "All programs"
+          "heading": "All programs",
+          "key": "tpl_k"
         },
         {
           "type": "h2",
-          "text": "Program notes"
+          "text": "Program notes",
+          "key": "tpl_l"
         },
         {
           "type": "text",
-          "text": "One line per program — health, next milestone, and what it needs this month."
+          "text": "One line per program — health, next milestone, and what it needs this month.",
+          "key": "tpl_m"
         },
         {
           "type": "bulleted",
-          "text": "{{program}} — status, next milestone, needs."
+          "text": "{{program}} — status, next milestone, needs.",
+          "key": "tpl_n"
         },
         {
           "type": "view",
           "databaseId": "db_programs",
           "viewId": "v_programs_board",
-          "heading": "By stage"
+          "heading": "By stage",
+          "key": "tpl_o"
         }
-      ]
+      ],
+      "key": "pg_programs"
     },
     {
       "id": "pg_commonlab",
@@ -3556,7 +3641,8 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Experiments and the field log. The L-board method: observe, explore, experiment, evolve."
+          "text": "Experiments and the field log. The L-board method: observe, explore, experiment, evolve.",
+          "key": "tpl_p"
         },
         {
           "type": "metric",
@@ -3569,7 +3655,8 @@
               "op": "is",
               "value": "running"
             }
-          ]
+          ],
+          "key": "tpl_q"
         },
         {
           "type": "metric",
@@ -3582,7 +3669,8 @@
               "op": "is",
               "value": "proposed"
             }
-          ]
+          ],
+          "key": "tpl_r"
         },
         {
           "type": "metric",
@@ -3595,24 +3683,28 @@
               "op": "is",
               "value": "documented"
             }
-          ]
+          ],
+          "key": "tpl_s"
         },
         {
           "type": "view",
           "databaseId": "db_experiments",
           "viewId": "v_experiments_board",
-          "heading": "Experiments"
+          "heading": "Experiments",
+          "key": "tpl_t"
         },
         {
           "type": "view",
           "databaseId": "db_fieldlog",
           "viewId": "v_fieldlog_table",
           "limit": 20,
-          "heading": "Latest field log entries"
+          "heading": "Latest field log entries",
+          "key": "tpl_u"
         },
         {
           "type": "h2",
-          "text": "Research activity"
+          "text": "Research activity",
+          "key": "tpl_v"
         },
         {
           "type": "calendar",
@@ -3627,9 +3719,11 @@
               "dateKey": "p_f_target_date",
               "color": "#8b5cf6"
             }
-          ]
+          ],
+          "key": "tpl_w"
         }
-      ]
+      ],
+      "key": "pg_commonlab"
     },
     {
       "id": "pg_places",
@@ -3639,19 +3733,23 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "The land graph — every place carries its own page, projects, events and field log."
+          "text": "The land graph — every place carries its own page, projects, events and field log.",
+          "key": "tpl_x"
         },
         {
           "type": "view",
           "databaseId": "db_places",
           "viewId": "v_places_table",
-          "heading": "All places"
+          "heading": "All places",
+          "key": "tpl_y"
         },
         {
           "type": "text",
-          "text": "Each place gets a child page with its own dashboard — see Parambu Habitat below."
+          "text": "Each place gets a child page with its own dashboard — see Parambu Habitat below.",
+          "key": "tpl_z"
         }
-      ]
+      ],
+      "key": "pg_places"
     },
     {
       "id": "pg_parambu",
@@ -3662,7 +3760,8 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Base habitat in Parambu, Ceará. Habitat record: @[rec:r_parambu]"
+          "text": "Base habitat in Parambu, Ceará. Habitat record: @[rec:r_parambu]",
+          "key": "tpl_10"
         },
         {
           "type": "view",
@@ -3690,7 +3789,8 @@
             ]
           },
           "limit": 20,
-          "heading": "Field log at Parambu"
+          "heading": "Field log at Parambu",
+          "key": "tpl_11"
         },
         {
           "type": "view",
@@ -3709,7 +3809,8 @@
               "p_f_owner"
             ]
           },
-          "heading": "Projects at Parambu"
+          "heading": "Projects at Parambu",
+          "key": "tpl_12"
         },
         {
           "type": "view",
@@ -3728,9 +3829,11 @@
               "p_f_lead"
             ]
           },
-          "heading": "Experiments at Parambu"
+          "heading": "Experiments at Parambu",
+          "key": "tpl_13"
         }
-      ]
+      ],
+      "key": "pg_parambu"
     },
     {
       "id": "pg_community",
@@ -3740,13 +3843,15 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Members, volunteers, partners — the people who make the ground common."
+          "text": "Members, volunteers, partners — the people who make the ground common.",
+          "key": "tpl_14"
         },
         {
           "type": "metric",
           "databaseId": "db_people",
           "agg": "count",
-          "label": "People"
+          "label": "People",
+          "key": "tpl_15"
         },
         {
           "type": "metric",
@@ -3759,33 +3864,39 @@
               "op": "contains",
               "value": "volunteer"
             }
-          ]
+          ],
+          "key": "tpl_16"
         },
         {
           "type": "metric",
           "databaseId": "db_orgs",
           "agg": "count",
-          "label": "Organizations"
+          "label": "Organizations",
+          "key": "tpl_17"
         },
         {
           "type": "view",
           "databaseId": "db_people",
           "viewId": "v_people_table",
-          "heading": "People"
+          "heading": "People",
+          "key": "tpl_18"
         },
         {
           "type": "view",
           "databaseId": "db_people",
           "viewId": "v_people_volunteers",
-          "heading": "Volunteers"
+          "heading": "Volunteers",
+          "key": "tpl_19"
         },
         {
           "type": "view",
           "databaseId": "db_orgs",
           "viewId": "v_orgs_table",
-          "heading": "Organizations"
+          "heading": "Organizations",
+          "key": "tpl_1a"
         }
-      ]
+      ],
+      "key": "pg_community"
     },
     {
       "id": "pg_partnerships",
@@ -3795,7 +3906,8 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Grants, CSR, donations and sponsorships — the pipeline that funds the work."
+          "text": "Grants, CSR, donations and sponsorships — the pipeline that funds the work.",
+          "key": "tpl_1b"
         },
         {
           "type": "metric",
@@ -3810,7 +3922,8 @@
               "op": "is",
               "value": "active"
             }
-          ]
+          ],
+          "key": "tpl_1c"
         },
         {
           "type": "metric",
@@ -3823,7 +3936,8 @@
               "op": "is",
               "value": "proposal"
             }
-          ]
+          ],
+          "key": "tpl_1d"
         },
         {
           "type": "metric",
@@ -3836,7 +3950,8 @@
               "op": "is",
               "value": "submitted"
             }
-          ]
+          ],
+          "key": "tpl_1e"
         },
         {
           "type": "metric",
@@ -3864,17 +3979,20 @@
               "op": "is_not",
               "value": "lost"
             }
-          ]
+          ],
+          "key": "tpl_1f"
         },
         {
           "type": "view",
           "databaseId": "db_opportunities",
           "viewId": "v_opportunities_board",
-          "heading": "Pipeline"
+          "heading": "Pipeline",
+          "key": "tpl_1g"
         },
         {
           "type": "h2",
-          "text": "Deadlines & next actions"
+          "text": "Deadlines & next actions",
+          "key": "tpl_1h"
         },
         {
           "type": "calendar",
@@ -3889,16 +4007,19 @@
               "dateKey": "p_f_next_action_date",
               "color": "#3b82f6"
             }
-          ]
+          ],
+          "key": "tpl_1i"
         },
         {
           "type": "view",
           "databaseId": "db_transactions",
           "viewId": "v_transactions_income",
           "limit": 10,
-          "heading": "Income"
+          "heading": "Income",
+          "key": "tpl_1j"
         }
-      ]
+      ],
+      "key": "pg_partnerships"
     },
     {
       "id": "pg_events",
@@ -3908,13 +4029,15 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Workshops, courses and volunteer days at the habitat and beyond."
+          "text": "Workshops, courses and volunteer days at the habitat and beyond.",
+          "key": "tpl_1k"
         },
         {
           "type": "view",
           "databaseId": "db_events",
           "viewId": "v_events_board",
-          "heading": "Events"
+          "heading": "Events",
+          "key": "tpl_1l"
         },
         {
           "type": "calendar",
@@ -3925,15 +4048,18 @@
               "color": "#14b8a6"
             }
           ],
-          "heading": "Event calendar"
+          "heading": "Event calendar",
+          "key": "tpl_1m"
         },
         {
           "type": "view",
           "databaseId": "db_courses",
           "viewId": "v_courses_board",
-          "heading": "Courses"
+          "heading": "Courses",
+          "key": "tpl_1n"
         }
-      ]
+      ],
+      "key": "pg_events"
     },
     {
       "id": "pg_media",
@@ -3943,13 +4069,15 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Articles, videos and courses that carry the work outward."
+          "text": "Articles, videos and courses that carry the work outward.",
+          "key": "tpl_1o"
         },
         {
           "type": "view",
           "databaseId": "db_media",
           "viewId": "v_media_board",
-          "heading": "Production pipeline"
+          "heading": "Production pipeline",
+          "key": "tpl_1p"
         },
         {
           "type": "calendar",
@@ -3960,15 +4088,18 @@
               "color": "#ec4899"
             }
           ],
-          "heading": "Publishing calendar"
+          "heading": "Publishing calendar",
+          "key": "tpl_1q"
         },
         {
           "type": "view",
           "databaseId": "db_courses",
           "viewId": "v_courses_table",
-          "heading": "Courses"
+          "heading": "Courses",
+          "key": "tpl_1r"
         }
-      ]
+      ],
+      "key": "pg_media"
     },
     {
       "id": "pg_meetings",
@@ -3978,13 +4109,15 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Every meeting produces decisions; every decision links back to the projects it changes."
+          "text": "Every meeting produces decisions; every decision links back to the projects it changes.",
+          "key": "tpl_1s"
         },
         {
           "type": "view",
           "databaseId": "db_meetings",
           "viewId": "v_meetings_table",
-          "heading": "Meetings"
+          "heading": "Meetings",
+          "key": "tpl_1t"
         },
         {
           "type": "calendar",
@@ -3995,15 +4128,18 @@
               "color": "#8b5cf6"
             }
           ],
-          "heading": "Meeting calendar"
+          "heading": "Meeting calendar",
+          "key": "tpl_1u"
         },
         {
           "type": "view",
           "databaseId": "db_decisions",
           "viewId": "v_decisions_table",
-          "heading": "Decisions"
+          "heading": "Decisions",
+          "key": "tpl_1v"
         }
-      ]
+      ],
+      "key": "pg_meetings"
     },
     {
       "id": "pg_ideas",
@@ -4013,21 +4149,25 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "The intake. Approved ideas convert to projects — set \"Converted to project\" and the stage moves to Converted."
+          "text": "The intake. Approved ideas convert to projects — set \"Converted to project\" and the stage moves to Converted.",
+          "key": "tpl_1w"
         },
         {
           "type": "view",
           "databaseId": "db_ideas",
           "viewId": "v_ideas_board",
-          "heading": "Ideas pipeline"
+          "heading": "Ideas pipeline",
+          "key": "tpl_1x"
         },
         {
           "type": "view",
           "databaseId": "db_ideas",
           "viewId": "v_ideas_table",
-          "heading": "All ideas"
+          "heading": "All ideas",
+          "key": "tpl_1y"
         }
-      ]
+      ],
+      "key": "pg_ideas"
     },
     {
       "id": "pg_finance",
@@ -4037,7 +4177,8 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Operations & finance — money in, money out, by project and event."
+          "text": "Operations & finance — money in, money out, by project and event.",
+          "key": "tpl_1z"
         },
         {
           "type": "metric",
@@ -4052,7 +4193,8 @@
               "op": "is",
               "value": "income"
             }
-          ]
+          ],
+          "key": "tpl_20"
         },
         {
           "type": "metric",
@@ -4067,13 +4209,15 @@
               "op": "is",
               "value": "expense"
             }
-          ]
+          ],
+          "key": "tpl_21"
         },
         {
           "type": "view",
           "databaseId": "db_transactions",
           "viewId": "v_transactions_table",
-          "heading": "All transactions"
+          "heading": "All transactions",
+          "key": "tpl_22"
         },
         {
           "type": "view",
@@ -4098,15 +4242,18 @@
               }
             ]
           },
-          "heading": "Event revenue"
+          "heading": "Event revenue",
+          "key": "tpl_23"
         },
         {
           "type": "view",
           "databaseId": "db_products",
           "viewId": "v_products_board",
-          "heading": "Common Cupboard"
+          "heading": "Common Cupboard",
+          "key": "tpl_24"
         }
-      ]
+      ],
+      "key": "pg_finance"
     },
     {
       "id": "pg_knowledge",
@@ -4116,21 +4263,26 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "What we know — research notes, SOPs and policies, kept as living pages."
+          "text": "What we know — research notes, SOPs and policies, kept as living pages.",
+          "key": "tpl_25"
         },
         {
           "type": "h2",
-          "text": "In this tree"
+          "text": "In this tree",
+          "key": "tpl_26"
         },
         {
           "type": "bulleted",
-          "text": "Research Notes — experiment write-ups and reference material."
+          "text": "Research Notes — experiment write-ups and reference material.",
+          "key": "tpl_27"
         },
         {
           "type": "bulleted",
-          "text": "SOPs & Policies — how we run the ground."
+          "text": "SOPs & Policies — how we run the ground.",
+          "key": "tpl_28"
         }
-      ]
+      ],
+      "key": "pg_knowledge"
     },
     {
       "id": "pg_research_notes",
@@ -4141,7 +4293,8 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Experiment write-ups, literature notes, and reference material. Use the Research Note template."
+          "text": "Experiment write-ups, literature notes, and reference material. Use the Research Note template.",
+          "key": "tpl_29"
         },
         {
           "type": "view",
@@ -4160,9 +4313,11 @@
               "rel_f_project"
             ]
           },
-          "heading": "Documented experiments"
+          "heading": "Documented experiments",
+          "key": "tpl_2a"
         }
-      ]
+      ],
+      "key": "pg_research_notes"
     },
     {
       "id": "pg_sops",
@@ -4173,25 +4328,31 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Standard operating procedures and policies. One page per SOP; keep them short and testable."
+          "text": "Standard operating procedures and policies. One page per SOP; keep them short and testable.",
+          "key": "tpl_2b"
         },
         {
           "type": "bulleted",
-          "text": "Safety & site rules"
+          "text": "Safety & site rules",
+          "key": "tpl_2c"
         },
         {
           "type": "bulleted",
-          "text": "Financial approval limits"
+          "text": "Financial approval limits",
+          "key": "tpl_2d"
         },
         {
           "type": "bulleted",
-          "text": "Media release & consent"
+          "text": "Media release & consent",
+          "key": "tpl_2e"
         },
         {
           "type": "bulleted",
-          "text": "Volunteer onboarding"
+          "text": "Volunteer onboarding",
+          "key": "tpl_2f"
         }
-      ]
+      ],
+      "key": "pg_sops"
     },
     {
       "id": "pg_archive",
@@ -4201,7 +4362,8 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Archived projects and records live here — hidden from views, still searchable."
+          "text": "Archived projects and records live here — hidden from views, still searchable.",
+          "key": "tpl_2g"
         },
         {
           "type": "view",
@@ -4220,7 +4382,8 @@
               }
             ]
           },
-          "heading": "Archived projects"
+          "heading": "Archived projects",
+          "key": "tpl_2h"
         },
         {
           "type": "view",
@@ -4240,9 +4403,11 @@
               }
             ]
           },
-          "heading": "Archived records"
+          "heading": "Archived records",
+          "key": "tpl_2i"
         }
-      ]
+      ],
+      "key": "pg_archive"
     },
     {
       "id": "pg_templates",
@@ -4252,13 +4417,16 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Page templates for the operating rhythm — project kickoffs, reviews, field visits, grants."
+          "text": "Page templates for the operating rhythm — project kickoffs, reviews, field visits, grants.",
+          "key": "tpl_2j"
         },
         {
           "type": "text",
-          "text": "Create from these via the \"+\" template picker."
+          "text": "Create from these via the \"+\" template picker.",
+          "key": "tpl_2k"
         }
-      ]
+      ],
+      "key": "pg_templates"
     },
     {
       "id": "pg_tpl_project",
@@ -4270,30 +4438,36 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Project brief for {{project}} — set the record fields (owner, program, places, dates, budget), then work this page top-down."
+          "text": "Project brief for {{project}} — set the record fields (owner, program, places, dates, budget), then work this page top-down.",
+          "key": "tpl_2l"
         },
         {
           "type": "h2",
-          "text": "Objective"
+          "text": "Objective",
+          "key": "tpl_2m"
         },
         {
           "type": "text",
-          "text": "{{objective}}"
+          "text": "{{objective}}",
+          "key": "tpl_2n"
         },
         {
           "type": "h2",
-          "text": "Milestones"
+          "text": "Milestones",
+          "key": "tpl_2o"
         },
         {
           "type": "view",
           "databaseId": "db_tasks",
           "viewId": "v_tasks_timeline",
           "heading": "Milestones",
-          "limit": 20
+          "limit": 20,
+          "key": "tpl_2p"
         },
         {
           "type": "h2",
-          "text": "Open tasks"
+          "text": "Open tasks",
+          "key": "tpl_2q"
         },
         {
           "type": "view",
@@ -4320,11 +4494,13 @@
             ]
           },
           "limit": 10,
-          "heading": "Tasks"
+          "heading": "Tasks",
+          "key": "tpl_2r"
         },
         {
           "type": "h2",
-          "text": "Decisions"
+          "text": "Decisions",
+          "key": "tpl_2s"
         },
         {
           "type": "view",
@@ -4344,17 +4520,21 @@
             ]
           },
           "limit": 8,
-          "heading": "Open decisions"
+          "heading": "Open decisions",
+          "key": "tpl_2t"
         },
         {
           "type": "h2",
-          "text": "Notes"
+          "text": "Notes",
+          "key": "tpl_2u"
         },
         {
           "type": "text",
-          "text": "Program: {{program}} · Owner: {{owner}} · {{start}} → {{end}} · Budget: {{budget}}"
+          "text": "Program: {{program}} · Owner: {{owner}} · {{start}} → {{end}} · Budget: {{budget}}",
+          "key": "tpl_2v"
         }
-      ]
+      ],
+      "key": "pg_tpl_project"
     },
     {
       "id": "pg_tpl_experiment",
@@ -4366,68 +4546,84 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Experiment: {{experiment}} — the L-board method: observe, explore, experiment, evolve."
+          "text": "Experiment: {{experiment}} — the L-board method: observe, explore, experiment, evolve.",
+          "key": "tpl_2w"
         },
         {
           "type": "h2",
-          "text": "Problem"
+          "text": "Problem",
+          "key": "tpl_2x"
         },
         {
           "type": "text",
-          "text": "{{problem}}"
+          "text": "{{problem}}",
+          "key": "tpl_2y"
         },
         {
           "type": "h2",
-          "text": "Question"
+          "text": "Question",
+          "key": "tpl_2z"
         },
         {
           "type": "text",
-          "text": "{{question}}"
+          "text": "{{question}}",
+          "key": "tpl_30"
         },
         {
           "type": "h2",
-          "text": "Hypothesis"
+          "text": "Hypothesis",
+          "key": "tpl_31"
         },
         {
           "type": "text",
-          "text": "{{hypothesis}}"
+          "text": "{{hypothesis}}",
+          "key": "tpl_32"
         },
         {
           "type": "h2",
-          "text": "Method"
+          "text": "Method",
+          "key": "tpl_33"
         },
         {
           "type": "bulleted",
-          "text": "Setup: "
+          "text": "Setup: ",
+          "key": "tpl_34"
         },
         {
           "type": "bulleted",
-          "text": "Controls: "
+          "text": "Controls: ",
+          "key": "tpl_35"
         },
         {
           "type": "bulleted",
-          "text": "Measurements: "
+          "text": "Measurements: ",
+          "key": "tpl_36"
         },
         {
           "type": "h2",
-          "text": "Observations"
+          "text": "Observations",
+          "key": "tpl_37"
         },
         {
           "type": "view",
           "databaseId": "db_fieldlog",
           "viewId": "v_fieldlog_table",
           "limit": 10,
-          "heading": "Field log"
+          "heading": "Field log",
+          "key": "tpl_38"
         },
         {
           "type": "h2",
-          "text": "Expected outcome"
+          "text": "Expected outcome",
+          "key": "tpl_39"
         },
         {
           "type": "text",
-          "text": "Project: {{project}} · Lead: {{lead}} · Target: {{target_date}}"
+          "text": "Project: {{project}} · Lead: {{lead}} · Target: {{target_date}}",
+          "key": "tpl_3a"
         }
-      ]
+      ],
+      "key": "pg_tpl_experiment"
     },
     {
       "id": "pg_tpl_event",
@@ -4439,97 +4635,119 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "{{event}} — {{date}} at {{place}}."
+          "text": "{{event}} — {{date}} at {{place}}.",
+          "key": "tpl_3b"
         },
         {
           "type": "h2",
-          "text": "Plan"
+          "text": "Plan",
+          "key": "tpl_3c"
         },
         {
           "type": "bulleted",
-          "text": "Purpose: "
+          "text": "Purpose: ",
+          "key": "tpl_3d"
         },
         {
           "type": "bulleted",
-          "text": "Audience: "
+          "text": "Audience: ",
+          "key": "tpl_3e"
         },
         {
           "type": "bulleted",
-          "text": "Capacity: {{capacity}}"
+          "text": "Capacity: {{capacity}}",
+          "key": "tpl_3f"
         },
         {
           "type": "h2",
-          "text": "Agenda"
+          "text": "Agenda",
+          "key": "tpl_3g"
         },
         {
           "type": "todo",
           "text": "Doors open / arrival",
-          "checked": false
+          "checked": false,
+          "key": "tpl_3h"
         },
         {
           "type": "todo",
           "text": "Session 1",
-          "checked": false
+          "checked": false,
+          "key": "tpl_3i"
         },
         {
           "type": "todo",
           "text": "Break",
-          "checked": false
+          "checked": false,
+          "key": "tpl_3j"
         },
         {
           "type": "todo",
           "text": "Session 2",
-          "checked": false
+          "checked": false,
+          "key": "tpl_3k"
         },
         {
           "type": "todo",
           "text": "Close & clean-up",
-          "checked": false
+          "checked": false,
+          "key": "tpl_3l"
         },
         {
           "type": "h2",
-          "text": "Logistics"
+          "text": "Logistics",
+          "key": "tpl_3m"
         },
         {
           "type": "bulleted",
-          "text": "Facilitators: {{facilitators}}"
+          "text": "Facilitators: {{facilitators}}",
+          "key": "tpl_3n"
         },
         {
           "type": "bulleted",
-          "text": "Volunteers: {{volunteers}}"
+          "text": "Volunteers: {{volunteers}}",
+          "key": "tpl_3o"
         },
         {
           "type": "bulleted",
-          "text": "Materials & equipment: "
+          "text": "Materials & equipment: ",
+          "key": "tpl_3p"
         },
         {
           "type": "h2",
-          "text": "Money"
+          "text": "Money",
+          "key": "tpl_3q"
         },
         {
           "type": "bulleted",
-          "text": "Budget: {{budget}} · Revenue: {{revenue}}"
+          "text": "Budget: {{budget}} · Revenue: {{revenue}}",
+          "key": "tpl_3r"
         },
         {
           "type": "h2",
-          "text": "Follow-up"
+          "text": "Follow-up",
+          "key": "tpl_3s"
         },
         {
           "type": "todo",
           "text": "Thank participants & share notes",
-          "checked": false
+          "checked": false,
+          "key": "tpl_3t"
         },
         {
           "type": "todo",
           "text": "Log expenses to Finance",
-          "checked": false
+          "checked": false,
+          "key": "tpl_3u"
         },
         {
           "type": "todo",
           "text": "Write up for Media",
-          "checked": false
+          "checked": false,
+          "key": "tpl_3v"
         }
-      ]
+      ],
+      "key": "pg_tpl_event"
     },
     {
       "id": "pg_tpl_field_visit",
@@ -4541,61 +4759,75 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Field visit to {{place}} on {{date}} — capture observations into the Field Log."
+          "text": "Field visit to {{place}} on {{date}} — capture observations into the Field Log.",
+          "key": "tpl_3w"
         },
         {
           "type": "h2",
-          "text": "Purpose"
+          "text": "Purpose",
+          "key": "tpl_3x"
         },
         {
           "type": "text",
-          "text": "{{purpose}}"
+          "text": "{{purpose}}",
+          "key": "tpl_3y"
         },
         {
           "type": "h2",
-          "text": "Site"
+          "text": "Site",
+          "key": "tpl_3z"
         },
         {
           "type": "text",
-          "text": "{{place}}"
+          "text": "{{place}}",
+          "key": "tpl_40"
         },
         {
           "type": "h2",
-          "text": "Observations"
+          "text": "Observations",
+          "key": "tpl_41"
         },
         {
           "type": "view",
           "databaseId": "db_fieldlog",
           "viewId": "v_fieldlog_table",
           "limit": 15,
-          "heading": "Field log"
+          "heading": "Field log",
+          "key": "tpl_42"
         },
         {
           "type": "h2",
-          "text": "Measurements"
+          "text": "Measurements",
+          "key": "tpl_43"
         },
         {
           "type": "bulleted",
-          "text": "What to measure, units, sampling notes."
+          "text": "What to measure, units, sampling notes.",
+          "key": "tpl_44"
         },
         {
           "type": "h2",
-          "text": "Photos"
+          "text": "Photos",
+          "key": "tpl_45"
         },
         {
           "type": "text",
-          "text": "Attach photos to this page or link Drive folders."
+          "text": "Attach photos to this page or link Drive folders.",
+          "key": "tpl_46"
         },
         {
           "type": "h2",
-          "text": "Follow-ups"
+          "text": "Follow-ups",
+          "key": "tpl_47"
         },
         {
           "type": "todo",
           "text": "",
-          "checked": false
+          "checked": false,
+          "key": "tpl_48"
         }
-      ]
+      ],
+      "key": "pg_tpl_field_visit"
     },
     {
       "id": "pg_tpl_meeting",
@@ -4607,27 +4839,33 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "{{meeting}} — {{date}} · Chair: {{chair}}"
+          "text": "{{meeting}} — {{date}} · Chair: {{chair}}",
+          "key": "tpl_49"
         },
         {
           "type": "h2",
-          "text": "Agenda"
+          "text": "Agenda",
+          "key": "tpl_4a"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_4b"
         },
         {
           "type": "h2",
-          "text": "Notes"
+          "text": "Notes",
+          "key": "tpl_4c"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_4d"
         },
         {
           "type": "h2",
-          "text": "Decisions taken"
+          "text": "Decisions taken",
+          "key": "tpl_4e"
         },
         {
           "type": "view",
@@ -4646,11 +4884,13 @@
             ]
           },
           "heading": "Open decisions",
-          "limit": 8
+          "limit": 8,
+          "key": "tpl_4f"
         },
         {
           "type": "h2",
-          "text": "Action items"
+          "text": "Action items",
+          "key": "tpl_4g"
         },
         {
           "type": "view",
@@ -4670,9 +4910,11 @@
             ]
           },
           "heading": "Actions",
-          "limit": 10
+          "limit": 10,
+          "key": "tpl_4h"
         }
-      ]
+      ],
+      "key": "pg_tpl_meeting"
     },
     {
       "id": "pg_tpl_weekly",
@@ -4684,11 +4926,13 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Week of {{week}} — the weekly rhythm: numbers first, then people, then decisions."
+          "text": "Week of {{week}} — the weekly rhythm: numbers first, then people, then decisions.",
+          "key": "tpl_4i"
         },
         {
           "type": "h2",
-          "text": "This week’s numbers"
+          "text": "This week’s numbers",
+          "key": "tpl_4j"
         },
         {
           "type": "metric",
@@ -4701,7 +4945,8 @@
               "op": "is",
               "value": "active"
             }
-          ]
+          ],
+          "key": "tpl_4k"
         },
         {
           "type": "metric",
@@ -4714,7 +4959,8 @@
               "op": "is",
               "value": "blocked"
             }
-          ]
+          ],
+          "key": "tpl_4l"
         },
         {
           "type": "metric",
@@ -4742,19 +4988,23 @@
               "op": "is_not",
               "value": "lost"
             }
-          ]
+          ],
+          "key": "tpl_4m"
         },
         {
           "type": "h2",
-          "text": "Wins"
+          "text": "Wins",
+          "key": "tpl_4n"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_4o"
         },
         {
           "type": "h2",
-          "text": "Blocked"
+          "text": "Blocked",
+          "key": "tpl_4p"
         },
         {
           "type": "view",
@@ -4773,11 +5023,13 @@
             ]
           },
           "heading": "Blocked projects",
-          "limit": 10
+          "limit": 10,
+          "key": "tpl_4q"
         },
         {
           "type": "h2",
-          "text": "Decisions needed"
+          "text": "Decisions needed",
+          "key": "tpl_4r"
         },
         {
           "type": "view",
@@ -4796,18 +5048,22 @@
             ]
           },
           "heading": "Open decisions",
-          "limit": 8
+          "limit": 8,
+          "key": "tpl_4s"
         },
         {
           "type": "h2",
-          "text": "Next week"
+          "text": "Next week",
+          "key": "tpl_4t"
         },
         {
           "type": "todo",
           "text": "",
-          "checked": false
+          "checked": false,
+          "key": "tpl_4u"
         }
-      ]
+      ],
+      "key": "pg_tpl_weekly"
     },
     {
       "id": "pg_tpl_project_review",
@@ -4819,82 +5075,102 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Review of {{project}} — honest answers, evidence over impressions."
+          "text": "Review of {{project}} — honest answers, evidence over impressions.",
+          "key": "tpl_4v"
         },
         {
           "type": "h2",
-          "text": "What was planned?"
+          "text": "What was planned?",
+          "key": "tpl_4w"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_4x"
         },
         {
           "type": "h2",
-          "text": "What actually happened?"
+          "text": "What actually happened?",
+          "key": "tpl_4y"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_4z"
         },
         {
           "type": "h2",
-          "text": "What worked?"
+          "text": "What worked?",
+          "key": "tpl_50"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_51"
         },
         {
           "type": "h2",
-          "text": "What failed?"
+          "text": "What failed?",
+          "key": "tpl_52"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_53"
         },
         {
           "type": "h2",
-          "text": "What did we learn?"
+          "text": "What did we learn?",
+          "key": "tpl_54"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_55"
         },
         {
           "type": "h2",
-          "text": "What should change?"
+          "text": "What should change?",
+          "key": "tpl_56"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_57"
         },
         {
           "type": "h2",
-          "text": "What needs to be documented?"
+          "text": "What needs to be documented?",
+          "key": "tpl_58"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_59"
         },
         {
           "type": "h2",
-          "text": "What could become a course, article or video?"
+          "text": "What could become a course, article or video?",
+          "key": "tpl_5a"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_5b"
         },
         {
-          "type": "divider"
+          "type": "divider",
+          "key": "tpl_5c"
         },
         {
           "type": "h2",
-          "text": "Related records"
+          "text": "Related records",
+          "key": "tpl_5d"
         },
         {
           "type": "text",
-          "text": "Link the project’s tasks, decisions and media. The blocks below show open items across the workspace — filter them to {{project}} when reviewing."
+          "text": "Link the project’s tasks, decisions and media. The blocks below show open items across the workspace — filter them to {{project}} when reviewing.",
+          "key": "tpl_5e"
         },
         {
           "type": "view",
@@ -4915,23 +5191,27 @@
             ]
           },
           "heading": "Open tasks",
-          "limit": 10
+          "limit": 10,
+          "key": "tpl_5f"
         },
         {
           "type": "view",
           "databaseId": "db_decisions",
           "viewId": "v_decisions_table",
           "heading": "Decisions",
-          "limit": 10
+          "limit": 10,
+          "key": "tpl_5g"
         },
         {
           "type": "view",
           "databaseId": "db_media",
           "viewId": "v_media_table",
           "heading": "Media",
-          "limit": 8
+          "limit": 8,
+          "key": "tpl_5h"
         }
-      ]
+      ],
+      "key": "pg_tpl_project_review"
     },
     {
       "id": "pg_tpl_finance_review",
@@ -4943,7 +5223,8 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Finance review — {{period}}."
+          "text": "Finance review — {{period}}.",
+          "key": "tpl_5i"
         },
         {
           "type": "metric",
@@ -4958,7 +5239,8 @@
               "op": "is",
               "value": "income"
             }
-          ]
+          ],
+          "key": "tpl_5j"
         },
         {
           "type": "metric",
@@ -4973,33 +5255,40 @@
               "op": "is",
               "value": "expense"
             }
-          ]
+          ],
+          "key": "tpl_5k"
         },
         {
           "type": "view",
           "databaseId": "db_transactions",
           "viewId": "v_transactions_table",
           "heading": "Transactions",
-          "limit": 20
+          "limit": 20,
+          "key": "tpl_5l"
         },
         {
           "type": "h2",
-          "text": "Variances"
+          "text": "Variances",
+          "key": "tpl_5m"
         },
         {
           "type": "bulleted",
-          "text": "Where did we over/under-spend vs plan?"
+          "text": "Where did we over/under-spend vs plan?",
+          "key": "tpl_5n"
         },
         {
           "type": "h2",
-          "text": "Actions"
+          "text": "Actions",
+          "key": "tpl_5o"
         },
         {
           "type": "todo",
           "text": "",
-          "checked": false
+          "checked": false,
+          "key": "tpl_5p"
         }
-      ]
+      ],
+      "key": "pg_tpl_finance_review"
     },
     {
       "id": "pg_tpl_partnership_review",
@@ -5011,45 +5300,55 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Partnership review — {{partner}}."
+          "text": "Partnership review — {{partner}}.",
+          "key": "tpl_5q"
         },
         {
           "type": "view",
           "databaseId": "db_opportunities",
           "viewId": "v_opportunities_board",
           "heading": "Pipeline",
-          "limit": 12
+          "limit": 12,
+          "key": "tpl_5r"
         },
         {
           "type": "h2",
-          "text": "Status"
+          "text": "Status",
+          "key": "tpl_5s"
         },
         {
           "type": "bulleted",
-          "text": "Open opportunities: "
+          "text": "Open opportunities: ",
+          "key": "tpl_5t"
         },
         {
           "type": "bulleted",
-          "text": "Awaiting decision: "
+          "text": "Awaiting decision: ",
+          "key": "tpl_5u"
         },
         {
           "type": "h2",
-          "text": "Notes"
+          "text": "Notes",
+          "key": "tpl_5v"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_5w"
         },
         {
           "type": "h2",
-          "text": "Next actions"
+          "text": "Next actions",
+          "key": "tpl_5x"
         },
         {
           "type": "todo",
           "text": "",
-          "checked": false
+          "checked": false,
+          "key": "tpl_5y"
         }
-      ]
+      ],
+      "key": "pg_tpl_partnership_review"
     },
     {
       "id": "pg_tpl_content_planning",
@@ -5061,14 +5360,16 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Content planning — {{period}}."
+          "text": "Content planning — {{period}}.",
+          "key": "tpl_5z"
         },
         {
           "type": "view",
           "databaseId": "db_media",
           "viewId": "v_media_board",
           "heading": "Pipeline",
-          "limit": 15
+          "limit": 15,
+          "key": "tpl_60"
         },
         {
           "type": "calendar",
@@ -5079,26 +5380,32 @@
               "color": "#ec4899"
             }
           ],
-          "heading": "Publishing calendar"
+          "heading": "Publishing calendar",
+          "key": "tpl_61"
         },
         {
           "type": "h2",
-          "text": "Themes"
+          "text": "Themes",
+          "key": "tpl_62"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_63"
         },
         {
           "type": "h2",
-          "text": "Queue"
+          "text": "Queue",
+          "key": "tpl_64"
         },
         {
           "type": "todo",
           "text": "",
-          "checked": false
+          "checked": false,
+          "key": "tpl_65"
         }
-      ]
+      ],
+      "key": "pg_tpl_content_planning"
     },
     {
       "id": "pg_tpl_quarterly",
@@ -5110,11 +5417,13 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Quarterly strategy — {{quarter}}. Step back: what does the ground need next?"
+          "text": "Quarterly strategy — {{quarter}}. Step back: what does the ground need next?",
+          "key": "tpl_66"
         },
         {
           "type": "h2",
-          "text": "Review"
+          "text": "Review",
+          "key": "tpl_67"
         },
         {
           "type": "metric",
@@ -5127,7 +5436,8 @@
               "op": "is",
               "value": "completed"
             }
-          ]
+          ],
+          "key": "tpl_68"
         },
         {
           "type": "metric",
@@ -5142,33 +5452,41 @@
               "op": "is",
               "value": "won"
             }
-          ]
+          ],
+          "key": "tpl_69"
         },
         {
           "type": "bulleted",
-          "text": "What moved?"
+          "text": "What moved?",
+          "key": "tpl_6a"
         },
         {
           "type": "bulleted",
-          "text": "What stalled?"
+          "text": "What stalled?",
+          "key": "tpl_6b"
         },
         {
           "type": "h2",
-          "text": "Priorities"
+          "text": "Priorities",
+          "key": "tpl_6c"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_6d"
         },
         {
           "type": "h2",
-          "text": "Bets"
+          "text": "Bets",
+          "key": "tpl_6e"
         },
         {
           "type": "text",
-          "text": "The 1–3 things we commit to this quarter."
+          "text": "The 1–3 things we commit to this quarter.",
+          "key": "tpl_6f"
         }
-      ]
+      ],
+      "key": "pg_tpl_quarterly"
     },
     {
       "id": "pg_tpl_research_note",
@@ -5180,50 +5498,62 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Research note — {{topic}}."
+          "text": "Research note — {{topic}}.",
+          "key": "tpl_6g"
         },
         {
           "type": "h2",
-          "text": "Question"
+          "text": "Question",
+          "key": "tpl_6h"
         },
         {
           "type": "text",
-          "text": "{{question}}"
+          "text": "{{question}}",
+          "key": "tpl_6i"
         },
         {
           "type": "h2",
-          "text": "Sources"
+          "text": "Sources",
+          "key": "tpl_6j"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_6k"
         },
         {
           "type": "h2",
-          "text": "Notes"
+          "text": "Notes",
+          "key": "tpl_6l"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_6m"
         },
         {
           "type": "h2",
-          "text": "Implications"
+          "text": "Implications",
+          "key": "tpl_6n"
         },
         {
           "type": "text",
-          "text": "What this changes for the work."
+          "text": "What this changes for the work.",
+          "key": "tpl_6o"
         },
         {
           "type": "h2",
-          "text": "Next"
+          "text": "Next",
+          "key": "tpl_6p"
         },
         {
           "type": "todo",
           "text": "",
-          "checked": false
+          "checked": false,
+          "key": "tpl_6q"
         }
-      ]
+      ],
+      "key": "pg_tpl_research_note"
     },
     {
       "id": "pg_tpl_case_study",
@@ -5235,49 +5565,61 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Case study — {{project}}. Tell it like a story someone could repeat."
+          "text": "Case study — {{project}}. Tell it like a story someone could repeat.",
+          "key": "tpl_6r"
         },
         {
           "type": "h2",
-          "text": "Context"
+          "text": "Context",
+          "key": "tpl_6s"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_6t"
         },
         {
           "type": "h2",
-          "text": "What we did"
+          "text": "What we did",
+          "key": "tpl_6u"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_6v"
         },
         {
           "type": "h2",
-          "text": "Results"
+          "text": "Results",
+          "key": "tpl_6w"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_6x"
         },
         {
           "type": "h2",
-          "text": "Evidence"
+          "text": "Evidence",
+          "key": "tpl_6y"
         },
         {
           "type": "text",
-          "text": "Photos, measurements, quotes — link the field log and media records."
+          "text": "Photos, measurements, quotes — link the field log and media records.",
+          "key": "tpl_6z"
         },
         {
           "type": "h2",
-          "text": "Lessons"
+          "text": "Lessons",
+          "key": "tpl_70"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_71"
         }
-      ]
+      ],
+      "key": "pg_tpl_case_study"
     },
     {
       "id": "pg_tpl_grant",
@@ -5289,66 +5631,81 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Grant application — {{funder}} · {{amount}} · due {{deadline}}."
+          "text": "Grant application — {{funder}} · {{amount}} · due {{deadline}}.",
+          "key": "tpl_72"
         },
         {
           "type": "h2",
-          "text": "Funder"
+          "text": "Funder",
+          "key": "tpl_73"
         },
         {
           "type": "bulleted",
-          "text": "Requirements: "
+          "text": "Requirements: ",
+          "key": "tpl_74"
         },
         {
           "type": "bulleted",
-          "text": "Contact: "
+          "text": "Contact: ",
+          "key": "tpl_75"
         },
         {
           "type": "h2",
-          "text": "Narrative"
+          "text": "Narrative",
+          "key": "tpl_76"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_77"
         },
         {
           "type": "h2",
-          "text": "Budget"
+          "text": "Budget",
+          "key": "tpl_78"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_79"
         },
         {
           "type": "h2",
-          "text": "Checklist"
+          "text": "Checklist",
+          "key": "tpl_7a"
         },
         {
           "type": "todo",
           "text": "Draft narrative",
-          "checked": false
+          "checked": false,
+          "key": "tpl_7b"
         },
         {
           "type": "todo",
           "text": "Budget table",
-          "checked": false
+          "checked": false,
+          "key": "tpl_7c"
         },
         {
           "type": "todo",
           "text": "Supporting documents",
-          "checked": false
+          "checked": false,
+          "key": "tpl_7d"
         },
         {
           "type": "todo",
           "text": "Internal review",
-          "checked": false
+          "checked": false,
+          "key": "tpl_7e"
         },
         {
           "type": "todo",
           "text": "Submit before {{deadline}}",
-          "checked": false
+          "checked": false,
+          "key": "tpl_7f"
         }
-      ]
+      ],
+      "key": "pg_tpl_grant"
     },
     {
       "id": "pg_tpl_course",
@@ -5360,55 +5717,67 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Course — {{course}} · Format: {{format}} · Tutors: {{tutors}}."
+          "text": "Course — {{course}} · Format: {{format}} · Tutors: {{tutors}}.",
+          "key": "tpl_7g"
         },
         {
           "type": "h2",
-          "text": "Audience"
+          "text": "Audience",
+          "key": "tpl_7h"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_7i"
         },
         {
           "type": "h2",
-          "text": "Outcomes"
+          "text": "Outcomes",
+          "key": "tpl_7j"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_7k"
         },
         {
           "type": "h2",
-          "text": "Curriculum"
+          "text": "Curriculum",
+          "key": "tpl_7l"
         },
         {
           "type": "todo",
           "text": "Module 1 — ",
-          "checked": false
+          "checked": false,
+          "key": "tpl_7m"
         },
         {
           "type": "todo",
           "text": "Module 2 — ",
-          "checked": false
+          "checked": false,
+          "key": "tpl_7n"
         },
         {
           "type": "todo",
           "text": "Module 3 — ",
-          "checked": false
+          "checked": false,
+          "key": "tpl_7o"
         },
         {
           "type": "h2",
-          "text": "Production"
+          "text": "Production",
+          "key": "tpl_7p"
         },
         {
           "type": "view",
           "databaseId": "db_media",
           "viewId": "v_media_board",
           "heading": "Course media",
-          "limit": 10
+          "limit": 10,
+          "key": "tpl_7q"
         }
-      ]
+      ],
+      "key": "pg_tpl_course"
     },
     {
       "id": "pg_tpl_media_production",
@@ -5420,58 +5789,71 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Media production — {{title}} · {{format}} for {{channel}}."
+          "text": "Media production — {{title}} · {{format}} for {{channel}}.",
+          "key": "tpl_7r"
         },
         {
           "type": "h2",
-          "text": "Brief"
+          "text": "Brief",
+          "key": "tpl_7s"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_7t"
         },
         {
           "type": "h2",
-          "text": "Script / outline"
+          "text": "Script / outline",
+          "key": "tpl_7u"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_7v"
         },
         {
           "type": "h2",
-          "text": "Shot list"
+          "text": "Shot list",
+          "key": "tpl_7w"
         },
         {
           "type": "todo",
           "text": "",
-          "checked": false
+          "checked": false,
+          "key": "tpl_7x"
         },
         {
           "type": "h2",
-          "text": "Review"
+          "text": "Review",
+          "key": "tpl_7y"
         },
         {
           "type": "todo",
           "text": "Edit pass",
-          "checked": false
+          "checked": false,
+          "key": "tpl_7z"
         },
         {
           "type": "todo",
           "text": "Fact check",
-          "checked": false
+          "checked": false,
+          "key": "tpl_80"
         },
         {
           "type": "todo",
           "text": "Legal / consent check",
-          "checked": false
+          "checked": false,
+          "key": "tpl_81"
         },
         {
           "type": "todo",
           "text": "Schedule for {{publish_date}}",
-          "checked": false
+          "checked": false,
+          "key": "tpl_82"
         }
-      ]
+      ],
+      "key": "pg_tpl_media_production"
     },
     {
       "id": "pg_tpl_volunteer",
@@ -5483,52 +5865,64 @@
       "blocks": [
         {
           "type": "callout",
-          "text": "Volunteer program — {{program}}."
+          "text": "Volunteer program — {{program}}.",
+          "key": "tpl_83"
         },
         {
           "type": "h2",
-          "text": "Roles"
+          "text": "Roles",
+          "key": "tpl_84"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_85"
         },
         {
           "type": "h2",
-          "text": "Schedule"
+          "text": "Schedule",
+          "key": "tpl_86"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_87"
         },
         {
           "type": "h2",
-          "text": "Requirements"
+          "text": "Requirements",
+          "key": "tpl_88"
         },
         {
           "type": "bulleted",
-          "text": ""
+          "text": "",
+          "key": "tpl_89"
         },
         {
           "type": "h2",
-          "text": "Volunteers"
+          "text": "Volunteers",
+          "key": "tpl_8a"
         },
         {
           "type": "view",
           "databaseId": "db_people",
           "viewId": "v_people_volunteers",
           "heading": "Volunteers",
-          "limit": 15
+          "limit": 15,
+          "key": "tpl_8b"
         },
         {
           "type": "h2",
-          "text": "Recognition"
+          "text": "Recognition",
+          "key": "tpl_8c"
         },
         {
           "type": "text",
-          "text": ""
+          "text": "",
+          "key": "tpl_8d"
         }
-      ]
+      ],
+      "key": "pg_tpl_volunteer"
     }
   ],
   "links": [
@@ -5894,5 +6288,6 @@
         }
       ]
     }
-  ]
+  ],
+  "version": 2
 }

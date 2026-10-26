@@ -178,7 +178,8 @@ export function planTemplateInstantiation(
         // P3-R1: templateKey ONLY on the root page — it is the completion
         // marker. Writes are ordered root-last so the marker can never exist
         // before the rest of the install landed.
-        ...(opts.templateKey && isRoot ? { templateKey: opts.templateKey } : {}),
+        ...(opts.templateKey && isRoot ? { templateKey: opts.templateKey,...(src.templateVersion!==undefined?{templateVersion:src.templateVersion}:{}) } : {}),
+        ...(src.templateItemKey?{templateItemKey:src.templateItemKey}:{}),
       },
     });
   }
@@ -329,6 +330,7 @@ export function planTemplateInstantiation(
       id: viewMap.get(vid) ?? newId('views', vid),
       patch: {
         databaseId: newDbId,
+        ...(v.templateItemKey?{templateItemKey:v.templateItemKey}:{}),
         name: substituteVars(v.name ?? 'View', vars),
         type: v.type ?? 'table',
         order: v.order ?? null,
@@ -424,6 +426,7 @@ export function planTemplateInstantiation(
     });
     const patch: Record<string, unknown> = {
       pageId: newOwnerId,
+      ...(b.templateItemKey?{templateItemKey:b.templateItemKey}:{}),
       order: b.order ?? null,
       type: b.type ?? 'p',
       text,

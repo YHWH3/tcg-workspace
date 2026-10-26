@@ -39,7 +39,8 @@ import { linkId } from '../shared/linkid';
 import { edgesOf, wouldCreateDependencyCycle } from '../shared/deps';
 import { planConversion } from '../shared/conversion';
 import { archivePatch, isArchived } from '../shared/archive';
-import { findReusableBoards, planInstallPreview } from '../shared/bundled';
+import { findReusableBoards, planInstallPreview,planPackUpgrade } from '../shared/bundled';
+import {loadPackUpgradeRecords} from './packUpgrade';
 import { BUNDLED, BUNDLED_AUTHORS, bundledTemplate } from './bundledTemplates';
 import { COLUMN_COLORS } from '../src/modules/boards/model';
 import { registerApprovalTools } from './mcpApprovals'; // P4-D
@@ -3877,9 +3878,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'install_template',
     {
-      description: `Install a bundled template pack (${Object.keys(BUNDLED).map((k) => `'${k}'`).join(' | ')}) into this workspace: creates its databases (reusing ones whose templateDbKey matches an authored key), views, records, pages, links and page templates. dryRun previews the plan. A completed install is detected by the stamped ROOT page (templateKey on the root only, written last). An interrupted install leaves no marker — re-running reconciles the missing rows via stable deterministic ids and never duplicates. force re-applies the install (databases still dedupe, rows reconcile in place).`,
+      description: `Install a bundled template pack (${Object.keys(BUNDLED).map((k) => `'${k}'`).join(' | ')}) into this workspace. mode:'upgrade' previews additive missing fields/options/items/formats and requires frozen session approval; existing labels, filters, stages and records are preserved. Install creates its databases (reusing ones whose templateDbKey matches an authored key), views, records, pages, links and page templates. dryRun previews the plan. A completed install is detected by the stamped ROOT page (templateKey on the root only, written last). An interrupted install leaves no marker — re-running reconciles the missing rows via stable deterministic ids and never duplicates. force re-applies the install (databases still dedupe, rows reconcile in place).`,
       inputSchema: z.object({
         bundled: z.string().describe('Bundled template key'),
+        mode:z.enum(['install','upgrade']).default('install').describe('Upgrade adds missing items and formats while preserving existing content; requires frozen human approval.'),
         dryRun: dryRunInput,
         force: z.boolean().optional().describe('Install even when a page already carries this templateKey'),
         parentId: z.string().nullable().optional().describe('Parent page for the new root page (default: top level)'),
@@ -3889,8 +3891,20 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     async (a) => {
       const bundle = bundledTemplate(a.bundled);
       if (!bundle) return err(`unknown bundled template '${a.bundled}' — have: ${Object.keys(BUNDLED).join(', ')}`);
-      const existing = await existingBoards();
       const marker = live((await listBy(ctx.env, 'pages', 'templateKey', a.bundled)).map(toRec)).find((p) => p.data.templateKey === a.bundled);
+      if(a.mode==='upgrade'){
+        if(!marker)return err('An active installed pack root is required for upgrade.');
+        const records=await loadPackUpgradeRecords(ctx.env,bundle,marker.id);
+        const upgrade=planPackUpgrade(bundle,records,{now:Date.now(),actorId:ctx.userId});
+        const preview={bundled:a.bundled,mode:'upgrade',pageId:upgrade.rootPageId,version:upgrade.version,changes:upgrade.writes.map(w=>({id:w.id,collection:w.collection,reason:w.reason})),warnings:upgrade.warnings};
+        if(a.dryRun)return txt({dryRun:true,...preview});
+        if(upgrade.warnings.length)return err('Upgrade held: '+upgrade.warnings.join('; '));
+        if(!upgrade.writes.length)return txt({upgraded:false,alreadyCurrent:true,...preview});
+        const expected=new Map(records.filter(r=>upgrade.writes.some(w=>w.id===r.id)).map(r=>[r.id,r.rev??0]));
+        await write(ctx,upgrade.writes.map(({collection,id,patch})=>({collection,id,patch})),{expect:expected});
+        return txt({upgraded:true,...preview,url:pageUrl(ctx,marker.id)});
+      }
+      const existing=await existingBoards();
       if (a.dryRun) return txt({ dryRun: true, bundled: a.bundled, alreadyInstalled: !!marker, ...planInstallPreview(bundle, existing) });
       if (a.parentId) {
         const pp = await rec(ctx.env, 'pages', a.parentId);

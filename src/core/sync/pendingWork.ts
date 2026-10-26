@@ -115,7 +115,7 @@ export async function planAccessWork(store: LocalDB, userId: string, manifest: C
     const base = rows.get(recordId)?.confirmed ? rows.get(recordId) : undefined, first = group[0];
     if (!base && !group.some(e => e.createIntent)) { denied.set(recordId, 'access_revoked_or_unconfirmed_creation'); continue; }
     if (group.some(e => e.collection !== first.collection || e.state === 'rejected')) { denied.set(recordId, 'access_review_required'); continue; }
-    const rebased = rebaseRecord({ data: base?.data ?? {}, field_ts: base?.field_ts ?? {} }, group);
+    const rebased = rebaseRecord({ data: base?.data ?? {}, field_ts: base?.field_ts ?? {} }, group,!!base);
     proposed.set(recordId, { id: recordId, collection: first.collection, data: rebased.data,
       rootSpaceId: base?.spaceId ?? (typeof rebased.data.spaceId === 'string' ? rebased.data.spaceId : 'space-core') });
   }
