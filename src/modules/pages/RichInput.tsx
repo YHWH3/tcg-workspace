@@ -264,7 +264,7 @@ export const RichInput = forwardRef<
     const q = menu.query.trim().toLowerCase();
     const livePages = (pages as PageRow[]).filter((p) => !p.deleted);
     const ph = livePages.filter((p) => !q || String(p.title ?? '').toLowerCase().includes(q)).slice(0, 5).map((p) => ({ kind: 'page' as const, id: p.id, label: String(p.title ?? '') || 'Untitled', icon: String(p.icon ?? '📄') }));
-    const uh = users.filter((u) => !q || u.name.toLowerCase().includes(q) || u.username.includes(q)).slice(0, 4).map((u) => ({ kind: 'user' as const, id: u.id, label: u.name, user: u }));
+    const uh = users.filter((u) => !u.disabled && (!q || u.name.toLowerCase().includes(q) || u.username.includes(q))).slice(0, 4).map((u) => ({ kind: 'user' as const, id: u.id, label: u.name, user: u }));
     return [...ph, ...uh];
   }, [menu, pages, users]);
   const createLabel = menu?.query.trim() ?? '';

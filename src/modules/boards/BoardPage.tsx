@@ -105,7 +105,7 @@ export function BoardPage() {
               <option value="">Anyone</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.name}
+                  {u.name}{u.disabled?' (disabled)':''}
                 </option>
               ))}
               {fieldFilterOptions.length > 0 && (

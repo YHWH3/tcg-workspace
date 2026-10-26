@@ -193,7 +193,7 @@ function UserFieldOrIds({ board, userField, userIds, onField, onIds }: {
         aria-label="Add recipient"
       >
         <option value="">add member…</option>
-        {users.filter((u) => !(userIds ?? []).includes(u.id)).map((u) => (
+        {users.filter((u) => !u.disabled && !(userIds ?? []).includes(u.id)).map((u) => (
           <option key={u.id} value={u.id}>{u.name}</option>
         ))}
       </Select>

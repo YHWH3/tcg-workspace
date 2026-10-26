@@ -91,7 +91,7 @@ export function FieldRow({ field, task }: { field: FieldDef; task: TaskRow }) {
         <select value={typeof raw === 'string' ? raw : ''} onChange={(e) => void setProp(task.id, field.id, e.target.value || null)} className={input} aria-label={field.name}>
           <option value="">Unassigned</option>
           {users.map((u) => (
-            <option key={u.id} value={u.id}>{u.name}</option>
+            <option key={u.id} value={u.id} disabled={u.disabled} className={u.disabled?'text-neutral-500':undefined}>{u.name}{u.disabled?' (disabled)':''}</option>
           ))}
         </select>
       ) : field.type === 'date' ? (

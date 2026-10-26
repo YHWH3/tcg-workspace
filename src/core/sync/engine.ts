@@ -365,7 +365,10 @@ export async function syncNow(): Promise<void> {
     } else await pullRemote(access, assertCurrent);
     // Guest/read-only clients must never manufacture Core seed writes. The
     // server bootstrap will provision built-ins for scoped workspaces.
-    if (access.protocol === 1) { await seedBuiltins(); await seedWebsiteInbox(); await refreshUsers(); }
+    if (access.protocol === 1) { await seedBuiltins(); await seedWebsiteInbox(); }
+    // Both protocols use the authenticated directory. Guest self-only policy is
+    // enforced server-side; refreshUsers fences account/token/access epoch.
+    await refreshUsers();
     // Chunked blob uploads run after metadata sync (dynamic import avoids a cycle).
     const { uploadPendingBlobs } = await import('../files');
     assertCurrent(); await uploadPendingBlobs(assertCurrent); assertCurrent();

@@ -116,3 +116,31 @@ live connection; known offline settings remain in use. Before a first successful
 fetch, the app explicitly identifies its device-date fallback when unavailable.
 Provider usage quotas and audit/export timestamps retain their intentional UTC
 meaning. No real workspace settings were changed during local verification.
+
+
+## Phase 7.3 account access prerequisites and recovery
+
+This feature adds no migration beyond the preceding 0035 settings migration.
+Disabling is an authenticated human administrator action. It frees an active
+place while preserving the account, records, historical authorship and existing
+assignments. Restoration needs fewer than seven active accounts including guests;
+zero active accounts must never reopen bootstrap if retained accounts exist.
+
+Disabling deletes sessions, revokes modern connector connections and pending
+consents, and revokes any Website ingest grant sponsored by that person. Legacy
+provider grants are swept with bounded pagination. A provider outage leaves the
+account disabled, reports cleanup pending, and allows an explicit retry. Never
+clear disabled_at directly to bypass cleanup: old grants without connection IDs
+could otherwise become usable again. Restore only through the authenticated
+Restore access action after successful cleanup and its atomic capacity check.
+Restoration revives neither sessions nor connections; the person signs in and
+authorizes connectors afresh. A revoked Website ingest grant needs explicit
+administrator configuration after restoration; relay outbox deliveries remain
+recoverable while ingest authority is unavailable. Pending guest invitations
+cannot be redeemed while their issuer lacks current enabled authority.
+
+Operator rollback: stop using the new actions and retain the disabled states and
+revocations; do not recover old sessions/grants or purge account history. Software
+rollback alone cannot undo a disable action. Use current authorized admin access
+and the restore workflow for deliberate recovery. No real account or grant was
+changed during certification fixtures.

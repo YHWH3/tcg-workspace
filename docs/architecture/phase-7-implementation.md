@@ -37,7 +37,23 @@ Do not describe an unconfirmed interruption cause as a fixed application defect.
   It now uses a fixed UTC midweek date and separately tests the week boundary;
   affected digest and reproduced cache-edge regressions pass 22/22. This does
   not relabel that failed full run or replace final Phase 7 certification.
-- **7.3–7.4:** not yet implemented. Follow
+- **7.3:** implemented with focused verification; phase certification pending.
+  Disabling is session/canonical-role/target-state fenced and revokes sessions,
+  modern connections, pending OAuth consents and sponsored Website ingest grants
+  atomically. Provider grant cleanup is bounded and must succeed before restore.
+  Active-seat capacity is enforced atomically for signup, guest redemption and
+  restoration; bootstrap still requires zero total accounts. History remains.
+  Canonical role changes and removals use current enabled-admin protections.
+  The authenticated directory refresh now runs in both sync protocols, retaining
+  account/token/access-epoch fences and the guest self-only server policy.
+  Disabled people remain on existing assignments and cannot be selected anew.
+  The 18-project browser matrix passes including explicit restoration failure
+  and retry, keyboard confirmation, another tab signing out, whole-page axe and
+  geometry. Compact light and tablet dark confirmation screenshots reviewed.
+  The focused 51-check run passes. Earlier failures remain retained; the new
+  live-sweep test must wait for the same initial presence message the app sends
+  before testing closure. Original production socket code passes unchanged.
+- **7.4:** not yet implemented. Follow
   [the ordered feature specification](../roadmap/07-foundations.md).
 
 ## Decisions and constraints

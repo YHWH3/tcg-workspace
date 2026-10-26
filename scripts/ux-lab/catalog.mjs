@@ -26,6 +26,7 @@ export const notCovered = [
 export const requiredCases=[...surfaces.map(s=>'surface: '+s.id),
   'relative dates: filter and automation hints with bounded results',
   'date ranges: keyboard creation, touch presets, validation and reload',
+  'account access: disable, session cutoff, history and restoration',
   'workspace locale: settings validation, currency metric and offline cache',
   'visual reference: website inbox',
   'opened search: focus, empty results and recovery',

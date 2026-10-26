@@ -220,8 +220,8 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
               <Select density="compact" value={String(rec.assigneeId ?? '')} onChange={(e) => void mutate('tasks', rec.id, { assigneeId: e.target.value || null })} className="w-48" aria-label="Assignee">
                 <option value="">Unassigned</option>
                 {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
+                  <option key={u.id} value={u.id} disabled={u.disabled} className={u.disabled?'text-neutral-500':undefined}>
+                    {u.name}{u.disabled?' (disabled)':''}
                   </option>
                 ))}
               </Select>

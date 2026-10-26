@@ -202,8 +202,8 @@ function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClo
             <Select aria-label="Assignee" value={String(task.assigneeId ?? '')} onChange={(e) => void setTaskField(task.id, { assigneeId: e.target.value || null })} className="py-1.5">
               <option value="">Unassigned</option>
               {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
+                <option key={u.id} value={u.id} disabled={u.disabled} className={u.disabled?'text-neutral-500':undefined}>
+                  {u.name}{u.disabled?' (disabled)':''}
                 </option>
               ))}
             </Select>
@@ -319,7 +319,7 @@ function Creator({ id }: { id: string }) {
   if (!u) return null;
   return (
     <span className="flex items-center gap-1.5">
-      <Avatar name={u.name} color={u.color} size={16} /> {u.name}
+      <Avatar name={u.name} color={u.color} size={16} /> {u.name}{u.disabled?' (disabled)':''}
     </span>
   );
 }

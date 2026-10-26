@@ -51,7 +51,7 @@ export function CellValue({ board, rec, keyName }: { board: BoardRow | undefined
     const u = resolveUser(rec.assigneeId ? String(rec.assigneeId) : null, users, me);
     return u ? (
       <span className="inline-flex items-center gap-1 truncate text-neutral-500 dark:text-neutral-400">
-        <Avatar name={u.name} color={u.color} size={16} /> {u.name}
+        <Avatar name={u.name} color={u.color} size={16} /> {u.name}{u.disabled?' (disabled)':''}
       </span>
     ) : null;
   }
@@ -146,7 +146,7 @@ function PropValue({ field, raw }: { field: FieldDef; raw: unknown }) {
     const u = resolveUser(typeof raw === 'string' ? raw : null, users, me);
     return u ? (
       <span className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400">
-        <Avatar name={u.name} color={u.color} size={15} /> {u.name}
+        <Avatar name={u.name} color={u.color} size={15} /> {u.name}{u.disabled?' (disabled)':''}
       </span>
     ) : null;
   }
@@ -197,8 +197,8 @@ export function CellEditor({ board, rec, keyName, onCommit }: { board: BoardRow 
       <Select density="compact" value={String(rec.assigneeId ?? '')} onChange={(e) => void mutate('tasks', rec.id, { assigneeId: e.target.value || null })} className="py-0.5" aria-label="Assignee">
         <option value="">—</option>
         {users.map((u) => (
-          <option key={u.id} value={u.id}>
-            {u.name}
+          <option key={u.id} value={u.id} disabled={u.disabled} className={u.disabled?'text-neutral-500':undefined}>
+            {u.name}{u.disabled?' (disabled)':''}
           </option>
         ))}
       </Select>
@@ -284,8 +284,8 @@ function PropCell({ field, rec }: { field: FieldDef; rec: TaskRow }) {
         <Select density="compact" value={typeof raw === 'string' ? raw : ''} onChange={(e) => set(e.target.value || null)} className="py-0.5" aria-label={field.name}>
           <option value="">—</option>
           {users.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name}
+            <option key={u.id} value={u.id} disabled={u.disabled} className={u.disabled?'text-neutral-500':undefined}>
+              {u.name}{u.disabled?' (disabled)':''}
             </option>
           ))}
         </Select>

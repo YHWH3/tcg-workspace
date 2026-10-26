@@ -192,15 +192,16 @@ function activityOp(userId: string, clientName: string | undefined, verb: string
 /* ---------- lookups ---------- */
 
 interface UserRow {
+  disabled: boolean;
   id: string;
   username: string;
   name: string;
 }
 
 async function users(env: Env): Promise<UserRow[]> {
-  if(env.CONNECTOR){const uid=env.READ_GATE?.userId??'';const rows=await env.DB.prepare(`SELECT u.id,u.username,u.name FROM users u WHERE (u.id=? OR (COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest' AND EXISTS(SELECT 1 FROM ai_connections g,json_each(g.spaces_json) a JOIN spaces s ON s.id=a.value WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>? AND ${levelSql('?', 's.id')}>=1 AND ${levelSql('u.id', 's.id')}>=1)))`).bind(uid,uid,env.CONNECTOR.id,uid,Date.now(),uid).all<UserRow>();return rows.results;}
-  const { results } = await env.DB.prepare(`SELECT id,username,name FROM users WHERE id=? OR COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest'`).bind(env.READ_GATE?.userId??'',env.READ_GATE?.userId??'').all<UserRow>();
-  return results;
+  if(env.CONNECTOR){const uid=env.READ_GATE?.userId??'';const rows=await env.DB.prepare(`SELECT u.id,u.username,u.name,(u.disabled_at IS NOT NULL) AS disabled FROM users u WHERE (u.id=? OR (COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest' AND EXISTS(SELECT 1 FROM ai_connections g,json_each(g.spaces_json) a JOIN spaces s ON s.id=a.value WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>? AND ${levelSql('?', 's.id')}>=1 AND ${levelSql('u.id', 's.id')}>=1)))`).bind(uid,uid,env.CONNECTOR.id,uid,Date.now(),uid).all<UserRow>();return rows.results.map(u=>({...u,disabled:!!u.disabled}));}
+  const { results } = await env.DB.prepare(`SELECT id,username,name,(disabled_at IS NOT NULL) AS disabled FROM users WHERE id=? OR COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest'`).bind(env.READ_GATE?.userId??'',env.READ_GATE?.userId??'').all<UserRow>();
+  return results.map(u=>({...u,disabled:!!u.disabled}));
 }
 
 
@@ -394,12 +395,15 @@ async function fillCaches(c: Ctx): Promise<void> {
     if (list) { if (!list.includes(id)) list.push(id); }
     else m.set(k, [id]);
   };
-  // The people directory is small (seat-capped); page and record titles are loaded on
+  // Keep authorized historical names, but only active people can resolve for new assignments.
+  // Page and record titles are loaded on
   // demand by loadTitleKeys / loadTitleIds for exactly the keys and ids a call needs.
   for (const u of await users(c.env)) {
-    pushKey(c.userByKey, u.username.toLowerCase(), u.id);
-    pushKey(c.userByKey, u.name.toLowerCase(), u.id);
-    pushKey(c.userByKey, u.id, u.id);
+    if(!u.disabled){
+      pushKey(c.userByKey, u.username.toLowerCase(), u.id);
+      pushKey(c.userByKey, u.name.toLowerCase(), u.id);
+      pushKey(c.userByKey, u.id, u.id);
+    }
     c.userNameById.set(u.id, u.name);
   }
 }
@@ -933,7 +937,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const next = (name: string, key: ScanKey | null) => (key ? btoa(JSON.stringify({ s: name, o: key.o, id: key.id })) : null);
       const want = (name: string) => !section || section === name;
       const out: Record<string, unknown> = {workspace:await serverDateContext(ctx.env)};
-      if (!section) out.people = (await users(ctx.env)).map((u) => ({ id: u.id, username: u.username, name: u.name }));
+      if (!section) out.people = (await users(ctx.env)).map((u) => ({ id: u.id, username: u.username, name: u.name, disabled: u.disabled }));
       if (want('pages')) {
         const page = await scanCollection(ctx.env, 'pages', { limit, after: section === 'pages' ? after : null });
         out.pages = page.rows.map(toRec).map((p) => ({ id: p.id, title: titleOf(p, 'Untitled'), icon: p.data.icon, parentId: p.data.parentId ?? null, isTemplate: !!p.data.isTemplate, rev: p.rev }));

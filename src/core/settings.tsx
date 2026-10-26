@@ -10,7 +10,7 @@ import { findReusableBoards, planInstallPreview, type AuthorTemplate, type Bundl
 import { BUNDLED_TEMPLATES } from './bundledTemplates';
 import { instantiateTemplate, usePages } from '../modules/pages/api';
 import { NotificationPrefs } from '../modules/inbox';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { authStore, changePassword, updateMe } from './auth';
 import { useChangesets, undoChangeset } from './activity';
 import { USER_COLORS } from './config';
@@ -450,6 +450,11 @@ function AdminSection() {
   const [invites, setInvites] = useState<InviteRow[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
   const me = useStore(authStore).user;
+  const [accountAction,setAccountAction]=useState<PublicUser|null>(null);
+  const [accountBusy,setAccountBusy]=useState(false);
+  const [accountError,setAccountError]=useState('');
+  const [loadError,setLoadError]=useState('');
+
 
   const load = useCallback(async () => {
     const [{ users }, { invites }] = await Promise.all([
@@ -458,10 +463,11 @@ function AdminSection() {
     ]);
     setUsers(users);
     setInvites(invites);
+    setLoadError('');
   }, []);
 
   useEffect(() => {
-    void load().catch(() => {});
+    void load().catch(() => setLoadError('Members could not be loaded. Retry when connected.'));
   }, [load]);
 
   const copy = async (code: string) => {
@@ -478,45 +484,49 @@ function AdminSection() {
 
   return (
     <>
-      <Section title={`Members — ${users.length}/7 seats used`}>
+      {loadError&&<div role="alert" className="text-sm"><p>{loadError}</p><Button onClick={()=>void load().catch(()=>setLoadError('Members could not be loaded. Retry when connected.'))}>Retry members</Button></div>}
+      <Section title={`Members · ${users.filter(u=>!u.disabled).length}/7 active places used`}>
         <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-          {users.map((u) => (
-            <li key={u.id} className="flex items-center gap-3 py-2.5">
-              <Avatar name={u.name} color={u.color} size={30} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{u.name}</p>
-                <p className="truncate text-xs text-neutral-400">@{u.username}</p>
-              </div>
-              {u.id === me?.id ? (
-                <span className="text-xs text-neutral-400">you · {u.role}</span>
-              ) : (
-                <>
-                  <button
-                    className="rounded-lg border border-neutral-200 px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                    onClick={async () => {
-                      await api(`/api/users/${u.id}`, { method: 'PATCH', body: { role: u.role === 'admin' ? 'member' : 'admin' } }).catch((e) => alert(e.message));
-                      void load();
-                    }}
-                  >
-                    {u.role}
-                  </button>
-                  <button
-                    className="rounded-lg p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
-                    onClick={async () => {
-                      if (!confirm(`Remove ${u.name} from the workspace?`)) return;
-                      await api(`/api/users/${u.id}`, { method: 'DELETE' }).catch((e) => alert(e.message));
-                      void load();
-                    }}
-                    aria-label={`Remove ${u.name}`}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </>
-              )}
-            </li>
-          ))}
+          {users.map(u=>(<li key={u.id} className="flex flex-wrap items-center gap-3 py-2.5" data-testid={`member-${u.id}`}>
+            <Avatar name={u.name} color={u.color} size={30}/>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{u.name} {u.disabled&&<span className="text-xs text-neutral-600 dark:text-neutral-400">(Disabled)</span>}</p>
+              <p className="truncate text-xs text-neutral-600 dark:text-neutral-400">@{u.username}</p>
+            </div>
+            {u.id===me?.id?<span className="text-xs text-neutral-600 dark:text-neutral-400">you · {u.workspaceRole??u.role}</span>:<div className="flex flex-wrap items-center gap-2 max-sm:w-full">
+              {u.workspaceRole!=='guest'&&<button className="min-h-11 rounded-lg border border-neutral-300 px-3 text-xs dark:border-neutral-700" aria-label={`Change role for ${u.name}`} onClick={async()=>{
+                try{await api(`/api/users/${u.id}`,{method:'PATCH',body:{role:(u.workspaceRole??u.role)==='member'?'admin':'member'}});await load();}catch(e){setLoadError(e instanceof Error?e.message:'Role change failed. Retry.');}
+              }}>{u.workspaceRole??u.role}</button>}
+              <Button variant="outline" aria-label={`${u.disabled?'Restore':'Disable'} access for ${u.name}`} onClick={()=>{setAccountAction(u);setAccountError('');}}>{u.disabled?'Restore access':'Disable access'}</Button>
+              <button className="min-h-11 min-w-11 rounded-lg text-neutral-600 hover:bg-red-50 dark:text-neutral-400 dark:hover:bg-red-950/40" onClick={async()=>{
+                if(!confirm(`Remove ${u.name} from the workspace?`))return;
+                try{await api(`/api/users/${u.id}`,{method:'DELETE'});await load();}catch(e){setLoadError(e instanceof Error?e.message:'Removal failed. Retry.');}
+              }} aria-label={`Remove ${u.name}`}><Trash2 size={16} className="mx-auto"/></button>
+            </div>}
+          </li>))}
         </ul>
       </Section>
+      {accountAction&&<AdaptiveDialog title={`${accountAction.disabled?'Restore':'Disable'} access for ${accountAction.name}`} onClose={()=>{if(!accountBusy)setAccountAction(null);}} guard={()=>!accountBusy}>
+        <div className="space-y-4 text-sm">
+          <p>{accountAction.disabled?'Restoring access needs a free place within the seven active accounts. They must sign in again and reconnect their AI connectors.':'This signs them out everywhere, revokes their AI connectors and frees their active place. Existing work, assignments and history stay in the workspace.'}</p>
+          <p>Any Website ingest grant they sponsored stays revoked. An administrator must configure it again.</p>
+          {!accountAction.disabled&&<p>If connector cleanup is unavailable, access stays disabled and the dialog offers a retry. Restoration requires cleanup to finish.</p>}
+          {accountError&&<p role="alert" className="text-red-700 dark:text-red-400">{accountError}</p>}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" disabled={accountBusy} onClick={()=>setAccountAction(null)}>Cancel</Button>
+            <Button disabled={accountBusy} onClick={async()=>{
+              setAccountBusy(true);setAccountError('');
+              try{
+                const result=await api<{cleanupPending?:boolean}>(`/api/users/${accountAction.id}/${accountAction.disabled?'enable':'disable'}`,{method:'POST'});
+                await load();
+                if(result.cleanupPending)setAccountError('Access is disabled. Connector cleanup is pending. Retry Disable access to complete cleanup.');
+                else setAccountAction(null);
+              }catch(e){setAccountError(e instanceof ApiError&&typeof (e.body as {message?:unknown})?.message==='string'?(e.body as {message:string}).message:e instanceof ApiError&&e.status===0?'Connection lost. Retry when connected.':e instanceof Error?e.message:'Request failed. Retry when connected.');}
+              finally{setAccountBusy(false);}
+            }}>{accountBusy?'Updating access…':accountAction.disabled?'Restore access':'Disable access'}</Button>
+          </div>
+        </div>
+      </AdaptiveDialog>}
 
       <Section title="Invite codes">
         <div className="mb-3 flex items-center justify-between">

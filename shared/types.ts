@@ -25,5 +25,7 @@ export interface PublicUser {
   username: string;
   name: string;
   role: 'admin' | 'member';
+  workspaceRole?: 'owner'|'admin'|'member'|'guest';
+  disabled?: boolean;
   color: string;
 }
