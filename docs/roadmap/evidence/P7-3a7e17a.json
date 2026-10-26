@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "phase": 7,
+  "decision": "ENGINEERING GO / EXTERNAL BLOCKED",
+  "scope": "Phase 7 foundations; later roadmap phases not complete",
+  "source": {
+    "sha": "3a7e17acdb5a9d3e2697dc14d8694348c635f4f5",
+    "tree": "fad6588125ff8bb1a1063a0c2e29823f928e2d62",
+    "fingerprint": "800bb92fd1958a4c3998590db3cf0469dd52acc0e68a2e0e053223d87892933e"
+  },
+  "canonical": {
+    "command": "npm run certify:ai",
+    "exitCode": 0,
+    "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/certification/3a7e17acdb5a9d3e2697dc14d8694348c635f4f5-2026-10-26T10-47-50-310Z-complete/summary.json",
+    "sha256": "a520103a8c057b413503a29783c08344982413bdba5da3dde8296d37efce5e31",
+    "mandatoryGates": 34,
+    "pass": 34,
+    "fail": 0,
+    "notRun": 0,
+    "unit": 1644,
+    "dedicatedD1": 732,
+    "countsOverlap": true,
+    "harness": 97,
+    "migrations": 35
+  },
+  "ux": {
+    "status": "PASS",
+    "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase7/final-attempt-1/ux/summary.json",
+    "sha256": "42bb73b47936fb786f2c080c708c4eef18b18c6508cb5c2e190823dafec3f677",
+    "source": {
+      "sha": "120d52879700204993b20ea600bfb210ec509498",
+      "fingerprint": "a434d40e6d8a85c587161bb8a5614ac284afc613a3c7803a49a46cf15b7e7d23"
+    },
+    "pass": 648,
+    "projects": 18,
+    "changedFilesSince": [
+      "docs/architecture/phase-7-implementation.md",
+      "docs/roadmap/00-baseline.md",
+      "docs/roadmap/PROGRESS.md",
+      "docs/roadmap/evidence/P7-certificate-corrections.json",
+      "docs/testing/UX-LAB.md",
+      "scripts/canvas-hit-point.mjs",
+      "scripts/certification/canvas-hit-point.test.mjs",
+      "scripts/certification/release-rehearsal.test.mjs",
+      "scripts/release-rehearsal.mjs",
+      "scripts/verify-v7.mjs",
+      "tests/assistant-runtime-d1.test.ts",
+      "tests/tcg-pack.test.ts"
+    ],
+    "applicationAndUxLabUnchanged": true,
+    "qualification": "Original report remains bound to 120d528; only tests, separate certification runners and documentation changed. Application and UX lab are byte-identical; no new-head UX rerun or relabelling claimed."
+  },
+  "safari": {
+    "source": {
+      "sha": "3a7e17acdb5a9d3e2697dc14d8694348c635f4f5",
+      "tree": "fad6588125ff8bb1a1063a0c2e29823f928e2d62",
+      "fingerprint": "800bb92fd1958a4c3998590db3cf0469dd52acc0e68a2e0e053223d87892933e"
+    },
+    "command": "node scripts/apple-safari.mjs --https --skip-build",
+    "exitCode": 0,
+    "path": ".artifacts/phase7/final-attempt-3/safari/results.json",
+    "sha256": "a0a817090b44aa5950a9b43c169f5685df8fe5ede4c1a51cb43d6f20a45770b3",
+    "profiles": 5,
+    "journeys": 25,
+    "scope": "Apple Simulator Safari; existing five platform journeys, not physical devices or every new Phase 7 workflow"
+  },
+  "android": {
+    "source": {
+      "sha": "3a7e17acdb5a9d3e2697dc14d8694348c635f4f5",
+      "tree": "fad6588125ff8bb1a1063a0c2e29823f928e2d62",
+      "fingerprint": "800bb92fd1958a4c3998590db3cf0469dd52acc0e68a2e0e053223d87892933e"
+    },
+    "command": "node scripts/android-qa.mjs --browser-only",
+    "exitCode": 0,
+    "path": ".artifacts/phase7/final-attempt-3/android/chrome/results.json",
+    "sha256": "884918f31de7779e4bdcc0702e1a66023bce8b54efadf7ea56e37f9eb34a544f",
+    "checks": 17,
+    "profiles": 3,
+    "scope": "Android 15 Chrome emulator; existing platform harness; no physical-device acceptance",
+    "cleanup": {
+      "path": ".artifacts/phase7/final-attempt-3/android/cleanup.json",
+      "sha256": "8ad4e843407e1dccb90621ce5449d77f2e33df125c78c59782e926d597a75da2",
+      "stopped": true,
+      "avdRemoved": true
+    }
+  },
+  "contract": {
+    "version": 2,
+    "eventBodyChanged": false
+  },
+  "retainedFailures": [
+    {
+      "source": "120d528",
+      "artifact": ".artifacts/phase7/final-attempt-1",
+      "status": "failed/incomplete; unit 2 failures, D1 1 failure; process termination cause unconfirmed"
+    },
+    {
+      "source": "79cc6e5",
+      "artifact": ".artifacts/phase7/final-attempt-2",
+      "status": "FAIL 32/34; N17 canvas hit-point and N18 stale rehearsal count corrected, reports unchanged"
+    }
+  ],
+  "externalGates": [
+    "Physical iPhone/iPad/Android acceptance",
+    "Human VoiceOver/TalkBack/NVDA and native 400% zoom",
+    "Genuine human review and approval",
+    "Owner production backup, staging, legal/privacy/provider decisions and release",
+    "Track A only after R3 live and 7.3 merged"
+  ],
+  "ownerActionsPrepared": [
+    "0035 migration after 0034 in staging first",
+    "Human admin sets Asia/Kolkata and INR",
+    "Restore disabled users only through fenced cleanup and active capacity path",
+    "Explicit additive pack upgrade review in Settings; no automatic production mutation"
+  ],
+  "noDeployment": true
+}

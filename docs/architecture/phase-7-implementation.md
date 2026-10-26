@@ -1,7 +1,11 @@
 # Phase 7 implementation
 
-Status: in progress on `sol/p7-foundations`. This document describes the current
-implementation and its remaining work; it is not a release certificate.
+Status: implemented on `sol/p7-foundations`; engineering acceptance is
+**ENGINEERING GO / EXTERNAL BLOCKED** at exact source `3a7e17a`.
+[Source-bound evidence](../roadmap/evidence/P7-3a7e17a.json) records the full
+34-gate certificate, retained 648-case UX matrix, Safari simulator and Android
+emulator results. All earlier checkpoint statements below are historical;
+physical devices, human acceptance and production operations remain separate.
 
 The branch starts at certified R1 source `0888525`. Its exact evidence is indexed
 in [the roadmap](../roadmap/evidence/R1-0888525.json). The initial Android device
@@ -146,3 +150,13 @@ N18 corrects the rehearsal's missed 34-to-35 migration count; manifest/count
 self-testing and the actual 12-checkpoint upgrade/restore rehearsal pass.
 These are harness changes, not product gesture changes. A fresh clean certificate
 and native harnesses remain required before Phase 7 acceptance.
+
+
+Final fresh canonical certification at clean `3a7e17a` passed 34/34 gates,
+1644 unit tests, 732 dedicated D1 tests (overlap), 97 harness checks and 35
+migrations. Native platform harnesses passed 25 Safari journeys on five disposable
+simulator profiles and 17 Android Chrome checks on three emulator profiles.
+The full UX matrix remains bound to `120d528` (648/648), with application and
+UX-lab byte-equivalence verified through the test/harness/documentation corrections.
+No new-head UX rerun is claimed. Newly owned simulator clones and AVD were removed.
+Documentation added after certification does not change the recorded tested SHA.
