@@ -1,3 +1,4 @@
+import {useWorkspaceLocale} from '../workspaceLocale';
 /**
  * GroupBoard — kanban grouped by a select/person field (view.config.groupBy
  * when it isn't 'status'). Drag between groups writes the field; every card
@@ -37,7 +38,8 @@ export function GroupBoard({ board, view, records }: { board: BoardRow; view: Vi
   const groupBy = view.config?.groupBy;
   const field = fieldsOf(board).find((f) => `p_${f.id}` === groupBy);
 
-  const ctx = useMemo(() => viewCtx(board, tasks, links, me, todayISO()), [me, board, links, tasks]);
+  const locale=useWorkspaceLocale();
+  const ctx = useMemo(() => viewCtx(board, tasks, links, me, todayISO()), [me, board, links, tasks,locale.today,locale.settings?.timeZone]);
   const { rows } = useMemo(() => applyView(records, view.config ?? {}, { ...ctx }), [records, view, ctx]);
 
   const groups: Group[] = useMemo(() => {

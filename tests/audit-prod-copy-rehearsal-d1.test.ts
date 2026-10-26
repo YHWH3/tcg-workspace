@@ -19,7 +19,7 @@ INSERT INTO file_chunks(file_id,idx,data) VALUES('file',0,X'01020304');\n`;
   const run=execFileSync(process.execPath,['scripts/prod-copy-rehearsal.mjs',input],{encoding:'utf8',timeout:120_000});
   const output=JSON.parse(run.trim());expect(output.status).toBe('PASS');
   const report=JSON.parse(readFileSync(output.report,'utf8'));
-  expect(report.checks).toHaveLength(7);expect(report.migrations).toHaveLength(31);
+  expect(report.checks).toHaveLength(7);expect(report.migrations).toHaveLength(32);
   expect(report.originalRecordCount).toBe(2);expect(report.originalMigrationCount).toBe(3);
   expect(report.maxBindingCalls).toBeLessThanOrEqual(45);
   expect(report.oauth.status).toBe('OWNER_VERIFICATION_REQUIRED');

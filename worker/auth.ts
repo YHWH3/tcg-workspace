@@ -8,6 +8,8 @@ import { clearLoginFailures, clientAddress, loginRetryAfter, recordLoginFailure,
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 
 export interface Env {
+  /** Server-created context, replaced at every request/cron boundary. */
+  WORKSPACE_CONTEXT?: import('./workspaceSettings').WorkspaceContext;
   TURNSTILE_SECRET?: string;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_HOSTNAMES?: string;
@@ -196,7 +198,8 @@ export async function requireAuth(c: Ctx, next: Next) {
 }
 
 export async function requireAdmin(c: Ctx, next: Next) {
-  if (c.get('user').role !== 'admin') return c.json({ error: 'forbidden' }, 403);
+  const role=await c.env.DB.prepare('SELECT COALESCE(workspace_role,role) AS role FROM users WHERE id=? AND disabled_at IS NULL').bind(c.get('user').id).first<string>('role');
+  if(role!=='owner'&&role!=='admin')return c.json({error:'forbidden'},403);
   await next();
 }
 
@@ -218,8 +221,8 @@ async function createSession(db: D1Database, userId: string, device: string): Pr
   return created.meta.changes === 1 ? token : null;
 }
 
-async function userCount(db: D1Database): Promise<number> {
-  const row = await db.prepare('SELECT COUNT(*) AS c FROM users').first<{ c: number }>();
+async function userCount(db: D1Database,activeOnly=false): Promise<number> {
+  const row = await db.prepare('SELECT COUNT(*) AS c FROM users'+(activeOnly?' WHERE disabled_at IS NULL':'')).first<{ c: number }>();
   return row?.c ?? 0;
 }
 
@@ -227,7 +230,7 @@ export const auth = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>()
 
 auth.get('/status', async (c) => {
   const count = await userCount(c.env.DB);
-  return c.json({ needsBootstrap: count === 0, seatsUsed: count, seatsTotal: MAX_USERS });
+  return c.json({ needsBootstrap: count === 0, seatsUsed: await userCount(c.env.DB,true), seatsTotal: MAX_USERS });
 });
 
 auth.post('/signup', async (c) => {
@@ -243,7 +246,7 @@ auth.post('/signup', async (c) => {
   const count = await userCount(db);
   const bootstrap = count === 0;
 
-  if (count >= MAX_USERS) return c.json({ error: 'Workspace is full (7 seats)' }, 403);
+  if (await userCount(db,true) >= MAX_USERS) return c.json({ error: 'Workspace is full (7 seats)' }, 403);
 
   const guestHash=typeof body.guestInvite==='string'&&body.guestInvite.length<=100?await sha256Hex(body.guestInvite):null;
   let role: 'admin' | 'member' = 'member';
@@ -274,7 +277,7 @@ auth.post('/signup', async (c) => {
     : guestHash ? `EXISTS(SELECT 1 FROM guest_invites i WHERE token_hash=? AND ${usableInviteSql()})` : 'EXISTS(SELECT 1 FROM invites WHERE code=? AND used_by IS NULL)';
   const insert = db.prepare(`INSERT INTO users
     (id,username,name,password_hash,salt,role,workspace_role,color,created_at)
-    SELECT ?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM users) < ? AND ${eligibility}`);
+    SELECT ?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM users WHERE disabled_at IS NULL) < ? AND ${eligibility}`);
   const values = [id, username, name, hash, salt, role, bootstrap ? 'owner' : guestHash ? 'guest' : 'member', color, now, MAX_USERS];
   const statements = [
     insert.bind(...values, ...(bootstrap ? [] : guestHash ? [guestHash,now] : [code])),
@@ -301,7 +304,7 @@ auth.post('/signup', async (c) => {
     // Read-only diagnosis after rollback. Never compensate by deleting a user:
     // another request may already own the invite/capacity we observed earlier.
     if (await db.prepare('SELECT id FROM users WHERE username=?').bind(username).first()) return c.json({ error: 'Username taken' }, 409);
-    if ((await userCount(db)) >= MAX_USERS) return c.json({ error: 'Workspace is full (7 seats)' }, 403);
+    if ((await userCount(db,true)) >= MAX_USERS) return c.json({ error: 'Workspace is full (7 seats)' }, 403);
     if (bootstrap && (await userCount(db)) > 0) return c.json({ error: 'Workspace already initialized; use an invite' }, 409);
     if(guestHash)return c.json({error:'Invalid, expired, revoked or already used invitation'},409);
     if (!bootstrap) {

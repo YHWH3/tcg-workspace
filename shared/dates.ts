@@ -26,7 +26,7 @@ export function daysInMonth(y: number, m: number): number {
 export function parseDateOnly(str: unknown): DateOnly | null {
   if (typeof str !== 'string') return null;
   const m = DATE_ONLY_RE.exec(str);
-  if (!m) return null;
+  if (!m || m[0] !== str) return null;
   const y = Number(m[1]);
   const mo = Number(m[2]);
   const d = Number(m[3]);
@@ -74,6 +74,33 @@ export function relativeDateError(value: unknown): string | null {
   if (value === 'today') return null;
   const match = /^today[+-](\d+)$/.exec(value);
   return match && match[0] === value && Number(match[1]) <= 3650 ? null : 'Use today, today+N or today-N, with N from 0 to 3650 and no spaces.';
+}
+
+/** A stored date bound is an absolute calendar date or a bounded relative day. */
+export function isDateBound(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  if (parseDateOnly(value) || value === 'today') return true;
+  const match = /^today[+-](\d+)$/.exec(value);
+  return !!match && match[0] === value && Number(match[1]) <= 3650;
+}
+
+export function resolveDateBound(value: unknown, today?: string): string | null {
+  if (!isDateBound(value)) return null;
+  const resolved = resolveRelativeDate(value, today);
+  return parseDateOnly(resolved) ? resolved as string : null;
+}
+
+/** Convert an instant only where a date filter needs it; stored/sorted ms stay numeric. */
+export function toDateOnlyInZone(ms: number, timeZone = 'UTC'): string | null {
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return null;
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {timeZone, calendar:'gregory', numberingSystem:'latn', era:'short', year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(ms);
+    const part = (type: string) => parts.find(p => p.type === type)?.value ?? '';
+    const year = part('era') === 'BC' ? 1 - Number(part('year')) : Number(part('year'));
+    if (year < 0 || year > 9999) return null;
+    const date = `${String(year).padStart(4,'0')}-${part('month')}-${part('day')}`;
+    return parseDateOnly(date) ? date : null;
+  } catch { return null; }
 }
 
 /** Whole days from a to b (b − a). Null when either input is invalid. */
@@ -139,11 +166,11 @@ export interface ScaleRange {
  * month ticks are the Monday-aligned week starts covering the month, quarter
  * ticks are the first of each of its three months.
  */
-export function scaleRange(scale: 'week' | 'month' | 'quarter', anchor: string | DateOnly): ScaleRange | null {
+export function scaleRange(scale: 'week' | 'month' | 'quarter', anchor: string | DateOnly, weekStart: Weekday = 1): ScaleRange | null {
   const a = typeof anchor === 'string' ? parseDateOnly(anchor) : anchor;
   if (!a) return null;
   if (scale === 'week') {
-    const start = startOfWeek(a, 1)!;
+    const start = startOfWeek(a, weekStart)!;
     const end = addDays(start, 6)!;
     const ticks = Array.from({ length: 7 }, (_, i) => addDays(start, i)!);
     return { start, end, ticks };
@@ -152,7 +179,7 @@ export function scaleRange(scale: 'week' | 'month' | 'quarter', anchor: string |
     const start = toDateOnly({ y: a.y, m: a.m, d: 1 });
     const end = toDateOnly({ y: a.y, m: a.m, d: daysInMonth(a.y, a.m) });
     const ticks: string[] = [];
-    for (let t = startOfWeek(start, 1)!; cmpDateOnly(t, end) <= 0; t = addDays(t, 7)!) ticks.push(t);
+    for (let t = startOfWeek(start, weekStart)!; cmpDateOnly(t, end) <= 0; t = addDays(t, 7)!) ticks.push(t);
     return { start, end, ticks };
   }
   const q0 = Math.floor((a.m - 1) / 3) * 3 + 1;
@@ -171,4 +198,11 @@ export function isoWeek(date: string | DateOnly): { year: number; week: number }
   const yearStart: DateOnly = { y: thursday.y, m: 1, d: 1 };
   const week = Math.floor((toMs(thursday) - toMs(yearStart)) / (7 * DAY_MS)) + 1;
   return { year: thursday.y, week };
+}
+
+/** The workspace's civil date; throws instead of inventing a date for bad input. */
+export function workspaceToday(now:number,timeZone:string):string {
+ const result=toDateOnlyInZone(now,timeZone);
+ if(!result)throw new RangeError('Invalid workspace date or timezone');
+ return result;
 }

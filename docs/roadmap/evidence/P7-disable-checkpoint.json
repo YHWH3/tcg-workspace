@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "phase": "7.3",
+  "status": "focused development PASS; complete Phase 7 certification pending",
+  "cleanSourceCertificate": false,
+  "baseSha": "4e5a991307af5b426da73390b95010941b95e628",
+  "browser": {
+    "source": {
+      "sha": "4e5a991307af5b426da73390b95010941b95e628",
+      "fingerprint": "ff1a0b716756f03d7c93631e9a452cdfc2852d86298521776149dc80030d3f9f"
+    },
+    "exitCode": 0,
+    "passed": 18,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "projects": 18,
+    "artifact": ".artifacts/phase7/disable-browser-final/summary.json",
+    "sha256": "be3058a23373a4d9dd3065ac644526e42633e657f2baaa4af4e9f4dc302ed8e3",
+    "scope": "keyboard/touch disable and restore, failed restore and recovery, other-tab reauthentication, retained disabled assignment, whole-page axe and geometry"
+  },
+  "checks": [
+    {
+      "name": "typecheck",
+      "exitCode": 0,
+      "artifact": ".artifacts/phase7/disable-checkpoint-typecheck.log"
+    },
+    {
+      "name": "actual-D1/client regressions",
+      "exitCode": 0,
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0,
+      "files": 7,
+      "artifact": ".artifacts/phase7/disable-checkpoint-regressions.log"
+    },
+    {
+      "name": "generated disposable credentials browser recheck",
+      "exitCode": 0,
+      "passed": 1,
+      "artifact": ".artifacts/phase7/disable-random-credentials/summary.json"
+    }
+  ],
+  "runtimeFiles": {
+    "shared/types.ts": "a4f26bff68925117ed87bf038fd354dbfeeb37fd7a5182aa917199d42c21c982",
+    "src/core/settings.tsx": "d26e3764b36341d1e427d5951dbbcadef5a991a4973fcdb1501fa920db13c57c",
+    "src/core/sync/engine.ts": "f3143b3fee4e0838db50f1eac87e7da97b4cb57444ffde564d989a95adb70905",
+    "src/core/views/RecordDetail.tsx": "d8f4f3e569f5c1a2ec224c592b1934610da0f8965e3f0f152a7c6fab2e8b218d",
+    "src/core/views/cells.tsx": "89bba90e90f230fa394dce394728f42e18829f3e2444503fb59e6cd413c8a8c5",
+    "src/modules/approvals/index.tsx": "259a97233820603e52529bedf7936e33adbfad1f9c9b7d63fc24ef1219de3e1d",
+    "src/modules/automations/index.tsx": "6542b691c7ca7a9a7ce9844adf65d327cd871bcef720c2ce6d83be26e4d14d9c",
+    "src/modules/boards/BoardPage.tsx": "18557181db256afe1491412d04bfd6d04f0d7e9d9d149ab0ea4dab132ba737a1",
+    "src/modules/boards/FieldValue.tsx": "f3f2b94391ac23977a45a74727579c2c2626baae885362147506329dce76dc3d",
+    "src/modules/boards/GateMove.tsx": "3bc8acb5e3181c7329b1d252b08d0b96493a9e85cff65096f9907e0fa1b51367",
+    "src/modules/boards/TaskDetail.tsx": "d093fc0abaa39154ccb9d18068a965453824a9960e4ab0a59c8706e4a0ceefb9",
+    "src/modules/forms/FormEditor.tsx": "b71c2f0a331d5b1528d21578df1d4df62ce0bb5b2f16bc4a837658ded2fec722",
+    "src/modules/pages/RichInput.tsx": "2b1873e1100e788704e7ac323ef73719318b37a2e962518a1febab832b1db2a9",
+    "worker/admin.ts": "ffa0f82f955e3184b670802936b4c241000529cd871e7b7a1e11856777a4f12a",
+    "worker/auth.ts": "4e1d7b6833078f2e2b096b37777b5cae125a04b6179ae95bbb2f2a07fc5138f7",
+    "worker/mcp.ts": "5c6877b1ff0c9dee18137f64eb805cd4b53788dbbf5979671b4eb963b23e7218",
+    "worker/oauth.ts": "66635c5e058382f228592df28da32ecbad566843b1ba3c150d75400f905bfd37",
+    "worker/ratelimit.ts": "621aef1a528f1c70c0e64cad30d44d1412a85137eb58082b1ea43b1033334fff"
+  },
+  "retainedFailures": [
+    ".artifacts/phase7/disable-baseline.log",
+    ".artifacts/phase7/disable-browser-probe-1.log",
+    ".artifacts/phase7/disable-browser-probe-2.log",
+    ".artifacts/phase7/disable-browser-probe-3.log",
+    ".artifacts/phase7/disable-browser-probe-4.log",
+    ".artifacts/phase7/disable-focused-final.log",
+    ".artifacts/phase7/disable-live-network.log"
+  ],
+  "findings": [
+    "Protocol 3 skipped authenticated directory refresh; fixed with existing account/token/epoch fences and unchanged guest self-only policy.",
+    "New socket test initially swept before its normal initial presence frame; actual network client now waits for that frame and observes code 4401 in both modes. Original production socket code passes unchanged."
+  ],
+  "limits": [
+    "All data, users, grants and provider failures were disposable or simulated.",
+    "No paid inference, production account action, deployment or genuine human approval.",
+    "New template upgrades and full clean-source Phase 7 certificate/PR remain pending."
+  ],
+  "migration": "none for 7.3; preceding 0035 remains required",
+  "references": [
+    "https://developers.cloudflare.com/durable-objects/api/base/"
+  ]
+}

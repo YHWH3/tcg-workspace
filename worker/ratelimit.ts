@@ -73,21 +73,25 @@ export async function clearLoginFailures(env: { DB: D1Database }, ip: string, us
   await env.DB.prepare("DELETE FROM rate_limits WHERE bucket='login_acct' AND key=?").bind(`${ip}|${norm(username)}`).run();
 }
 
-/** Revoke every OAuth/MCP grant a user holds (best effort; the provider's
- *  access tokens die with their grant). Used when a credential is rotated or
- *  the account is removed. */
-export async function revokeAllGrants(env: Pick<Env, 'OAUTH_PROVIDER'>, userId: string): Promise<void> {
+/** Revoke OAuth/MCP grants, with bounded pagination. Strict callers must keep
+ * restoration closed on provider failure or an unfinished sweep. Other credential
+ * changes retain best-effort behavior; callers can inspect the boolean result. */
+export async function revokeAllGrants(env: Pick<Env, 'OAUTH_PROVIDER'>, userId: string, strict=false): Promise<boolean> {
   const provider = env.OAUTH_PROVIDER;
-  if (!provider) return;
+  if (!provider) {if(strict)throw new Error('connector_revocation_unavailable');return false;}
   try {
     let cursor: string | undefined;
     for (let page = 0; page < 20; page++) {
       const out = await provider.listUserGrants(userId, { limit: 100, ...(cursor ? { cursor } : {}) });
-      for (const grant of out.items) await provider.revokeGrant(grant.id, userId);
-      if (!out.cursor) break;
+      for (const grant of out.items) {if(typeof grant.id!=='string'||!grant.id)throw new Error('invalid_grant');await provider.revokeGrant(grant.id, userId);}
+      if (!out.cursor) return true;
       cursor = out.cursor;
     }
-  } catch (error) {
-    console.error(JSON.stringify({ message: 'grant revocation failed', userId, error: error instanceof Error ? error.message : String(error) }));
+    throw new Error('connector_revocation_incomplete');
+  } catch {
+    if(strict)throw new Error('connector_revocation_incomplete');
+    // Provider errors may contain request details. Never log credentials or URLs.
+    console.error(JSON.stringify({ message: 'grant revocation failed', userId }));
+    return false;
   }
 }

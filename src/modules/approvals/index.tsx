@@ -269,8 +269,8 @@ function RequestDialog({
           <Select value={approverId} onChange={(e) => setApproverId(e.target.value)}>
             <option value="">Pick a member…</option>
             {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
+              <option key={u.id} value={u.id} disabled={u.disabled} className={u.disabled?'text-neutral-500':undefined}>
+                {u.name}{u.disabled?' (disabled)':''}
               </option>
             ))}
           </Select>

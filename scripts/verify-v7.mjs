@@ -1,3 +1,4 @@
+import {canvasBodyPoint} from './canvas-hit-point.mjs';
 import {fixtureFetch} from './certification/oauth-consent.mjs';
 // Phase 2 §9 e2e verification — visual workspace: mood canvas items/gestures/
 // culling, calendar + timeline views, connector↔link mirroring, public canvas
@@ -229,19 +230,7 @@ const dexieAll = (page, table, uid, filter) => readAccountStore(page, table, { u
 
 const boardItems = (page, uid, boardId) => dexieAll(page, 'mooditems', uid, `i => i.boardId === '${boardId}' && !i.deleted`);
 
-const uncoveredPoint = (page, id) =>
-  page.evaluate((id) => {
-    const el = document.querySelector(`[data-mooditem="${id}"]`);
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    const cands = [[0.1, 0.1], [0.5, 0.1], [0.9, 0.1], [0.1, 0.5], [0.5, 0.5], [0.9, 0.5], [0.1, 0.9], [0.5, 0.9], [0.9, 0.9], [0.25, 0.25], [0.75, 0.75]];
-    for (const [fx, fy] of cands) {
-      const x = r.x + r.width * fx, y = r.y + r.height * fy;
-      const top = document.elementFromPoint(x, y);
-      if (top && (top === el || el.contains(top))) return { x, y };
-    }
-    return null;
-  }, id).catch(() => null);
+const uncoveredPoint = (page, id) => page.evaluate(canvasBodyPoint,id).catch(() => null);
 
 const elemAt = (page, x, y) =>
   page.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? e.outerHTML.slice(0, 90) : 'none'; }, [x, y]).catch(() => '?');

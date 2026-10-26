@@ -15,10 +15,12 @@ import { sha256Hex } from '../worker/password';
 let mf: Miniflare, db: D1Database;
 const token = (id: string) => `live-fixture-${id}`;
 type Msg = { t: string; users?: { userId: string; path: string }[] };
-interface Client { user: string; messages: Msg[]; send: (m: unknown) => void; close: () => void }
+interface Client { user: string; messages: Msg[]; closes:{code:number}[]; send: (m: unknown) => void; close: () => void }
 
 beforeAll(async () => {
-  const bundle = await build({ entryPoints: [process.env.PHASE5_LIVE_ENTRY ?? fileURLToPath(new URL('../worker/index.ts', import.meta.url))], bundle: true, format: 'esm', platform: 'neutral', target: 'es2022',
+  const entry=process.env.PHASE5_LIVE_ENTRY ?? fileURLToPath(new URL('../worker/index.ts', import.meta.url));
+  // Fixture-only fetch invokes the existing scheduled sweep without waiting a minute.
+  const bundle = await build({ stdin:{contents:`import worker,{LiveRoom as Base} from ${JSON.stringify(entry)}; export default worker; export class LiveRoom extends Base {async fetch(req){if(new URL(req.url).pathname==='/fixture-sweep'){await this.alarm();return Response.json({swept:true});}return super.fetch(req);}}`,resolveDir:fileURLToPath(new URL('..',import.meta.url))}, bundle: true, format: 'esm', platform: 'neutral', target: 'es2022',
     external: ['cloudflare:*', 'node:*'], mainFields: ['module', 'main'], conditions: ['workerd', 'worker', 'browser'], write: false, logLevel: 'error' });
   mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'phase5-live', modules: true, script: bundle.outputFiles[0].text, compatibilityDate: '2026-09-25', compatibilityFlags: ['nodejs_compat'],
     d1Databases: { DB: 'disposable-phase5-live' }, kvNamespaces: ['OAUTH_KV'], durableObjects: { LIVE: { className: 'LiveRoom', useSQLite: true } } }] }));
@@ -42,12 +44,21 @@ async function connect(user: string): Promise<Client> {
   const res = await mf.dispatchFetch('http://localhost/api/live', { headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `ws-auth, ${token(user)}` } });
   expect(res.status).toBe(101);
   const ws = res.webSocket!;
-  const messages: Msg[] = [];
+  const messages: Msg[] = [],closes:{code:number}[]=[];
+  ws.addEventListener('close',event=>{closes.push({code:event.code});try{ws.close();}catch{/* acknowledge closure */}});
   ws.addEventListener('message', (event) => { messages.push(JSON.parse(String(event.data)) as Msg); });
   ws.accept();
-  const client = { user, messages, send: (m: unknown) => ws.send(JSON.stringify(m)), close: () => { try { ws.close(); } catch { /* closed */ } } };
+  const client = { user, messages, closes, send: (m: unknown) => ws.send(JSON.stringify(m)), close: () => { try { ws.close(); } catch { /* closed */ } } };
   open.push(client);
   return client;
+}
+async function connectNetwork(user:string):Promise<Client>{
+  const url=new URL('/api/live',await mf.ready);url.protocol='ws:';
+  const ws=new WebSocket(url,['ws-auth',token(user)]),messages:Msg[]=[],closes:{code:number}[]=[];
+  ws.addEventListener('message',event=>messages.push(JSON.parse(String(event.data)) as Msg));
+  ws.addEventListener('close',event=>closes.push({code:event.code}));
+  await new Promise<void>((resolve,reject)=>{ws.addEventListener('open',()=>resolve(),{once:true});ws.addEventListener('error',()=>reject(new Error('Fixture socket failed')),{once:true});});
+  const client={user,messages,closes,send:(m:unknown)=>ws.send(JSON.stringify(m)),close:()=>ws.close()};open.push(client);client.send({t:'here',path:'/'});await expect.poll(()=>messages.length,{timeout:3000}).toBeGreaterThan(0);return client;
 }
 const settle = () => new Promise(r => setTimeout(r, 250));
 const routes = (c: Client) => c.messages.filter(m => m.t === 'presence').flatMap(m => m.users ?? []).map(u => u.path);
@@ -89,4 +100,15 @@ describe('live presence on the real Worker and LiveRoom (actual runtime)', () =>
     const revoked = await mf.dispatchFetch('http://localhost/api/live', { headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `ws-auth, ${token('carol')}` } });
     expect(revoked.status).toBe(401);
   });
+  it.each([false,true])('closes a disabled user socket in the real scheduled sweep, permissions=%s',async enabled=>{
+    await enable(enabled);await db.prepare("UPDATE users SET disabled_at=NULL WHERE id='carol'").run();await db.prepare('INSERT OR REPLACE INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)').bind(await sha256Hex(token('carol')),'carol',Date.now()+86400000,Date.now()).run();const alice=await connectNetwork('alice'),carol=await connectNetwork('carol');
+    const ns=await mf.getDurableObjectNamespace('LIVE') as unknown as DurableObjectNamespace;const stub=ns.get(ns.idFromName('workspace'));
+    await db.prepare("UPDATE users SET disabled_at=1 WHERE id='carol'").run();
+    // A disabled account is denied even with a retained session row.
+    expect((await mf.dispatchFetch('http://localhost/api/live',{headers:{Upgrade:'websocket','Sec-WebSocket-Protocol':`ws-auth, ${token('carol')}`}})).status).toBe(401);
+    expect((await stub.fetch('https://fixture/fixture-sweep')).status).toBe(200);
+    await expect.poll(()=>carol.closes,{timeout:3000}).toContainEqual({code:4401});expect(alice.closes).toEqual([]);
+    await db.prepare("UPDATE users SET disabled_at=NULL WHERE id='carol'").run();
+  });
+
 });

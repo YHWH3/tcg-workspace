@@ -35,7 +35,7 @@ Reports/traces are local-only and may contain disposable session credentials. Do
 
 The explicit matrix is Chromium/Firefox/WebKit × 390/820/1440px × light/dark: 18 projects. The catalog covers 21 named rendered states: home/page, database index, six record views, task detail and unavailable task, moodboard/form/automation empty states, approvals, Activity, Inbox, Settings, AI library with inference off, Website dashboard and Website inbox.
 
-The complete plan has 32 cases × 18 projects = 576 cases. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
+The complete plan has 36 cases × 18 projects = 648 cases. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
 
 Fast-check generates bounded sequences of stage changes, Unicode/long title edits, offline edits, reloads, breakpoint changes, theme changes and keyboard search. It compares title/stage with a small model and verifies server persistence before reload. Every generated case resets its starting viewport/theme/connectivity; failures retain seed, shrink path, command sequence and a replay command. The default is three generated sequences per project, each with 6–14 commands. This is bounded exploration, not all possible sequences.
 
@@ -71,3 +71,42 @@ navigation, and visibility of an injected uncaught JavaScript error. Negative
 controls use separate pages so deliberately cancelled requests cannot pollute
 the positive tracker. No error filtering is added. The release UI runner now
 contains 21 checks: 18 viewport journeys and three engine controls.
+
+Phase 7 adds structured relative/absolute date controls and inclusive ranges.
+The range workflow creates a view through keyboard controls, checks persisted
+bounds, invalid offset refusal, reload recovery and touch presets, then reaches
+the bottom action in the compact filter sheet. Native select text search is
+used for keyboard acceptance on macOS headless engines; every selection is
+asserted. The named date workflow replaces R1’s free-text hint interaction.
+
+The locale case edits Workspace settings through the authenticated UI, checks invalid input, verifies its account-specific offline cache and opens a populated INR metric. Fixture settings are restored after each project. These actions affect only the disposable local workspace.
+
+Phase 7 locale coverage also opens the populated field editor, refuses an invalid
+currency override, stores and clears an explicit override, measures the empty
+new-name placeholder and creates a Number field through keyboard/touch controls.
+Dashboard comment actions use normal flow so they cannot cover Configure actions.
+The test reads the rendered metric total for drill-down, retaining its native
+visible-text accessible name. Normal hard navigation/reload waits for API reads.
+The bounded WebKit handled-read recovery list includes the new settings GET only
+when an actual authenticated 200 response has valid timezone/currency/week/version;
+self-tests require offline, invalid, unauthorized and failed responses to refuse.
+Real window errors/rejections, unmatched diagnostics and all axe nodes still fail.
+
+
+Phase 7 account coverage disables and restores a member, checks another tab's
+reauthentication, retained assignments, recovery from a simulated restore outage,
+keyboard confirmation and full-shell accessibility. The operating-pack workflow
+starts from a synthetic pre-key/version-1 install, preserves renamed fields/views,
+a changed filter and a deleted block, previews all additions, applies currency
+formats and a missing view, then reloads and verifies an empty second plan.
+Each project resets only stable pack IDs inside the provenance-verified owned
+local fixture. Private fixture-session metadata never goes into published evidence.
+The 648-cell complete plan is required; these targeted matrices alone are partial.
+
+
+The separate v7 canvas runner uses `scripts/canvas-hit-point.mjs` to choose an
+exposed body point. It rejects nested interactive controls, editors, resize
+handles and fully covered items. Three-engine static overlap controls reproduce
+the old comment-button selection before verifying the correction. Actual movement,
+persistence and hit-test semantics remain mandatory; no product events are bypassed
+to make the geometry assertion pass. This change does not alter the UX lab matrix.

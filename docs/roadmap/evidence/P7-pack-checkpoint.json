@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "phase": "7.4",
+  "status": "focused development PASS; complete Phase 7 certification pending",
+  "cleanSourceCertificate": false,
+  "baseSha": "480528787504979ddb0ba58263ed419c2f493942",
+  "browser": {
+    "source": {
+      "sha": "480528787504979ddb0ba58263ed419c2f493942",
+      "fingerprint": "d076df6698f048cb01c5114896d6ed954daad3e2ef46cab4bb59309f1ffb0057"
+    },
+    "exitCode": 0,
+    "passed": 18,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "projects": 18,
+    "artifact": ".artifacts/phase7/pack-browser-final/summary.json",
+    "sha256": "32c1bdd79b357086de0ad412408abffa589ef2284b37e2e4b75750f633c7c0e2",
+    "scope": "legacy upgrade preview, preservation, apply, reload, idempotence, keyboard/touch, whole-page axe and geometry"
+  },
+  "checks": [
+    {
+      "name": "typecheck",
+      "exitCode": 0,
+      "artifact": ".artifacts/phase7/pack-typecheck-final.log"
+    },
+    {
+      "name": "planner, actual-D1/MCP, client, provenance and rebase",
+      "exitCode": 0,
+      "passed": 105,
+      "files": 13,
+      "artifact": ".artifacts/phase7/pack-regressions-final.log"
+    },
+    {
+      "name": "permission cache/guard interplay (overlap)",
+      "exitCode": 0,
+      "passed": 56,
+      "files": 8,
+      "artifact": ".artifacts/phase7/pack-cache-interplay.log"
+    }
+  ],
+  "runtimeFiles": {
+    "shared/bundled.ts": "41e4a3885c0ce725b364e3e20e6cddd245e7ab5ca5b32ac62f95ca4cc294d075",
+    "shared/mutationGuard.ts": "b0c87d2d846f6da90925c119ceb4e6a1a20afe7df0e538b110d947ed1bd841b7",
+    "shared/templates.ts": "f5e2461fa81fd9b5e268d1715ac27a739f8447478ac28e4b71b97d429b0ad78a",
+    "shared/types.ts": "b9a8561b40d50e5122f69fcecb68651bbd329f18cba07ac6b76c1b50e959aad2",
+    "templates/tcg-pack.json": "471e5f8f4b025ca6d2d05922f34f6997e98dfe7cc629b6c4b2f33474b6d90915",
+    "src/core/db.ts": "16216812a743af2dcb503184e337168e52042b86de0ec2e3e4faae0f1b8e748c",
+    "src/core/settings.tsx": "7981cdef80518e3fa61af346fcd902ba5a9ab80e7bf063324bffcc5093b1c017",
+    "src/core/PackUpgradeControl.tsx": "02eefb359ea4347179014b3c15bf688f17c39413e32dc5c4e77d4bee0b392b98",
+    "src/core/packUpgrades.ts": "ae9139ef4b7a17cadaae46721f708f6b78880c2e292d5828eeef62aeb5e45e5d",
+    "src/core/sync/engine.ts": "3426e4580b062f8969aaaf5454c91d23927dd69d04f0fa7bc6db5bf146e9effb",
+    "src/core/sync/rebase.ts": "4d93112bf48e8e5044414b493483fd39ddf3ab71e1e48f73d916e5a1d05ac6e4",
+    "src/core/sync/pendingWork.ts": "b1c5a6710862e3b63d4401566ca13dfb135c774ae2ad850e8a234dc3faf37017",
+    "src/core/sync/accessCache.ts": "4a14d65f3621442d41ad3b8e0cc174c0cd68a42e338c0c0fd48fb7fac2aa05a4",
+    "worker/mcp.ts": "fb6856415c822f6aa6641b645b288fc3f3cbfce2dd7ee9779040c30929892646",
+    "worker/packUpgrade.ts": "1e818897a24ccbdea04571eb45d34e075aab723b1226043ac1bca52ebaff10ea",
+    "worker/sync.ts": "a8188f6473474a7614011e32e030b026771663a0ee15ac413c58d75f05e99369"
+  },
+  "retainedFailures": [
+    ".artifacts/phase7/pack-baseline.log",
+    ".artifacts/phase7/pack-regressions-4.log",
+    ".artifacts/phase7/pack-browser-probe-1.log",
+    ".artifacts/phase7/pack-browser-probe-2.log",
+    ".artifacts/phase7/pack-browser-probe-3.log"
+  ],
+  "migration": "none for 7.4; preceding 0035 remains required",
+  "contract": "Website integration event contract unchanged",
+  "limits": [
+    "Synthetic local users and pack records only; fixture approvals are automated, not genuine human approval.",
+    "No deployment, real provider call, remote migration or physical-device acceptance.",
+    "Full clean-source Phase 7 certificate and full 648-cell UX/native harnesses remain pending."
+  ]
+}

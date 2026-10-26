@@ -1,3 +1,4 @@
+import {useWorkspaceLocale,workspaceCurrency} from '../../core/workspaceLocale';
 import { useMemo } from 'react';
 import { Check, ExternalLink, X } from 'lucide-react';
 import { mutate } from '../../core/sync/engine';
@@ -14,6 +15,7 @@ async function setProp(taskId: string, fieldId: string, value: unknown): Promise
 
 /** Compact chip for a showOnCard field on a board card. */
 export function FieldChip({ field, task }: { field: FieldDef; task: TaskRow }) {
+  useWorkspaceLocale();
   const users = useUsers();
   const me = authStore.get().user;
   const raw = task[propKey(field.id)] as unknown;
@@ -47,7 +49,7 @@ export function FieldChip({ field, task }: { field: FieldDef; task: TaskRow }) {
     if (!u) return null;
     return <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-1.5 py-0.5 text-[11px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">{u.name}</span>;
   }
-  const disp = formatFieldValue(field, raw);
+  const disp = formatFieldValue(field, raw,{workspaceCurrency:workspaceCurrency()});
   if (!disp) return null;
   return <span className="inline-flex max-w-[130px] items-center truncate rounded-full bg-neutral-100 px-1.5 py-0.5 text-[11px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400" title={`${field.name}: ${disp}`}>{disp}</span>;
 }
@@ -67,6 +69,7 @@ export function FieldChips({ board, task }: { board: BoardRow | undefined; task:
 
 /** Inline property editor row used in the task detail grid. */
 export function FieldRow({ field, task }: { field: FieldDef; task: TaskRow }) {
+  useWorkspaceLocale();
   const users = useUsers();
   const raw = task[propKey(field.id)] as unknown;
   const input = 'w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10';
@@ -88,7 +91,7 @@ export function FieldRow({ field, task }: { field: FieldDef; task: TaskRow }) {
         <select value={typeof raw === 'string' ? raw : ''} onChange={(e) => void setProp(task.id, field.id, e.target.value || null)} className={input} aria-label={field.name}>
           <option value="">Unassigned</option>
           {users.map((u) => (
-            <option key={u.id} value={u.id}>{u.name}</option>
+            <option key={u.id} value={u.id} disabled={u.disabled} className={u.disabled?'text-neutral-500':undefined}>{u.name}{u.disabled?' (disabled)':''}</option>
           ))}
         </select>
       ) : field.type === 'date' ? (
@@ -163,6 +166,7 @@ function MultiPicker({ field, task, values }: { field: FieldDef; task: TaskRow; 
 
 /** Board filter option chips — the board header uses this to filter by a field value. */
 export function useFieldFilterOptions(board: BoardRow | undefined) {
+  useWorkspaceLocale();
   const users = useUsers();
   return useMemo(() => {
     const fields = fieldsOf(board).filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'person' || f.type === 'checkbox');

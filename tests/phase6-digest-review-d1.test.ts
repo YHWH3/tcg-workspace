@@ -2,10 +2,12 @@ import {afterEach,beforeEach,describe,expect,it} from 'vitest';
 import {openAuditFixture,type AuditFixture} from './audit-fixture';
 import {runWeeklyDigests} from '../worker/aiDigest';
 let f:AuditFixture;
-const now=Date.now();
+// Retry-ceiling coverage stays within one week, independent of run wall time.
+const now=Date.parse('2026-10-21T12:00:00Z');
 beforeEach(async()=>{
  f=await openAuditFixture();await f.db.batch([
   f.db.prepare('UPDATE access_state SET enabled=1'),
+  f.db.prepare("UPDATE workspace_settings SET time_zone='UTC',week_start=1 WHERE id='workspace'"),
   f.db.prepare(`INSERT INTO records(id,collection,data,field_ts,seq,space_id) VALUES('approval-page','pages','{"title":"Confidential approval"}','{}',1,'space-core'),('board','boards','{"name":"Tasks"}','{}',2,'space-core')`),
  ]);
 });
@@ -48,4 +50,12 @@ it('bounded scheduler reaches the approval recipient after an earlier-ID empty u
  await runWeeklyDigests(f.env,now);expect(await count()).toBe(0);expect(await f.db.prepare("SELECT outcome FROM ai_digest_runs WHERE user_id='000-first'").first('outcome')).toBe('no_content');
  await runWeeklyDigests(f.env,now);expect(await count()).toBe(1);expect(await f.db.prepare("SELECT outcome FROM ai_digest_runs WHERE user_id='alice'").first('outcome')).toBe('delivered');
  await runWeeklyDigests(f.env,now);expect(await count()).toBe(1);
+});
+
+it('uses separate weekly retry identities across the explicit UTC week boundary',async()=>{
+ await approval();await f.db.prepare("CREATE TRIGGER fail_weekly BEFORE INSERT ON notifications BEGIN SELECT RAISE(ABORT,'persistent boundary failure'); END").run();
+ await runWeeklyDigests(f.env,Date.parse('2026-10-25T23:30:00Z'));
+ await runWeeklyDigests(f.env,Date.parse('2026-10-26T00:30:00.001Z'));
+ const rows=(await f.db.prepare("SELECT week,attempts,delivered,outcome FROM ai_digest_runs WHERE user_id='alice' ORDER BY week").all()).results;
+ expect(rows).toEqual([{week:'2026-10-19',attempts:1,delivered:0,outcome:'pending'},{week:'2026-10-26',attempts:1,delivered:0,outcome:'pending'}]);expect(await count()).toBe(0);
 });

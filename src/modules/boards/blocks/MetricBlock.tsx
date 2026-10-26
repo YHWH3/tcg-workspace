@@ -1,7 +1,9 @@
+import {useWorkspaceLocale,workspaceCurrency} from '../../../core/workspaceLocale';
+import {fieldsOf,formatNumber} from '../../../../shared/fields';
 /**
  * `metric` dashboard block (§3): big number via shared `aggregate()` — count /
  * sum / avg over the filtered record set — with label and `format`
- * ('currency' → Intl USD by default). Click drills into `RecordListSheet`
+ * ('currency' → field or workspace currency). Click drills into `RecordListSheet`
  * with the exact `ids` the number aggregates. Missing/loading/archived/
  * no-data states are distinct and never crash.
  */
@@ -27,10 +29,10 @@ const AGGS: { id: 'count' | 'sum' | 'avg'; label: string }[] = [
   { id: 'avg', label: 'Average' },
 ];
 
-const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const plain = new Intl.NumberFormat('en-US');
 
 function MetricBlockInner({ block }: { block: LocalRow }) {
+  useWorkspaceLocale();
   const boards = useBoardsQuery();
   const tasks = useTasksQuery();
   const links = useLinks();
@@ -52,11 +54,13 @@ function MetricBlockInner({ block }: { block: LocalRow }) {
   const filters = Array.isArray(block.filters) ? (block.filters as Filter[]) : undefined;
   const result = aggregateShared(records, { filters, agg, fieldKey }, ctx);
 
+  const numericField=fieldKey?.startsWith('p_')?fieldsOf(board).find(f=>f.id===fieldKey.slice(2)):undefined;
+  const currencyFormat=numericField?.format==='currency'||str(block.format)==='currency';
   const value =
     result.value === null || result.value === undefined
       ? null
-      : str(block.format) === 'currency'
-        ? usd.format(result.value)
+      : currencyFormat
+        ? formatNumber(result.value,{...numericField,format:'currency'},workspaceCurrency())
         : plain.format(result.value);
   const label = str(block.label) ?? (agg === 'count' ? 'Records' : agg === 'sum' ? `Sum${fieldKey ? ` · ${fieldKeyLabel(board, fieldKey)}` : ''}` : `Average${fieldKey ? ` · ${fieldKeyLabel(board, fieldKey)}` : ''}`);
 
@@ -69,11 +73,13 @@ function MetricBlockInner({ block }: { block: LocalRow }) {
       <button
         className="flex w-full flex-col items-start gap-0.5 rounded-lg px-1 py-1 text-left transition-colors hover:bg-neutral-50 focus-visible:bg-neutral-50 dark:hover:bg-neutral-800/60 dark:focus-visible:bg-neutral-800/60"
         onClick={() => setDrill(true)}
-        aria-label={`${label}: ${value ?? 'no data'} — show records`}
+        data-testid="metric-total"
       >
-        <span className={cn('text-3xl font-semibold tracking-tight tabular-nums', value === null && 'text-neutral-300 dark:text-neutral-600')}>{value ?? '—'}</span>
-        <span className="text-xs text-neutral-400">{label}</span>
-        {agg !== 'count' && result.numericCount < result.count && <span className="text-[10px] text-neutral-400">from {result.numericCount} of {result.count} rows</span>}
+        <span data-testid="metric-value" className={cn('text-3xl font-semibold tracking-tight tabular-nums', value === null && 'text-neutral-300 dark:text-neutral-600')}>{value ?? '—'}</span>
+        <span className="text-xs text-neutral-600 dark:text-neutral-400">{label}</span>
+        {currencyFormat&&<span className="text-xs text-neutral-600 dark:text-neutral-400">{numericField?.currency??workspaceCurrency()}{!numericField?.currency?', workspace default':', field currency'}</span>}
+        <span className="sr-only">show records</span>
+        {agg !== 'count' && result.numericCount < result.count && <span className="text-[10px] text-neutral-600 dark:text-neutral-400">from {result.numericCount} of {result.count} rows</span>}
       </button>
       {drill && <RecordListSheet ids={result.ids} board={board} onClose={() => setDrill(false)} />}
     </>
@@ -127,7 +133,7 @@ function MetricBlock({ block }: MediaBlockProps) {
           <Field label="Format">
             <Select value={str(block.format) ?? 'number'} onChange={(e) => saveBlockCfg(block, { format: e.target.value === 'currency' ? 'currency' : null })} aria-label="Number format">
               <option value="number">Number</option>
-              <option value="currency">Currency (USD)</option>
+              <option value="currency">Currency (field or workspace)</option>
             </Select>
           </Field>
         </>

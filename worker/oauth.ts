@@ -159,8 +159,9 @@ export function registerAuthorize(app: Hono<{ Bindings: Env; Variables: { user: 
         await clearLoginFailures(c.env,ip,username);
         const approved=await c.env.OAUTH_PROVIDER.approveConsent(c.req.raw,handle);
         const token=randomToken();
-        await c.env.DB.prepare('INSERT INTO ai_scope_consents(token_hash,user_id,handle,client_id,request_json,cookie_hash,expires_at) VALUES(?,?,?,?,?,?,?)')
-          .bind(await sha256Hex(token),user.id,handle,authReq.clientId,JSON.stringify(approved.request),await sha256Hex(c.req.header('Cookie')??''),Date.now()+300_000).run();
+        const saved=await c.env.DB.prepare('INSERT INTO ai_scope_consents(token_hash,user_id,handle,client_id,request_json,cookie_hash,expires_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at IS NULL)')
+          .bind(await sha256Hex(token),user.id,handle,authReq.clientId,JSON.stringify(approved.request),await sha256Hex(c.req.header('Cookie')??''),Date.now()+300_000,user.id).run();
+        if(!saved.meta.changes)throw new Error('account unavailable');
         return htmlRes(page(scopeBody(details,handle,token,await availableConnectorSpaces(c.env,user.id))));
       }
       const tokenHash=await sha256Hex(selection);
@@ -181,7 +182,7 @@ export function registerAuthorize(app: Hono<{ Bindings: Env; Variables: { user: 
       // One-use selection and connection creation share a transaction. A concurrent
       // replay cannot create another connection, even if the OAuth callback fails.
       await c.env.DB.batch([
-        c.env.DB.prepare("SELECT CASE WHEN EXISTS(SELECT 1 FROM ai_scope_consents WHERE token_hash=? AND consumed_at IS NULL AND expires_at>?) THEN 1 ELSE json_extract('{','$') END").bind(tokenHash,now),
+        c.env.DB.prepare("SELECT CASE WHEN EXISTS(SELECT 1 FROM ai_scope_consents WHERE token_hash=? AND consumed_at IS NULL AND expires_at>? AND EXISTS(SELECT 1 FROM users WHERE id=ai_scope_consents.user_id AND disabled_at IS NULL)) THEN 1 ELSE json_extract('{','$') END").bind(tokenHash,now),
         c.env.DB.prepare('UPDATE ai_scope_consents SET consumed_at=? WHERE token_hash=?').bind(now,tokenHash),
         c.env.DB.prepare('INSERT INTO ai_connections(id,user_id,client_id,spaces_json,created_at,expires_at) VALUES(?,?,?,?,?,?)')
           .bind(id,pending.user_id,authReq.clientId,JSON.stringify(spaces),now,now+365*86_400_000),

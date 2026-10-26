@@ -48,7 +48,7 @@ try{
   const raw=JSON.stringify(body),timestamp=String(Math.floor(Date.now()/1000));
   const ingested=await fetch(owned.base+'/api/ingest/website',{method:'POST',headers:{'Content-Type':'application/json','X-TCG-Timestamp':timestamp,'X-TCG-Signature':'sha256='+createHmac('sha256','ux-lab-disposable').update(`${timestamp}.${raw}`).digest('hex')},body:raw});if(ingested.status!==200)throw new Error('UX event setup failed');
   await owned.sql('UPDATE access_state SET enabled=1 WHERE id=1');
-  const authFile=join(output,'fixture-session.json');writeFileSync(authFile,JSON.stringify({base:owned.base,admin,disposable:true}),{mode:0o600});
+  const authFile=join(output,'fixture-session.json');writeFileSync(authFile,JSON.stringify({base:owned.base,admin,disposable:true,owner:{config:owned.config,state:owned.state,directory:owned.directory,fixtureId:owned.fixtureId}}),{mode:0o600});
   // These ignored local reports can contain disposable session credentials in
   // traces. Never attach raw reports/traces to a public PR.
   const env={...fixtureEnvironment(),UX_OUTPUT:output,UX_FIXTURE:authFile,NODE_EXTRA_CA_CERTS:tls.cert,PLAYWRIGHT_HTML_OPEN:'never'};

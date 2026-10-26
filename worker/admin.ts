@@ -3,6 +3,7 @@ import { inviteCode, requireAdmin, requireAuth, MAX_USERS } from './auth';
 import type { Env, AuthUser } from './auth';
 import type { PublicUser } from '../shared/types';
 import { maintainDateIndex } from './events';
+import {pokeLive} from './sync';
 import { revokeAllGrants } from './ratelimit';
 import {websiteAuthority,websiteGrantFence,defaultWebsiteDestinations} from './websiteAuthority';
 import {loadAccessContext,spaceAccess} from './access';
@@ -15,7 +16,7 @@ admin.use('*', requireAuth);
 
 function adminSessionFence(env:Env,user:AuthUser,spaceId?:string){
  return env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
- WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL AND u.role='admin')
+ WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL AND COALESCE(u.workspace_role,u.role) IN ('owner','admin'))
  ${spaceId?`AND ${levelSql('?','?')}>=3`:''} THEN 1 ELSE json_extract('{','$') END`)
  .bind(user.tokenHash,user.id,Date.now(),...(spaceId?[spaceId,user.id]:[]));
 }
@@ -72,17 +73,58 @@ admin.post('/admin/website-ingest/people-rebind',requireAdmin,async c=>{
 
 admin.get('/users', async (c) => {
   const { results } = await c.env.DB
-    .prepare(`SELECT id, username, name, role, color, created_at FROM users WHERE id=? OR COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest' ORDER BY created_at`).bind(c.get('user').id,c.get('user').id)
+    .prepare(`SELECT id, username, name, role, color, created_at,COALESCE(workspace_role,role) AS workspaceRole,(disabled_at IS NOT NULL) AS disabled FROM users WHERE id=? OR COALESCE((SELECT workspace_role FROM users WHERE id=?),'member')!='guest' ORDER BY created_at`).bind(c.get('user').id,c.get('user').id)
     .all<PublicUser & { created_at: number }>();
-  return c.json({ users: results.map(({ created_at: _created_at, ...u }) => u), seatsTotal: MAX_USERS });
+  return c.json({ users: results.map(({ created_at: _created_at, ...u }) => ({...u,disabled:!!u.disabled})), seatsTotal: MAX_USERS });
+});
+
+type AccountState={id:string;disabled_at:number|null;canonicalRole:string};
+const privilegedCount="(SELECT COUNT(*) FROM users WHERE disabled_at IS NULL AND COALESCE(workspace_role,role) IN ('owner','admin'))";
+function accountState(env:Env,id:string){return env.DB.prepare('SELECT id,disabled_at,COALESCE(workspace_role,role) AS canonicalRole FROM users WHERE id=?').bind(id).first<AccountState>();}
+function accountFence(env:Env,target:string,before:AccountState,protectLast=false){
+ return env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at IS ? AND COALESCE(workspace_role,role)=? ${protectLast?`AND (disabled_at IS NOT NULL OR COALESCE(workspace_role,role) NOT IN ('owner','admin') OR ${privilegedCount}>1)`:''}) THEN 1 ELSE json_extract('{','$') END`).bind(target,before.disabled_at,before.canonicalRole);
+}
+async function accountBatch(env:Env,statements:D1PreparedStatement[]){try{await env.DB.batch(statements);return true;}catch(error){if(/malformed JSON/i.test(String(error)))return false;throw error;}}
+
+admin.post('/users/:id/disable',requireAdmin,async c=>{
+ const target=c.req.param('id')!,actor=c.get('user');if(target===actor.id)return c.json({error:'Cannot disable yourself'},400);
+ const before=await accountState(c.env,target);if(!before)return c.json({error:'not found'},404);
+ const now=Date.now(),already=before.disabled_at!==null;
+ const statements=[adminSessionFence(c.env,actor),accountFence(c.env,target,before,true),
+  c.env.DB.prepare('UPDATE users SET disabled_at=COALESCE(disabled_at,?) WHERE id=?').bind(now,target),
+  c.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(target),
+  c.env.DB.prepare('UPDATE ai_connections SET revoked_at=?,version=version+1 WHERE user_id=? AND revoked_at IS NULL').bind(now,target),
+  c.env.DB.prepare('UPDATE ai_scope_consents SET consumed_at=? WHERE user_id=? AND consumed_at IS NULL').bind(now,target),
+  c.env.DB.prepare('UPDATE website_ingest_grant SET revoked_at=?,version=version+1,updated_at=? WHERE sponsor_id=? AND revoked_at IS NULL').bind(now,now,target),
+ ];
+ if(!already)statements.push(c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.disable',?,?,(SELECT generation FROM access_state WHERE id=1),?)").bind(crypto.randomUUID(),actor.id,target,JSON.stringify({disabled:false}),JSON.stringify({disabled:true,connectorRevocation:'requested'}),now));
+ if(!await accountBatch(c.env,statements))return c.json({error:'account_or_authority_changed'},409);
+ let grantsRevoked=false;try{grantsRevoked=await revokeAllGrants(c.env,target,true);}catch{/* The account stays disabled; restoration requires a successful sweep. */}
+ pokeLive(c.env,c.executionCtx);
+ return c.json({ok:true,disabled:true,already,grantsRevoked,cleanupPending:!grantsRevoked});
+});
+admin.post('/users/:id/enable',requireAdmin,async c=>{
+ const target=c.req.param('id')!,actor=c.get('user'),before=await accountState(c.env,target);
+ if(!before)return c.json({error:'not found'},404);
+ if(before.disabled_at===null)return c.json({ok:true,disabled:false,already:true});
+ const count=await c.env.DB.prepare('SELECT COUNT(*) n FROM users WHERE disabled_at IS NULL').first<number>('n');
+ if((count??0)>=MAX_USERS)return c.json({error:'capacity_full',message:'All seven active places are in use. Free a place before restoring access.'},409);
+ // A partial provider sweep must never resurrect a legacy token that has no
+ // connection id. Keep the user disabled and let the operator retry cleanup.
+ try{await revokeAllGrants(c.env,target,true);}catch{return c.json({error:'connector_cleanup_pending',message:'Account remains disabled. Retry when connector revocation is available.'},503);}
+ const now=Date.now();
+ const committed=await accountBatch(c.env,[adminSessionFence(c.env,actor),accountFence(c.env,target,before),
+  c.env.DB.prepare(`SELECT CASE WHEN (SELECT COUNT(*) FROM users WHERE disabled_at IS NULL)<? THEN 1 ELSE json_extract('{','$') END`).bind(MAX_USERS),
+  c.env.DB.prepare('UPDATE users SET disabled_at=NULL WHERE id=?').bind(target),
+  c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.enable',?,?,(SELECT generation FROM access_state WHERE id=1),?)").bind(crypto.randomUUID(),actor.id,target,JSON.stringify({disabled:true}),JSON.stringify({disabled:false,sessionsRestored:false,connectorsRestored:false}),now),
+ ]);
+ if(!committed)return c.json({error:'capacity_or_authority_changed',message:'Capacity or account access changed. Refresh and retry.'},409);
+ pokeLive(c.env,c.executionCtx);return c.json({ok:true,disabled:false});
 });
 
 admin.post('/invites', requireAdmin, async (c) => {
   const code = inviteCode();
-  await c.env.DB
-    .prepare('INSERT INTO invites (code, created_by, created_at) VALUES (?, ?, ?)')
-    .bind(code, c.get('user').id, Date.now())
-    .run();
+  if(!await accountBatch(c.env,[adminSessionFence(c.env,c.get('user')),c.env.DB.prepare('INSERT INTO invites (code, created_by, created_at) VALUES (?, ?, ?)').bind(code,c.get('user').id,Date.now())]))return c.json({error:'authority_changed'},409);
   return c.json({ code });
 });
 
@@ -97,24 +139,24 @@ admin.get('/invites', requireAdmin, async (c) => {
 });
 
 admin.delete('/invites/:code', requireAdmin, async (c) => {
-  await c.env.DB.prepare('DELETE FROM invites WHERE code = ? AND used_by IS NULL').bind(c.req.param('code')).run();
+  if(!await accountBatch(c.env,[adminSessionFence(c.env,c.get('user')),c.env.DB.prepare('DELETE FROM invites WHERE code = ? AND used_by IS NULL').bind(c.req.param('code'))]))return c.json({error:'authority_changed'},409);
   return c.json({ ok: true });
 });
 
 admin.patch('/users/:id', requireAdmin, async (c) => {
-  const target = c.req.param('id');
-  const body = await c.req.json<{ role?: string }>().catch(() => null);
-  if (body?.role !== 'admin' && body?.role !== 'member') return c.json({ error: 'invalid role' }, 400);
-  const me = c.get('user');
-  if (target === me.id) return c.json({ error: 'Cannot change your own role' }, 400);
-  if (body.role === 'member') {
-    const admins = await c.env.DB.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").first<{ c: number }>();
-    const t = await c.env.DB.prepare('SELECT role FROM users WHERE id = ?').bind(target).first<{ role: string }>();
-    if (!t) return c.json({ error: 'not found' }, 404);
-    if (t.role === 'admin' && (admins?.c ?? 0) <= 1) return c.json({ error: 'Cannot demote the last admin' }, 400);
-  }
-  await c.env.DB.prepare('UPDATE users SET role = ? WHERE id = ?').bind(body.role, target).run();
-  return c.json({ ok: true });
+  const target=c.req.param('id')!,actor=c.get('user');
+  const body=await c.req.json<{role?:string}>().catch(()=>null);
+  if(body?.role!=='admin'&&body?.role!=='member')return c.json({error:'invalid role'},400);
+  if(target===actor.id)return c.json({error:'Cannot change your own role'},400);
+  const before=await accountState(c.env,target);if(!before)return c.json({error:'not found'},404);
+  if(before.canonicalRole==='guest')return c.json({error:'Guest roles must be managed through guest access'},400);
+  const role=before.canonicalRole==='owner'&&body.role==='admin'?'owner':body.role;
+  if(!await accountBatch(c.env,[adminSessionFence(c.env,actor),accountFence(c.env,target,before,role==='member'),
+    c.env.DB.prepare('UPDATE users SET role=?,workspace_role=? WHERE id=?').bind(body.role,role,target),
+    c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.role',?,?,(SELECT generation FROM access_state WHERE id=1),?)")
+      .bind(crypto.randomUUID(),actor.id,target,JSON.stringify({role:before.canonicalRole}),JSON.stringify({role}),Date.now()),
+  ]))return c.json({error:'account_or_authority_changed'},409);
+  pokeLive(c.env,c.executionCtx);return c.json({ok:true});
 });
 
 // Phase 4 §5 (Workstream B): backfill after migration 0007 — resync date_index
@@ -143,21 +185,14 @@ admin.post('/admin/reindex-dates', requireAdmin, async (c) => {
 });
 
 admin.delete('/users/:id', requireAdmin, async (c) => {
-  const target = c.req.param('id');
-  const me = c.get('user');
-  if (target === me.id) return c.json({ error: 'Cannot remove yourself' }, 400);
-  const t = await c.env.DB.prepare('SELECT role FROM users WHERE id = ?').bind(target).first<{ role: string }>();
-  if (!t) return c.json({ error: 'not found' }, 404);
-  if (t.role === 'admin') {
-    const admins = await c.env.DB.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").first<{ c: number }>();
-    if ((admins?.c ?? 0) <= 1) return c.json({ error: 'Cannot remove the last admin' }, 400);
-  }
-  await c.env.DB.batch([
-    c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target),
-    c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(target),
-  ]);
-  if (target) await revokeAllGrants(c.env, target);
-  return c.json({ ok: true });
+  const target=c.req.param('id')!,actor=c.get('user');
+  if(target===actor.id)return c.json({error:'Cannot remove yourself'},400);
+  const before=await accountState(c.env,target);if(!before)return c.json({error:'not found'},404);
+  if(!await accountBatch(c.env,[adminSessionFence(c.env,actor),accountFence(c.env,target,before,true),
+    c.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(target),
+    c.env.DB.prepare('DELETE FROM users WHERE id=?').bind(target),
+  ]))return c.json({error:'account_or_authority_changed'},409);
+  await revokeAllGrants(c.env,target);pokeLive(c.env,c.executionCtx);return c.json({ok:true});
 });
 
 // Phase 5 search index recovery: mark a keyset page of documents dirty and rebuild one chunk.

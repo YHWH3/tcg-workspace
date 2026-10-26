@@ -313,12 +313,13 @@ function OptionsEditor({ board, draft, patch }: { board: BoardRow | undefined; d
               <input
                 type="checkbox"
                 checked={draft.notifyUserIds.includes(u.id)}
+                disabled={u.disabled}
                 onChange={(e) =>
                   patch({ notifyUserIds: e.target.checked ? [...draft.notifyUserIds, u.id] : draft.notifyUserIds.filter((x) => x !== u.id) })
                 }
                 className="h-4 w-4 rounded border-neutral-300 accent-blue-600"
               />
-              {u.name || u.username}
+              {u.name || u.username}{u.disabled?' (disabled)':''}
             </label>
           ))}
           {!users.length && <p className="text-xs text-neutral-400">No members to notify.</p>}

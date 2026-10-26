@@ -2,10 +2,11 @@
 import type {McpServer} from '@modelcontextprotocol/server';
 import {z} from 'zod';
 import type {Env} from './auth';
+import {serverDateContext} from './workspaceSettings';
 import {getRec,getRecs,SELECT,toRow,type RawRow} from './records';
 import {gateRows} from './readAccess';
 import {aggregate,applyView,type Filter,type FieldKey,type ViewConfig} from '../shared/views';
-import {fieldsOf} from '../shared/fields';
+import {fieldsOf,formatNumber} from '../shared/fields';
 import {recordsForCalendar} from '../shared/calendarView';
 import {argsHash} from '../shared/stablejson';
 import {recordHref} from '../shared/recordRoutes';
@@ -75,13 +76,14 @@ export function registerReadTools(server:McpServer,c:Context) {
   const relationLinks=await bounded(c,'links',"json_extract(data,'$.kind')='relation' AND json_extract(data,'$.fromId') IN(SELECT value FROM json_each(?))",[JSON.stringify(tasks.rows.map(r=>r.id))],1000);
   const relationTargets=await getRecs(c.env,[...new Set(relationLinks.rows.map(l=>String(l.data.toId)))].slice(0,500));
   const views=await getRecs(c.env,[...supported.map(b=>b.data.viewId),...[...boards.values()].map(b=>b.data.defaultViewId)].filter((id):id is string=>typeof id==='string'));
-  const contextFor=(board:typeof page)=>({meId:c.userId,today:new Date().toISOString().slice(0,10),fieldsById:new Map(fieldsOf(board.data).map(f=>[f.id,f])),columnsById:(board.data.columns as {id:string}[]|undefined)?.map(s=>s.id),relationTitles:(id:string,fid:string)=>relationLinks.rows.filter(l=>l.data.fromId===id&&l.data.fieldId===fid&&relationTargets.has(String(l.data.toId))).map(l=>title(relationTargets.get(String(l.data.toId))!))});
+  const dateContext=await serverDateContext(c.env);
+  const contextFor=(board:typeof page)=>({meId:c.userId,today:dateContext.today,timeZone:dateContext.timeZone,fieldsById:new Map(fieldsOf(board.data).map(f=>[f.id,f])),columnsById:(board.data.columns as {id:string}[]|undefined)?.map(s=>s.id),relationTitles:(id:string,fid:string)=>relationLinks.rows.filter(l=>l.data.fromId===id&&l.data.fieldId===fid&&relationTargets.has(String(l.data.toId))).map(l=>title(relationTargets.get(String(l.data.toId))!))});
   const brief=(r:{id?:unknown;title?:unknown;status?:unknown;dueDate?:unknown;boardId?:unknown})=>({id:r.id,title:String(r.title??'').slice(0,300),status:r.status,dueDate:r.dueDate,url:c.origin+recordHref(String(r.boardId??'board-default'),undefined,String(r.id)),trust});
   const output=supported.map(block=>{
    const data=block.data,board=boards.get(String(data.databaseId));
    if(data.type==='activity')return {id:block.id,type:data.type,activity:activity?.activity.filter(r=>data.scope==='mine'?r.actorId===c.userId:data.scope&&typeof data.scope==='object'?treeRows.slice(0,2000).some(t=>t.root===(data.scope as {pageTreeId?:string}).pageTreeId&&(t.id===r.targetId||t.id===r.pageId)):true).slice(0,Math.min(Number(data.limit)||20,100)),truncated:!!activity?.truncated||treeRows.length>2000};
    if(data.type==='mywork'){
-    const today=new Date().toISOString().slice(0,10),mine=tasks.rows.filter(t=>t.data.assigneeId===c.userId&&!t.data.archived&&(()=>{const b=boards.get(String(t.data.boardId??'board-default'));const cols=b?.data.columns as {id:string}[]|undefined;return !!b&&!b.data.archived&&(!cols?.length||t.data.status!==cols.at(-1)?.id);})()).sort((a,b)=>String(a.data.dueDate??'9999').localeCompare(String(b.data.dueDate??'9999')));
+    const today=dateContext.today,mine=tasks.rows.filter(t=>t.data.assigneeId===c.userId&&!t.data.archived&&(()=>{const b=boards.get(String(t.data.boardId??'board-default'));const cols=b?.data.columns as {id:string}[]|undefined;return !!b&&!b.data.archived&&(!cols?.length||t.data.status!==cols.at(-1)?.id);})()).sort((a,b)=>String(a.data.dueDate??'9999').localeCompare(String(b.data.dueDate??'9999')));
     const groups=['overdue','today','upcoming','no_date'].map(key=>({key,records:mine.filter(t=>{const due=String(t.data.dueDate??'');return key===(due?(due<today?'overdue':due===today?'today':'upcoming'):'no_date');}).slice(0,100).map(t=>brief({id:t.id,...t.data}))}));return {id:block.id,type:data.type,groups,truncated:tasks.truncated||mine.length>100};
    }
    if(data.type==='calendar'){
@@ -97,7 +99,12 @@ export function registerReadTools(server:McpServer,c:Context) {
    const view=views.get(String(data.viewId??board.data.defaultViewId));
    const config={...(view?.data.config as ViewConfig??{}),...(data.inline as ViewConfig??{})};
    const filters=(data.type==='metric'?data.filters:config.filters) as Filter[]|undefined;
-   if(data.type==='metric')return {id:block.id,type:data.type,label:data.label,...aggregate(rows,{agg:['sum','avg'].includes(String(data.agg))?data.agg as 'sum'|'avg':'count',fieldKey:data.fieldKey as FieldKey,filters},context),truncated:tasks.truncated||relationLinks.truncated};
+   if(data.type==='metric'){
+    const result=aggregate(rows,{agg:['sum','avg'].includes(String(data.agg))?data.agg as 'sum'|'avg':'count',fieldKey:data.fieldKey as FieldKey,filters},context);
+    const field=typeof data.fieldKey==='string'&&data.fieldKey.startsWith('p_')?fieldsOf(board.data).find(f=>f.id===String(data.fieldKey).slice(2)):undefined;
+    const currencyFormat=field?.format==='currency'||data.format==='currency',currency=currencyFormat?(field?.currency??dateContext.currency):null;
+    return {id:block.id,type:data.type,label:data.label,...result,formattedValue:result.value==null?null:currencyFormat?formatNumber(result.value,{...field,format:'currency'},dateContext.currency):new Intl.NumberFormat('en-US').format(result.value),currency,currencySource:currency?(field?.currency?'field':'workspace'):null,truncated:tasks.truncated||relationLinks.truncated};
+   }
    const evaluated=applyView(rows,{...config,...(data.type==='mywork'?{mine:true}:{} )},context).rows;
    return {id:block.id,type:data.type,records:evaluated.slice(0,100).map(brief),truncated:tasks.truncated||relationLinks.truncated||evaluated.length>100};
   });

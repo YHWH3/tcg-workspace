@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "phase": "7.2",
+  "status": "development checkpoint; Phase 7 certification pending",
+  "cleanSourceCertificate": false,
+  "testedWorkingTree": {
+    "sha": "50afd28c6c7df9d531d11934ee32c7052877578d",
+    "fingerprint": "055d95ac8205c6597c2b06c15d4d9ce93e2f817b11448d43178da9d3d6ca65bc"
+  },
+  "browser": {
+    "exitCode": 0,
+    "passed": 54,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "projects": 18,
+    "artifact": ".artifacts/phase7/locale-browser-final/summary.json",
+    "sha256": "3ecc7f7dee0d34095019755591ed3209bba4fbb14a9af39a86f4d531b2256426"
+  },
+  "migration": {
+    "name": "0035_workspace_settings.sql",
+    "sha256": "8c2c8d3a2b659e77486cf33defcdc1bfc1bb85648c2c0fe0a57506627f518fa8"
+  },
+  "checks": [
+    {
+      "name": "typecheck/build",
+      "result": "PASS",
+      "exitCode": 0
+    },
+    {
+      "name": "full development Vitest",
+      "result": "FAIL retained",
+      "passed": 1591,
+      "failed": 1,
+      "exitCode": 1,
+      "artifact": ".artifacts/phase7/locale-full-tests.log",
+      "finding": "Wall-clock nine-hour retry fixture crossed the UTC weekly boundary; eight-attempt production ceiling unchanged."
+    },
+    {
+      "name": "affected cache/digest regressions after corrections",
+      "result": "PASS",
+      "passed": 22,
+      "failed": 0,
+      "exitCode": 0,
+      "artifact": ".artifacts/phase7/locale-cache-digest-regressions.log"
+    },
+    {
+      "name": "scheduler/backlog and initial locale regressions (overlap)",
+      "result": "PASS",
+      "passed": 23,
+      "exitCode": 0,
+      "artifact": ".artifacts/phase7/locale-parity-budget.log"
+    },
+    {
+      "name": "broader reminder/date-offset/assistant/rehearsal regressions (overlap)",
+      "result": "PASS",
+      "passed": 86,
+      "exitCode": 0,
+      "artifact": ".artifacts/phase7/locale-d1-regressions.log"
+    },
+    {
+      "name": "broader pure regressions (overlap)",
+      "result": "PASS",
+      "passed": 130,
+      "exitCode": 0,
+      "artifact": ".artifacts/phase7/locale-pure-2.log"
+    },
+    {
+      "name": "release preflight refusal controls",
+      "result": "PASS",
+      "passed": 5,
+      "exitCode": 0
+    },
+    {
+      "name": "bounded read-recovery refusal controls",
+      "result": "PASS",
+      "passed": 2,
+      "exitCode": 0
+    }
+  ],
+  "retainedFailures": [
+    "locale-cache-race-baseline.log: two reproduced cache defects",
+    "locale-browser-matrix: 37 PASS,17 FAIL",
+    "locale-browser-probe through probe-8: individual failed probes retained",
+    "locale-full-tests.log: 1591 PASS,1 FAIL"
+  ],
+  "remaining": [
+    "Phase7.3 disable/restore",
+    "Phase7.4 additive pack upgrades",
+    "fresh clean-source full canonical Phase7 certification, full UX and affected native platform checks",
+    "Phase7 stacked draft PR"
+  ],
+  "externalEffects": "No remote changes, production settings, real providers, paid inference or physical-device acceptance."
+}

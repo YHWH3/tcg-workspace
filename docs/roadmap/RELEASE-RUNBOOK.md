@@ -12,8 +12,9 @@ offline clients, MCP writers, relay forwarding and scheduled work.
 Merge order, when approved: Workspace #12 → #13 → #14 → the R1 draft PR. Retarget
 each successor to `main` after its base merges. Never merge superseded #7/#9.
 The implementing session leaves all those PRs unchanged. R1 has no migration:
-existing `today+30` filters start working through the shared evaluator. The
-workspace timezone remains a separate Phase 7.2 decision.
+existing `today+30` filters start working through the shared evaluator.
+R1 keeps UTC. The owner selected Asia/Kolkata and INR for Phase 7.2; that
+branch has its own acceptance and migration requirements below.
 
 Before deployment, run `npm run certify:ai` again on clean merged `main`, retain
 the exact SHA/tree/fingerprint, mandatory gate table and Safari simulator results.
@@ -86,3 +87,84 @@ Repository contracts: `docs/releases/1.0.0-candidate.md` and
 the ordered inventory here includes migrations 0032–0034 and the sponsored grant.
 
 Cloudflare currently documents that full SQL export is unsupported when a database contains virtual tables (including FTS). The historical 0001–0003 database predates FTS. If the live schema has changed and export refuses, stop and obtain an owner-reviewed backup method; never delete live virtual tables merely to obtain an export. The copy rehearsal does not make that provider restriction disappear.
+
+## Phase 7.2 settings prerequisite (when its separate PR is accepted)
+
+The R1 certificate does not certify the Phase 7 branch. Include that branch only
+through its own review and fresh merged-source certification. Phase 7.2 adds
+`0035_workspace_settings.sql` after 0034; keep prior migration contents and hashes.
+The new table is server-only and requires no new binding, environment flag or secret.
+
+1. Apply the registered migrations to the isolated staging copy first, using the
+   backup/rehearsal procedure above. `GET /api/workspace/settings` must return a
+   valid versioned row. A missing table/row is a migration/configuration failure.
+2. The migration preserves UTC, INR and Monday. Sign in as a current canonical
+   owner/admin and use Settings → Workspace to select Asia/Kolkata and INR.
+   Keep Monday unless the owner selects another week start. Settings are human-only;
+   there is no MCP settings write tool. A stale version requires a fresh read.
+3. Verify app, MCP overview/query/dashboard, reminders, date-offset work and
+   digest use the same civil date around the Kolkata midnight boundary. Verify
+   explicit USD fields still say USD. Defaults label their assumed currency;
+   display changes perform no currency conversion.
+4. Record prior settings and version privately. To reverse a configuration choice,
+   save the prior values using the latest version. Keep reminder/run dedupe history;
+   settings rollback does not retract already delivered notifications. Follow the
+   compatible-code/backup procedure for schema rollback rather than deleting tables.
+
+Frontend caches are account-bound. Online changes refresh through the existing
+live connection; known offline settings remain in use. Before a first successful
+fetch, the app explicitly identifies its device-date fallback when unavailable.
+Provider usage quotas and audit/export timestamps retain their intentional UTC
+meaning. No real workspace settings were changed during local verification.
+
+
+## Phase 7.3 account access prerequisites and recovery
+
+This feature adds no migration beyond the preceding 0035 settings migration.
+Disabling is an authenticated human administrator action. It frees an active
+place while preserving the account, records, historical authorship and existing
+assignments. Restoration needs fewer than seven active accounts including guests;
+zero active accounts must never reopen bootstrap if retained accounts exist.
+
+Disabling deletes sessions, revokes modern connector connections and pending
+consents, and revokes any Website ingest grant sponsored by that person. Legacy
+provider grants are swept with bounded pagination. A provider outage leaves the
+account disabled, reports cleanup pending, and allows an explicit retry. Never
+clear disabled_at directly to bypass cleanup: old grants without connection IDs
+could otherwise become usable again. Restore only through the authenticated
+Restore access action after successful cleanup and its atomic capacity check.
+Restoration revives neither sessions nor connections; the person signs in and
+authorizes connectors afresh. A revoked Website ingest grant needs explicit
+administrator configuration after restoration; relay outbox deliveries remain
+recoverable while ingest authority is unavailable. Pending guest invitations
+cannot be redeemed while their issuer lacks current enabled authority.
+
+Operator rollback: stop using the new actions and retain the disabled states and
+revocations; do not recover old sessions/grants or purge account history. Software
+rollback alone cannot undo a disable action. Use current authorized admin access
+and the restore workflow for deliberate recovery. No real account or grant was
+changed during certification fixtures.
+
+
+## Phase 7.4 pack upgrade prerequisite and recovery
+
+No additional SQL migration, binding, secret or feature flag is required. Review
+and certify the Phase 7 source separately before including it in a release.
+The operating pack is version 2; existing installations are not silently upgraded.
+Use Settings → Template gallery → Update available, inspect every addition, then
+apply while online with ordinary write permission. Existing money fields gain
+workspace-default currency formatting only when their format is unset; explicit
+formats and currencies remain. This changes display, never converts amounts.
+
+A stale preview requires Refresh preview. Changed server fields cause retained
+sync rejections rather than overwrite; use sync recovery, then preview again.
+Partial additions remain saved, with the old version until all additions are
+acknowledged. Do not manually advance templateVersion or erase rejected outbox
+entries to report completion. Deleted/archived reserved items are not resurrected;
+restore only through a separate authorized action if intended. Resolve ambiguous
+legacy matches rather than guessing. Inventory overflow holds the upgrade.
+MCP install_template with mode:upgrade uses its existing frozen browser approval
+and resumable execution; dry-run output alone is not approval or application.
+Rollback preserves applied additions and user data. A software rollback does not
+remove fields/items or reverse currency display choices; deliberate edits need
+normal reviewed mutation paths. No real installation was upgraded in certification.

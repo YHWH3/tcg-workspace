@@ -1,3 +1,5 @@
+import {diagnosticReadUrl,readRecoveryInBrowser} from './read-recovery.mjs';
+import {navigateReady} from '../navigation-ready.mjs';
 import {readFileSync} from 'node:fs';
 import {test as base,expect} from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -69,26 +71,11 @@ export const test=base.extend({page:async({page,context,browser,browserName},use
   // Playwright's network stream. For the remaining read-only diagnostics (GET reads and protocol-3 POST pull),
   // require actual recovery in this browser, rather than hiding them by timing.
   const recoveredReads=[];
-  const candidates=browserName==='webkit'?errors.filter(e=>!expected.includes(e)).map(e=>({e,url:e.stack?.match(/^Fetch API cannot load (https:\/\/[^ ]+\/api\/(?:access|notifications\/badge|approvals|sync\/pull)(?:\?[^ ]*)?) due to access control checks\./)?.[1]})).filter(x=>x.url&&new URL(x.url).origin===origin.origin):[];
+  const candidates=browserName==='webkit'?errors.filter(e=>!expected.includes(e)).map(e=>({e,url:diagnosticReadUrl(e.stack,origin.origin)})).filter(x=>x.url):[];
   const urls=[...new Set(candidates.map(x=>x.url))];
   expect(urls.length,'Bounded read recovery verification').toBeLessThanOrEqual(20);
   for(const url of urls){
-    const recovery=await page.evaluate(async url=>{
-      if(!navigator.onLine)return {online:false,status:0};
-      try{
-        const headers={Authorization:'Bearer '+localStorage.getItem('ws_token')};
-        if(new URL(url).pathname==='/api/sync/pull'){
-          const manifestResponse=await fetch('/api/access',{headers});
-          if(!manifestResponse.ok)return {online:true,status:manifestResponse.status};
-          const manifest=await manifestResponse.json();
-          if(manifest.protocol!==3||!Array.isArray(manifest.spaces))return {online:true,status:0};
-          const body={protocol:3,etag:manifest.etag,cursor:0,joining:manifest.spaces.map(s=>({space:s.id,after:0,base:0})),limit:8};
-          return {online:true,status:(await fetch(url,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(body)})).status};
-        }
-        return {online:true,status:(await fetch(url,{headers})).status};
-      }
-      catch{return {online:true,status:0};}
-    },url);
+    const recovery=await page.evaluate(readRecoveryInBrowser,url);
     recoveredReads.push({url,...recovery});
     expect(recovery,'Handled WebKit read diagnostic must recover in the browser: '+url).toEqual({online:true,status:200});
     expected.push(...candidates.filter(x=>x.url===url).map(x=>x.e));
@@ -98,7 +85,7 @@ export const test=base.extend({page:async({page,context,browser,browserName},use
   expect(errors.filter(e=>!expected.includes(e)),'Unmatched browser errors').toEqual([]);
 }});
 export async function open(page,surface){
-  await page.goto(fixture.base+surface.path);
+  await navigateReady(page,fixture.base+surface.path);
   const ready=surface.ready.placeholder?page.getByPlaceholder(surface.ready.placeholder,{exact:true}):page.getByRole(surface.ready.role,{name:surface.ready.name,exact:true});
   await expect(ready.first()).toBeVisible();
   if(surface.id?.startsWith('records-')||surface.id==='website-inbox')await expect(page.getByRole('toolbar',{name:'View controls',exact:true}).getByRole('combobox',{name:'Group by',exact:true})).toBeVisible();

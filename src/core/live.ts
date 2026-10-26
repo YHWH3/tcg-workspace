@@ -44,6 +44,7 @@ async function onChanged(): Promise<void> {
   syncDebounce = setTimeout(async () => {
     const { syncNow } = await import('./sync/engine');
     void syncNow();
+    void import('./workspaceSettings').then(m=>m.refreshWorkspaceSettings()).catch(()=>{});
   }, 300);
 }
 

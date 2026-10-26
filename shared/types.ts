@@ -1,4 +1,5 @@
 export interface Mutation {
+  ifUnchanged?: import('./mutationGuard').MutationGuard;
   id: string;
   collection: string;
   patch: Record<string, unknown>;
@@ -25,5 +26,7 @@ export interface PublicUser {
   username: string;
   name: string;
   role: 'admin' | 'member';
+  workspaceRole?: 'owner'|'admin'|'member'|'guest';
+  disabled?: boolean;
   color: string;
 }

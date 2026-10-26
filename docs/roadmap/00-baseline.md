@@ -92,7 +92,10 @@ planned work, L = inconsistency.
 
 | N16 | M (QA) | Hard navigation during outstanding foreground API reads causes WebKit fetch diagnostics in the release UI runner. Network-idle lifecycle alone missed dynamically started reads. A deliberately cancelled negative control also left an orphan request when its page was reused. | Retained 984328c full certificate: 33/34 PASS, release-ui 16 PASS / 2 FAIL; request-tracking and isolated-control reports | R1 adds explicit foreground request tracking with a bounded quiet window; isolates intentional cancellation in its own page. All browser-error assertions remain; premature navigation and injected uncaught-error controls prove the harness. Targeted release UI 21/21 and relative-date matrix 18/18 PASS; fresh complete certification required. |
 
-Add new findings as N17+ with the same columns.
+| N17 | M (QA) | Canvas pointer hit-point helper selected a nested comment button when earlier fixtures overlapped the note. Its pointer-down stops by design, so WebKit's geometry assertion observed no move. | Full 79cc6e5 certificate v7 trace: start (837.117, 293.880) in comment control; three-engine static overlap regression reproduces the wrong target | Phase 7 harness correction: exclude interactive children and resize handles, retain covered-item refusal and original geometry assertions; full v7 114/114 PASS. |
+| N18 | M (QA) | Release rehearsal retained a 34-migration assertion after Phase 7 added 0035. It failed before running upgrade/restore checkpoints. | Full 79cc6e5 certificate release-rehearsal: 35 !== 34 | Phase 7 updates the expected count to 35 and adds manifest/count self-test; actual rehearsal 12/12 PASS. |
+
+Add new findings as N19+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 
@@ -101,9 +104,9 @@ Add new findings as N17+ with the same columns.
 | D1 | Certify `528b889` as is, or certify R1's head and release both together | R0/R1 | **Owner selected R1's corrected head in this chat, 2026-10-25.** |
 | D2 | Workspace timezone and currency | 7.2 | **Owner selected `Asia/Kolkata`, `INR` in this chat, 2026-10-25.** |
 | D3 | Does disabling an account keep its seat? | 7.3 | **Owner selected: free the place while disabled, 2026-10-25. Restore requires available active-account capacity; history remains.** |
-| D4 | Who triages the Website inbox (the unassigned queue audience) | 8.3 | All admins |
-| D5 | Response-age bands and target first-reply time | 8.3 | 0–2, 3–7, 8+ days; target 3 days |
-| D6 | Attention queue sources per role | 8.1 | As specified in 08 §8.1 |
+| D4 | Who triages the Website inbox (the unassigned queue audience) | 8.3 | **Owner selected all admins in this chat, 2026-10-25.** |
+| D5 | Response-age bands and target first-reply time | 8.3 | **Owner selected 0–2, 3–7, 8+ days; target 3 days, 2026-10-25.** |
+| D6 | Attention queue sources per role | 8.1 | **Owner accepted the proposed sources in 08 §8.1, 2026-10-25.** |
 | D7 | Email provider and sending domain (Resend, same account as relay?), and whether emails may include record titles (titles pass through the provider) | Phase 10 | Resend, `notifications@<domain>`; titles off |
 | D8 | Web push VAPID keys and whether iOS installation is promoted | Phase 10 | Generate keys; promote install in Settings |
 | D9 | R2 bucket creation and payment method on the Cloudflare account | Phase 11 | Owner provisions |

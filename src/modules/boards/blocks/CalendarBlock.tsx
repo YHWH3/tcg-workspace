@@ -1,3 +1,5 @@
+import {useWorkspaceLocale} from '../../../core/workspaceLocale';
+import type {Weekday} from '../../../../shared/dates';
 /**
  * `calendar` dashboard block (§3): `sources[]` → a merged date→records map via
  * the shared `recordsForCalendar` planner, rendered in the existing
@@ -28,10 +30,7 @@ import { BlockNotice, DashBlock, HeadingField, LimitField, blockSources, pickabl
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-function todayStr(): string {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-}
+
 
 interface CalEntry {
   rec: TaskRow;
@@ -47,13 +46,14 @@ function dateKeyOptions(board: BoardRow | undefined): { id: string; label: strin
 }
 
 function CalendarBlockInner({ block, compact }: { block: LocalRow; compact: boolean }) {
+  const locale=useWorkspaceLocale(),today=locale.today,weekStart=(locale.settings?.weekStart??1) as Weekday;
   const boards = useBoardsQuery();
   const tasks = useTasksQuery();
   const links = useLinks();
   const me = useStore(authStore).user?.id;
   const navigate = useNavigate();
   const [ym, setYm] = useState(() => {
-    const t = parseDateOnly(todayStr());
+    const t = parseDateOnly(today);
     return t ? { y: t.y, m: t.m } : { y: 2026, m: 1 };
   });
   const [sel, setSel] = useState<string | null>(null);
@@ -79,13 +79,13 @@ function CalendarBlockInner({ block, compact }: { block: LocalRow; compact: bool
       }
     });
     return out;
-  }, [sources, boardById, tasks, links, me]);
+  }, [sources, boardById, tasks, links, me,today,locale.settings?.timeZone]);
 
   if (sources.length === 0) return <BlockNotice>Add a source in Configure.</BlockNotice>;
   if (boards === undefined || tasks === undefined) return <BlockNotice tone="loading">Loading…</BlockNotice>;
 
-  const cells = monthGrid(ym.y, ym.m);
-  const today = todayStr();
+  const cells = monthGrid(ym.y, ym.m,weekStart);
+
   const move = (dir: -1 | 1) => setYm((p) => (dir === 1 ? (p.m === 12 ? { y: p.y + 1, m: 1 } : { y: p.y, m: p.m + 1 }) : p.m === 1 ? { y: p.y - 1, m: 12 } : { y: p.y, m: p.m - 1 }));
   const selEntries = sel ? (byDate.get(sel) ?? []) : [];
 
@@ -136,7 +136,7 @@ function CalendarBlockInner({ block, compact }: { block: LocalRow; compact: bool
         </span>
       </div>
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-neutral-200/70 bg-neutral-200/70 dark:border-neutral-800 dark:bg-neutral-800">
-        {WDAYS.map((d) => (
+        {Array.from({length:7},(_,i)=>WDAYS[(weekStart+i+6)%7]).map((d) => (
           <div key={d} className="bg-white px-1 py-0.5 text-center text-[9px] font-semibold uppercase tracking-wide text-neutral-400 dark:bg-neutral-900">{d.slice(0, 2)}</div>
         ))}
         {cells.map((c) => {

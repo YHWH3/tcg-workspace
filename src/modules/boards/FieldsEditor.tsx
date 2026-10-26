@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import {useWorkspaceLocale,workspaceCurrency} from '../../core/workspaceLocale';
+import {validCurrency} from '../../../shared/workspaceSettings';
+import { useEffect,useState } from 'react';
 import { ArrowDown, ArrowUp, Plus, Trash2, X } from 'lucide-react';
 import { mutate } from '../../core/sync/engine';
 import { IconButton, Select } from '../../core/ui';
@@ -40,15 +42,15 @@ export function FieldsEditor({ board }: { board: BoardRow }) {
       {fields.map((f, i) => (
         <FieldRow key={f.id} field={f} first={i === 0} last={i === fields.length - 1} onChange={(p) => update(f.id, p)} onMove={(d) => move(f.id, d)} onDelete={() => save(fields.filter((x) => x.id !== f.id))} />
       ))}
-      {fields.length === 0 && <p className="py-2 text-xs text-neutral-400">No custom fields yet. Fields appear on task cards and in task details.</p>}
-      <div className="mt-3 flex items-center gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-        <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Field name" className="h-9 min-w-0 flex-1 rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900" aria-label="New field name" />
-        <Select value={newType} onChange={(e) => setNewType(e.target.value as FieldType)} className="py-1.5 text-xs" aria-label="New field type">
+      {fields.length === 0 && <p className="py-2 text-xs text-neutral-600 dark:text-neutral-400">No custom fields yet. Fields appear on task cards and in task details.</p>}
+      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-neutral-100 pt-3 sm:flex dark:border-neutral-800">
+        <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Field name" className="col-span-2 h-11 min-w-0 flex-1 rounded-lg border border-neutral-200 bg-white px-3 text-base outline-none sm:h-9 sm:min-w-28 sm:text-sm focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900" aria-label="New field name" />
+        <Select value={newType} onChange={(e) => setNewType(e.target.value as FieldType)} className="h-11 min-w-0 py-1.5 text-base sm:h-9 sm:w-32 sm:text-xs" aria-label="New field type">
           {FIELD_TYPES.map((t) => (
             <option key={t.id} value={t.id}>{t.label}</option>
           ))}
         </Select>
-        <IconButton aria-label="Add field" onClick={add} className="bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900">
+        <IconButton aria-label="Add field" onClick={add} className="h-11 w-11 shrink-0 bg-neutral-900 text-white hover:bg-neutral-700 sm:h-8 sm:w-8 dark:bg-white dark:text-neutral-900">
           <Plus size={16} />
         </IconButton>
       </div>
@@ -79,18 +81,18 @@ function CaptureTargetsSection({ board }: { board: BoardRow }) {
     void mutate('boards', board.id, { fieldActions: next });
   };
 
-  const sel = 'h-8 min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 text-xs outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900';
+  const sel = 'h-11 sm:h-8 min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 text-base sm:text-xs outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900';
   return (
     <div className="mt-4 border-t border-neutral-100 pt-3 dark:border-neutral-800">
       <h3 className="mb-1 text-sm font-semibold">Capture targets</h3>
-      <p className="mb-2 text-xs text-neutral-400">When a record here is the field-capture context, route each kind to a database.</p>
+      <p className="mb-2 text-xs text-neutral-600 dark:text-neutral-400">When a record here is the field-capture context, route each kind to a database.</p>
       <div className="space-y-1.5">
         {ROUTED_KINDS.map((k) => {
           const current = targets.find((t) => t.kind === k)?.databaseId ?? '';
           return (
             <div key={k} className="flex items-center gap-2">
               <span className="w-24 shrink-0 text-xs text-neutral-600 dark:text-neutral-300">{CAPTURE_KIND_LABELS[k]}</span>
-              <Select value={current} onChange={(e) => setTarget(k, e.target.value)} className={sel} aria-label={`${CAPTURE_KIND_LABELS[k]} destination`}>
+              <Select density="compact" value={current} onChange={(e) => setTarget(k, e.target.value)} className={sel} aria-label={`${CAPTURE_KIND_LABELS[k]} destination`}>
                 <option value="">{k === 'task' || k === 'note' ? 'Default (Inbox)' : 'Ask each time'}</option>
                 {boards.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -103,7 +105,7 @@ function CaptureTargetsSection({ board }: { board: BoardRow }) {
         })}
       </div>
       <p className="mb-1.5 mt-3 text-xs font-medium text-neutral-500 dark:text-neutral-400">Field actions</p>
-      <p className="mb-2 text-xs text-neutral-400">Quick actions offered when this database is the capture context.</p>
+      <p className="mb-2 text-xs text-neutral-600 dark:text-neutral-400">Quick actions offered when this database is the capture context.</p>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Field actions">
         {BASE_CAPTURE_KINDS.map((k) => {
           const on = effective.includes(k);
@@ -124,15 +126,18 @@ function CaptureTargetsSection({ board }: { board: BoardRow }) {
           );
         })}
       </div>
-      {explicit && <p className="mt-2 text-[10px] text-neutral-400">Custom set active — reset by toggling all on/off states back to the default mix.</p>}
+      {explicit && <p className="mt-2 text-[10px] text-neutral-600 dark:text-neutral-400">Custom set active — reset by toggling all on/off states back to the default mix.</p>}
     </div>
   );
 }
 
 function FieldRow({ field, first, last, onChange, onMove, onDelete }: { field: FieldDef; first: boolean; last: boolean; onChange: (p: Partial<FieldDef>) => void; onMove: (d: -1 | 1) => void; onDelete: () => void }) {
+  useWorkspaceLocale();
+  const [currencyDraft,setCurrencyDraft]=useState(field.currency??''),[currencyDirty,setCurrencyDirty]=useState(false);
+  useEffect(()=>{if(!currencyDirty)setCurrencyDraft(field.currency??'');},[field.currency,currencyDirty]);
   const [name, setName] = useState(field.name);
   const [newOpt, setNewOpt] = useState('');
-  const input = 'h-8 min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 text-xs outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900';
+  const input = 'h-11 sm:h-8 min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 text-base sm:text-xs outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900';
   const addOption = () => {
     const n = newOpt.trim();
     if (!n) return;
@@ -141,15 +146,15 @@ function FieldRow({ field, first, last, onChange, onMove, onDelete }: { field: F
   };
   return (
     <div className="rounded-xl border border-neutral-200/70 p-2.5 dark:border-neutral-800">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name !== field.name && onChange({ name: name.trim() })} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} className={input} aria-label="Field name" />
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 sm:flex sm:flex-wrap">
+        <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name !== field.name && onChange({ name: name.trim() })} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} className={cn(input,'col-span-2 sm:min-w-28')} aria-label="Field name" />
         <Select
           value={field.type}
           onChange={(e) => {
             const type = e.target.value as FieldType;
             onChange({ type, ...(isSelectType(type) && !field.options ? { options: [] } : {}) });
           }}
-          className="w-28 shrink-0 py-1 text-xs"
+          className="h-11 min-w-0 py-1 text-base sm:h-9 sm:w-28 sm:shrink-0 sm:text-xs"
           aria-label="Field type"
         >
           {FIELD_TYPES.map((t) => (
@@ -157,17 +162,23 @@ function FieldRow({ field, first, last, onChange, onMove, onDelete }: { field: F
           ))}
         </Select>
         <div className="flex shrink-0 items-center">
-          <IconButton aria-label="Move up" className="h-7 w-7" disabled={first} onClick={() => onMove(-1)}>
+          <IconButton aria-label="Move up" className="h-11 w-11 sm:h-8 sm:w-8" disabled={first} onClick={() => onMove(-1)}>
             <ArrowUp size={13} />
           </IconButton>
-          <IconButton aria-label="Move down" className="h-7 w-7" disabled={last} onClick={() => onMove(1)}>
+          <IconButton aria-label="Move down" className="h-11 w-11 sm:h-8 sm:w-8" disabled={last} onClick={() => onMove(1)}>
             <ArrowDown size={13} />
           </IconButton>
-          <IconButton aria-label="Delete field" className="h-7 w-7" onClick={onDelete}>
+          <IconButton aria-label="Delete field" className="h-11 w-11 sm:h-8 sm:w-8" onClick={onDelete}>
             <Trash2 size={13} />
           </IconButton>
         </div>
       </div>
+      {field.type==='number'&&<div className="mt-2 space-y-2">
+        <Select value={field.format??'plain'} aria-label={field.name+' number format'} onChange={e=>onChange({format:e.target.value as FieldDef['format']})}><option value="plain">Plain number</option><option value="currency">Currency</option><option value="percent">Percent</option></Select>
+        {field.format==='percent'&&<p className="text-xs text-neutral-600 dark:text-neutral-400">Enter fractions: 0.25 displays as 25%.</p>}
+        {field.format==='currency'&&<><input value={currencyDraft} maxLength={3} placeholder={workspaceCurrency()+' (workspace default)'} className={input+' w-full'} aria-label={field.name+' currency override'} aria-invalid={!!currencyDraft&&!validCurrency(currencyDraft)} onChange={e=>{setCurrencyDirty(true);setCurrencyDraft(e.target.value.toUpperCase());}} onBlur={()=>{if(currencyDirty&&(!currencyDraft||validCurrency(currencyDraft))){if(currencyDraft!==(field.currency??''))onChange({currency:currencyDraft||undefined});setCurrencyDirty(false);}}}/>
+        <p className="text-xs text-neutral-600 dark:text-neutral-400">{field.currency?field.currency+', field currency':workspaceCurrency()+', workspace default'}. No currency conversion.</p>{currencyDraft&&!validCurrency(currencyDraft)&&<p role="alert" className="text-xs">Enter a valid ISO currency code or leave blank.</p>}</>}
+      </div>}
       {isSelectType(field.type) && (
         <div className="mt-2 space-y-1">
           {(field.options ?? []).map((o, oi) => (
@@ -194,7 +205,7 @@ function FieldRow({ field, first, last, onChange, onMove, onDelete }: { field: F
           </div>
         </div>
       )}
-      <label className="mt-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+      <label className="mt-2 flex min-h-11 items-center gap-2 text-xs sm:min-h-0 text-neutral-500 dark:text-neutral-400">
         <input type="checkbox" checked={!!field.showOnCard} onChange={(e) => onChange({ showOnCard: e.target.checked })} className="h-3.5 w-3.5 accent-neutral-900 dark:accent-neutral-200" />
         Show on card
       </label>

@@ -9,7 +9,7 @@ import {MoveSpaceButton} from '../MoveSpace';
  * BoardPage (kind 'tasks', unchanged UX) and this shell (kind 'records',
  * or when a database has views).
  */
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, ClipboardList, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users, Zap } from 'lucide-react';
 import { authStore } from '../auth';
@@ -60,7 +60,8 @@ import { RecordDetail } from './RecordDetail';
 import { CalendarView } from '../../modules/boards/views/CalendarView';
 import { TimelineView } from '../../modules/boards/views/TimelineView';
 import { fieldKeyOf } from '../records';
-import type { DateFieldKey } from '../../../shared/views';
+import {changeFilterOperator,isDateFilterKey,type DateFieldKey} from '../../../shared/views';
+import {DateFilterControl,DATE_VALUE_OPERATORS} from './DateFilterControl';
 import { archivePatch, isArchived } from '../../../shared/archive';
 
 const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3 };
@@ -353,6 +354,7 @@ const FILTER_OPS: { id: VFilter['op']; label: string }[] = [
   { id: 'after', label: 'after' },
   { id: 'on_or_before', label: 'on or before' },
   { id: 'on_or_after', label: 'on or after' },
+  { id: 'within', label: 'within range' },
   { id: 'checked', label: 'checked' },
   { id: 'unchecked', label: 'unchecked' },
   { id: 'me', label: 'is me' },
@@ -391,6 +393,8 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
       </button>
       <Popover
         align="right"
+        adaptive
+        label="Filters"
         trigger={
           <button className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors', filters.length ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400' : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800')} style={{ minHeight: 32 }} aria-label={filterLabel}>
             <Filter size={12} /> <span className="hidden sm:inline">{filterLabel}</span>
@@ -398,7 +402,7 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
         }
       >
         {() => (
-          <div className="w-72 max-w-[calc(100vw-2rem)] p-2 text-xs">
+          <div className="w-full p-3 text-xs sm:w-72 sm:max-w-[calc(100vw-2rem)] sm:p-2">
             <p className="px-1 pb-1.5 font-semibold text-neutral-600 dark:text-neutral-400">Filters</p>
             {filters.map((f, i) => (
               <FilterRow key={i} board={board} keys={keys} filter={f} onChange={(nf) => setCfg({ filters: nf ? filters.map((x, j) => (j === i ? nf : x)) : filters.filter((_, j) => j !== i) })} />
@@ -581,31 +585,31 @@ function NewViewMenu({ board, cols, onCreate }: { board: BoardRow; cols: { id: s
 
 function FilterRow({ board, keys, filter, onChange }: { board: BoardRow; keys: FieldKey[]; filter: VFilter; onChange: (f: VFilter | null) => void }) {
   const noValue = ['empty', 'not_empty', 'checked', 'unchecked', 'me'].includes(filter.op);
-  const helpId = useId();
-  const isDate = filter.key === 'dueDate' || fieldsOf(board).some(f => `p_${f.id}` === filter.key && f.type === 'date');
+  const fields=fieldsOf(board),isDate=isDateFilterKey(filter.key,fields);
+  const structuredDate=isDate&&DATE_VALUE_OPERATORS.includes(filter.op);
   return (
     <div className="mb-1">
     <div className={isDate ? 'grid grid-cols-[minmax(0,1fr)_2rem] gap-1' : 'flex items-center gap-1'}>
-      <Select density="compact" aria-label="Filter field" value={filter.key} onChange={(e) => onChange({ ...filter, key: e.target.value as FieldKey })} className={isDate ? 'col-span-2 w-full' : 'flex-1'}>
+      <Select density="compact" aria-label="Filter field" value={filter.key} onChange={(e) => {const key=e.target.value as FieldKey;onChange({...filter,key,...(filter.op==='within'&&!isDateFilterKey(key,fields)?{op:'is',value:''}:{})});}} className={isDate ? 'col-span-2 w-full' : 'flex-1'}>
         {keys.map((k) => (
           <option key={k} value={k}>
             {fieldKeyLabel(board, k)}
           </option>
         ))}
       </Select>
-      <Select density="compact" aria-label="Filter operator" value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as VFilter['op'] })} className={isDate ? 'col-span-2 w-full' : 'w-24'}>
-        {FILTER_OPS.map((o) => (
+      <Select density="compact" aria-label="Filter operator" value={filter.op} onChange={(e) => onChange(changeFilterOperator(filter,e.target.value as VFilter['op']))} className={isDate ? 'col-span-2 w-full' : 'w-24'}>
+        {FILTER_OPS.filter(o=>o.id===filter.op||(isDate?['is','is_not','empty','not_empty',...DATE_VALUE_OPERATORS].includes(o.id):o.id!=='within')).map((o) => (
           <option key={o.id} value={o.id}>
             {o.label}
           </option>
         ))}
       </Select>
-      {!noValue && <input aria-label="Filter value" aria-describedby={isDate ? helpId : undefined} value={String(filter.value ?? '')} placeholder={isDate ? 'yyyy-mm-dd or today±N' : 'value'} onChange={(e) => onChange({ ...filter, value: e.target.value })} className={cn('h-8 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700', isDate ? 'w-full min-w-0' : 'w-20')} />}
+      {!noValue && (structuredDate ? <div className="col-span-2 min-w-0"><DateFilterControl filter={filter} onChange={onChange} label="Filter" fields={fields}/></div>
+        : <input aria-label="Filter value" value={String(filter.value ?? '')} placeholder="value" onChange={(e) => onChange({ ...filter, value: e.target.value })} className={cn('h-8 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700', isDate ? 'col-span-2 w-full min-w-0' : 'w-20')} />)}
       <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-600 hover:text-red-600 dark:text-neutral-400" onClick={() => onChange(null)} aria-label="Remove filter">
         <Trash2 size={12} />
       </button>
     </div>
-    {isDate && !noValue && <p id={helpId} className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">Use yyyy-mm-dd, today, today+30 or today-7. Relative days: 0 to 3650.</p>}
     </div>
   );
 }

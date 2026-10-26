@@ -1,3 +1,4 @@
+import {serverToday,withWorkspaceContext} from './workspaceSettings';
 // Phase 4 — reminders/deadlines/recurrence + cron sweeps (Workstream B).
 // Contract signature is FIXED; the outbox sweep below is the shared
 // reliability floor. Reminder dedupe is the `reminder_sent` table; recurrence
@@ -6,7 +7,7 @@
 import { pruneSpaceEvents } from './spaceEvents';
 import { processOutbox } from './events';
 import { notify, reminderKind, type EventCtx } from './notifications';
-import { addDays, isDone, nextDate, todayUtc, type Recurrence } from '../shared/recurrence';
+import { addDays, isDone, nextDate, type Recurrence } from '../shared/recurrence';
 import { linkId } from '../shared/linkid';
 import { applyChanges } from './sync';
 import { kindAllowed, loadPrefs, type Env, type UserPrefs } from './auth';
@@ -138,7 +139,8 @@ async function unsentDateHits(env: { DB: D1Database }, today: string, after: Swe
  */
 export const REMINDER_BEHIND_CAP = 40;
 
-export async function runDueReminders(env: { DB: D1Database }, today: string): Promise<number> {
+export async function runDueReminders(env: { DB: D1Database }, today?: string): Promise<number> {
+  today??=await serverToday(env);
   const cursor=await env.DB.prepare("SELECT date,record_id,field_key FROM rhythm_sweep_cursors WHERE name='reminders'").first<SweepCursor>();
   const behindCursor=await env.DB.prepare("SELECT date,record_id,field_key FROM rhythm_sweep_cursors WHERE name='reminders-behind'").first<SweepCursor>();
   const dueCursor=await env.DB.prepare("SELECT date,record_id,field_key FROM rhythm_sweep_cursors WHERE name='reminders-due'").first<SweepCursor>();
@@ -294,6 +296,7 @@ async function runRetention(env: { DB: D1Database }, now: number): Promise<void>
  * 3) date_offset automation triggers,
  * 4) retention sweeps (rate_limits, stale submissions, old runs/notifs). */
 export async function runScheduled(env: { DB: D1Database }, scheduledTime = Date.now()): Promise<void> {
+  env=withWorkspaceContext(env);
   const events=async()=>{
     const { results: pending } = await env.DB.prepare(
     'SELECT id FROM event_outbox INDEXED BY idx_outbox_pending WHERE processed_at IS NULL AND terminal_at IS NULL AND created_at < ? AND COALESCE(lease_until,0)<=? ORDER BY created_at LIMIT ?'
@@ -313,15 +316,14 @@ export async function runScheduled(env: { DB: D1Database }, scheduledTime = Date
   await env.DB.prepare('DELETE FROM event_outbox WHERE processed_at IS NOT NULL AND processed_at<?').bind(Date.now()-30*DAY).run();
   await env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(Date.now()).run().catch(() => {});
   };
-  const today = todayUtc();
   const { runDateOffsetAutomations,recoverAutomationRuns } = await import('./automations');
   const {recoverFormSubmissions}=await import('./forms');
   const phases:{minimum:number;run:()=>Promise<unknown>}[]=[
     {minimum:18,run:events},
-    {minimum:18,run:()=>runDueReminders(env,today)},
+    {minimum:18,run:()=>runDueReminders(env)},
     {minimum:24,run:()=>recoverAutomationRuns(env)},
     {minimum:28,run:async()=>{const nested:Promise<unknown>[]=[];await recoverFormSubmissions(env as Env,{waitUntil:p=>nested.push(p)});await Promise.all(nested);}},
-    {minimum:24,run:()=>runDateOffsetAutomations(env as Env,today)},
+    {minimum:24,run:()=>runDateOffsetAutomations(env as Env)},
     {minimum:10,run:()=>runRetention(env,Date.now())},
     {minimum:28,run:async()=>{const {runWeeklyDigests}=await import('./aiDigest');await runWeeklyDigests(env as Env);}},
     {minimum:12,run:async()=>{const {processEmbeddings}=await import('./aiSemantic');await processEmbeddings(env as Env);}},
@@ -365,7 +367,7 @@ export async function recurrencesForEvent(env: { DB: D1Database }, semantic: Sem
       const recurrence = rec.data.recurrence as Recurrence | undefined;
       if (!recurrence || typeof recurrence !== 'object') continue;
       // From the record's own date when present, else today (spec §5.5).
-      const srcDue = typeof rec.data.dueDate === 'string' ? rec.data.dueDate : todayUtc();
+      const srcDue = typeof rec.data.dueDate === 'string' ? rec.data.dueDate : await serverToday(env);
       const next = nextDate(recurrence, srcDue);
       if (!next) continue;
       await spawnNextOccurrence(env, ctx.userId, rec, board ?? null, next);

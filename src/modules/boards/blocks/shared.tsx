@@ -71,7 +71,7 @@ export function DashBlock({
           adaptive
           align="right"
           trigger={
-            <IconButton className="h-7 w-7 text-neutral-300 hover:text-neutral-500 dark:text-neutral-600 dark:hover:text-neutral-400" aria-label={`Configure ${label}`}>
+            <IconButton className="h-8 w-8 text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200" aria-label={`Configure ${label}`}>
               <Settings2 size={14} />
             </IconButton>
           }

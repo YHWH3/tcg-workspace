@@ -1,3 +1,4 @@
+import {workspaceTimeZone} from './workspaceLocale';
 /**
  * Records + views client helpers. A "record" is a `tasks` row inside a
  * `boards` row acting as a database (`board.kind`). Views live in the
@@ -254,7 +255,7 @@ export function viewCtx(board: BoardRow | undefined | null, tasks: readonly Task
   for (const f of fieldsOf(board)) fieldsById[f.id] = f;
   return {
     meId,
-    today,
+    today,timeZone:workspaceTimeZone(),
     fieldsById,
     columnsById: stagesOf(board).map((c) => c.id),
     relationTitles: (recordId, fieldId) => {

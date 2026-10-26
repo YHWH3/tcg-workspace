@@ -1,3 +1,4 @@
+import {useWorkspaceLocale} from '../workspaceLocale';
 /** GalleryView — card grid using view.config.cover for the image source. */
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
@@ -36,7 +37,8 @@ export function GalleryView({ board, view, records }: { board: BoardRow; view: V
   const meId = authStore.get().user?.id;
   const cfg = view.config ?? {};
   const visible = (cfg.visible?.length ? cfg.visible : defaultVisibleKeys(board)).filter((k) => k !== 'title').slice(0, 3);
-  const ctx = useMemo(() => viewCtx(board, tasks, links, meId, todayISO()), [meId, board, links, tasks]);
+  const locale=useWorkspaceLocale();
+  const ctx = useMemo(() => viewCtx(board, tasks, links, meId, todayISO()), [meId, board, links, tasks,locale.today,locale.settings?.timeZone]);
   const { rows } = useMemo(() => applyView(records, cfg, ctx), [records, cfg, ctx]);
   const coverField = cfg.cover ?? 'cover';
 

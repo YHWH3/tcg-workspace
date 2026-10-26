@@ -13,7 +13,7 @@ export const releasePreflightNames=[
   'explicit production target','D1 binding','OAuth KV binding','LiveRoom binding and migration',
   'asset and OAuth routing','fifteen-minute Cron','local bindings have no remote access',
   'fixture bypasses absent','optional AI disabled','secret values absent from config',
-  'permission activation defaults off','34 immutable migration hashes','lockfile and pinned Wrangler',
+  'permission activation defaults off','35 immutable migration hashes','lockfile and pinned Wrangler',
   'built package matches deployment contract',
 ];
 const project=resolve(dirname(fileURLToPath(import.meta.url)),'..');
@@ -45,7 +45,7 @@ export function inspectRelease(root=project){
   check(releasePreflightNames[10],()=>invariant(/INSERT\s+INTO\s+access_state\(id,generation,enabled\)\s+VALUES\(1,1,0\)/i.test(readFileSync(join(root,'migrations/0012_phase5_access_foundation.sql'),'utf8')),'Access foundation no longer defaults to disabled'));
   check(releasePreflightNames[11],()=>{
     const manifest=json(join(root,'scripts/certification/migrations.json')),files=readdirSync(join(root,'migrations')).filter(name=>name.endsWith('.sql')).sort();
-    invariant(manifest.length===34&&files.length===34,'Expected exactly 34 registered migrations; review additive migration changes');
+    invariant(manifest.length===35&&files.length===35,'Expected exactly 35 registered migrations; review additive migration changes');
     invariant(manifest.every((entry,index)=>entry.name===files[index]&&entry.name.startsWith(String(index+1).padStart(4,'0')+'_')&&entry.sha256===createHash('sha256').update(readFileSync(join(root,'migrations',entry.name))).digest('hex')),'Migration name/order/hash differs from immutable manifest');
   });
   check(releasePreflightNames[12],()=>{

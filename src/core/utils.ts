@@ -1,3 +1,5 @@
+import {workspaceToday} from '../../shared/dates';
+import {workspaceTimeZone} from './workspaceLocale';
 import { cmpOrder, orderBetween, uuid } from '../../shared/order';
 
 export { cmpOrder, orderBetween, uuid };
@@ -29,7 +31,7 @@ export function relTime(ts: number): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
   if (d < 7) return `${d}d ago`;
-  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: ts < Date.now() - 31536000000 ? 'numeric' : undefined });
+  return new Date(ts).toLocaleDateString(undefined, { timeZone:workspaceTimeZone(),month: 'short', day: 'numeric', year: ts < Date.now() - 31536000000 ? 'numeric' : undefined });
 }
 
 export function formatDate(iso: string): string {
@@ -37,8 +39,7 @@ export function formatDate(iso: string): string {
 }
 
 export function todayISO(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return workspaceToday(Date.now(),workspaceTimeZone());
 }
 
 export function initials(name: string): string {

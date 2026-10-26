@@ -314,9 +314,9 @@ async function installSuite(page, E, V) {
     await page.goto(`${BASE}/pages/${packRoot}`, { waitUntil: 'domcontentloaded' });
     const hasCallout = await poll(() => page.locator('text=The Common Ground operating system').count().then((c) => c > 0), 10000);
     N('J1: installed root page renders authored content', hasCallout ? 'PASS' : 'FAIL');
-    // dashboard block renderers — MetricBlock buttons carry 'show records' aria-labels
+    // Populated metric totals retain their rendered value and native text name.
     await sleep(1500);
-    const metricEls = await page.locator('[aria-label*="show records"]').count();
+    const metricEls = await page.locator('[data-testid="metric-total"]').count();
     const h2Count = await page.locator('text=This week, text=Upcoming, text=Recent activity').count();
     N(`J3: dashboard metric/calendar/activity blocks render on root page (metricEls=${metricEls}, h2s=${h2Count})`, metricEls >= 1 || h2Count >= 1 ? 'PASS' : 'FAIL');
     await page.screenshot({ path: `${SHOTS}/j1-root-${E}.png`, fullPage: false });
@@ -339,16 +339,15 @@ async function dashboardSuite(page, E, V, packRoot) {
     await sleep(3000); // live poke → client pull → re-render
   }
   await page.goto(`${BASE}/pages/${packRoot}`, { waitUntil: 'domcontentloaded' });
-  await poll(async () => (await page.locator('[aria-label*="show records"]').count()) >= 1, 12000);
-  const metricEls = page.locator('[aria-label*="show records"]');
+  await poll(async () => (await page.locator('[data-testid="metric-total"]').count()) >= 1, 12000);
+  const metricEls = page.locator('[data-testid="metric-total"]');
   const mCount = await metricEls.count();
   N(`J3: metric blocks render with totals (found=${mCount})`, mCount >= 1 ? 'PASS' : 'FAIL');
   if (mCount >= 1 && targetDb) {
-    // aria-label is '<label>: <value> — show records'; the drill sheet must list
-    // exactly the ids the number aggregates (MetricBlock contract)
-    const lbl = (await metricEls.first().getAttribute('aria-label')) ?? '';
-    const m = lbl.match(/:\s*([\d,]+)\s*—/);
-    const shown = m ? Number(m[1].replace(/,/g, '')) : -1;
+    // Read the displayed number rather than a duplicate accessibility label.
+    // The drill sheet must list exactly the ids that number aggregates.
+    const rendered=await metricEls.first().getByTestId('metric-value').innerText();
+    const shown=/^[\d,]+$/.test(rendered)?Number(rendered.replace(/,/g,'')):-1;
     await metricEls.first().dispatchEvent('click');
     const drilled = await poll(() => page.locator('[role="dialog"] li').count().then((c) => c > 0), 8000);
     // exclude the 'Nothing to show' empty-state li

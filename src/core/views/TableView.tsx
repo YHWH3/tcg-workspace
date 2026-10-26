@@ -1,3 +1,4 @@
+import {useWorkspaceLocale} from '../workspaceLocale';
 /**
  * TableView — sticky title column, resizable columns, header-click sort,
  * inline cell editing, add row, nested sub-records with disclosure,
@@ -34,7 +35,8 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
   const visible = cfg.visible?.length ? cfg.visible : defaultVisibleKeys(board);
   const showSub = cfg.showSubrecords ?? true;
 
-  const ctx = useMemo(() => viewCtx(board, tasks, links, meId, todayISO()), [meId, board, links, tasks]);
+  const locale=useWorkspaceLocale();
+  const ctx = useMemo(() => viewCtx(board, tasks, links, meId, todayISO()), [meId, board, links, tasks,locale.today,locale.settings?.timeZone]);
 
   const { rows } = useMemo(() => applyView(records, cfg, ctx), [records, cfg, ctx]);
 

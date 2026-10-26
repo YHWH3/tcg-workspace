@@ -1,3 +1,4 @@
+import {useWorkspaceLocale} from '../workspaceLocale';
 /** ListView — compact rows with property chips; groups when groupBy set. */
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
@@ -29,7 +30,8 @@ export function ListView({ board, view, records }: { board: BoardRow; view: View
   const cfg = view.config ?? {};
   const visible = (cfg.visible?.length ? cfg.visible : defaultVisibleKeys(board)).filter((k) => k !== 'title');
 
-  const ctx = useMemo(() => viewCtx(board, tasks, links, meId, todayISO()), [meId, board, links, tasks]);
+  const locale=useWorkspaceLocale();
+  const ctx = useMemo(() => viewCtx(board, tasks, links, meId, todayISO()), [meId, board, links, tasks,locale.today,locale.settings?.timeZone]);
 
   const { rows, groups } = useMemo(() => applyView(records, cfg, ctx), [records, cfg, ctx]);
   const edges = dependencyEdges(links);

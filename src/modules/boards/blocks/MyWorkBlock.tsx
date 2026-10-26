@@ -1,3 +1,4 @@
+import {useWorkspaceLocale} from '../../../core/workspaceLocale';
 /**
  * `mywork` dashboard block (§3): open records assigned to me across databases
  * (assigneeId === me, status ∉ the board's last column), grouped Overdue /
@@ -27,6 +28,7 @@ function openOnBoard(t: TaskRow, board: BoardRow | undefined): boolean {
 }
 
 function MyWorkBlockInner({ block }: { block: LocalRow }) {
+  const locale=useWorkspaceLocale();
   const me = useStore(authStore).user;
   const boards = useBoardsQuery();
   const tasks = useTasksQuery();
@@ -55,7 +57,7 @@ function MyWorkBlockInner({ block }: { block: LocalRow }) {
     const byDue = (a: { rec: TaskRow }, b: { rec: TaskRow }) => String(a.rec.dueDate ?? '9999').localeCompare(String(b.rec.dueDate ?? '9999'));
     for (const g of out) g.rows.sort(byDue);
     return out;
-  }, [me, boards, tasks]);
+  }, [me, boards, tasks,locale.today]);
 
   if (!me) return <BlockNotice>Sign in to see your work.</BlockNotice>;
   if (boards === undefined || tasks === undefined) return <BlockNotice tone="loading">Loading…</BlockNotice>;

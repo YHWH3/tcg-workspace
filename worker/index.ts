@@ -26,6 +26,7 @@ import { websiteIngestApi } from './websiteIngest';
 import { automationsApi } from './automations';
 import { searchApi } from './searchApi';
 import { runScheduled } from './reminders';
+import {workspaceSettingsApi,withWorkspaceContext} from './workspaceSettings';
 import {withD1Budget,D1BudgetExhausted} from './d1budget';
 import { browserHardening } from './headers';
 import type { Env, AuthUser } from './auth';
@@ -96,6 +97,7 @@ app.route('/api/automations', automationsApi);
 app.route('/api/search', searchApi);
 app.route('/api/public/forms', publicFormsApi);
 app.route('/api/ingest/website', websiteIngestApi);
+app.route('/api/workspace',workspaceSettingsApi);
 app.route('/api', admin);
 
 app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));
@@ -111,7 +113,7 @@ registerAuthorize(app);
  */
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    env=withD1Budget(env);
+    env=withWorkspaceContext(withD1Budget(env));
     // The protected-resource URL must equal this request's origin or token
     // audience validation fails — derive it per request (no var needed).
     const base = new URL(request.url).origin;

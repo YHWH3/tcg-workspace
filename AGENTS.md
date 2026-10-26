@@ -20,6 +20,16 @@ Local-first mini-Notion: Vite + React + TS client, Hono Worker API, D1, Dexie ou
 
 Roadmap and build specs for upcoming phases live in `docs/architecture/` (start with `README.md`; Phase 0 and 1 are implementation-ready).
 
+Phase 7 foundations follow `docs/roadmap/07-foundations.md`; current implementation
+and limits are in `docs/architecture/phase-7-implementation.md`. D1 certification
+selection lives in `scripts/certification/test-files.mjs` and covers Phase 4–13.
+Pack upgrades use `shared/bundled.ts` (additive planner), `worker/packUpgrade.ts`
+(targeted gated inventory), and `src/core/packUpgrades.ts` (reviewed client apply).
+`Mutation.ifUnchanged` is a restriction-only precondition, retained in the outbox
+and rechecked by server CAS and client rebase; it conveys no write authority.
+Never mark a pack version complete before its additions are acknowledged.
+Legacy stable IDs and deleted reservations must survive template changes.
+
 The Common Ground website integration (signed form ingest → Website inbox, People matching, Website section, AI/MCP tools) is specified in `docs/integrations/the-common-ground.md`. The website repository keeps an identical copy (`INTEGRATION-WORKSPACE.md`): **change both copies in the same change** whenever the contract moves. Code: `shared/websiteInbox.ts` (board, fields, views, families), `worker/websiteIngest.ts` (route), `shared/websiteStats.ts` (dashboard and digest figures), `worker/website.ts` (gated reads and MCP tools), `src/modules/website/` (section UI).
 
 - Before implementing a feature, read `docs/architecture/cross-platform-responsive-web.md` and the relevant phase. One responsive HTTPS application, optional PWA installation, full mobile functional parity and WCAG 2.2 AA are permanent requirements. Use existing core primitives/modules and `mutate()`/`applyChanges()` paths; no separate platform codebases.
@@ -118,7 +128,7 @@ Delete its entry from `modules` in `src/modules/index.ts` — nav, routes, sideb
 
 ## Cross-phase invariants (from the 2026-10 audit — see `docs/reviews/cross-phase-audit.md`)
 
-- **Server-only tables, not collections.** `notifications`, `approvals`, `form_tokens`, `form_submissions`, `website_ingest`, `rate_limits`, `event_outbox`, `date_index`, `reminder_sent`, `automation_runs`, `changesets`/`changeset_items`, `undo_*`, `mcp_requests`, `mcp_write_jobs`, `search_documents`/`search_fts`/`search_dirty` are D1 tables read through authenticated endpoints. Never add them to `COLLECTIONS`.
+- **Server-only tables, not collections.** `workspace_settings`, `notifications`, `approvals`, `form_tokens`, `form_submissions`, `website_ingest`, `rate_limits`, `event_outbox`, `date_index`, `reminder_sent`, `automation_runs`, `changesets`/`changeset_items`, `undo_*`, `mcp_requests`, `mcp_write_jobs`, `search_documents`/`search_fts`/`search_dirty` are D1 tables read through authenticated endpoints. Never add them to `COLLECTIONS`.
 - **Client input is untrusted.** Timestamps are bounded (`shared/clock.ts`: server clamps to now+60 s, client refuses to observe larger); record size is bounded (`record_too_large`); a MIME string, SVG bytes and `kind` are attacker-chosen.
 - **One serving policy.** Stored files are served only through `servedFile()`/`servedFileHeaders()` (`worker/files.ts`); object URLs are created only through `renderableBlob()` (`src/core/renderable.ts`). Never emit an uploader-supplied `Content-Type`.
 - **A policy refusal is item-wise.** Anything that can reject a write must be a pre-check in `applyChanges` returning a `rejectedItems` reason; a SQL guard that aborts the batch is only a race backstop (`gateTransition` is the single gate predicate).
