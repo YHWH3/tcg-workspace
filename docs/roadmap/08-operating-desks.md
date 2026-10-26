@@ -32,6 +32,12 @@ noted.
 
 ## 8.0 Resumable, sleep-aware certification
 
+Implementation accepted at `6f8a1c3`: [source-bound evidence](evidence/P8-8.0-6f8a1c3.json).
+The resumed certificate passes 34/34 mandatory gates, with 7 verified reused
+results and 34.7608 minutes saved. This completes the tooling prerequisite;
+operating desks below still require implementation and their own acceptance.
+
+
 Add this to `docs/roadmap/08-operating-desks.md` as item **8.0**, the first item
 of Phase 8 on branch `sol/p8-desks`. It is tooling only: no application code
 changes. Do not edit any worktree while a certification is running there.

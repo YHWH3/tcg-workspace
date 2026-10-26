@@ -88,7 +88,7 @@ Phase 7 foundations (7.1 dates → 7.2 locale → 7.3 disable → 7.4 template u
       │                    │
       ▼                    ▼
 Phase 8 desks         Phase 9 everyday (independent features; 9.6 needs 7.1)
-(8.1 attention queue first; desks after)
+(8.0 resumable certification first; 8.1 attention queue; desks after)
       │
       ├─► Phase 10 notifications (needs 8.1 + owner email/VAPID setup)
       ├─► Phase 12 database power (only items proven by 8.5/8.6)
