@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // One-command, fail-closed local certification. Never deploys or uses personal state.
-import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync, cpSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync, cpSync, renameSync, realpathSync, lstatSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 let chromium, firefox, webkit;
 import { startFixture, bootstrap } from './phase4-fixture.mjs';
 import { assessSecurityAudit } from './certification/security.mjs';
+import {gateEligibility,createPauseMonitor,certificateHeading,hashArtifactPaths,verifyArtifactHashes,copyVerifiedArtifacts,gateArtifactPaths} from './certification/resume.mjs';
 import { d1TestFiles } from './certification/test-files.mjs';
 import { json, fingerprint, preventIdleSleep, configureCertificationNetwork, localOrigin, freePort, runCommand, validateReport, validateVitest, validateSmoke, migrationsManifest, decision, validatePerformanceEvidence } from './certification/core.mjs';
 
@@ -28,7 +29,46 @@ if(mode!=='quick')expectedIds.push('browsers','smoke','mcp-base','mcp-multiuser'
 if(phase6&&mode!=='quick')expectedIds.push('phase6-workflows','release-preflight','release-rehearsal','release-ui');
 if(assistant&&mode!=='quick')expectedIds.push('assistant-e2e');
 if(mode==='extended')expectedIds.push('d1-stress-1','d1-stress-2');
-const sleepGuard=preventIdleSleep();
+const keepAwake=process.argv.includes('--keep-awake');
+const resumeIndex=process.argv.indexOf('--resume');
+const resumeFrom=resumeIndex<0?null:process.argv[resumeIndex+1];
+const testPauseAfter=process.argv.find(a=>a.startsWith('--test-pause-after='))?.split('=')[1];
+const configuration={assistant,phase6,mode,flags:{ai:process.argv.includes('--ai'),phase6:process.argv.includes('--phase6'),quick:process.argv.includes('--quick'),extended:process.argv.includes('--extended')},permissionMode:'runtime DISABLED; actual-D1 and Phase5/6/assistant disposable ENABLED and DISABLED contracts'};
+const sleepGuard=preventIdleSleep({keepAwake});
+let versions=null,resumeSummary=null,resumeRows=[],resumeDirectory=null;
+const resumed=resumeFrom?{from:resolve(resumeFrom),reusedGates:[],reusedArtifactHashes:{}}:null;
+const hostPauses=[];let activeGate=null,pendingTestPause=false;
+const pauseMonitor=createPauseMonitor({onPause:pause=>{hostPauses.push({...pause,gate:activeGate});interrupted=true;controller.abort();}});
+const heartbeat=setInterval(()=>{try{pauseMonitor.check();}catch(error){interrupted=true;controller.abort();}persist();},5000);
+heartbeat.unref();
+function freshContext(){return {sha:sha(),fingerprint:fingerprint(cwd),clean:!execFileSync('git',['status','--porcelain'],{cwd,encoding:'utf8'}).trim(),configuration,versions};}
+function seal(id){
+ const row=results.find(r=>r.suiteId===id);if(!row||row.reused||row.status!=='PASS')return;
+ if(hostPauses.some(p=>p.gate===id)){row.status='INTERRUPTED';row.fail=0;row.allMandatoryAssertionsExecuted=false;row.errorSummary='Host pause before artifact sealing';persist();return;}
+ try{
+  if(id==='build'){mkdirSync(join(directory,'build-artifacts'),{recursive:true});cpSync(join(cwd,'dist'),join(directory,'build-artifacts/dist'),{recursive:true});}
+  row.artifactHashes=hashArtifactPaths(directory,gateArtifactPaths(id));row.artifactsSealed=Object.keys(row.artifactHashes).length>0;
+ }catch(error){row.status='FAIL';row.fail=1;row.errorSummary='Artifact sealing failed: '+error.message;row.artifactsSealed=false;}
+ persist();
+}
+function reuse(id){
+ if(!resumeSummary||interrupted)return null;
+ if(resumeRows.filter(r=>r.suiteId===id).length!==1)return null;
+ const gate=resumeRows.find(r=>r.suiteId===id),verified=!!gate&&verifyArtifactHashes(resumeDirectory,gate.artifactHashes);
+ const eligibility=gateEligibility({gate,previous:resumeSummary,current:freshContext(),artifactsVerified:verified});
+ if(!eligibility.reuse)return null;
+ copyVerifiedArtifacts(resumeDirectory,directory,gate.artifactHashes);
+ if(id==='build'){
+  if(existsSync(join(cwd,'dist')))renameSync(join(cwd,'dist'),join(directory,'local-dist-before-restore'));
+  cpSync(join(directory,'build-artifacts/dist'),join(cwd,'dist'),{recursive:true});
+ }
+ const row={...gate,logPath:join(directory,id+'.log'),reused:{from:resumeDirectory,gate:id,originalStartedAt:gate.startedAt,originalEndedAt:gate.endedAt},artifactPath:directory};
+ results.push(row);resumed.reusedGates.push(id);resumed.reusedArtifactHashes[id]=gate.artifactHashes;
+ console.log(`[PASS reused] ${id}: verified artifacts; original ${Math.round(gate.durationMs/1000)}s`);persist();return row;
+}
+function beforeGate(id){activeGate=id;if(hostPauses.length&&hostPauses.at(-1).gate===null)hostPauses.at(-1).gate=id;if(pendingTestPause){pendingTestPause=false;pauseMonitor.check(performance.now()+90001);}return !interrupted;}
+function afterGate(id){if(testPauseAfter===id&&!interrupted)pendingTestPause=true;activeGate=null;}
+
 const network=configureCertificationNetwork();
 process.once('exit',sleepGuard.stop);
 const environment={sleepPrevention:sleepGuard.evidence,network,os:platform(),osRelease:release(),node:process.version,cpu:cpus()[0]?.model,memoryBytes:totalmem(),startingSha,branch:execFileSync('git',['branch','--show-current'],{cwd,encoding:'utf8'}).trim(),mode,phase:phase6?6:5,startedAt,playwright:null};
@@ -41,30 +81,35 @@ function persist() {
   const verdict=decision(results,expectedIds),endedAt=new Date().toISOString();
   json(join(directory,'commands.json'),results.map(({command,startedAt,endedAt,durationMs,exitCode,signal,logPath,suiteId})=>({suiteId,command,startedAt,endedAt,durationMs,exitCode,signal,logPath})));
   json(join(directory,'test-results.json'),results);
-  json(join(directory,'summary.json'),{schemaVersion:1,decision:verdict,mode,startingTreeDirty,startingSha,finalTestedSha:sha(),sourceFingerprint,startedAt,endedAt,mandatorySuites:expectedIds,pass:results.filter(r=>r.status==='PASS').length,fail:results.filter(r=>r.status==='FAIL').length,notRun:results.filter(r=>r.status==='NOT RUN').length,completeLocalCertification:mode!=='quick'&&verdict==='PASS',externalGates:[{name:'Physical iPhone/iPad Safari',status:'NOT RUN'},{name:'Physical Android',status:'NOT RUN'},{name:'Manual assistive technology',status:'NOT RUN'},{name:'Native 400% browser zoom',status:'NOT RUN',reason:'320px reflow equivalent is automated; not native zoom'}],securityExceptions:results.find(r=>r.suiteId==='security')?.securityAssessment?.exceptions??[],securityIndependentReviewRequired:results.find(r=>r.suiteId==='security')?.securityAssessment?.needsIndependentReview??true,productionReleaseCertified:false});
-  const table=results.map(r=>`| ${r.suiteId} | ${r.status} | ${r.pass}/${r.fail}/${r.notRun} | ${(r.durationMs/1000).toFixed(1)} | ${r.fixtureId??'none'} | ${r.errorSummary?.replaceAll('|','/').replaceAll('\n',' ').slice(0,250)??''} |`).join('\n');
+  json(join(directory,'summary.json'),{schemaVersion:2,decision:verdict,mode,configuration,versions,hostPauses,resumable:interrupted,resumed,gateArtifacts:Object.fromEntries(results.map(r=>[r.suiteId,{hashes:r.artifactHashes??{},sealed:r.artifactsSealed===true,reused:r.reused??null}])),minutesSaved:results.filter(r=>r.reused).reduce((n,r)=>n+r.durationMs/60000,0),interrupted:results.filter(r=>r.status==='INTERRUPTED').length,testHook:testPauseAfter?{pauseAfterGate:testPauseAfter,simulated:true}:null,startingTreeDirty,startingSha,finalTestedSha:sha(),sourceFingerprint,startedAt,endedAt,mandatorySuites:expectedIds,pass:results.filter(r=>r.status==='PASS').length,fail:results.filter(r=>r.status==='FAIL').length,notRun:results.filter(r=>r.status==='NOT RUN').length,completeLocalCertification:mode!=='quick'&&verdict==='PASS',externalGates:[{name:'Physical iPhone/iPad Safari',status:'NOT RUN'},{name:'Physical Android',status:'NOT RUN'},{name:'Manual assistive technology',status:'NOT RUN'},{name:'Native 400% browser zoom',status:'NOT RUN',reason:'320px reflow equivalent is automated; not native zoom'}],securityExceptions:results.find(r=>r.suiteId==='security')?.securityAssessment?.exceptions??[],securityIndependentReviewRequired:results.find(r=>r.suiteId==='security')?.securityAssessment?.needsIndependentReview??true,productionReleaseCertified:false});
+  const table=results.map(r=>`| ${r.suiteId} | ${r.status} | ${r.pass}/${r.fail}/${r.notRun} | ${(r.durationMs/1000).toFixed(1)} | ${r.fixtureId??'none'} | ${r.reused?'yes':'no'} | ${r.errorSummary?.replaceAll('|','/').replaceAll('\n',' ').slice(0,250)??''} |`).join('\n');
   const rows=results.flatMap(r=>(r.assertions??[]).map(t=>`| ${r.suiteId} | ${t.engine} | ${t.viewport} | ${String(t.test).replaceAll('|','/').replaceAll('\n',' ')} | ${t.status} |`)).join('\n');
-  writeFileSync(join(directory,'report.md'),`# TCG Phase 0–${phase6?6:5} local certification\n\nDecision: **${verdict}**. Mode: ${mode}. Starting and tested commit: \`${startingSha}\`. Source fingerprint: \`${sourceFingerprint}\`.\n\nRun: ${startedAt} to ${endedAt}. ${environment.os} ${environment.osRelease}; Node ${environment.node}; Playwright ${environment.playwright}.\n\n| Suite | Result | PASS/FAIL/NOT RUN | Seconds | Fixture | Error |\n|---|---|---|---:|---|---|\n${table}\n\nExact commands, exit codes, timestamps and log paths: [commands.json](commands.json). Complete per-assertion evidence and browser versions: [test-results.json](test-results.json). Security machine output: [security-audit.json](security-audit.json). Migration hashes and actual SQLite schema: [migrations.json](migrations.json). Local resource metrics: [performance.json](performance.json).\n\nPhysical iPhone/iPad Safari, physical Android, manual assistive technology and native browser 400% zoom remain NOT RUN production release gates. Automated 320px reflow is not native zoom evidence. The npm audit raw nonzero status is retained. The coordinated Agents/MCP upgrade removes the former OAuth-client advisory exception. All high/critical findings fail the security gate. Independent release review remains required. No merge/deployment performed. Quick mode cannot establish complete local certification.\n\n| Suite | Engine | Viewport | Assertion | Result |\n|---|---|---|---|---|\n${rows}\n`);
+  writeFileSync(join(directory,'report.md'),`# ${certificateHeading(resumed,phase6?6:5)}\n\nDecision: **${verdict}**. Mode: ${mode}. Starting and tested commit: \`${startingSha}\`. Source fingerprint: \`${sourceFingerprint}\`.\n\nRun: ${startedAt} to ${endedAt}. ${environment.os} ${environment.osRelease}; Node ${environment.node}; Playwright ${environment.playwright}.\n\nSleep prevention: ${sleepGuard.evidence.mechanism}. Closing the lid or explicit sleep can still suspend the Mac.\n\n| Suite | Result | PASS/FAIL/NOT RUN | Seconds | Fixture | Reused | Error |\n|---|---|---|---:|---|---|---|\n${table}\n\nExact commands, exit codes, timestamps and log paths: [commands.json](commands.json). Complete per-assertion evidence and browser versions: [test-results.json](test-results.json). Security machine output: [security-audit.json](security-audit.json). Migration hashes and actual SQLite schema: [migrations.json](migrations.json). Local resource metrics: [performance.json](performance.json).\n\nPhysical iPhone/iPad Safari, physical Android, manual assistive technology and native browser 400% zoom remain NOT RUN production release gates. Automated 320px reflow is not native zoom evidence. The npm audit raw nonzero status is retained. The coordinated Agents/MCP upgrade removes the former OAuth-client advisory exception. All high/critical findings fail the security gate. Independent release review remains required. No merge/deployment performed. Quick mode cannot establish complete local certification.\n\n| Suite | Engine | Viewport | Assertion | Result |\n|---|---|---|---|---|\n${rows}\n`);
 }
 function record(id,commandResult,evidence={},extra={}) {
   const {output,...command}=commandResult;const warnings=(output??'').split('\n').filter(line=>/warning|exceed|will not move module/i.test(line)).slice(0,30);
   const failed=command.error||evidence.validationError||evidence.fail||evidence.notRun||evidence.allMandatoryAssertionsExecuted===false;
+  const paused=hostPauses.some(p=>p.gate===id);
   const row={suiteId:id,...command,warnings,startingCommitSha:startingSha,finalTestedSourceSha:startingSha,sourceFingerprint,os:environment.os,node:environment.node,browserVersions:evidence.browserVersions??{},pass:evidence.pass??(failed?0:1),fail:evidence.fail??(failed?1:0),notRun:evidence.notRun??0,allMandatoryAssertionsExecuted:evidence.allMandatoryAssertionsExecuted??!failed,assertions:evidence.results??[],securityAssessment:evidence.securityAssessment??null,status:failed?'FAIL':'PASS',errorSummary:command.error??evidence.validationError??(failed?'Required assertion failed or did not execute':null),...extra};
+  if(paused){row.status='INTERRUPTED';row.fail=0;row.notRun=0;row.allMandatoryAssertionsExecuted=false;row.errorSummary='Host pause interrupted this gate';}
   row.fixtureId ??= /^(unit|d1(?:-stress-\d+)?)$/.test(id)?`isolated-miniflare:${startingSha}:${id}`:'not-applicable';
   row.artifactPath = directory;
   results.push(row);console.log(`[${row.status}] ${id}: ${row.pass} PASS / ${row.fail} FAIL / ${row.notRun} NOT RUN (${(row.durationMs/1000).toFixed(1)}s)`);persist();return row;
 }
 async function stage(id,command,{adapter,env={},fixtureId,timeoutMs=timeout}={}) {
-  if(interrupted)return record(id,{command,startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),durationMs:0,exitCode:null,error:'Interrupted before stage'},{pass:0,fail:0,notRun:1,allMandatoryAssertionsExecuted:false},{status:'NOT RUN',fixtureId});
+  if(!beforeGate(id))return record(id,{command,startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),durationMs:0,exitCode:null,error:'Interrupted before stage'},{pass:0,fail:0,notRun:1,allMandatoryAssertionsExecuted:false},{status:'NOT RUN',fixtureId});
+  const retained=reuse(id);if(retained){afterGate(id);return retained;}
   console.log(`Running ${id}…`);
   const result=await runCommand(command,{cwd,env:{...safeEnv,CERT_ARTIFACT_DIR:join(directory,id+'-artifacts'),...env},logPath:join(directory,id+'.log'),timeoutMs,signal:controller.signal});
   let evidence={};if(adapter)try{evidence=await adapter(result.output,result);if(evidence.acceptedExitCode===result.exitCode&&!result.timedOut&&!result.signal&&!result.interrupted){result.rawError=result.error;result.error=null;};}catch(e){result.error=[result.error,String(e)].filter(Boolean).join('; ');evidence={pass:0,fail:1,notRun:0,allMandatoryAssertionsExecuted:false};}
-  return record(id,result,evidence,{fixtureId});
+  const row=record(id,result,evidence,{fixtureId});if(!env.CERT_DEFER_SEAL)seal(id);afterGate(id);return row;
 }
 async function internal(id,fn) {
+  if(!beforeGate(id))return record(id,{command:['internal',id],startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),durationMs:0,exitCode:null,error:'Run interrupted'},{pass:0,fail:0,notRun:1,allMandatoryAssertionsExecuted:false},{status:'NOT RUN'});
+  const retained=reuse(id);if(retained){afterGate(id);return retained;}
   const start=performance.now(),startedAt=new Date().toISOString();let evidence={},error;
   try{evidence=await fn()??{};}catch(e){error=String(e?.stack??e);}
-  return record(id,{command:['internal',id],startedAt,endedAt:new Date().toISOString(),durationMs:Math.round(performance.now()-start),exitCode:error?1:0,error},evidence);
+  const row=record(id,{command:['internal',id],startedAt,endedAt:new Date().toISOString(),durationMs:Math.round(performance.now()-start),exitCode:error?1:0,error},evidence);seal(id);afterGate(id);return row;
 }
 function readJson(path){return JSON.parse(readFileSync(path,'utf8'));}
 function runnerEvidence(path,runner) {
@@ -78,25 +123,45 @@ function runnerEvidence(path,runner) {
   }
 }
 async function integration(id,script,{smoke=false,selfFixture=false,skipBuild=true,args=[]}={}) {
-  if(!buildOkay||interrupted){record(id,{command:['node',script],startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),durationMs:0,exitCode:null,error:interrupted?'Certification interrupted':'Production build prerequisite failed'},{pass:0,fail:0,notRun:1,allMandatoryAssertionsExecuted:false},{status:'NOT RUN'});return;}
+  if(!beforeGate(id)||!buildOkay){record(id,{command:['node',script],startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),durationMs:0,exitCode:null,error:interrupted?'Certification interrupted':'Production build prerequisite failed'},{pass:0,fail:0,notRun:1,allMandatoryAssertionsExecuted:false},{status:'NOT RUN'});return;}
+  const retained=reuse(id);if(retained)return retained;
   let fixture;const out=join(directory,id);mkdirSync(out,{recursive:true});
   try {
     const port=await freePort();
     if(!selfFixture)fixture=await startFixture({port,build:false,artifactDirectory:out});
-    const env={CERT_ARTIFACT_DIR:out,CERT_RESULT_PATH:join(out,'results.json'),CERT_FIXTURE_ID:fixture?.directory??id,CERT_FIXTURE_PORT:String(port),CERT_FILE_FIXTURES:join(out,'files')};
+    const env={CERT_DEFER_SEAL:'1',CERT_ARTIFACT_DIR:out,CERT_RESULT_PATH:join(out,'results.json'),CERT_FIXTURE_ID:fixture?.directory??id,CERT_FIXTURE_PORT:String(port),CERT_FILE_FIXTURES:join(out,'files')};
     if(id==='v4'){mkdirSync(env.CERT_FILE_FIXTURES,{recursive:true});const {default:sharp}=await import('sharp');const colors=['#db3746','#37a86a','#336ddd','#e7b638','#8248aa'];await sharp({create:{width:500,height:100,channels:3,background:colors[0]}}).composite(colors.slice(1).map((color,i)=>({input:Buffer.from(`<svg width="100" height="100"><rect width="100" height="100" fill="${color}"/></svg>`),left:(i+1)*100,top:0}))).png().toFile(join(env.CERT_FILE_FIXTURES,'photo.png'));writeFileSync(join(env.CERT_FILE_FIXTURES,'doc.pdf'),'%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF');}
     if(fixture){Object.assign(env,{PHASE4_FIXTURE_CONFIG:fixture.config,PHASE4_FIXTURE_STATE:fixture.state,PHASE4_BASE:fixture.base,PHASE3_BASE:fixture.base,V6_BASE:fixture.base,V7_BASE:fixture.base,V8_BASE:fixture.base});if(!smoke)await bootstrap(fixture.base);}
     const command=smoke?['bash',script,fixture.base]:['node',script,...(fixture?[fixture.base,'--no-spawn']:skipBuild?['--skip-build']:[]),...args];
     const row=await stage(id,command,{env,fixtureId:fixture?.directory??`self:${port}`,adapter:output=>smoke?validateSmoke(output,readFileSync(join(cwd,script),'utf8')):runnerEvidence(env.CERT_RESULT_PATH,script.split('/').at(-1).replace('.mjs',''))});
+    activeGate=id;
     if(fixture){json(join(out,'fixture.json'),{id:fixture.directory,config:readJson(fixture.config),state:fixture.state,base:fixture.base,sourceSha:startingSha,disposable:true});const schema=await fixture.sql("SELECT name,sql FROM sqlite_master WHERE type IN ('table','index','trigger') ORDER BY name;");json(join(out,'schema.json'),schema);}
     return row;
   }catch(e){record(id,{command:['node',script],startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),durationMs:0,exitCode:1,error:`Fixture/setup failed: ${e.stack??e}`},{pass:0,fail:1,notRun:0,allMandatoryAssertionsExecuted:false},{fixtureId:fixture?.directory});}
-  finally {if(fixture)await fixture.stop();}
+  finally {if(fixture)await fixture.stop();seal(id);activeGate=null;}
 }
 
 try {
   if(!existsSync(join(cwd,'node_modules/.bin/wrangler')))await stage('dependency-install',['npm','ci','--no-audit','--no-fund']);
   ({chromium,firefox,webkit}=await import('playwright'));environment.playwright=JSON.parse(readFileSync(join(cwd,'node_modules/playwright/package.json'))).version;json(join(directory,'environment.json'),environment);
+  // Resolve exact engine versions before deciding whether a heavy gate may be
+  // reused. The mandatory browsers gate still launches fresh again below.
+  const engineVersions={};
+  for(const [name,type] of Object.entries({chromium,firefox,webkit})){
+   if(!existsSync(type.executablePath()))throw new Error(`Missing mandatory ${name}; install pinned Playwright engines before certification`);
+   const browser=await type.launch({headless:true,timeout:60000});engineVersions[name]=browser.version();await browser.close();
+  }
+  versions={node:process.version,playwright:environment.playwright,browsers:engineVersions};
+  json(join(directory,'browser-versions.json'),engineVersions);
+  if(resumeIndex>=0){
+   if(!resumeFrom||resumeFrom.startsWith('--'))throw new Error('--resume requires a previous local certificate directory');
+   resumeDirectory=resolve(resumeFrom);
+   if(!resumeDirectory.startsWith(resolve(cwd,'.artifacts/certification')+'/')||resumeDirectory===directory||lstatSync(resumeDirectory).isSymbolicLink()||!realpathSync(resumeDirectory).startsWith(realpathSync(resolve(cwd,'.artifacts/certification'))+'/'))throw new Error('Resume requires a distinct existing local certificate directory');
+   resumeSummary=readJson(join(resumeDirectory,'summary.json'));resumeRows=readJson(join(resumeDirectory,'test-results.json'));
+   const oldEnvironment=readJson(join(resumeDirectory,'environment.json')),oldBrowsers=readJson(join(resumeDirectory,'browser-versions.json'));
+   if(resumeSummary.versions?.node!==oldEnvironment.node||resumeSummary.versions?.playwright!==oldEnvironment.playwright||JSON.stringify(resumeSummary.versions?.browsers)!==JSON.stringify(oldBrowsers)){console.log('Previous runtime evidence is inconsistent or predates resumable certification; rerunning all gates.');resumeSummary=null;}
+  }
+  if(testPauseAfter&&(process.env.CERT_TEST_HOOKS!=='1'||!expectedIds.includes(testPauseAfter)))throw new Error('Pause simulation requires CERT_TEST_HOOKS=1 and an existing gate');
   await internal('prerequisites',async()=>{
     if(timeoutError)throw new Error(timeoutError);
     for(const key of ['V6_BASE','V7_BASE','V8_BASE','PHASE3_BASE','PHASE4_BASE'])if(process.env[key])localOrigin(process.env[key]);
@@ -168,6 +233,7 @@ try {
   });
 }catch(e){record('orchestrator',{command:['node','scripts/certify-phase4.mjs'],startedAt,endedAt:new Date().toISOString(),durationMs:0,exitCode:1,error:String(e.stack??e)},{pass:0,fail:1,notRun:0,allMandatoryAssertionsExecuted:false});}
 finally {
+  clearInterval(heartbeat);pauseMonitor.stop();sleepGuard.stop();
   for(const id of expectedIds)if(!results.some(r=>r.suiteId===id))record(id,{command:[],startedAt,endedAt:new Date().toISOString(),durationMs:0,exitCode:null,error:interrupted?'Run interrupted':'Mandatory suite did not execute'},{pass:0,fail:0,notRun:1,allMandatoryAssertionsExecuted:false},{status:'NOT RUN'});
   persist();const verdict=decision(results,expectedIds);console.log(`\n${verdict} — ${directory}/report.md`);process.exitCode=verdict==='PASS'?0:1;
 }

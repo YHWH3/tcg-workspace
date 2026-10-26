@@ -177,6 +177,21 @@ Spec: `docs/architecture/unified-ai-mcp.md`.
 - Assistant UI responses are account/token/access-epoch/status bound. Observed access transitions discard retained source-derived memory and abort streams; this is not instantaneous offline revocation. Keep ordinary stream cancellation separate from authority invalidation so provider discovery can finish.
 - Apple Safari testing uses a temporary test-only XCUITest bundle (`scripts/apple-safari.mjs`). It does not create a native production app or certify physical hardware, human VoiceOver or native 400% zoom. Preserve compact input text sizes and keyboard-visible search results.
 
+## Resumable certification (Phase 8.0)
+
+Use `npm run certify:ai -- --keep-awake` on a clean committed checkout. The
+orchestrator detects monotonic heartbeat gaps over 90 seconds, interrupts the
+active gate, and writes a resumable PARTIAL certificate. Resume with
+`npm run certify:ai -- --keep-awake --resume <previous-certificate-dir>` only
+within the same source and mode; eligibility also checks clean trees, exact
+runtime versions, age and sealed SHA-256 artifact hashes. Freshness/security,
+source-integrity, browser and performance-evidence gates always rerun. Never
+edit any worktree while certification is running there, modify an earlier
+certificate, reuse failed/interrupted gates or chain reused evidence. Reports,
+PR text and the progress ledger must label resumed certification explicitly.
+`--keep-awake` uses process-scoped macOS caffeinate; lid closure can still pause
+the host. See `docs/testing/CERTIFICATION.md` for commands and evidence limits.
+
 ## Roadmap release track R1
 
 - `shared/dates.ts` resolves explicit-context `today±N` (0–3650) using UTC-midnight date-only arithmetic; invalid or missing contexts are never guessed. Temporal operands that remain unresolved fail closed.

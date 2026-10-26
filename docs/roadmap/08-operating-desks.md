@@ -13,7 +13,7 @@ installs receive them too. Each desk is also usable without the pack where
 noted.
 
 **Implementation order** (this overrides numeric order):
-8.1 → 8.9 → 8.11 → 8.3 → 8.4 → 8.5 → 8.6 → 8.7 → 8.8 → 8.12 → 8.13 → 8.14 → 8.10 → 8.2.
+8.0 → 8.1 → 8.9 → 8.11 → 8.3 → 8.4 → 8.5 → 8.6 → 8.7 → 8.8 → 8.12 → 8.13 → 8.14 → 8.10 → 8.2.
 8.2 (Home) composes the others, so it comes last.
 
 **Shared rules for every new dashboard block type**
@@ -27,6 +27,106 @@ noted.
   drill-down sheet (`RecordListSheet` in `blocks/shared.tsx`) with the exact
   contributing ids.
 - It uses "today" from the context (7.2), never `new Date()` directly.
+
+---
+
+## 8.0 Resumable, sleep-aware certification
+
+Add this to `docs/roadmap/08-operating-desks.md` as item **8.0**, the first item
+of Phase 8 on branch `sol/p8-desks`. It is tooling only: no application code
+changes. Do not edit any worktree while a certification is running there.
+
+## Problem
+
+`scripts/certify-phase4.mjs` always runs every gate from the start. When the Mac
+sleeps or pauses, timing-sensitive gates fail or produce untrustworthy results,
+and the whole run (~50 minutes awake) must be repeated, unit (~18 min) and D1
+(~12 min) included. The one resumed certificate so far (`528b889`, 2026-10-25)
+was assembled by hand. Pause detection lives in an ad-hoc `.artifacts/` wrapper,
+not in the orchestrator.
+
+## Design
+
+1. **Built-in pause detection.**
+   - The orchestrator runs a monotonic heartbeat: `setInterval` every 5 s,
+     comparing `performance.now()` deltas.
+   - A gap over 90 s records `hostPause {at, gapMs}`. It stops the current gate
+     as **INTERRUPTED**, not FAIL; INTERRUPTED is a new status distinct from FAIL
+     and NOT RUN. It then writes a partial summary marked `resumable: true`.
+   - Make the threshold an injectable clock and value for tests.
+2. **`--keep-awake` (macOS).**
+   - Spawns `caffeinate -dims -w <orchestrator pid>`.
+   - It is scoped to the process; never change system power settings.
+   - The report notes that closing the lid can still suspend the Mac.
+3. **`--resume <previous-certificate-dir>`.**
+   - It reuses a previous gate result only when ALL of these hold:
+     - the previous gate status is PASS;
+     - the previous `startingSha` equals the current HEAD, the
+       `sourceFingerprint` is identical, and the tree is clean now and was clean
+       at its start;
+     - the mode flags are identical (`--ai`, `--phase6`, quick or complete,
+       extended) and so is the permission mode;
+     - the Node, Playwright and browser versions are identical
+       (`environment.json`, `browser-versions.json`);
+     - the gate ENDED before the previous run's first `hostPause`, or the run
+       had no pause;
+     - every artifact the gate produced exists and matches the SHA-256 recorded
+       at the time (record per-gate artifact hashes in `summary.json` from now
+       on);
+     - the previous run started no more than 24 hours ago.
+   - **Never reused** (always rerun): `prerequisites`, `dependencies`,
+     `lockfile`, `security` (advisories change; needs network),
+     `source-integrity`, `performance-evidence` (recomputed from reused
+     unit/D1 artifacts, after their hashes are verified), and `browsers`.
+   - Every other gate uses its own disposable fixture, so eligible gates may be
+     reused independently. Rerun everything else in the normal order.
+4. **Labelling.**
+   - A resumed certificate has `summary.json` →
+     `resumed: {from: <dir>, reusedGates: [...], reusedArtifactHashes: {...}}`.
+   - Its `report.md` heading reads "Resumed certificate (N gates reused from
+     <dir>)", with a per-gate "reused" column.
+   - PR text and PROGRESS.md must say "resumed".
+   - The decision rules are otherwise unchanged: PASS only if every mandatory
+     gate is PASS (fresh or reused).
+5. **Never:**
+   - resume across any source change;
+   - reuse FAIL, INTERRUPTED or NOT RUN results;
+   - chain resumes from a resumed certificate's reused gates (only gates that
+     ran fresh in the source directory are reusable);
+   - edit or delete the previous certificate directory.
+
+## Files
+
+- `scripts/certify-phase4.mjs` (heartbeat, statuses, flags, reuse logic,
+  labelling).
+- A new `scripts/certification/resume.mjs` (pure eligibility function).
+- `scripts/certification/resume.test.mjs`.
+- `docs/testing/UX-LAB.md` or a new `docs/testing/CERTIFICATION.md` (usage).
+- `AGENTS.md` (one paragraph under the certification notes).
+
+## Tests (harness self-tests)
+
+- **Eligibility matrix:**
+  - each condition failing in turn (sha, fingerprint, dirty tree, mode,
+    versions, gate after pause, tampered artifact, stale over 24 h, never-reuse
+    list, chained resume) → rerun;
+  - all conditions met → reuse.
+- **Pause detection** with an injected clock: a gap over 90 s marks the gate
+  INTERRUPTED and writes `resumable: true`.
+- **Report:** labelling for a resumed PASS; a fresh run is unlabelled.
+
+## Acceptance
+
+- The harness gate passes.
+- **Demonstration on a local branch:** start `npm run certify:ai -- --keep-awake`,
+  simulate a pause after `d1` completes (test hook), then run
+  `npm run certify:ai -- --resume <dir>`. Unit and D1 are reused, the rest are
+  rerun, the result is labelled resumed, and the minutes saved are recorded in
+  PROGRESS.md.
+- The correlation matrix gains a row for 8.0 (touches
+  `scripts/certify-phase4.mjs`, `scripts/certification/`, no data, no MCP, no
+  dependencies).
+
 
 ---
 
