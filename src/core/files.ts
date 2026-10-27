@@ -145,13 +145,18 @@ async function putBlobRow(row: BlobRow): Promise<boolean> {
     await db.blobs.put({...row,pendingSince:row.pendingSince??Date.now()});
     return true;
   } catch {
+    let bytes: ArrayBuffer | undefined;
     try {
-      const bytes = await row.blob.arrayBuffer();
+      bytes = await row.blob.arrayBuffer();
       await db.blobs.put({ ...row, pendingSince:row.pendingSince??Date.now(), blob: new Blob([bytes], { type: row.blob.type }) });
       return true;
-    } catch {
-      return false;
-    }
+    } catch { /* Some WebKit contexts refuse even memory-backed Blobs. */ }
+    if (bytes) try {
+      const {blob: _blob, ...metadata} = row;
+      await db.blobs.put({...metadata,pendingSince:row.pendingSince??Date.now(),blobEncoding:'array-buffer-v1',blobBytes:bytes});
+      return true;
+    } catch { /* A storage/quota failure still follows the existing refusal path. */ }
+    return false;
   }
 }
 
@@ -209,7 +214,7 @@ export async function addFile(input: Blob | File, opts: { parentType: ParentType
     // forever. The caller's save (record, context link, saved state) is never
     // swallowed by one unstorable blob.
     try {
-      await db.blobs.put({ id, blob: new Blob([]), state: 'failed', uploadedChunks: 0, mime: blob.type, error: 'Browser could not store the attachment' });
+      await putBlobRow({ id, blob: new Blob([]), state: 'failed', uploadedChunks: 0, mime: blob.type, error: 'Browser could not store the attachment' });
     } catch {
       /* even the empty marker can't be written — the files row still lands */
     }

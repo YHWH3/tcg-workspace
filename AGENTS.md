@@ -220,3 +220,14 @@ with acknowledged outbox removal, never on rejected/malformed/empty replies.
 Pull observations are separate. Failed-upload retry is explicit, bounded,
 account/access fenced and preserves chunk progress; missing original bytes stay
 failed. Runtime `uploadActivity` is ephemeral and always clears in finally.
+
+
+### Phase 8 local attachment fallback
+
+`src/core/blobCodec.ts` decodes `array-buffer-v1` local blob rows for normal
+Dexie reads. Index/count queries must stay metadata-only. Updates retain the raw
+wire encoding; held-work moves use `storedBlobRow()` to avoid reintroducing a
+Blob that WebKit refused and to keep access reconciliation atomic. Never await
+Blob byte conversion inside the quarantine transaction. Existing account-local
+stores and held bytes must survive rollback/recovery; older clients cannot decode
+fallback rows. No encoded bytes belong in synced collections or published QA.

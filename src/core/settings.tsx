@@ -144,7 +144,7 @@ function StorageSection() {
         <div>
           <div className="mb-1.5 flex items-center justify-between text-sm">
             <span className="font-medium">Storage</span>
-            <span className="text-xs text-neutral-400">
+            <span className="text-xs text-neutral-600 dark:text-neutral-400">
               {fmtMB(usage.used)} of {fmtMB(usage.limit)}
             </span>
           </div>
@@ -154,10 +154,10 @@ function StorageSection() {
               style={{ width: `${Math.max(pct, 1)}%` }}
             />
           </div>
-          <p className="mt-2 text-xs text-neutral-400">Files can be up to 20 MB each. The storage quota is shared by the workspace.{usage.scope === 'readable' && ' This total shows only files you can open.'}</p>
+          <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">Files can be up to 20 MB each. The storage quota is shared by the workspace.{usage.scope === 'readable' && ' This total shows only files you can open.'}</p>
         </div>
       ) : (
-        <p className="text-xs text-neutral-400">Storage usage is unavailable while offline.</p>
+        <p className="text-xs text-neutral-600 dark:text-neutral-400">Storage usage is unavailable while offline.</p>
       )}
     </Section>
   );
@@ -193,7 +193,7 @@ function LocalDataSection({ user }: { user: PublicUser | null }) {
     <Section title="Local data">
       <ReliabilityPanel/>
       {!!queued?.length&&<div className="mt-6 space-y-3">
-      <p className="text-xs text-neutral-400">
+      <p className="text-xs text-neutral-600 dark:text-neutral-400">
         Offline data kept on this device from other accounts or earlier versions.
       </p>
       <ul className="mt-2 space-y-1">
@@ -328,7 +328,7 @@ function TemplateGallerySection() {
       </ul>
       {tplPages.length > 0 && (
         <>
-          <p className="mb-1 mt-4 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">Workspace page templates</p>
+          <p className="mb-1 mt-4 text-[10px] font-semibold uppercase tracking-wide text-neutral-600 dark:text-neutral-400">Workspace page templates</p>
           <ul className="flex flex-col gap-2">
             {tplPages.map((p) => (
               <li key={p.id} className="flex items-center gap-3 rounded-xl border border-neutral-200/70 px-3 py-2.5 dark:border-neutral-800">
@@ -371,7 +371,7 @@ function TemplatePreviewSheet({ t, boards, installed, busy, onClose, onInstall }
       </dl>
       {plan.databases.create.length > 0 && (
         <div className="mt-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">Databases — will be created</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-600 dark:text-neutral-400">Databases — will be created</p>
           <p className="mt-0.5 text-sm">{plan.databases.create.join(', ')}</p>
         </div>
       )}
@@ -400,9 +400,9 @@ function TemplatePreviewSheet({ t, boards, installed, busy, onClose, onInstall }
 function Count({ label, n, note }: { label: string; n: number; note?: string }) {
   return (
     <div>
-      <dt className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">{label}</dt>
+      <dt className="text-[10px] font-semibold uppercase tracking-wide text-neutral-600 dark:text-neutral-400">{label}</dt>
       <dd className="text-lg font-semibold tabular-nums">{n}</dd>
-      {note && <dd className="text-[10px] leading-tight text-neutral-400">{note}</dd>}
+      {note && <dd className="text-[10px] leading-tight text-neutral-600 dark:text-neutral-400">{note}</dd>}
     </div>
   );
 }
@@ -535,7 +535,7 @@ function AdminSection() {
 
       <Section title="Invite codes">
         <div className="mb-3 flex items-center justify-between">
-          <p className="text-xs text-neutral-400">Share a code to let someone join. Each code works once.</p>
+          <p className="text-xs text-neutral-600 dark:text-neutral-400">Share a code to let someone join. Each code works once.</p>
           <Button
             size="sm"
             variant="outline"
@@ -548,17 +548,17 @@ function AdminSection() {
           </Button>
         </div>
         {unused.length === 0 ? (
-          <p className="py-2 text-xs text-neutral-400">No active codes.</p>
+          <p className="py-2 text-xs text-neutral-600 dark:text-neutral-400">No active codes.</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
             {unused.map((inv) => (
               <li key={inv.code} className="flex items-center gap-2 rounded-lg border border-neutral-200/80 px-3 py-2 dark:border-neutral-800">
                 <code className="flex-1 text-sm font-medium tracking-[0.2em]">{inv.code}</code>
-                <button className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => void copy(inv.code)} aria-label="Copy code">
+                <button className="rounded-md p-1.5 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => void copy(inv.code)} aria-label="Copy code">
                   {copied === inv.code ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
                 </button>
                 <button
-                  className="rounded-md p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
+                  className="rounded-md p-1.5 text-neutral-600 dark:text-neutral-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
                   onClick={async () => {
                     await api(`/api/invites/${inv.code}`, { method: 'DELETE' });
                     void load();
@@ -572,7 +572,7 @@ function AdminSection() {
           </ul>
         )}
         {invites.some((i) => i.used_by) && (
-          <p className="mt-3 text-xs text-neutral-400">
+          <p className="mt-3 text-xs text-neutral-600 dark:text-neutral-400">
             Used: {invites.filter((i) => i.used_by).map((i) => `${i.code}${i.used_by_name ? ` (${i.used_by_name})` : ''}`).join(', ')}
           </p>
         )}
@@ -649,7 +649,7 @@ function AIConnectorsSection() {
       {nextGrantCursor&&<Button onClick={()=>void api<{grants:GrantRow[];nextCursor:string|null}>(`/api/oauth/grants?cursor=${encodeURIComponent(nextGrantCursor)}`).then(r=>{setGrants(g=>[...g,...r.grants.filter(x=>!g.some(v=>v.id===x.id))]);setNextGrantCursor(r.nextCursor);}).catch(()=>setConnectionError('More connections could not be loaded. Retry.'))}>Load more connections</Button>}
       {grants.length > 0 && (
         <div>
-          <p className="mb-2 text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">Connected apps</p>
+          <p className="mb-2 text-[11px] font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">Connected apps</p>
           <ul className="divide-y divide-neutral-100 rounded-xl border border-neutral-200/70 dark:divide-neutral-800 dark:border-neutral-800">
             {grants.map((g) => (
               <li key={g.id} className="space-y-2 px-3 py-3 text-sm">
@@ -683,15 +683,15 @@ function RecentAIChangesSection() {
       <p className="mb-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
         The last 20 change sets made by connected AI apps. Undo restores the previous field values; edits made since are skipped.
       </p>
-      {error && <p className="text-xs text-neutral-400">Change history unavailable on this server.</p>}
-      {rows !== null && rows.length === 0 && !error && <p className="text-xs text-neutral-400">No AI changes yet.</p>}
+      {error && <p className="text-xs text-neutral-600 dark:text-neutral-400">Change history unavailable on this server.</p>}
+      {rows !== null && rows.length === 0 && !error && <p className="text-xs text-neutral-600 dark:text-neutral-400">No AI changes yet.</p>}
       {rows && rows.length > 0 && (
         <ul className="divide-y divide-neutral-100 rounded-xl border border-neutral-200/70 dark:divide-neutral-800 dark:border-neutral-800">
           {rows.map((c) => (
             <li key={c.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
               <div className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{c.summary || c.tool || 'Change'}</span>
-                <span className="text-[11px] text-neutral-400">
+                <span className="text-[11px] text-neutral-600 dark:text-neutral-400">
                   {c.client_name ? `via ${c.client_name} · ` : ''}{c.item_count} item{c.item_count === 1 ? '' : 's'} · {new Date(c.created_at < 1e12 ? c.created_at * 1000 : c.created_at).toLocaleString()}
                   {c.undone_by && ' · undone'}
                 </span>

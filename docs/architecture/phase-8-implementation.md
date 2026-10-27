@@ -160,11 +160,43 @@ Review held work uses the existing metadata-only dialog. Rejected-item export
 reuses the retained serializer and is account/session/access fenced; it never
 includes held payloads. No automatic discard or provider operation is added.
 
-Focused checks: 60/60 across reliability, real client sync ordering, media,
-transaction rollback and pack client regression tests; typecheck passes. The
+Focused checks: 107/107 across ten files covering reliability, real client sync
+ordering, media, transaction rollback, reconciliation, attention/pack client
+regressions and popover placement; typecheck passes. The
 three compact Chromium workflows pass, including offline edit -> server receipt,
 forced 507 -> retained bytes -> explicit retry -> identical server bytes, and
 held-review/rejected-export separation. Earlier failed probes were fixture
 selector errors and remain retained. Three-engine matrix and the new opt-in
 `--reliability` Android upload-recovery journey still need execution. Emulator
 results must remain distinct from physical-device or human acceptance.
+
+
+Reliability verification also reproduced existing shared-surface defects: footer
+account menus could open outside the viewport in Firefox, Settings/notification
+captions failed contrast, and fixed-width notification rows overflowed compact
+Settings at 200% root text. Popovers now flip/clamp using measured content size
+and react to resizing; the legacy footer positioning classes are removed.
+Captions use established readable light/dark tokens and notification controls
+wrap. The regression uses actual account-menu navigation, not forced clicks.
+
+WebKit refused all Blob/File persistence in the isolated test, including a fresh
+memory Blob and the empty failure marker. Staging now tries a bounded ArrayBuffer
+fallback in the existing account-local blobs store. `blobCodec.ts` restores the
+Blob API for ordinary reads while metadata/index queries avoid bytes. Retry and
+chunk progress updates preserve the wire encoding. When access is removed,
+`applyAccessWork` retains those encoded bytes in the same quarantine transaction;
+its metadata-only review/export rules are unchanged. The original-byte upload
+passes after database reopen in unit tests and in a WebKit browser probe.
+
+No index or D1 schema changes are needed. This additive local row format is read
+by this/newer client code; older clients cannot decode fallback rows. Keep the
+entire account store when reverting local source and use this/newer client for
+recovery of pending or held fallback attachments. Do not clear stores to work
+around a client-version mismatch. All-byte-storage failures still follow the
+explicit failure path and cannot be represented as a successful upload.
+
+The final reliability browser journey requires document reload before retry,
+compares the served bytes with the original input and verifies 200% text reflow.
+A compact Chromium/WebKit correction probe passes. A fresh 144-case selection
+(attention, reliability, existing search and view controls) plus Android emulator
+qualification remains pending. Full Phase 8 certification remains pending.

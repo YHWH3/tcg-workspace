@@ -7,9 +7,15 @@ async function seed(info){
  expect((await request('/api/sync/push',{protocol:3,changes:rows.map(r=>({...r,ts:Date.now()}))})).rejectedItems).toEqual([]);return {id,body,file,rows,suffix};
 }
 async function cleanup(f){await request('/api/sync/push',{protocol:3,changes:f.rows.map(r=>({id:r.id,collection:r.collection,patch:{deleted:true},ts:Date.now()}))});}
-async function panel(page){const link=page.getByRole('link',{name:'Settings',exact:true}).first();if(await link.isVisible())await link.click();else{await page.getByRole('button').filter({has:page.getByText(fixture.admin.user.name,{exact:true})}).click();await page.getByRole('button',{name:'Settings',exact:true}).click();}const p=page.getByRole('region',{name:'Reliability on this device',exact:true});await expect(p).toBeAttached();await p.scrollIntoViewIfNeeded();return p;}
+async function panel(page){const link=page.getByRole('link',{name:'Settings',exact:true}).first();if(await link.isVisible())await link.click();else{await page.getByRole('button').filter({has:page.getByText(fixture.admin.user.name,{exact:true})}).click();const settings=page.getByRole('button',{name:'Settings',exact:true});await expect(settings).toBeInViewport({ratio:1});await settings.click();}const p=page.getByRole('region',{name:'Reliability on this device',exact:true});await expect(p).toBeAttached();await p.scrollIntoViewIfNeeded();return p;}
 const value=(panel,label)=>panel.getByText(label,{exact:true}).locator('..').locator('dd');
-async function openPage(page,f){await open(page,{id:'reliability-page',path:'/pages/'+f.id,ready:{placeholder:'Untitled'}});await expect(page.getByRole('textbox',{name:"Block content",exact:true})).toHaveText('Original device note');}
+async function openPage(page,f){await open(page,{id:'reliability-page',path:'/pages/'+f.id,ready:{placeholder:'Untitled'}});await expect(page.getByRole('textbox',{name:"Block content",exact:true})).toHaveText('Original device note');
+ // Inject offline only after the initial authorized cache activation finished.
+ await expect.poll(async()=>{
+  const [manifest,feed,required,observed]=await Promise.all(['access_manifest','access_feed','access_reconciliation_required','sync-observations-v1'].map(id=>readAccountStore(page,'meta',{id})));
+  return !!manifest?.value&&!!feed?.value&&!required?.value&&!feed.value.legacyUpgrade&&Object.keys(feed.value.joining).length===0&&!!observed?.value?.lastPullAt;
+ }).toBe(true);
+}
 
 test('reliability: local offline edit, explicit pending state and server acknowledgement',async({page,context},info)=>{
  const f=await seed(info);
@@ -35,11 +41,16 @@ test('reliability: failed upload retains bytes and explicit retry completes it',
   await page.locator('input[type="file"]').first().setInputFiles({name:'Synthetic recovery note.txt',mimeType:'text/plain',buffer:Buffer.from('Retained original upload bytes')});
   await expect.poll(async()=>{const r=await readAccountStore(page,'blocks',{id:f.file});fileId=r?.fileId;return !!fileId;}).toBe(true);
   await expect.poll(async()=>(await readAccountStore(page,'blobs',{id:fileId}))?.state).toBe('failed');
+  await openPage(page,f); // The retained original must survive document restart.
   const p=await panel(page);await expect(value(p,'Failed uploads')).toHaveText('1');await expect(p.getByRole('list',{name:'Device uploads',exact:true})).toContainText('Synthetic recovery note.txt');await health(page,'reliability upload failed',info);await info.attach('reliability-upload-failed',{body:await page.screenshot(),contentType:'image/png'});
   await context.unroute('**/api/files/*/chunks/*');const retry=p.getByRole('button',{name:'Retry failed uploads',exact:true});await retry.focus();await retry.press('Enter');
   await expect.poll(async()=>(await readAccountStore(page,'blobs',{id:fileId}))?.state).toBe('uploaded');await expect(value(p,'Failed uploads')).toHaveText('0');await expect(value(p,'Pending uploads')).toHaveText('0');
   const response=await fetch(fixture.base+'/api/files/'+fileId,{headers:{Authorization:'Bearer '+fixture.admin.token}});expect(response.status).toBe(200);expect(await response.text()).toBe('Retained original upload bytes');
   await health(page,'reliability upload recovered',info);
+  await page.addStyleTag({content:'html{font-size:200%!important}'});
+  const sync=p.getByRole('button',{name:'Sync now',exact:true});await sync.scrollIntoViewIfNeeded();await expect(sync).toBeInViewport({ratio:1});
+  const width=await sync.evaluate(el=>{const root=el.closest('.overflow-y-auto');return {scroll:root.scrollWidth,width:root.clientWidth,overflow:[...root.querySelectorAll('*')].filter(e=>e.checkVisibility()&&e.getBoundingClientRect().right>root.getBoundingClientRect().right+1).slice(0,12).map(e=>({tag:e.tagName,classes:e.className,text:e.textContent?.slice(0,60)}))};});expect(width.scroll,JSON.stringify(width)).toBeLessThanOrEqual(width.width+1);
+  await health(page,'reliability enlarged controls',info);await info.attach('reliability-enlarged',{body:await page.screenshot(),contentType:'image/png'});
  }finally{await context.unroute('**/api/files/*/chunks/*');if(fileId)await request('/api/sync/push',{protocol:3,changes:[{id:fileId,collection:'files',patch:{deleted:true},ts:Date.now()}]});await cleanup(f);}
 });
 

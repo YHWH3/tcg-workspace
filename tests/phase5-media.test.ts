@@ -96,3 +96,32 @@ it('Phase 8 runtime uploading state clears after completion',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>new Response('{}',{status:200,headers:{'Content-Type':'application/json'}})));
  try{await media.uploadPendingBlobs();expect(observed).toContainEqual(['file']);expect(uploadActivity.get().ids).toEqual([]);expect((await db.blobs.get('file'))?.state).toBe('uploaded');}finally{stop();}
 });
+
+it('retains and uploads original bytes when the engine refuses every Blob/File write', async () => {
+  const refuseBlobs = (_key: unknown, row: {blob?:unknown}) => {if(row.blob instanceof Blob)throw new DOMException('Error preparing Blob/File data to be stored in object store','UnknownError');};
+  db.blobs.hook('creating',refuseBlobs);
+  try {
+    const id=await media.addFile(new Blob(['fallback original bytes'],{type:'text/plain'}),{id:'buffer-file',parentType:'block',parentId:'record',name:'Synthetic fallback.txt'});
+    expect((await db.blobs.get(id))?.blob.size).toBe(23);
+    expect(await (await db.blobs.get(id))?.blob.text()).toBe('fallback original bytes');
+    db.close();await db.open();
+    expect(await (await db.blobs.get(id))?.blob.text()).toBe('fallback original bytes');
+    await db.blobs.update(id,{state:'failed',uploadedChunks:0});
+    const {retryFailedUploads}=await import('../src/core/reliabilityData');
+    expect(await retryFailedUploads(db,state.userId,()=>{})).toMatchObject({retried:1});
+    const chunks:string[]=[];
+    vi.stubGlobal('fetch',vi.fn(async(path:string,init?:RequestInit)=>{if(path.includes('/chunks/'))chunks.push(await new Response(init!.body).text());return new Response('{}',{status:200});}));
+    await media.uploadPendingBlobs();expect(chunks).toEqual(['fallback original bytes']);expect((await db.blobs.get(id))?.state).toBe('uploaded');
+    const {applyAccessWork}=await import('../src/core/sync/pendingWork');
+    const blob=(await db.blobs.get(id))!;
+    const refuseHeldBlob=(_key:unknown,row:{payload:unknown})=>{if((row.payload as {blob?:unknown}|null)?.blob instanceof Blob)throw new DOMException('Blob storage refused','UnknownError');};
+    db.accessQuarantine.hook('creating',refuseHeldBlob);
+    try {
+      await db.transaction('rw',db.outbox,db.blobs,db.meta,db.accessQuarantine,db.accessQuarantineInfo,()=>applyAccessWork(db,{denied:new Map(),entries:new Map(),drafts:[],blobs:[{blob,reason:'file_access_revoked'}],rows:new Map()},1));
+      expect(await db.blobs.get(id)).toBeUndefined();
+      const held=(await db.accessQuarantine.toArray())[0].payload as {blobBytes:ArrayBuffer;blob?:Blob};
+      expect(held.blob).toBeUndefined();expect(new TextDecoder().decode(held.blobBytes)).toBe('fallback original bytes');
+      expect((await db.accessQuarantineInfo.toArray())[0]).not.toHaveProperty('payload');
+    } finally {db.accessQuarantine.hook('creating').unsubscribe(refuseHeldBlob);}
+  } finally {db.blobs.hook('creating').unsubscribe(refuseBlobs);}
+});

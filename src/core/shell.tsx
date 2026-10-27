@@ -166,7 +166,7 @@ function UserMenu() {
             <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{user.name}</span>
           </span>
         }
-        className="bottom-full left-0 mb-1 mt-0 w-56"
+        className="w-56"
       >
         {(close) => (
           <div>
