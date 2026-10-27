@@ -92,3 +92,9 @@ configuration draft) and a legacy-ingest revision conflict (fixed by combining t
 missing setting with the existing board mutation). Navigation-helper regressions
 also preserve blocking for unacknowledged writes and current-document stalled reads
 while retiring only the captured old-document reads after hard navigation.
+
+The first complete attention-only matrix at `79c931b` is retained as failed. It
+exposed a comment badge overlapping Configure at tablet/desktop sizes; Attention
+now uses dashboard comment placement and page context classification. The fixture
+also verifies that unrelated Website triage remains after its own records clear,
+rather than incorrectly expecting a global empty queue. A fresh matrix is required.

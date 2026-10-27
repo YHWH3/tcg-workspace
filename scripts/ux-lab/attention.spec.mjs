@@ -32,7 +32,7 @@ test('attention: ranked block, keyboard completion, offline assignment and recon
   await info.attach('attention-offline',{body:await page.screenshot(),contentType:'image/png'});
   await setOfflineForTest(page,context,false);await expect.poll(async()=>(await readRecord(f.unassigned))?.data.assigneeId).toBe(user);
   await expect(refresh).toBeEnabled();await refresh.click();await expect(region.getByText(f.triageTitle,{exact:true})).toHaveCount(0);
-  await expect(region).toContainText('No items in this snapshot need your attention');await health(page,'attention recovered',info);
+  await expect(region.getByText('UX application · Example Applicant',{exact:true})).toBeVisible();await expect(region).toContainText('Website inbox');await health(page,'attention recovered',info);
  }finally{await setOfflineForTest(page,context,false);await cleanup(f);}
 });
 
