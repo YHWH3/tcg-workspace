@@ -7,7 +7,7 @@ async function seed(info){
  expect((await request('/api/sync/push',{protocol:3,changes:rows.map(r=>({...r,ts:Date.now()}))})).rejectedItems).toEqual([]);return {id,body,file,rows,suffix};
 }
 async function cleanup(f){await request('/api/sync/push',{protocol:3,changes:f.rows.map(r=>({id:r.id,collection:r.collection,patch:{deleted:true},ts:Date.now()}))});}
-async function panel(page){const link=page.getByRole('link',{name:'Settings',exact:true}).first();await link.click();const p=page.getByRole('region',{name:'Reliability on this device',exact:true});await expect(p).toBeAttached();await p.scrollIntoViewIfNeeded();return p;}
+async function panel(page){const link=page.getByRole('link',{name:'Settings',exact:true}).first();if(await link.isVisible())await link.click();else{await page.getByRole('button').filter({has:page.getByText(fixture.admin.user.name,{exact:true})}).click();await page.getByRole('button',{name:'Settings',exact:true}).click();}const p=page.getByRole('region',{name:'Reliability on this device',exact:true});await expect(p).toBeAttached();await p.scrollIntoViewIfNeeded();return p;}
 const value=(panel,label)=>panel.getByText(label,{exact:true}).locator('..').locator('dd');
 async function openPage(page,f){await open(page,{id:'reliability-page',path:'/pages/'+f.id,ready:{placeholder:'Untitled'}});await expect(page.getByRole('textbox',{name:"Block content",exact:true})).toHaveText('Original device note');}
 
