@@ -128,3 +128,43 @@ with no skips, unexpected failures or flaky outcomes. The selection includes all
 [Exact source and evidence](../roadmap/evidence/P8-attention-870e8a2.json) preserve
 all earlier failures and the 179-test focused result's original source. This is
 feature-level evidence; the rest of Phase 8 and its final certificate are pending.
+
+## 8.9: reliability on this device
+
+Implemented in the containing commit; focused verification passes, matrix and
+Android qualification are pending. Settings > Local data always shows Reliability;
+existing permanent local-store deletion remains a separate explicit confirmation.
+A warning chip links root pages/Home and the sidebar to this panel for failed,
+held/rejected or old pending work. No server endpoint or schema migration is added.
+
+The panel separates pending record changes, rejected changes, held operations,
+pending/active/failed uploads, observed push/pull times, network interface and live
+connection. Names come from current file metadata; snapshot reads use blob index
+keys/counts and never materialize attachment bytes or held payloads. Names are
+limited to 20 with explicit truncation; counts cover the local queue. Missing or
+legacy ages are labelled unavailable instead of invented. New writes retain an
+enqueue time independent of their logical edit timestamp.
+
+A successful validated push with acknowledged entries records its timestamp in
+the same Dexie transaction that removes those entries. Refused, malformed, lost
+or empty push responses do not manufacture a receipt. Successful pull observations
+are separate; account/access changes abort these writes. Old account copies are
+ignored. Observed times do not imply that all work, media or other devices synced.
+
+Retry failed uploads is an explicit, bounded, identity/access-fenced transaction.
+It preserves chunk progress and original bytes; missing metadata, deleted files
+and missing-byte placeholders remain failed for recovery. The existing uploader
+performs normal server checks. Runtime uploading is an ephemeral account-bound
+store cleared in finally, not a durable state that can survive a crash falsely.
+Review held work uses the existing metadata-only dialog. Rejected-item export
+reuses the retained serializer and is account/session/access fenced; it never
+includes held payloads. No automatic discard or provider operation is added.
+
+Focused checks: 60/60 across reliability, real client sync ordering, media,
+transaction rollback and pack client regression tests; typecheck passes. The
+three compact Chromium workflows pass, including offline edit -> server receipt,
+forced 507 -> retained bytes -> explicit retry -> identical server bytes, and
+held-review/rejected-export separation. Earlier failed probes were fixture
+selector errors and remain retained. Three-engine matrix and the new opt-in
+`--reliability` Android upload-recovery journey still need execution. Emulator
+results must remain distinct from physical-device or human acceptance.

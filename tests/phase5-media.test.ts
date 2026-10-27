@@ -88,3 +88,11 @@ describe('Phase 5 interrupted media and late response guards', () => {
     expect(localStorage.getItem('ws_token')).toBe('account-B-fixture-token');
   });
 });
+
+it('Phase 8 runtime uploading state clears after completion',async()=>{
+ const {db}=await import('../src/core/db'),media=await import('../src/core/files'),{uploadActivity}=await import('../src/core/uploadState');
+ await db.blobs.put({id:'file',blob:new Blob(['upload']),state:'pending',uploadedChunks:0});
+ const observed:string[][]=[];const stop=uploadActivity.subscribe(()=>observed.push([...uploadActivity.get().ids]));
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response('{}',{status:200,headers:{'Content-Type':'application/json'}})));
+ try{await media.uploadPendingBlobs();expect(observed).toContainEqual(['file']);expect(uploadActivity.get().ids).toEqual([]);expect((await db.blobs.get('file'))?.state).toBe('uploaded');}finally{stop();}
+});

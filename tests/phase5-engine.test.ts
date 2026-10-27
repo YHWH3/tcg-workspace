@@ -191,3 +191,15 @@ describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
     expect(((await db.meta.get('access_feed'))!.value as { cursor: number }).cursor).toBe(100);
   });
 });
+
+describe('Phase 8 observed sync receipts',()=>{
+ const observation=async()=>(await db.meta.get('sync-observations-v1'))?.value as {lastPushAt:number|null;lastPullAt:number|null}|undefined;
+ it('observes pulls without inventing a push when there were no writes',async()=>{await engine.syncNow();expect(await observation()).toMatchObject({lastPushAt:null,lastPullAt:expect.any(Number)});});
+ it('records a validated acknowledged push while retaining rejected work separately',async()=>{
+  await engine.syncNow();await db.outbox.add({id:'visible',collection:'pages',patch:{title:'Accepted'},ts:Date.now()});await engine.syncNow();expect(await db.outbox.count()).toBe(0);const accepted=await observation();expect(accepted?.lastPushAt).toEqual(expect.any(Number));
+  await db.outbox.add({id:'visible',collection:'pages',patch:{title:'Refused'},ts:Date.now()});pushOverride={ok:true,rejected:1,rejectedItems:[{id:'visible',collection:'pages',reason:'read_only'}],accessEtag:'fixture-etag-20'};await engine.syncNow();expect((await db.outbox.toArray())[0].state).toBe('rejected');expect((await observation())?.lastPushAt).toBe(accepted?.lastPushAt);
+ });
+ it('does not stamp an unvalidated or lost push acknowledgement',async()=>{
+  await engine.syncNow();await db.outbox.add({id:'visible',collection:'pages',patch:{title:'Pending'},ts:Date.now()});pushOverride={ok:false,rejected:0,rejectedItems:[],accessEtag:'fixture-etag-20'};await engine.syncNow();expect(await db.outbox.count()).toBe(1);expect((await observation())?.lastPushAt).toBeNull();
+ });
+});

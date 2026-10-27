@@ -10,6 +10,7 @@ export interface LocalRow {
 }
 
 export interface OutboxEntry {
+  enqueuedAt?: number;
   ifUnchanged?: import('../../shared/mutationGuard').MutationGuard;
   autoId?: number;
   id: string;
@@ -31,6 +32,7 @@ export type AccessQuarantineInfo = Omit<AccessQuarantineRow, 'payload' | 'autoId
 export type BlobState = 'pending' | 'uploaded' | 'cached' | 'failed';
 
 export interface BlobRow {
+  pendingSince?: number;
   id: string;
   blob: Blob;
   state: BlobState;

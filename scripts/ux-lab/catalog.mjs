@@ -24,6 +24,9 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'reliability: local offline edit, explicit pending state and server acknowledgement',
+  'reliability: failed upload retains bytes and explicit retry completes it',
+  'reliability: held review and rejected export remain separate',
   'attention: ranked block, keyboard completion, offline assignment and reconnect',
   'attention: configuration, source filters, 200 percent text and recovery',
   'attention: completion opens the existing approval request flow',

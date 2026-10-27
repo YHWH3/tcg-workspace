@@ -1,3 +1,4 @@
+import {ReliabilityPanel} from './ReliabilityPanel';
 import {PackUpgradeControl} from './PackUpgradeControl';
 import {WorkspaceSettingsPanel} from './WorkspaceSettingsPanel';
 import {Usage} from './Usage';
@@ -177,7 +178,6 @@ function LocalDataSection({ user }: { user: PublicUser | null }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  if (!queued || queued.length === 0) return null;
   const purge = async () => {
     setBusy(true);
     try {
@@ -191,11 +191,13 @@ function LocalDataSection({ user }: { user: PublicUser | null }) {
   };
   return (
     <Section title="Local data">
+      <ReliabilityPanel/>
+      {!!queued?.length&&<div className="mt-6 space-y-3">
       <p className="text-xs text-neutral-400">
         Offline data kept on this device from other accounts or earlier versions.
       </p>
       <ul className="mt-2 space-y-1">
-        {queued.map((n) => (
+        {queued?.map((n) => (
           <li key={n} className="flex items-center justify-between text-sm">
             <span className="font-mono text-xs text-neutral-600 dark:text-neutral-300">{n}</span>
           </li>
@@ -221,6 +223,7 @@ function LocalDataSection({ user }: { user: PublicUser | null }) {
           </div>
         </div>
       )}
+      </div>}
     </Section>
   );
 }

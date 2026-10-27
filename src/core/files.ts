@@ -1,3 +1,4 @@
+import {setUploading} from './uploadState';
 import {reserveDownloadedCache} from './cacheBudget';
 import { PERMISSION_PROTOCOL } from '../../shared/protocol';
 import { useEffect, useRef, useState } from 'react';
@@ -141,12 +142,12 @@ async function mediaDuration(blob: Blob, kind: 'audio' | 'video'): Promise<numbe
  */
 async function putBlobRow(row: BlobRow): Promise<boolean> {
   try {
-    await db.blobs.put(row);
+    await db.blobs.put({...row,pendingSince:row.pendingSince??Date.now()});
     return true;
   } catch {
     try {
       const bytes = await row.blob.arrayBuffer();
-      await db.blobs.put({ ...row, blob: new Blob([bytes], { type: row.blob.type }) });
+      await db.blobs.put({ ...row, pendingSince:row.pendingSince??Date.now(), blob: new Blob([bytes], { type: row.blob.type }) });
       return true;
     } catch {
       return false;
@@ -281,6 +282,7 @@ export async function uploadPendingBlobs(checkSession: () => void = () => {}): P
   assertCurrent();
   const pending = await db.blobs.where('state').equals('pending').toArray();
   for (const row of pending) {
+    if(uid)setUploading(uid,row.id,true);
     try {
       assertCurrent();
       const file = await db.files.get(row.id); assertCurrent();
@@ -304,7 +306,7 @@ export async function uploadPendingBlobs(checkSession: () => void = () => {}): P
       }
       if (e instanceof ApiError && e.status === 401) throw e;
       throw e; // transient → abort the pass; next sync retries
-    }
+    }finally{if(uid)setUploading(uid,row.id,false);}
   }
   await transcribePending(assertCurrent);
 }

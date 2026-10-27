@@ -1,3 +1,5 @@
+import {ReliabilityChip} from './ReliabilityPanel';
+import {downloadRejected} from './rejectedExport';
 import {startWorkspaceSettings} from './workspaceSettings';
 import {WorkspaceDateNotice} from './WorkspaceSettingsPanel';
 import {SpaceSwitcher} from './SpaceHome';
@@ -18,7 +20,7 @@ import { assistantStore, toggleAssistant } from './assistant/store';
 import { sendHere } from './live';
 import { PresenceDots } from './presence';
 import { BoardOrDb } from './views/DatabasePage';
-import { countLocalPending, flushAndCountPending, onlineStore, retryRejected, serializeRejected, syncNow, syncStore } from './sync/engine';
+import { countLocalPending, flushAndCountPending, onlineStore, retryRejected, syncNow, syncStore } from './sync/engine';
 import { createStore, useStore } from './store';
 import { setTheme, themeStore } from './theme';
 import { Avatar, Button, Dialog, Menu, Popover, Sheet } from './ui';
@@ -234,16 +236,7 @@ export function reportError(text: string): void {
 function DurableError() {
   const err = useStore(durableErrorStore);
   const rejected = useStore(syncStore).rejected;
-  const downloadRejected = async () => {
-    const payload = await serializeRejected();
-    const file = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(file);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `workspace-rejected-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+
   if (!err && !rejected) return null;
   return (
     <div
@@ -267,7 +260,7 @@ function DurableError() {
             {rejected ? 'Retry rejected' : 'Retry sync'}
           </button>
           {rejected > 0 && (
-            <button className="font-medium underline decoration-red-300 underline-offset-2 hover:decoration-red-500" onClick={() => void downloadRejected()}>
+            <button className="font-medium underline decoration-red-300 underline-offset-2 hover:decoration-red-500" onClick={() => void downloadRejected().catch(()=>reportError('Rejected items could not be exported. Check the account and retry.'))}>
               Export JSON
             </button>
           )}
@@ -526,6 +519,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <UserMenu />
         </div>
         <SyncIndicator />
+        <ReliabilityChip/>
       </div>
     </div>
   );

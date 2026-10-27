@@ -43,6 +43,7 @@ async function journey(context,platform,token,androidDevice){
   return {url:page.url(),secureContext:true,oauthResource:fixture.base+'/mcp',webSocket:true};
  });
  if(androidDevice){await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration())?.active);await page.goto(page.url(),{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>!!navigator.serviceWorker.controller);if(platform.endsWith('-small'))await androidRotation(context,platform,token,androidDevice,page);await androidInteractions(context,platform,token,androidDevice);diagnosticPage=page;await page.bringToFront();}
+ if(process.argv.includes('--reliability'))await reliabilityUploadJourney(context,platform,token,page);
  await test(platform,'Interrupted required-asset installation retains the complete active shell',async()=>{
   await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration())?.active);await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   const swPath=join(fixture.directory,'client','sw.js'),indexPath=join(fixture.directory,'client','index.html'),sw=readFileSync(swPath,'utf8'),index=readFileSync(indexPath,'utf8');
@@ -95,6 +96,30 @@ async function journey(context,platform,token,androidDevice){
   }finally{await offline(context,platform,false);writeFileSync(swPath,sw);writeFileSync(indexPath,index);}
  });
  if(platform!=='mac-chrome')await page.close();
+}
+async function reliabilityUploadJourney(context,platform,token,page){
+ await test(platform,'Device reliability retains a failed upload and explicitly retries original bytes',async()=>{
+  const suffix=platform.replaceAll('-','')+'-'+Date.now(),pageId='qa-rel-'+suffix,blockId='qa-upload-'+suffix;let fileId;
+  const push=changes=>api('/api/sync/push',{token,method:'POST',body:{changes:changes.map(c=>({...c,ts:Date.now()}))}});
+  const seeded=await push([{id:pageId,collection:'pages',patch:{title:'Device upload recovery',order:'a0'}},{id:blockId,collection:'blocks',patch:{pageId,type:'file',order:'a0'}}]);assert.equal(seeded.status,200);assert.equal(seeded.data.rejected,0);
+  try{
+   await page.goto(fixture.base+'/pages/'+pageId,{waitUntil:'domcontentloaded'});await page.getByRole('button',{name:'Add file or PDF',exact:true}).waitFor();
+   await context.route('**/api/files/*/chunks/*',route=>route.fulfill({status:507,contentType:'application/json',body:'{"error":"synthetic_storage_limit"}'}));
+   await page.locator('input[type="file"]').first().setInputFiles({name:'Synthetic retained upload.txt',mimeType:'text/plain',buffer:Buffer.from('Original Android recovery bytes')});
+   await eventually(async()=>{fileId=(await readAccountStore(page,'blocks',{id:blockId}))?.fileId;return fileId&&(await readAccountStore(page,'blobs',{id:fileId}))?.state==='failed';},{timeout:25000});
+   await page.getByRole('link',{name:'Settings',exact:true}).first().click();const panel=page.getByRole('region',{name:'Reliability on this device',exact:true});await panel.scrollIntoViewIfNeeded();
+   await eventually(async()=>await panel.getByText('Failed uploads',{exact:true}).locator('..').locator('dd').innerText()==='1');
+   await page.screenshot({path:join(output,platform+'-reliability-failed.png')});
+   await context.unroute('**/api/files/*/chunks/*');const retry=panel.getByRole('button',{name:'Retry failed uploads',exact:true});await retry.scrollIntoViewIfNeeded();if(platform.startsWith('android-'))await retry.tap();else await retry.click();
+   await eventually(async()=>(await readAccountStore(page,'blobs',{id:fileId}))?.state==='uploaded',{timeout:25000});
+   await eventually(async()=>await panel.getByText('Failed uploads',{exact:true}).locator('..').locator('dd').innerText()==='0');
+   const response=await fetch(fixture.base+'/api/files/'+fileId,{headers:{Authorization:'Bearer '+token}});assert.equal(response.status,200);assert.equal(await response.text(),'Original Android recovery bytes');
+   await page.screenshot({path:join(output,platform+'-reliability-recovered.png')});return {injectedStatus:507,originalBytesRecovered:true,retry:'Explicit browser action',physicalDevice:false};
+  }finally{
+   await context.unroute('**/api/files/*/chunks/*');await push([{id:pageId,collection:'pages',patch:{deleted:true}},{id:blockId,collection:'blocks',patch:{deleted:true}},...(fileId?[{id:fileId,collection:'files',patch:{deleted:true}}]:[])]);
+   await page.goto(fixture.base+'/pages/qa-page',{waitUntil:'domcontentloaded'});await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();
+  }
+ });
 }
 async function androidNativeInfo(device,selector){
  try{return await device.info(selector);}

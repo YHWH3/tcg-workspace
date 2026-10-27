@@ -1,3 +1,4 @@
+import {ReliabilityChip} from '../../core/ReliabilityPanel';
 import {MoveSpaceButton} from '../../core/MoveSpace';
 import {HistoryButton} from '../../core/History';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -98,6 +99,7 @@ export function PageView() {
 
   return (
     <div className="mx-auto h-full max-w-3xl overflow-y-auto px-5 pb-16 pt-8 sm:px-8">
+      {!page.parentId&&<ReliabilityChip/>}
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1 text-xs text-neutral-400">
           <Breadcrumbs page={page} />

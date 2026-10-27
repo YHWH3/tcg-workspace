@@ -210,3 +210,13 @@ server approval gates. Add dashboard options to both author/compiler and templat
 copy whitelists. Pack upgrades add only missing attention settings and retain team
 null/disabled/custom values. Website default additions belong in the existing
 revision-fenced board mutation, never an earlier write that invalidates its fence.
+
+## Phase 8 device reliability
+
+Reliability is device-local, not a server total. `reliabilityData.ts` reads blob
+index keys/counts and bounded current file names; never materialize retained
+attachment bytes or held payloads for a status panel. Push observations commit
+with acknowledged outbox removal, never on rejected/malformed/empty replies.
+Pull observations are separate. Failed-upload retry is explicit, bounded,
+account/access fenced and preserves chunk progress; missing original bytes stay
+failed. Runtime `uploadActivity` is ephemeral and always clears in finally.
