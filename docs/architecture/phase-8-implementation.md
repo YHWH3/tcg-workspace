@@ -114,3 +114,10 @@ Screenshot inspection nevertheless found a compact enlarged-text Page menu only
 The page toolbar now wraps and keeps every action within its page width; targeted
 compact Chromium and WebKit checks pass. This visual finding requires another
 frozen browser matrix, not a waiver based on the previous automated PASS.
+
+The fourth matrix retained 48 passes and 6 failures: the added inner-page
+reflow assertion exposed enlarged tablet overflow after Page-menu visibility was
+fixed. Sidebar width now keeps its normal 15rem and caps at 35vw, leaving usable
+content space when root text grows. Default compact/tablet/desktop widths are
+unchanged. Targeted tablet Chromium/WebKit checks pass. The final selection also
+reruns the existing inbox/task text-enlargement case (72 total browser cases).

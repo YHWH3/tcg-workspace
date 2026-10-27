@@ -573,7 +573,7 @@ export function Shell() {
     <div className="vv-fit px-safe flex">
       {/* Desktop sidebar */}
       {!mobile && (
-        <aside className="w-60 shrink-0 border-r border-neutral-200/70 bg-neutral-50/60 dark:border-neutral-800/70 dark:bg-neutral-900/40">
+        <aside className="w-60 max-w-[35vw] shrink-0 border-r border-neutral-200/70 bg-neutral-50/60 dark:border-neutral-800/70 dark:bg-neutral-900/40">
           <SidebarContent />
         </aside>
       )}
