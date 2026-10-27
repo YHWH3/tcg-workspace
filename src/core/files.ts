@@ -285,8 +285,15 @@ export async function uploadPendingBlobs(checkSession: () => void = () => {}): P
     if (localStorage.getItem('ws_uid') !== uid || getToken() !== token || accessClientStore.get().epoch !== epoch) throw new Error('media_access_changed');
   };
   assertCurrent();
-  const pending = await db.blobs.where('state').equals('pending').toArray();
-  for (const row of pending) {
+  // Encoded fallback rows materialize bytes on read. Enumerate only keys so
+  // the queue never decodes every attachment before sending the first one.
+  const pending = await db.blobs.where('state').equals('pending').primaryKeys();
+  assertCurrent();
+  for (const id of pending) {
+    assertCurrent();
+    const row = await db.blobs.get(id);
+    assertCurrent();
+    if (!row || row.state !== 'pending') continue;
     if(uid)setUploading(uid,row.id,true);
     try {
       assertCurrent();

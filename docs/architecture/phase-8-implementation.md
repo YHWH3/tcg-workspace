@@ -210,3 +210,12 @@ reproduces 359.6px against a 287px sidebar. Popover wrapper/trigger max widths a
 the account flex child's minimum now allow the existing ellipsis to work. The
 three-engine focused correction passes; feature acceptance waits for verification
 on that corrected source. Earlier automated passes remain tied to their source.
+
+
+The sidebar-corrected source `e2abd61` passes the complete 144-case selection.
+A final upload memory regression then demonstrated that the previous `.toArray()`
+scan decoded all pending fallback payloads before uploading the first file.
+The uploader now scans index keys and materializes one pending payload per
+iteration, preserving identity checks, retained chunk progress and serial retry
+behavior. A fresh full reliability selection and Android qualification must
+verify this change; the wider UI/UX source is unchanged from `e2abd61`.

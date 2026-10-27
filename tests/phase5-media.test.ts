@@ -125,3 +125,20 @@ it('retains and uploads original bytes when the engine refuses every Blob/File w
     } finally {db.accessQuarantine.hook('creating').unsubscribe(refuseHeldBlob);}
   } finally {db.blobs.hook('creating').unsubscribe(refuseBlobs);}
 });
+
+it('reads only one pending byte payload before its upload rather than materializing the queue', async () => {
+  for(const id of ['buffer-a','buffer-b']){
+    await db.files.put({id,_ts:{},parentId:'record'});
+    await db.blobs.put({id,state:'pending',uploadedChunks:0,mime:'text/plain',blobEncoding:'array-buffer-v1',blobBytes:new TextEncoder().encode('Synthetic queued bytes').buffer});
+  }
+  const reads:string[]=[];
+  const observe=(row:import('../src/core/db').BlobRow|undefined)=>{if(row?.id.startsWith('buffer-'))reads.push(row.id);return row;};
+  db.blobs.hook('reading',observe);
+  vi.stubGlobal('fetch',vi.fn(async(path:string)=>{
+    if(path.includes('/chunks/'))expect(reads).toEqual(path.includes('/buffer-a/')?['buffer-a']:['buffer-a','buffer-b']);
+    return new Response('{}',{status:200});
+  }));
+  try {await media.uploadPendingBlobs();}
+  finally {db.blobs.hook('reading').unsubscribe(observe);}
+  expect((await db.blobs.get('buffer-a'))?.state).toBe('uploaded');expect((await db.blobs.get('buffer-b'))?.state).toBe('uploaded');
+});
