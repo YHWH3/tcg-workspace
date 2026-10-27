@@ -106,7 +106,7 @@ function subtreeIds(pages: RecSnapshot['pages'], rootId: string): string[] {
   return out;
 }
 
-const DASHBOARD_BLOCK_TYPES = new Set(['view', 'metric', 'calendar', 'activity', 'mywork']);
+const DASHBOARD_BLOCK_TYPES = new Set(['view', 'metric', 'calendar', 'activity', 'mywork', 'attention']);
 
 /** Database ids a block pulls into a copy: a `tasks` embed's board, or the
  * database(s) a dashboard block reads. Shared with the server's targeted
@@ -274,7 +274,7 @@ export function planTemplateInstantiation(
       createdBy: opts.actorId ?? null,
       createdAt: deps.now,
     };
-    for (const k of ['kind', 'recordNoun', 'showBuiltins', 'templateKey', 'fieldActions'] as const) {
+    for (const k of ['kind', 'recordNoun', 'showBuiltins', 'templateKey', 'fieldActions', 'attention'] as const) {
       if (src?.[k] !== undefined) patch[k] = typeof src[k] === 'object' && src[k] !== null ? JSON.parse(JSON.stringify(src[k])) : src[k];
     }
     if (opts.templateKey) patch.templateKey = opts.templateKey;
@@ -443,7 +443,7 @@ export function planTemplateInstantiation(
     // Dashboard block whitelist (Phase 3 §3): config fields copy through,
     // authored databaseId/viewId/sources[].databaseId remap to live ids.
     if (DASHBOARD_BLOCK_TYPES.has(String(b.type))) {
-      for (const k of ['limit', 'agg', 'fieldKey', 'format', 'scope', 'url', 'inline', 'filters'] as const) {
+      for (const k of ['limit', 'agg', 'fieldKey', 'format', 'scope', 'url', 'inline', 'filters', 'kinds', 'compact'] as const) {
         if (b[k] !== undefined) patch[k] = typeof b[k] === 'object' && b[k] !== null ? JSON.parse(JSON.stringify(b[k])) : b[k];
       }
       if (b.heading !== undefined) patch.heading = substituteVars(b.heading, vars);

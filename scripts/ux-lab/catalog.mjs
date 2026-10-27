@@ -23,7 +23,11 @@ export const notCovered = [
   'Every combination of editor blocks, attachments, canvas gestures, public forms/shares, account lifecycle and AI approval states',
   'Production/provider/paid inference, email, payment and token behavior',
 ];
-export const requiredCases=[...surfaces.map(s=>'surface: '+s.id),
+export const requiredCases=[
+  'attention: ranked block, keyboard completion, offline assignment and reconnect',
+  'attention: configuration, source filters, 200 percent text and recovery',
+  'attention: completion opens the existing approval request flow',
+  ...surfaces.map(s=>'surface: '+s.id),
   'relative dates: filter and automation hints with bounded results',
   'date ranges: keyboard creation, touch presets, validation and reload',
   'pack upgrade: preview, preserve edits and apply',

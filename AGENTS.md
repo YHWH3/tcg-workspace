@@ -197,4 +197,16 @@ the host. See `docs/testing/CERTIFICATION.md` for commands and evidence limits.
 - `shared/dates.ts` resolves explicit-context `today±N` (0–3650) using UTC-midnight date-only arithmetic; invalid or missing contexts are never guessed. Temporal operands that remain unresolved fail closed.
 - `query_records` supplies UTC today, validates date-like operands and shares `evalFilter` with metrics and automation conditions. Device/workspace timezone unification remains Phase 7.2; do not claim it is fixed by R1.
 - `scripts/prod-copy-rehearsal.mjs` accepts only an owner-exported local SQL file with a registered-prefix migration ledger, uses fresh local D1, validates preservation/backfills/restore, and never verifies KV grants or remote recovery.
-- The UX lab includes populated relative-date filters and automation conditions, with 32 cases across 18 projects.
+- The UX lab includes populated relative-date filters and automation conditions, with named cases across 18 projects.
+
+## Phase 8 attention
+
+`worker/attention.ts` is a bounded derived collector shared by REST and MCP.
+Keep its 12-call budget, current read/authority fences, explicit source caps and
+bound cursors. `src/core/attentionCache.ts` owns snapshot race fencing; snapshots
+bind account/session hash/access version and convey no mutation authority.
+Attention actions re-read local sources and use guarded `mutate()` calls; preserve
+server approval gates. Add dashboard options to both author/compiler and template
+copy whitelists. Pack upgrades add only missing attention settings and retain team
+null/disabled/custom values. Website default additions belong in the existing
+revision-fenced board mutation, never an earlier write that invalidates its fence.

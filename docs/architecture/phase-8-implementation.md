@@ -1,7 +1,7 @@
 # Phase 8 implementation
 
 Branch `sol/p8-desks` stacks on Phase 7. Phase 8 is in progress; no operating
-desk or attention-queue implementation is claimed yet. Owner decisions D4–D6
+desk acceptance is claimed yet. The attention implementation is described below. Owner decisions D4–D6
 are recorded in the roadmap. Item 8.0 precedes application work.
 
 ## 8.0: resumable certification
@@ -36,3 +36,59 @@ New Phase 8 application work requires its own focused checks, browser coverage
 and final phase certification. Physical hardware, human screen readers and
 actual human acceptance remain external gates. No deployment or real-provider
 operation took place. Usage is in [CERTIFICATION.md](../testing/CERTIFICATION.md).
+
+## 8.1: attention queue
+
+Implemented in the containing commit; final Phase 8 certification remains pending.
+The collector derives the queue from existing operational tables and records.
+It creates no synced collection or server queue. The same bounded collector serves
+`GET /api/attention`, the read-only `attention_queue` MCP tool and attention blocks
+in `dashboard_snapshot`. `triage_my_attention` is an answer-only assistant action;
+it cannot approve or execute a change.
+
+The collector supports owned approvals/previews/suggestions, assigned dated work,
+configured unassigned triage, unread mentions and admin-visible automation failures.
+Website response aging is added in 8.3. Candidates are capped per source and one
+canonical read decision gates their metadata. Current authority and revisions are
+checked again before returning. Private titles, answer bodies, old notification
+copies and provider errors are not fetched for display. Own restricted approvals
+and mentions are redacted. Cursor bindings include the account, connector,
+workspace day/settings, permission mode and selected kinds. All source limits are
+reported explicitly; urgent counts describe bounded candidates, never a guaranteed
+workspace total. Tests assert a maximum of 12 D1 binding calls per collection.
+
+The `attention` page block supports 5/10/20 items, source selection and compact/full
+rows. Native links open existing approval/review screens. Record actions re-read
+local sources, derive only the current configured field/stage and use `mutate()`
+with retained source guards. Approval-gated moves use the existing request dialog
+and server guard. A local save is labelled separately from server acknowledgement.
+There is no completion action for a records database without stages.
+
+Snapshots live in the account's Dexie `meta`, bound to a hash of the session token
+and the reconciled access version. The token is not persisted in the snapshot.
+Delayed cache/network work is discarded on account, session or access changes;
+authority failures clear visible source content. Temporary failures retain a
+labelled snapshot. Offline access uses the existing reconciled-cache contract and
+does not promise immediate offline revocation. Live hints refresh after two seconds;
+reconnect, visibility and workspace-day changes also refresh. No authenticated API
+response is placed in the service-worker cache.
+
+Both database shells offer an Attention settings sheet. Task databases keep their
+existing assigned/due defaults; records databases opt in. Operating Pack v3 adds
+missing settings for Opportunities (Owner + Next action date), Decisions (Decision
+maker + Date), and Media (Owner + Publish date), using verified field IDs. The
+single-date configuration does not imply an additional deadline fallback; the
+funding desk provides deadline views later. Reviewed upgrades retain team settings,
+including explicit null/disabled values, and refuse incompatible changed field
+types. Template copying preserves attention options. New Website inboxes default
+to all-admin triage; signed ingest adds a missing legacy setting in its existing
+revision-fenced board mutation, preserving a team opt-out.
+
+Typecheck and 179/179 focused checks across 18 files pass, as do the three compact
+Chromium browser workflows; the 18-project
+attention matrix is the next acceptance step. Earlier failed probes are retained
+locally. They found a checkbox controlled-state delay (fixed with an immediate
+configuration draft) and a legacy-ingest revision conflict (fixed by combining the
+missing setting with the existing board mutation). Navigation-helper regressions
+also preserve blocking for unacknowledged writes and current-document stalled reads
+while retiring only the captured old-document reads after hard navigation.

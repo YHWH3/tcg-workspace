@@ -12,6 +12,7 @@
  * - String block lines still work: plain text → text block, `Embed: db_x` →
  *   embedded `tasks` block. Object blocks cover every stored block config. */
 
+import {validateAttentionConfig,type AttentionConfig,type AttentionKind} from './attention';
 import { linkId } from './linkid';
 import type { FieldDef } from './fields';
 import type { Filter } from './views';
@@ -72,6 +73,7 @@ export interface AuthorDb {
   defaultViewId?: string;
   views?: AuthorView[];
   records?: AuthorRecord[];
+  attention?: AttentionConfig;
 }
 
 /** Object-form block inside `pages[].blocks` (string lines also accepted). */
@@ -79,7 +81,7 @@ export interface AuthorBlock {
   key?: string;
   type:
     | 'text' | 'h1' | 'h2' | 'h3' | 'bulleted' | 'todo' | 'divider' | 'callout' | 'tasks'
-    | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'embed';
+    | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'attention' | 'embed';
   text?: string;
   checked?: boolean;
   url?: string;
@@ -88,6 +90,8 @@ export interface AuthorBlock {
   viewId?: string;
   limit?: number;
   heading?: string;
+  kinds?: AttentionKind[];
+  compact?: boolean;
   filters?: Filter[];
   agg?: string;
   fieldKey?: string;
@@ -153,7 +157,7 @@ function toStoredBlock(b: AuthorBlock, pageId: string, order: string): Record<st
     return out;
   }
   for (const k of [
-    'databaseId', 'viewId', 'inline', 'limit', 'heading', 'filters',
+    'databaseId', 'viewId', 'inline', 'limit', 'heading', 'filters', 'kinds', 'compact',
     'agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url',
   ] as const) {
     const v = b[k as keyof AuthorBlock];
@@ -208,6 +212,7 @@ export function toBundled(key: string, t: AuthorTemplate): BundledTemplate {
       showBuiltins: d.showBuiltins,
       columns: d.columns,
       fields: d.fields,
+      ...(d.attention===undefined?{}:{attention:validateAttentionConfig(d.attention,d as unknown as Record<string,unknown>)}),
       // `key` rides the snapshot so the planner can stamp `templateDbKey` and
       // previews/findReusableBoards can match on it.
       key: d.key,
@@ -467,7 +472,15 @@ export function planPackUpgrade(bundle:BundledTemplate,existing:PackRecord[],opt
     field.options=opts;
    }
   }
-  if(reasons.length)writes.push({collection:'boards',id,patch:{fields},before:{fields:old.data.fields??null},reason:reasons.join('; ')});
+  const additions:Record<string,unknown>={},before:Record<string,unknown>={};
+  if(reasons.length){additions.fields=fields;before.fields=old.data.fields??null;}
+  // Missing configuration is additive. Explicit null/disabled/custom settings
+  // belong to the team and survive every later pack upgrade.
+  if(old.data.attention===undefined&&patch.attention!==undefined){
+   try{additions.attention=validateAttentionConfig(patch.attention,{...old.data,fields});before.attention=null;reasons.push('Configure attention');}
+   catch{warnings.push(`Attention fields changed on ${String(old.data.name??id)}; configure attention manually`);}
+  }
+  if(reasons.length)writes.push({collection:'boards',id,patch:additions,before,reason:reasons.join('; ')});
  }
  // An unresolved item prevents marking the bundle version complete. Partial
  // additive work can be reviewed, but never silently declare a held plan done.

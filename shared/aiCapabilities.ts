@@ -55,7 +55,7 @@ export const CAPABILITIES: readonly Capability[] = [
   W('create_project', 'projects'), W('convert_idea_to_project', 'projects'),
   W('archive_item', 'workspace'), W('unarchive_item', 'workspace'), W('delete_item', 'workspace'), W('restore_item', 'workspace'),
   // Dashboards
-  R('dashboard_snapshot', 'dashboards'), R('operating_review_context', 'dashboards'),
+  R('dashboard_snapshot', 'dashboards'), R('operating_review_context', 'dashboards'), R('attention_queue','dashboards'),
   // Moodboards
   W('create_moodboard', 'moodboards'), W('add_mood_items', 'moodboards'), R('get_moodboard', 'moodboards'),
   W('update_mood_items', 'moodboards'), W('connect_items', 'moodboards'), W('add_frame', 'moodboards'),

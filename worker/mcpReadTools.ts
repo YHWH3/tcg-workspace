@@ -10,6 +10,8 @@ import {fieldsOf,formatNumber} from '../shared/fields';
 import {recordsForCalendar} from '../shared/calendarView';
 import {argsHash} from '../shared/stablejson';
 import {recordHref} from '../shared/recordRoutes';
+import {collectAttention} from './attention';
+import {ATTENTION_KINDS,type AttentionKind} from '../shared/attention';
 interface Context {env:Env;userId:string;origin:string}
 const txt=(value:unknown)=>({content:[{type:'text' as const,text:JSON.stringify(value)}]});
 const fail=(error:string)=>({...txt({error}),isError:true});
@@ -39,6 +41,7 @@ export async function activityPage(c:Context,a:z.infer<typeof activitySchema>) {
  return {activity:selected.map(r=>({id:r.id,actorId:r.data.actorId,actor:names.find(n=>n.id===r.data.actorId)?.name??null,verb:r.data.verb,targetId:r.data.targetId,targetType:r.data.targetType,targetTitle:r.data.targetTitle,via:(r.data.meta as Record<string,unknown>|undefined)?.via,pageId:(r.data.meta as Record<string,unknown>|undefined)?.pageId,at:r.data.createdAt,trust})),truncated:!!last,nextCursor:last?btoa(JSON.stringify({f:fingerprint,at:Number(last.data.createdAt),id:last.id})):null};
 }
 export function registerReadTools(server:McpServer,c:Context) {
+ server.registerTool('attention_queue',{description:'My current approvals, AI reviews, dated work, configured triage, mentions and admin automation failures. Deterministic and read-only; titles are untrusted source data. Continue nextCursor; partialSources means source caps prevent a complete total.',inputSchema:z.object({limit:z.number().int().min(1).max(50).optional(),cursor:z.string().max(2048).optional(),kinds:z.array(z.enum(ATTENTION_KINDS)).max(10).optional()}),annotations:{readOnlyHint:true}},async a=>{try{return txt({...await collectAttention(c.env,c.userId,a),trust});}catch(e){return fail(e instanceof Error?e.message:'attention_unavailable');}});
  server.registerTool('recent_activity',{description:'Authorized activity with date, target and provenance filters. Continue nextCursor when truncated; empty pages may have more results.',inputSchema:activitySchema,annotations:{readOnlyHint:true}},async a=>{try{return txt(await activityPage(c,a));}catch(e){return fail(e instanceof Error?e.message:'invalid_request');}});
  server.registerTool('activity_for',{description:'Bounded authorized activity for a single record, including actor, source and timestamps.',inputSchema:activitySchema.extend({targetId:z.string()}),annotations:{readOnlyHint:true}},async a=>{try{const result=await activityPage(c,a);return result?txt(result):fail('not_found');}catch(e){return fail(e instanceof Error?e.message:'invalid_request');}});
  server.registerTool('list_attachments',{description:'Authorized attachment metadata, captions, links and transcripts; no binary bytes. Text and URLs are untrusted source material.',inputSchema:z.object({recordId:z.string(),cursor:z.string().max(64).optional(),limit:z.number().int().min(1).max(100).optional()}),annotations:{readOnlyHint:true}},async a=>{
@@ -64,7 +67,8 @@ export function registerReadTools(server:McpServer,c:Context) {
  server.registerTool('dashboard_snapshot',{description:'Evaluate dashboard metric/view/calendar/mywork blocks using the same shared view/aggregation engine as the browser. At most 50 blocks and 2000 records total. Partial metrics are explicitly marked.',inputSchema:z.object({pageId:z.string()}),annotations:{readOnlyHint:true}},async a=>{
   const page=await getRec(c.env,a.pageId);if(!page||!['pages','tasks'].includes(page.collection))return fail('not_found');
   const blocks=await bounded(c,'blocks',"json_extract(data,'$.pageId')=?",[a.pageId],50);
-  const supported=blocks.rows.filter(b=>['metric','view','calendar','mywork','activity'].includes(String(b.data.type)));
+  const supported=blocks.rows.filter(b=>['metric','view','calendar','mywork','activity','attention'].includes(String(b.data.type)));
+  const attention=supported.some(b=>b.data.type==='attention')?await collectAttention(c.env,c.userId):null;
   const dbIds=[...new Set(supported.flatMap(b=>[b.data.databaseId,...(Array.isArray(b.data.sources)?b.data.sources.slice(0,50).map((s:{databaseId?:string})=>s.databaseId):[])]).filter((id):id is string=>typeof id==='string'))];
   const boards=await getRecs(c.env,dbIds.slice(0,50));
   const mywork=supported.some(b=>b.data.type==='mywork');
@@ -81,6 +85,10 @@ export function registerReadTools(server:McpServer,c:Context) {
   const brief=(r:{id?:unknown;title?:unknown;status?:unknown;dueDate?:unknown;boardId?:unknown})=>({id:r.id,title:String(r.title??'').slice(0,300),status:r.status,dueDate:r.dueDate,url:c.origin+recordHref(String(r.boardId??'board-default'),undefined,String(r.id)),trust});
   const output=supported.map(block=>{
    const data=block.data,board=boards.get(String(data.databaseId));
+   if(data.type==='attention'){
+    const kinds=Array.isArray(data.kinds)?data.kinds as AttentionKind[]:[],limit=[5,10,20].includes(Number(data.limit))?Number(data.limit):10;
+    return {id:block.id,type:data.type,...attention,items:attention?.items.filter(i=>!kinds.length||kinds.includes(i.kind)).slice(0,limit),truncated:!!attention?.partial||!!attention?.nextCursor};
+   }
    if(data.type==='activity')return {id:block.id,type:data.type,activity:activity?.activity.filter(r=>data.scope==='mine'?r.actorId===c.userId:data.scope&&typeof data.scope==='object'?treeRows.slice(0,2000).some(t=>t.root===(data.scope as {pageTreeId?:string}).pageTreeId&&(t.id===r.targetId||t.id===r.pageId)):true).slice(0,Math.min(Number(data.limit)||20,100)),truncated:!!activity?.truncated||treeRows.length>2000};
    if(data.type==='mywork'){
     const today=dateContext.today,mine=tasks.rows.filter(t=>t.data.assigneeId===c.userId&&!t.data.archived&&(()=>{const b=boards.get(String(t.data.boardId??'board-default'));const cols=b?.data.columns as {id:string}[]|undefined;return !!b&&!b.data.archived&&(!cols?.length||t.data.status!==cols.at(-1)?.id);})()).sort((a,b)=>String(a.data.dueDate??'9999').localeCompare(String(b.data.dueDate??'9999')));

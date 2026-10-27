@@ -1,3 +1,4 @@
+import {AttentionEditor} from '../../modules/boards/AttentionEditor';
 import {MoveSpaceButton} from '../MoveSpace';
 /**
  * DatabasePage — the Phase 1 database shell: view tabs, view config toolbar
@@ -92,6 +93,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
   const me = useStore(authStore).user?.id;
   const mobile = useIsMobile();
   const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [attentionOpen,setAttentionOpen]=useState(false);
   useAssistantContext(board ? { kind: 'database', id: board.id } : null);
 
   const view = board ? resolveView(board, views, viewId) : undefined;
@@ -142,6 +144,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setFieldsOpen(true); }}>
                   <Pencil size={14} /> Fields…
                 </button>
+                <button className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setAttentionOpen(true); }}>Attention…</button>
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); navigate(`/forms/${board.id}`); }}>
                   <ClipboardList size={14} /> Forms…
                 </button>
@@ -246,6 +249,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
         </Sheet>
       )}
 
+      {attentionOpen&&<Sheet label="Attention settings" onClose={()=>setAttentionOpen(false)}><AttentionEditor board={board}/></Sheet>}
       {fieldsOpen && (
         <Sheet onClose={() => setFieldsOpen(false)}>
           <div className="overflow-y-auto p-4">
