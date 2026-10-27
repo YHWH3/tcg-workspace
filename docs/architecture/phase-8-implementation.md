@@ -121,3 +121,10 @@ fixed. Sidebar width now keeps its normal 15rem and caps at 35vw, leaving usable
 content space when root text grows. Default compact/tablet/desktop widths are
 unchanged. Targeted tablet Chromium/WebKit checks pass. The final selection also
 reruns the existing inbox/task text-enlargement case (72 total browser cases).
+
+Feature verification is now accepted at `870e8a2`: 72/72 final browser cases pass
+with no skips, unexpected failures or flaky outcomes. The selection includes all
+54 attention cases plus the existing 18 inbox/task text-enlargement cases.
+[Exact source and evidence](../roadmap/evidence/P8-attention-870e8a2.json) preserve
+all earlier failures and the 179-test focused result's original source. This is
+feature-level evidence; the rest of Phase 8 and its final certificate are pending.
