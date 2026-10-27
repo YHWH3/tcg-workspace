@@ -200,3 +200,13 @@ compares the served bytes with the original input and verifies 200% text reflow.
 A compact Chromium/WebKit correction probe passes. A fresh 144-case selection
 (attention, reliability, existing search and view controls) plus Android emulator
 qualification remains pending. Full Phase 8 certification remains pending.
+
+
+At `15b910e`, the 144-case expanded browser selection passed with no skips or
+flaky cases, and the Android emulator suite passed 20/20 checks across three
+profiles with confirmed cleanup. Screenshot review then found a tablet footer
+account trigger overflowing the sidebar at 200% text. A new boundary assertion
+reproduces 359.6px against a 287px sidebar. Popover wrapper/trigger max widths and
+the account flex child's minimum now allow the existing ellipsis to work. The
+three-engine focused correction passes; feature acceptance waits for verification
+on that corrected source. Earlier automated passes remain tied to their source.

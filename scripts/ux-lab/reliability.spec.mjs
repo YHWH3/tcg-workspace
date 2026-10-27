@@ -50,6 +50,13 @@ test('reliability: failed upload retains bytes and explicit retry completes it',
   await page.addStyleTag({content:'html{font-size:200%!important}'});
   const sync=p.getByRole('button',{name:'Sync now',exact:true});await sync.scrollIntoViewIfNeeded();await expect(sync).toBeInViewport({ratio:1});
   const width=await sync.evaluate(el=>{const root=el.closest('.overflow-y-auto');return {scroll:root.scrollWidth,width:root.clientWidth,overflow:[...root.querySelectorAll('*')].filter(e=>e.checkVisibility()&&e.getBoundingClientRect().right>root.getBoundingClientRect().right+1).slice(0,12).map(e=>({tag:e.tagName,classes:e.className,text:e.textContent?.slice(0,60)}))};});expect(width.scroll,JSON.stringify(width)).toBeLessThanOrEqual(width.width+1);
+  const sidebar=page.getByRole('complementary');
+  if(await sidebar.isVisible()){
+   const account=sidebar.getByRole('button').filter({has:page.getByText(fixture.admin.user.name,{exact:true})});
+   const bounds=await account.evaluate(el=>{const r=el.getBoundingClientRect(),s=el.closest('aside').getBoundingClientRect();return {left:r.left,right:r.right,sidebarLeft:s.left,sidebarRight:s.right};});
+   expect(bounds.right,'Account menu stays inside the sidebar: '+JSON.stringify(bounds)).toBeLessThanOrEqual(bounds.sidebarRight+1);
+   expect(bounds.left).toBeGreaterThanOrEqual(bounds.sidebarLeft-1);
+  }
   await health(page,'reliability enlarged controls',info);await info.attach('reliability-enlarged',{body:await page.screenshot(),contentType:'image/png'});
  }finally{await context.unroute('**/api/files/*/chunks/*');if(fileId)await request('/api/sync/push',{protocol:3,changes:[{id:fileId,collection:'files',patch:{deleted:true},ts:Date.now()}]});await cleanup(f);}
 });

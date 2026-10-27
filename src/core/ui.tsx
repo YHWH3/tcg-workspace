@@ -210,7 +210,7 @@ export function Popover({
     return () => observer.disconnect();
   }, [isOpen, sheetMode, positioned, align]);
   return (
-    <div ref={ref} className="relative inline-block">
+    <div ref={ref} className="relative inline-block min-w-0 max-w-full">
       <span
         ref={triggerRef}
         role={nativeTrigger ? undefined : "button"}
@@ -221,7 +221,7 @@ export function Popover({
         onKeyDown={(e) => {
           if (!nativeTrigger && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); setOpen(!isOpen); }
         }}
-        className="inline-flex rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
+        className="inline-flex min-w-0 max-w-full rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
       >
         {nativeTrigger ? cloneElement(trigger, { 'aria-haspopup': true, 'aria-expanded': isOpen }) : trigger}
       </span>

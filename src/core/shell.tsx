@@ -161,7 +161,7 @@ function UserMenu() {
         adaptive
         label="Account"
         trigger={
-          <span className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800">
+          <span className="flex min-w-0 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800">
             <Avatar name={user.name} color={user.color} size={24} />
             <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{user.name}</span>
           </span>
