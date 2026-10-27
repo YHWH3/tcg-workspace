@@ -98,3 +98,12 @@ exposed a comment badge overlapping Configure at tablet/desktop sizes; Attention
 now uses dashboard comment placement and page context classification. The fixture
 also verifies that unrelated Website triage remains after its own records clear,
 rather than incorrectly expecting a global empty queue. A fresh matrix is required.
+
+The second complete matrix at `64e580f` retained 45 passes and 9 failures. Offline
+light-mode shell text failed contrast (2.08:1); status colours are corrected.
+The navigation harness now also captures old-document reads started between a
+hard-navigation request and its document commit, preserving current-document and
+write blocking. Focused tablet light/dark workflows pass. The settings sheet now
+validates its numeric input accessibly, retains its original source guard during
+editing and lets operators remove disabled/unavailable selected triagers. A fresh
+complete attention matrix is still required before accepting this correction.

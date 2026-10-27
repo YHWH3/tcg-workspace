@@ -41,7 +41,7 @@ function SyncIndicator({ heldOnly = false }: { heldOnly?: boolean }) {
     return (
       <button
         onClick={() => void retryRejected()}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-700 dark:text-red-300 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
         title="Changes rejected by the server, kept locally — click to retry"
       >
         <AlertTriangle size={13} />
@@ -53,7 +53,7 @@ function SyncIndicator({ heldOnly = false }: { heldOnly?: boolean }) {
     return (
       <button
         onClick={() => void syncNow()}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-700 dark:text-red-300 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
         title="Sync failed — click to retry"
       >
         <AlertTriangle size={13} />
@@ -63,7 +63,7 @@ function SyncIndicator({ heldOnly = false }: { heldOnly?: boolean }) {
   }
   if (!online) {
     return (
-      <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-amber-500">
+      <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
         <CloudOff size={13} />
         <span>Offline{total > 0 ? ` · ${total} pending` : ''}</span>
       </div>

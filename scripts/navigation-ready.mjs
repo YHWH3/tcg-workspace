@@ -16,7 +16,12 @@ function readsFor(page) {
       state.retiringReads = new Set([...state.pending].filter(r => r.method() === 'GET' || new URL(r.url()).pathname === '/api/sync/pull'));
     }
     if (!new URL(request.url()).pathname.startsWith('/api/')) return;
-    state.pending.add(request); notify();
+    state.pending.add(request);
+    // Old-page visibility/unload handlers may start one final read after the
+    // navigation request but before the new document commits. New-document
+    // application reads begin after framenavigated and are never in this set.
+    if (state.retiringReads && (request.method() === 'GET' || new URL(request.url()).pathname === '/api/sync/pull')) state.retiringReads.add(request);
+    notify();
   });
   page.on('framenavigated', frame => {
     if (frame !== page.mainFrame() || !state.retiringReads) return;

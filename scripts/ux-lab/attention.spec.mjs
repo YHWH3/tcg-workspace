@@ -50,11 +50,12 @@ test('attention: configuration, source filters, 200 percent text and recovery',a
   await open(page,{id:'attention-settings',path:'/boards/'+f.board,ready:{role:'heading',name:'🗂️ Attention workflow '+f.board.slice('att-b-'.length)}});
   const menu=page.getByRole('button',{name:'Board menu',exact:true});await menu.focus();await menu.press('Enter');await page.getByRole('button',{name:'Attention',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'Attention settings',exact:true});await expect(dialog).toBeVisible();
-  await dialog.getByRole('combobox',{name:'Attention person field',exact:true}).selectOption('p_owner');await dialog.getByRole('combobox',{name:'Attention date field',exact:true}).selectOption('p_date');await dialog.getByRole('spinbutton',{name:'Upcoming window (days)',exact:true}).fill('7');
+  await dialog.getByRole('combobox',{name:'Attention person field',exact:true}).selectOption('p_owner');await dialog.getByRole('combobox',{name:'Attention date field',exact:true}).selectOption('p_date');const days=dialog.getByRole('spinbutton',{name:'Upcoming window (days)',exact:true});await days.fill('31');await dialog.getByRole('button',{name:'Save attention settings',exact:true}).click();await expect(dialog.getByRole('alert')).toHaveText('Enter a whole number from 0 to 30.');await expect(days).toHaveAttribute('aria-invalid','true');await expect(days).toBeFocused();await days.fill('7');
+  await dialog.getByRole('combobox',{name:'Attention triagers',exact:true}).selectOption('selected');await dialog.getByRole('checkbox',{name:'Synthetic UX Admin',exact:true}).check();
   await health(page,'attention settings',info);await info.attach('attention-settings',{body:await page.screenshot(),contentType:'image/png'});
   await dialog.getByRole('button',{name:'Save attention settings',exact:true}).click();await expect(dialog).toContainText('Saved on this device');
-  await expect.poll(async()=>(await readRecord(f.board))?.data.attention).toMatchObject({personKey:'p_owner',dateKey:'p_date',soonDays:7});
-  await page.keyboard.press('Escape');await expect(dialog).toBeHidden();
+  await expect.poll(async()=>(await readRecord(f.board))?.data.attention).toMatchObject({personKey:'p_owner',dateKey:'p_date',soonDays:7,triagers:[user]});
+  await page.keyboard.press('Escape');await expect(dialog).toBeHidden();await expect(menu).toBeFocused();
   const region2=await queueAfterChange(page,f);await expect(region2).toContainText('No items in this snapshot need your attention');
   await context.route('**/api/attention?*',route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"synthetic_outage"}'}));await region2.getByRole('button',{name:'Refresh',exact:true}).click();await expect(region2).toContainText('Attention could not refresh');await expect(region2).toContainText('(saved snapshot)');
   await context.unroute('**/api/attention?*');await region2.getByRole('button',{name:'Refresh',exact:true}).click();await expect(region2.getByRole('alert')).toHaveCount(0);await health(page,'attention failure recovered',info);
