@@ -140,6 +140,16 @@ async function stableAndroidControl(device,selector,label){
 }
 async function androidRotation(context,platform,token,device,page){
  await test(platform,'Native Android landscape and background retain a durable unacknowledged edit',async()=>{
+  try{
+   // A CDP-created background tab cannot prove a native software keyboard.
+   // Adopt the visible VIEW-intent tab just as androidInteractions does.
+   const nativeUrl=fixture.base+'/pages/qa-page?rotation='+Date.now();
+   await device.shell('am start -a android.intent.action.VIEW -d '+nativeUrl+' -p com.android.chrome');
+   page=await eventually(async()=>{for(const candidate of context.pages())if(candidate.url().startsWith(nativeUrl)&&await candidate.evaluate(()=>document.visibilityState==='visible').catch(()=>false))return candidate;return false;},{timeout:20000});
+   diagnosticPage=page;
+   const nativeActivity=String(await device.shell('dumpsys activity activities')).split('\n').filter(line=>/topResumedActivity|mResumedActivity/.test(line)).join('\n');
+   assert.ok(nativeActivity.includes('com.android.chrome'),'Chrome must be the native foreground app');
+   writeFileSync(join(output,'android-rotation-native-ready.json'),JSON.stringify({url:page.url(),visibility:await page.evaluate(()=>document.visibilityState),nativeActivity}));
   await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   const editor=page.getByRole('textbox',{name:"Type '/' for commands",exact:true});
   const original=(await pull(token)).find(r=>r.id==='qa-block').data.text;
@@ -151,7 +161,6 @@ async function androidRotation(context,platform,token,device,page){
   assert.ok((await readAccountStore(page,'outbox')).some(r=>r.id==='qa-block'),'The edit must still be pending, not acknowledged');
   assert.notEqual((await pull(token)).find(r=>r.id==='qa-block').data.text,text);
   const screen=async landscape=>{let image;await eventually(async()=>{image=await device.screenshot();return landscape?image.readUInt32BE(16)>image.readUInt32BE(20):image.readUInt32BE(20)>image.readUInt32BE(16)},{timeout:15000});return image;};
-  try{
    await device.shell('wm user-rotation lock 1');
    writeFileSync(join(output,'android-landscape-native.png'),await screen(true));
    writeFileSync(join(output,'android-landscape-display.txt'),String(await device.shell('dumpsys display')));
@@ -171,7 +180,7 @@ async function androidRotation(context,platform,token,device,page){
    await context.setOffline(false);await eventually(async()=>(await pull(token)).find(r=>r.id==='qa-block').data.text===text,{timeout:25000});
    await eventually(async()=>!(await readAccountStore(page,'outbox')).some(r=>r.id==='qa-block'));
    await page.reload({waitUntil:'domcontentloaded'});await editor.waitFor();await eventually(async()=>await editor.innerText()===text);
-   return {nativeLandscape:true,nativePortraitReturn:true,actualIme:true,backgroundForeground:true,localPendingBeforeReconnect:true,serverPersistence:true,outboxAcknowledged:true,text};
+   return {nativeVisibleTab:true,nativeLandscape:true,nativePortraitReturn:true,actualIme:true,backgroundForeground:true,localPendingBeforeReconnect:true,serverPersistence:true,outboxAcknowledged:true,text};
   }finally{await context.setOffline(false);await device.shell('wm user-rotation lock 0');}
  });
 }

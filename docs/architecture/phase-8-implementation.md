@@ -219,3 +219,14 @@ The uploader now scans index keys and materializes one pending payload per
 iteration, preserving identity checks, retained chunk progress and serial retry
 behavior. A fresh full reliability selection and Android qualification must
 verify this change; the wider UI/UX source is unchanged from `e2abd61`.
+
+
+At `ebed3b2`, the final 54 reliability browser cases and 108 focused tests pass.
+Native qualification retained an ADB-offline attempt (graphics-buffer error
+observed, cause unconfirmed), followed by a diagnostic 20/20 PASS. A subsequent
+uninstrumented run exposed native keyboard readiness in the rotation harness.
+It now adopts the visible Android VIEW-intent tab before claiming native IME
+interaction, and wraps all offline injection in cleanup. This matches the
+existing task/assistant native workflow approach; no keyboard, persistence,
+rotation, background, upload or service-worker assertion is removed. Browser
+application and UX-lab sources remain unchanged. Native acceptance is pending.
