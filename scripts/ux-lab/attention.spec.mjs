@@ -45,7 +45,7 @@ test('attention: configuration, source filters, 200 percent text and recovery',a
   await page.getByRole('combobox',{name:'Attention density',exact:true}).selectOption('compact');
   await page.getByRole('checkbox',{name:'Overdue',exact:true}).check();await page.keyboard.press('Escape');
   const region=page.getByRole('region',{name:'Needs attention',exact:true});await expect(region.getByText(f.triageTitle,{exact:true})).toHaveCount(0);
-  await page.addStyleTag({content:'html{font-size:200%!important}'});await health(page,'attention enlarged',info);await info.attach('attention-enlarged',{body:await page.screenshot(),contentType:'image/png'});
+  await page.addStyleTag({content:'html{font-size:200%!important}'});await expect(page.getByRole('button',{name:'Page menu',exact:true})).toBeInViewport({ratio:1});const reflow=await page.getByRole('button',{name:'Page menu',exact:true}).evaluate(el=>{const root=el.closest('.overflow-y-auto');return {scroll:root.scrollWidth,width:root.clientWidth};});expect(reflow.scroll).toBeLessThanOrEqual(reflow.width+1);await health(page,'attention enlarged',info);await info.attach('attention-enlarged',{body:await page.screenshot(),contentType:'image/png'});
   await reloadReady(page);await expect(region.getByText(f.title,{exact:true})).toBeVisible();
   await open(page,{id:'attention-settings',path:'/boards/'+f.board,ready:{role:'heading',name:'🗂️ Attention workflow '+f.board.slice('att-b-'.length)}});
   const menu=page.getByRole('button',{name:'Board menu',exact:true});await menu.focus();await menu.press('Enter');await page.getByRole('button',{name:'Attention',exact:true}).click();

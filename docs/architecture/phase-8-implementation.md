@@ -107,3 +107,10 @@ write blocking. Focused tablet light/dark workflows pass. The settings sheet now
 validates its numeric input accessibly, retains its original source guard during
 editing and lets operators remove disabled/unavailable selected triagers. A fresh
 complete attention matrix is still required before accepting this correction.
+
+All 54 browser cases and the fresh 179 focused checks passed at `3aff4db`.
+Screenshot inspection nevertheless found a compact enlarged-text Page menu only
+46% visible. A new intersection/inner-scroll-width regression reproduced it.
+The page toolbar now wraps and keeps every action within its page width; targeted
+compact Chromium and WebKit checks pass. This visual finding requires another
+frozen browser matrix, not a waiver based on the previous automated PASS.

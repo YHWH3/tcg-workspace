@@ -98,11 +98,11 @@ export function PageView() {
 
   return (
     <div className="mx-auto h-full max-w-3xl overflow-y-auto px-5 pb-16 pt-8 sm:px-8">
-      <div className="mb-1 flex items-center justify-between">
-        <div className="flex items-center gap-1 text-xs text-neutral-400">
+      <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1 text-xs text-neutral-400">
           <Breadcrumbs page={page} />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="ms-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
           <PresenceStack path={`/pages/${page.id}`} />
           <AskAiMenu
             modules={isDashboard ? ['dashboards', 'pages', 'notes'] : ['pages', 'notes']}
