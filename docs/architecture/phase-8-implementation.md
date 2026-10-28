@@ -242,8 +242,11 @@ harness/docs since application ebed3b2. Full Phase8 certification remains pendin
 
 ## 8.11: AI review desk
 
-Implemented in the containing commit; feature matrix and final phase certificate
-are pending. `/ai` opens Review, with a link to the preserved Workflow library,
+Feature evidence: `docs/roadmap/evidence/P8-ai-review-a003513.json`. Full90
+browser cases,67 focused tests, two fixture-boundary checks and typecheck PASS
+at a003513. Existing Phase6 suite42/42 PASS at41852d1 (only test navigation
+and ledger changed). Six screenshots reviewed; final phase certificate remains
+pending. `/ai` opens Review, with a link to the preserved Workflow library,
 deterministic weekly digest and provider configuration. Review groups active
 proposals with a once-per-second expiry label, approved/executing proposals with
 Resume / Review links, existing pending suggestion editors, and recent changesets
