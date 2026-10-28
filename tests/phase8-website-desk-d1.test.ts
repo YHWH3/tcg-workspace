@@ -11,6 +11,7 @@ import {withD1Budget,d1BudgetRemaining} from '../worker/d1budget';
 import {withWorkspaceContext} from '../worker/workspaceSettings';
 import {WEBSITE_INBOX_BOARD,WEBSITE_INBOX_ID} from '../shared/websiteInbox';
 import {createWorkspaceServer} from '../worker/mcp';
+import {buildDigest} from '../worker/aiDigest';
 let f:AuditFixture;
 const now=Date.parse('2026-10-28T00:01:00+05:30');
 afterEach(async()=>{vi.restoreAllMocks();await f?.dispose();handlers.clear();});
@@ -64,6 +65,10 @@ for(const enabled of [false,true])describe(`Website response desk permissions ${
   await f.db.prepare("UPDATE users SET disabled_at=? WHERE id='bob'").bind(now).run();
   expect((await call('propose_website_triage',{updates:[{recordId:'old',assigneeId:'bob'}]})).error).toBe(true);
   const digest=await call('website_digest',{});expect(digest.data.targetBreaches.count).toBe(2);expect(digest.data.responseBands.map((g:{count:number})=>g.count)).toEqual([2,1,1]);expect(digest.data.targetBreaches.urls[0]).toMatch(/^https:\/\/workspace.test\//);
+  const weeklyEnv=withWorkspaceContext(withD1Budget(f.env)),weekly=await buildDigest(weeklyEnv,'alice',now);
+  expect(weekly.website?.responseBands.map(g=>g.count)).toEqual(digest.data.responseBands.map((g:{count:number})=>g.count));
+  expect(weekly.website?.targetBreaches).toBe(2);expect(weekly.website?.targetDays).toBe(3);
+  expect(45-d1BudgetRemaining(weeklyEnv.DB)).toBeLessThanOrEqual(45);
  });
  it('uses the dashboard default for invalid stored reply targets before capping attention',async()=>{
   await seed(enabled);
