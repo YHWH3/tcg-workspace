@@ -47,7 +47,7 @@ try{
   ];
   const pushed=await req('/api/sync/push',{changes:records.map(r=>({...r,ts:Date.now()}))},admin.token);if(pushed.rejected||pushed.rejectedItems?.length)throw new Error('UX fixture seeding rejected');
   const grant=await fetch(owned.base+'/api/admin/website-ingest',{method:'PUT',headers:{Authorization:'Bearer '+admin.token,'Content-Type':'application/json'},body:JSON.stringify({spaceId:'space-core'})});if(grant.status!==200)throw new Error('UX service grant setup failed');
-  const body={v:2,id:'ux-visual-event',event:'form.submitted',occurred_at:'2026-10-23T06:00:00.000Z',form_id:'consulting',subject:'UX application',page:'/consulting/',reply_to:'example-applicant@example.org',answers:[{name:'Name',label:'Your name',value:'Example Applicant'},{name:'Why',label:'What are you building?',value:'Synthetic testing data. No real applicant.'}]};
+  const body={v:2,id:'ux-visual-event',event:'form.submitted',occurred_at:new Date(Date.now()-8*86400000).toISOString(),form_id:'consulting',subject:'UX application',page:'/consulting/',reply_to:'example-applicant@example.org',answers:[{name:'Name',label:'Your name',value:'Example Applicant'},{name:'Why',label:'What are you building?',value:'Synthetic testing data. No real applicant.'}]};
   const raw=JSON.stringify(body),timestamp=String(Math.floor(Date.now()/1000));
   const ingested=await fetch(owned.base+'/api/ingest/website',{method:'POST',headers:{'Content-Type':'application/json','X-TCG-Timestamp':timestamp,'X-TCG-Signature':'sha256='+createHmac('sha256','ux-lab-disposable').update(`${timestamp}.${raw}`).digest('hex')},body:raw});if(ingested.status!==200)throw new Error('UX event setup failed');
   await owned.sql('UPDATE access_state SET enabled=1 WHERE id=1');
