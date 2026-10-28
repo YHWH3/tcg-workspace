@@ -1,0 +1,459 @@
+{
+  "schemaVersion": 1,
+  "item": "8.3 Website response desk",
+  "status": "FOCUSED_ENGINEERING_PASS_PHASE_CERTIFICATION_PENDING",
+  "applicationSource": "d0bff8d4b4a2521321860ee859951871c887c8b4",
+  "browser": {
+    "source": {
+      "sha": "c38f87b822a04d535a75e3e49dbd6e684cce3d25",
+      "fingerprint": "ce38a6ef5c1e5882b9cb0951f0a85aa38b77246f4b2c6bce8a2215b234883869"
+    },
+    "tree": "7c29e0a388430fb2d70904ff6b38543dcb98b07e",
+    "command": "npm run qa:ux -- --grep 'Website response desk:|surface: website$|surface: website-inbox$|attention:|text enlargement:|opened view controls:|table: horizontal recovery'",
+    "pass": 198,
+    "fail": 0,
+    "skip": 0,
+    "flaky": 0,
+    "exitCode": 0,
+    "projects": 18,
+    "summary": {
+      "path": ".artifacts/ux-lab/2026-10-28T19-54-34.631Z/summary.json",
+      "sha256": "2b739ca8533f5732b7b2a2b10159c73505ce54cc49d0c79c0f2dfc5c198dbe9c"
+    },
+    "runtimes": [
+      {
+        "project": "chromium-compact-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-compact-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      }
+    ],
+    "scope": "11 named cases per project; not an exhaustive feature or hardware claim."
+  },
+  "focused": {
+    "source": "d0bff8d4b4a2521321860ee859951871c887c8b4",
+    "tree": "e5c1a37df230ebc327877d2c7f1eb3888550cc2a",
+    "fingerprint": "1011a848d4eed0b46267e0e13789796c461897393e234ee27cc8e5e86695b543",
+    "pass": 64,
+    "files": 8,
+    "exitCode": 0,
+    "log": {
+      "path": ".artifacts/phase8/website-desk-final-focused.log",
+      "sha256": "5c176dcf3046da47c60cb014e9dfb396c052cb68b43690f8514c18f9555d0233"
+    },
+    "typecheck": {
+      "exitCode": 0,
+      "log": {
+        "path": ".artifacts/phase8/website-desk-final-typecheck.log",
+        "sha256": "c85faad742c8ad117de8ed591ec6999ea99a21fdd2ba557c5fb19bfa2f97cb5e"
+      }
+    },
+    "qualification": "Run on the precommit working tree; its fingerprint was verified identical after committing d0bff8d. Original precommit identity retained locally."
+  },
+  "weeklyDigestParity": {
+    "source": "8f8aea05e1f6506516742e4227e5591ce46a7276",
+    "pass": 9,
+    "files": 1,
+    "exitCode": 0,
+    "permissionModes": [
+      "DISABLED",
+      "ENABLED"
+    ],
+    "log": {
+      "path": ".artifacts/phase8/website-desk-weekly-parity.log",
+      "sha256": "656bde5b8733368db704186d1eb641569608f825fb7b1e99b127e9325884d4bd"
+    },
+    "typecheck": {
+      "exitCode": 0,
+      "log": {
+        "path": ".artifacts/phase8/website-desk-weekly-typecheck.log",
+        "sha256": "c85faad742c8ad117de8ed591ec6999ea99a21fdd2ba557c5fb19bfa2f97cb5e"
+      }
+    },
+    "scope": "Additional real-D1 assertions verify the combined weekly digest includes the same Website bands and breaches within45 bindings. These tests overlap the64-test group; counts must not be summed."
+  },
+  "legacyWebsiteUi": {
+    "source": {
+      "sha": "8f8aea05e1f6506516742e4227e5591ce46a7276",
+      "tree": "b0fea7905d9bd88815603f38afdcb21d48cea67f",
+      "fingerprint": "c1a22f8bd13a6015afda491cf766893f0131821ce943cde2b3e286574c56b2aa"
+    },
+    "pass": 9,
+    "exitCode": 0,
+    "complete": true,
+    "sourceUnchanged": true,
+    "command": "node scripts/verify-website-ui.mjs --skip-build",
+    "results": {
+      "path": ".artifacts/phase8/website-desk-legacy-ui/results.json",
+      "sha256": "f9bfb06c69ff8ea6d3a7ed55c48ebe14d3e9707b48e0a8b88e74142e694e9da6"
+    },
+    "identity": {
+      "path": ".artifacts/phase8/website-desk-legacy-ui/source.json",
+      "sha256": "0d1e794916a00efe34ebce75a9bde8fb6d8b44ab170fb16a2b360cc30d1dffe2"
+    },
+    "scope": "3 engines x3 viewports; dashboard, inbox, pipeline, light/dark, geometry and whole-page axe. Existing runner uses disposable HTTP after HTTPS UX verification."
+  },
+  "phase6": {
+    "source": {
+      "sha": "8f8aea05e1f6506516742e4227e5591ce46a7276",
+      "tree": "b0fea7905d9bd88815603f38afdcb21d48cea67f",
+      "fingerprint": "c1a22f8bd13a6015afda491cf766893f0131821ce943cde2b3e286574c56b2aa"
+    },
+    "pass": 42,
+    "fail": 0,
+    "notRun": 0,
+    "exitCode": 0,
+    "allMandatoryAssertionsExecuted": true,
+    "permissionMode": "ENABLED",
+    "providerMode": "DISABLED, no real model execution",
+    "command": "node scripts/verify-phase6.mjs --skip-build",
+    "results": {
+      "path": ".artifacts/phase8/website-desk-phase6/results.json",
+      "sha256": "53705b0c8bdc313b1d72e31c2d1790e9adddfd48d5dbfd3b80725f444790bca0"
+    },
+    "sourceEnd": {
+      "path": ".artifacts/phase8/website-desk-phase6/source-end.json",
+      "sha256": "f7cd1c03f931f8c124cbd0921ed91e1d55d016ba2a2a6687466f2f68231f5da8"
+    },
+    "browserVersions": {
+      "chromium": "153.0.8010.12",
+      "firefox": "155.0",
+      "webkit": "26.6"
+    },
+    "approvalQualification": "Disposable session-authenticated approvals; not a genuine person approving release."
+  },
+  "sourceDifferences": {
+    "d0bff8dTo8f8aea0": [
+      "docs/roadmap/PROGRESS.md",
+      "scripts/qa-ux.mjs",
+      "scripts/ux-lab/attention.spec.mjs",
+      "tests/phase8-website-desk-d1.test.ts"
+    ],
+    "applicationUnchanged": true,
+    "qualification": "The198-case matrix runs at c38f87b. Later8f8aea0 changes only D1 assertions and ledger; application and UX sources are identical. Existing Website/Phase6 gates use the same compiled app."
+  },
+  "migrations": {
+    "added": [],
+    "manifestCount": 35,
+    "latest": "0035_workspace_settings.sql"
+  },
+  "contract": {
+    "eventBodyChanged": false,
+    "version": 2,
+    "copiesChanged": false
+  },
+  "features": [
+    "Shared received-date/workspace-timezone basis; configurable response bands and first-reply target on existing board keys",
+    "Unassigned, Mine, All open, Follow-up due and family/age filters",
+    "Guarded local owner/date/status edits and bounded bulk actions with changed-field undo refusal",
+    "Existing status approval dialog via module slot; no new approval authority",
+    "Full-answer navigation and copy-only reply drafts with clipboard-denial fallback",
+    "Queue-aware authorized MCP reads, assignment/date triage previews and deterministic Website/weekly digest figures",
+    "Bounded metadata-only Website-aging and refund attention with canonical access checks",
+    "Narrow record properties reflow and detail overlay, corrected contrast and compact200percent default caption width"
+  ],
+  "prerequisites": [
+    "Existing auto-wi-first-reply must remain configured/enabled to stamp dates; the desk does not recreate intentionally deleted or disabled automations. Protocol3 disposable fixture configures this existing rule explicitly."
+  ],
+  "retainedFailures": [
+    {
+      "log": {
+        "path": ".artifacts/phase8/website-desk-caption-baseline.log",
+        "sha256": "56c3eb4586714ad556d23e9e9c26c872fc89fb1d9123804d154d699a22eba418"
+      },
+      "finding": "Compact200percent Unassigned caption needed179px; available120px. Corrected nested spacing and measured regression."
+    },
+    {
+      "log": {
+        "path": ".artifacts/phase8/website-desk-target-baseline.log",
+        "sha256": "b4d1bc5c96e8ecf26f573ace7ad81de88ad59ee8dfde7e8097fa2b05dbb6ec5c"
+      },
+      "finding": "Two failing permission-mode cases: invalid stored4000-day target hid overdue work. SQL now matches shared default before source caps."
+    },
+    {
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-10-28T19-41-05.775Z/summary.json",
+        "sha256": "fe4cf3593c9a6b408d0c0cc67d07161dae47511e46effb5f09608ad3cabb3046"
+      },
+      "pass": 6,
+      "fail": 3,
+      "finding": "First-reply date absent because protocol3 fixture lacked the existing automation configuration; fixture corrected, date assertion retained."
+    },
+    {
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-10-28T19-49-30.855Z/summary.json",
+        "sha256": "a7f532e1524a1bf180c7fa1803f7c231abfd2bf9f92dee2a83bda611d8cb570b"
+      },
+      "pass": 59,
+      "fail": 6,
+      "interrupted": 1,
+      "notRun": 132,
+      "exitCode": 130,
+      "finding": "Older attention assertion assumed one title match; now requires distinct Unassigned and First reply overdue rows. Run intentionally interrupted after confirming repeated mismatch."
+    },
+    {
+      "log": {
+        "path": ".artifacts/phase8/website-desk-freeze-focused.log",
+        "sha256": "e9b798e2ffc3097ff2cb0bcb43a045a2314b9c254b9bd7a98bc29ec52149887f"
+      },
+      "status": "INTERRUPTED_BY_USER_PAUSE",
+      "qualification": "No complete result; not reused as PASS."
+    }
+  ],
+  "visualReview": {
+    "reviewer": "Implementer",
+    "source": "c38f87b822a04d535a75e3e49dbd6e684cce3d25",
+    "directory": ".artifacts/phase8/website-desk-visual-c38f87b",
+    "reviewed": [
+      {
+        "path": ".artifacts/phase8/website-desk-visual-c38f87b/chromium-compact-light-website-response-enlarged.png",
+        "sha256": "8c7e98a30664336b86a7e503d8ee6d8c1f51f04b0cd332e7225c3ea299384947"
+      },
+      {
+        "path": ".artifacts/phase8/website-desk-visual-c38f87b/firefox-tablet-dark-website-response-answers.png",
+        "sha256": "ac9b778ccdba3379ba3d55fb011d945929f7a5eaf99c8abac070e162ebeceb75"
+      },
+      {
+        "path": ".artifacts/phase8/website-desk-visual-c38f87b/webkit-desktop-light-website-response-enlarged.png",
+        "sha256": "c3ce76c3c43951313a502f84dbf855ec94480e9be67383b5711c096244a86542"
+      }
+    ],
+    "qualification": "Selected compact/tablet/desktop200percent screenshots, not independent human acceptance."
+  },
+  "remainingGates": [
+    "Full clean-source Phase8 certify:ai after remaining roadmap items",
+    "Native Safari/Android qualification for8.3 not run; earlier8.9 emulator evidence does not certify this desk",
+    "Physical iPhone/iPad/Android and branded-browser acceptance",
+    "Human screen-reader/native zoom and independent acceptance",
+    "Owner production, backup, provider and release decisions"
+  ],
+  "publicationPolicy": "Only sanitized summaries tracked; raw logs, traces, screenshots, fixture state, session credentials and payloads remain ignored/local. No deploy, real email, paid inference, payment or permission activation outside fixtures."
+}

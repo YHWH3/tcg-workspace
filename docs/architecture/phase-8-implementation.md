@@ -277,7 +277,8 @@ emulation, genuine human acceptance and final Phase8 certification remain distin
 
 ## 8.3: Website response desk
 
-Implementation is awaiting frozen-source verification. The existing Website
+Feature engineering evidence is recorded in
+`docs/roadmap/evidence/P8-website-desk-c38f87b.json`. The existing Website
 section adds Unassigned, Mine, All open and Follow-up due queues, family and
 response-age filters, owner/date/status actions and bounded sequential bulk edits.
 Undo uses field preconditions and refuses changed values. Local saves and server
@@ -311,6 +312,23 @@ browser test verifies the resulting first-reply date, not only the status change
 An installation needs that existing rule configured and enabled to stamp dates;
 the desk does not recreate intentionally deleted or disabled automations.
 
-Full198 browser selection, focused tests, preserved Website UI and Phase6 gates
-remain pending. Raw fixture data and failures remain local. No physical-device,
-human acceptance or full-phase certification is implied by the focused probe.
+The full198-case selection passes at c38f87b across18 engine/size/theme
+projects, zero skipped/flaky. The64 focused tests and typecheck pass on the
+byte-identical precommit d0bff8d tree. At8f8aea0, the additional9-test real-D1
+group verifies combined weekly digest parity in both permission modes; existing
+Website UI9/9 and Phase6 enabled-permission42/42 pass with providers disabled.
+Application sources are identical across these revisions. Only the fixture's
+explicit8-day-old event, assertion of both attention reasons, D1 assertions and
+ledger differ. Three final-source200% screenshots cover compact/tablet/desktop.
+
+The first198-case attempt remains interrupted after59 passes, six failures,
+one interrupted case and132 not run. Its six completed failures all matched two
+valid attention rows by title: existing Unassigned plus new First reply overdue.
+The corrected assertion requires both distinct labelled reasons. Invalid-target
+and caption baseline failures, the missing-automation fixture attempt and the
+earlier user-interrupted focused run remain retained. None is relabelled PASS.
+
+Raw fixture data and failures remain local. Native Safari/Android qualification
+for this desk, physical hardware, human screen readers/native zoom, independent
+acceptance and the final full-phase certificate remain explicitly incomplete.
+Next item is8.4 Project review cockpit; no release/deployment decision is implied.
