@@ -134,7 +134,7 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
    }
    const runs=await fixture.sql(`SELECT u.username,d.delivered,d.outcome FROM users u LEFT JOIN ai_digest_runs d ON d.user_id=u.id ORDER BY u.username;`);const terminal=runs.flatMap(r=>r.results??[]);assert.deepEqual(terminal.map(r=>({username:r.username,delivered:r.delivered,outcome:r.outcome})),[{username:'admin',delivered:1,outcome:'delivered'},{username:'bob',delivered:1,outcome:'no_content'}],JSON.stringify(runs));
    const rows=await fixture.sql(`SELECT COUNT(*) AS n FROM notifications WHERE user_id='${admin.user.id}' AND group_key LIKE 'weekly-digest:%';`);assert.ok(JSON.stringify(rows).includes('"n":1'),JSON.stringify(rows));
-   await page.goto(fixture.base+'/ai');await page.getByRole('heading',{name:'Pending approvals',exact:true}).waitFor();await page.getByRole('link',{name:'Changed after proposal',exact:true}).tap();assert.ok(page.url().includes('/inbox'));
+   await page.goto(fixture.base+'/ai');await page.getByRole('navigation',{name:'AI views'}).getByRole('link',{name:'Workflow library',exact:true}).tap();await page.getByRole('heading',{name:'Pending approvals',exact:true}).waitFor();await page.getByRole('link',{name:'Changed after proposal',exact:true}).tap();assert.ok(page.url().includes('/inbox'));
   });
   await check(names[7],async()=>{
    const increased=await api('/api/oauth/connections/'+connection.connectionId,{spaces:['space-core','ai-vault'],expectedVersion:1},'PATCH');assert.equal(increased.status,409);
