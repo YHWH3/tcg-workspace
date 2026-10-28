@@ -1,0 +1,366 @@
+{
+  "schemaVersion": 1,
+  "item": "8.9 Reliability on this device",
+  "status": "FOCUSED_ENGINEERING_PASS_PHASE_CERTIFICATION_PENDING",
+  "testedNativeSource": {
+    "sha": "161619d53f5086c3bca6e032ffed88a7f4e8aea2",
+    "tree": "879df1b0a189c16d50d23561ce541319bd8e1b1c",
+    "fingerprint": "0c1b4c78ae6da60886c163814f61c093d95bb7ab142813cc3bfa60a8b18a4992",
+    "clean": true
+  },
+  "browser": {
+    "source": {
+      "sha": "ebed3b2f7adbe06061458cd408c79965b0de4e6d",
+      "fingerprint": "496c16ece6be96d5d9b8ed60afeafde8275500159bfaf829ab0d9d7eb4b7f7cb"
+    },
+    "command": "npm run qa:ux -- --grep 'reliability:'",
+    "pass": 54,
+    "exitCode": 0,
+    "skip": 0,
+    "fail": 0,
+    "flaky": 0,
+    "projects": 18,
+    "summary": ".artifacts/ux-lab/2026-10-27T16-25-38.509Z/summary.json",
+    "sha256": "9094dc25f6ca0962b242eb605907a346c9db49043737040dce6bf2ee2af5e06f",
+    "qualification": "Subsequent changes only native test harness and docs; application and UX source byte-identical. Source-bound evidence retained.",
+    "runtimes": [
+      {
+        "project": "chromium-compact-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-compact-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      }
+    ]
+  },
+  "broaderBrowser": {
+    "source": {
+      "sha": "e2abd61ea25d5061e32d5d34c852d9e9badd5126",
+      "fingerprint": "9b82ad503ac4a16aa22188bdff11df4ca9b58c1c27bf497709111359230db267"
+    },
+    "command": "npm run qa:ux -- --grep 'reliability:|attention:|opened search:|opened view controls:'",
+    "pass": 144,
+    "exitCode": 0,
+    "skip": 0,
+    "fail": 0,
+    "flaky": 0,
+    "summary": ".artifacts/ux-lab/2026-10-27T16-11-23.203Z/summary.json",
+    "sha256": "8701ca954411c15d19d89f5fc31f00183d8e23359b4c593b82cb0ca5aace0e67",
+    "qualification": "Later application change only one-file-at-a-time upload scanning; all reliability cases rerun at ebed3b2. UI and UX sources unchanged."
+  },
+  "focused": {
+    "source": "ebed3b2f7adbe06061458cd408c79965b0de4e6d",
+    "tests": 108,
+    "files": 10,
+    "exitCode": 0,
+    "log": ".artifacts/phase8/reliability-serial-freeze-tests.log",
+    "sha256": "a3980265c47b838b17ce8071b69d3402c0cd4b3676a98ae0587b64688a77652e",
+    "typecheck": {
+      "exitCode": 0,
+      "log": ".artifacts/phase8/reliability-serial-freeze-typecheck.log",
+      "sha256": "c85faad742c8ad117de8ed591ec6999ea99a21fdd2ba557c5fb19bfa2f97cb5e"
+    }
+  },
+  "android": {
+    "command": "node scripts/android-qa.mjs --browser-only --reliability",
+    "pass": 20,
+    "profiles": 3,
+    "exitCode": 0,
+    "physical": false,
+    "permissionMode": "DISABLED platform/offline parity; enabled authorization covered by certify:ai",
+    "summary": ".artifacts/phase8/reliability-native-visible-final/chrome/results.json",
+    "sha256": "530280a4ada5b80950513daad191a7445734334e486d8afc0362ee3098346327",
+    "cleanup": {
+      "path": ".artifacts/phase8/reliability-native-visible-final/cleanup.json",
+      "sha256": "db1b5be4dd5e23e7e9a9460ba81314051c5959bc5a2d16c01bc1e07f4c9310e4",
+      "stopped": true,
+      "avdRemoved": true
+    },
+    "scope": "Android15 Chrome emulator, installed SDK image; no physical-device acceptance; automatic approvals are disposable fixtures"
+  },
+  "review": {
+    "path": ".artifacts/phase8/reliability-review-ebed3b2",
+    "scope": "Implementer screenshot review; compact dark offline and tablet light200percent inspected; not genuine human acceptance"
+  },
+  "contract": {
+    "version": 2,
+    "eventBodyChanged": false,
+    "migrationsAdded": [],
+    "collectionsAdded": []
+  },
+  "compatibility": "ArrayBuffer fallback uses additive account-local row format; older clients cannot decode it. Retain whole account stores; recover with this/newer client. Held bytes remain private and are not exported.",
+  "retainedFailures": [
+    {
+      "path": ".artifacts/ux-lab/2026-10-27T15-11-17.730Z",
+      "issue": "Held-dialog contrast; interrupted"
+    },
+    {
+      "path": ".artifacts/ux-lab/2026-10-27T15-14-41.855Z",
+      "issue": "Responsive Settings fixture; interrupted"
+    },
+    {
+      "path": ".artifacts/ux-lab/2026-10-27T15-19-21.886Z",
+      "issue": "Footer popover, Settings contrast and offline initial cache readiness; interrupted"
+    },
+    {
+      "path": ".artifacts/phase8/reliability-webkit-blob-diagnostic.log",
+      "issue": "Blob persistence refused including empty marker; fixed with buffer fallback"
+    },
+    {
+      "path": ".artifacts/phase8/reliability-sidebar-baseline.log",
+      "issue": "200percent sidebar overflow; added failing boundary assertion and fixed"
+    },
+    {
+      "path": ".artifacts/phase8/reliability-memory-baseline.log",
+      "issue": "All queued payloads decoded before first upload; fixed serial decoding"
+    },
+    {
+      "path": ".artifacts/phase8/reliability-ebed3b2-android",
+      "pass": 11,
+      "fail": 2,
+      "incomplete": true,
+      "issue": "ADB offline; graphics ColorBuffer error observed, cause unconfirmed; failed image retained"
+    },
+    {
+      "path": ".artifacts/phase8/reliability-ebed3b2-android-final",
+      "pass": 1,
+      "fail": 1,
+      "incomplete": true,
+      "issue": "Native IME readiness on background CDP tab; visible intent-tab adoption and cleanup fixed"
+    }
+  ],
+  "notClaimed": [
+    "Full Phase8 certificate",
+    "Physical device or human screen-reader acceptance",
+    "Genuine human approval",
+    "Live paid inference",
+    "Production deployment"
+  ]
+}

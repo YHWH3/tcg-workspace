@@ -230,3 +230,11 @@ interaction, and wraps all offline injection in cleanup. This matches the
 existing task/assistant native workflow approach; no keyboard, persistence,
 rotation, background, upload or service-worker assertion is removed. Browser
 application and UX-lab sources remain unchanged. Native acceptance is pending.
+
+
+Item8.9 feature verification is accepted with exact-source evidence in
+`docs/roadmap/evidence/P8-reliability-161619d.json`:108 focused checks, typecheck,
+54 reliability cases/18 projects and final Android20/20 with owned cleanup.
+The144 wider UI cases retain their e2abd61 source; later upload scanning was
+verified by the54 feature cases. Final native source161619d changes only the
+harness/docs since application ebed3b2. Full Phase8 certification remains pending.
