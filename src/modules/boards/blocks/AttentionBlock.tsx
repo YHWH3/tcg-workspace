@@ -61,7 +61,7 @@ export function AttentionContent({limit=10,kinds=[],compact=false}:{limit?:numbe
    return <li key={item.key} className="flex min-w-0 flex-wrap items-start gap-2 rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
     <Icon size={16} aria-hidden className="mt-1 shrink-0"/>
     <div className="min-w-0 flex-1 basis-40 space-y-1">
-     <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400">{ATTENTION_LABELS[item.kind]}</p>
+     <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400">{item.reason??ATTENTION_LABELS[item.kind]}</p>
      {href?<Link className="block min-h-11 break-words py-2 text-sm font-medium underline decoration-neutral-300 underline-offset-4 focus-visible:outline-2 dark:decoration-neutral-600" to={href}>{item.title||'Untitled'}</Link>:<p className="break-words text-sm">{item.restricted?'Restricted item':item.title||'Untitled'}</p>}
      {!compact&&<p className="break-words text-xs text-neutral-600 dark:text-neutral-400">{[item.databaseName,item.date,item.ageDays?`${item.ageDays} days old`:null,owner?.name??(item.ownerId?'Member':item.kind==='record_unassigned'?'Unassigned':null)].filter(Boolean).join(' · ')}</p>}
      {saved&&<p className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400"><CheckCircle size={13} aria-hidden/>Change saved locally; awaiting refreshed server state</p>}

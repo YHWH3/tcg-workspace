@@ -274,3 +274,43 @@ Review, detail and Undo now own a full-height scrolling region. First failures
 are retained. The OAuth helper opts into TLS only for an exact loopback origin
 with raw review mode, preserving previous HTTP/default fixture behavior. Native
 emulation, genuine human acceptance and final Phase8 certification remain distinct.
+
+## 8.3: Website response desk
+
+Implementation is awaiting frozen-source verification. The existing Website
+section adds Unassigned, Mine, All open and Follow-up due queues, family and
+response-age filters, owner/date/status actions and bounded sequential bulk edits.
+Undo uses field preconditions and refuses changed values. Local saves and server
+acceptance remain separate; status gates use the existing approval dialog through
+a module slot. Reply drafts remain in component memory and are copy-only, with a
+clipboard-denial fallback. They never send email or mark a reply when copied.
+
+Shared figures use the received calendar date, falling back to createdAt in the
+workspace timezone, with unknown dates explicit. Board keys responseBands and
+responseTargetDays configure the default0–2/3–7/8+ bands and3-day target without
+a migration. Dashboard, Website MCP digest and weekly deterministic digest share
+these figures. Website query filters queues before pagination; triage proposals
+can assign active users and follow-up dates through existing browser-approved
+previews. Answer continuation and untrusted-source requirements remain intact.
+
+The bounded attention collector adds overdue first replies for their owners or
+configured unassigned triagers, and severity2 refund-needed items. Projection is
+metadata-only, permissions are checked canonically, and the existing12-call
+collector budget remains tested. Stored malformed targets use the same default
+in SQL candidate selection and shared figures, so the cap cannot hide overdue
+work. No new collection, mutation endpoint or ingest contract is introduced.
+
+Nine development browser cases pass after retained failures. Compact200% text
+previously clipped the Unassigned caption; a measured assertion now checks the
+selected caption against usable width. Shared record details now stack properties
+inside narrow containers, improve label contrast and use the existing sheet
+instead of squeezing a database beside a fixed detail pane. The disposable
+protocol3 fixture explicitly configures the existing auto-wi-first-reply rule;
+permission-enabled clients intentionally do not recreate legacy seeds. The
+browser test verifies the resulting first-reply date, not only the status change.
+An installation needs that existing rule configured and enabled to stamp dates;
+the desk does not recreate intentionally deleted or disabled automations.
+
+Full198 browser selection, focused tests, preserved Website UI and Phase6 gates
+remain pending. Raw fixture data and failures remain local. No physical-device,
+human acceptance or full-phase certification is implied by the focused probe.

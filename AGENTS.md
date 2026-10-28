@@ -243,3 +243,14 @@ service worker. Proposal, suggestion and undo mutation authority stays in existi
 session-authenticated endpoints; the desk never approves through MCP. Tests using
 `connectFixtureMcp(...,{allowHttps:true,fixtureHuman:false})` intentionally disable
 the legacy automatic fixture-human wrapper and exercise actual browser decisions.
+
+### Phase 8 Website response desk
+
+Response queues and age/digest calculations share `shared/websiteStats.ts`.
+Received dates take precedence; createdAt fallback uses workspace timezone.
+Board responseBands/responseTargetDays require no migration. SQL attention
+candidate defaults must agree with shared normalization before source caps.
+Response actions use guarded mutate calls and existing approval slots; copy-only
+drafts never send or mark replied. First-reply dates require the existing
+auto-wi-first-reply configuration. Protocol3 fixtures configure it explicitly;
+never recreate intentionally deleted/disabled user automations to make a test pass.

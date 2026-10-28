@@ -1322,6 +1322,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       inputSchema: z.object({
         boardId: z.string(),
         attention:z.object({enabled:z.boolean(),personKey:z.string().optional(),dateKey:z.string().optional(),soonDays:z.number().int().min(0).max(30).optional(),triage:z.boolean().optional(),triagers:z.union([z.literal('admins'),z.array(z.string().max(64)).max(7)]).optional()}).strict().nullable().optional().describe('Derived attention settings; null restores task defaults or disables records databases. Custom keys must name current person/date fields.'),
+        responseBands:z.tuple([z.number().int().min(0).max(3650),z.number().int().min(0).max(3650)]).refine(v=>v[0]<v[1],'Bands must increase').optional().describe('Website response-age cutoffs in calendar days; defaults [2,7].'),
+        responseTargetDays:z.number().int().min(0).max(3650).optional().describe('Website first-reply target, default3 calendar days.'),
         expectedRev: z.number().optional().describe('Board rev from get_board — recommended'),
         dryRun: dryRunInput,
         name: z.string().optional(),
@@ -1340,6 +1342,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const patch: Record<string, unknown> = {};
       if (a.name !== undefined) patch.name = a.name;
       if (a.icon !== undefined) patch.icon = a.icon;
+      if(a.responseBands!==undefined)patch.responseBands=a.responseBands;
+      if(a.responseTargetDays!==undefined)patch.responseTargetDays=a.responseTargetDays;
       let newCols: { id: string; name: string; color: string }[] | undefined;
       if (a.columns) {
         const old = boardColumns(board);

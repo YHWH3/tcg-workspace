@@ -1,3 +1,5 @@
+import {responseAge,responseConfig,receivedDate,type FlatRecord} from '../shared/websiteStats';
+import {WEBSITE_INBOX_ID} from '../shared/websiteInbox';
 import {aiDeskLink} from '../shared/aiReviewDesk';
 /** Bounded, request-scoped derived queue. This never persists queue authority. */
 import {Hono} from 'hono';
@@ -18,14 +20,14 @@ interface SourceRow {
  id:string;target_id:string|null;target_collection:string|null;target_data:string;target_rev:number|null;
  board_id:string|null;board_data:string;board_rev:number|null;created_at?:number;event_date?:string;person_value?:unknown;
 }
-const caps={approval_pending:100,ai_preview_pending:100,suggestion_pending:100,dated:500,record_unassigned:200,mention_unread:50,automation_failed:20} as const;
+const caps={approval_pending:100,ai_preview_pending:100,suggestion_pending:100,dated:500,record_unassigned:200,mention_unread:50,automation_failed:20,website_aging:200} as const;
 const live=(alias:string)=>`COALESCE(json_extract(${alias}.data,'$.deleted'),0)!=1 AND COALESCE(json_extract(${alias}.data,'$.archived'),0)!=1`;
 // Project only queue metadata. Never load answer bodies, attachment bytes, old
 // notification copies or provider text just to paint an attention row.
 const projection=`r.id target_id,r.collection target_collection,r.seq target_rev,
- json_object('title',substr(json_extract(r.data,'$.title'),1,300),'name',substr(json_extract(r.data,'$.name'),1,300),'status',json_extract(r.data,'$.status'),'boardId',json_extract(r.data,'$.boardId'),'deleted',json(CASE WHEN json_extract(r.data,'$.deleted')=1 THEN 'true' ELSE 'false' END),'archived',json(CASE WHEN json_extract(r.data,'$.archived')=1 THEN 'true' ELSE 'false' END)) target_data,
+ json_object('title',substr(json_extract(r.data,'$.title'),1,300),'name',substr(json_extract(r.data,'$.name'),1,300),'status',json_extract(r.data,'$.status'),'assigneeId',json_extract(r.data,'$.assigneeId'),'createdAt',json_extract(r.data,'$.createdAt'),'p_wi_received',json_extract(r.data,'$.p_wi_received'),'p_wi_replied',json_extract(r.data,'$.p_wi_replied'),'p_wi_stage',json_extract(r.data,'$.p_wi_stage'),'boardId',json_extract(r.data,'$.boardId'),'deleted',json(CASE WHEN json_extract(r.data,'$.deleted')=1 THEN 'true' ELSE 'false' END),'archived',json(CASE WHEN json_extract(r.data,'$.archived')=1 THEN 'true' ELSE 'false' END)) target_data,
  b.id board_id,b.seq board_rev,json_object('name',substr(json_extract(b.data,'$.name'),1,300),'kind',json_extract(b.data,'$.kind'),'deleted',json(CASE WHEN json_extract(b.data,'$.deleted')=1 THEN 'true' ELSE 'false' END),'archived',json(CASE WHEN json_extract(b.data,'$.archived')=1 THEN 'true' ELSE 'false' END),
- 'attention',json_extract(b.data,'$.attention'),
+ 'attention',json_extract(b.data,'$.attention'),'responseBands',json_extract(b.data,'$.responseBands'),'responseTargetDays',json_extract(b.data,'$.responseTargetDays'),
  'fields',json((SELECT json_group_array(json_object('id',json_extract(f.value,'$.id'),'type',json_extract(f.value,'$.type'))) FROM json_each(b.data,'$.fields') f WHERE 'p_'||json_extract(f.value,'$.id') IN (json_extract(b.data,'$.attention.personKey'),json_extract(b.data,'$.attention.dateKey')))),
  'columns',json((SELECT json_group_array(json_object('id',json_extract(col.value,'$.id'))) FROM json_each(b.data,'$.columns') col))) board_data`;
 const boardJoin=`LEFT JOIN records b ON b.collection='boards' AND b.id=CASE r.collection WHEN 'tasks' THEN COALESCE(json_extract(r.data,'$.boardId'),'board-default') WHEN 'automations' THEN COALESCE(json_extract(r.data,'$.trigger.databaseId'),json_extract(r.data,'$.databaseId')) END`;
@@ -34,6 +36,9 @@ const boardJoin=`LEFT JOIN records b ON b.collection='boards' AND b.id=CASE r.co
 const openRecord=`CASE WHEN json_type(b.data,'$.columns')='array' AND json_array_length(b.data,'$.columns')>0 THEN COALESCE((SELECT json_extract(col.value,'$.id') FROM json_each(b.data,'$.columns') col WHERE json_extract(col.value,'$.id')=json_extract(r.data,'$.status') LIMIT 1),json_extract(b.data,'$.columns[0].id')) IS NOT json_extract(b.data,'$.columns[#-1].id') ELSE COALESCE(json_extract(r.data,'$.status'),'')!='done' END`;
 const configuredDate=`CASE WHEN json_type(b.data,'$.attention') IS NULL OR json_type(b.data,'$.attention')='null' THEN 'dueDate' ELSE json_extract(b.data,'$.attention.dateKey') END`;
 const configured=`(json_extract(b.data,'$.attention.enabled')=1 OR (json_type(b.data,'$.attention') IS NULL OR json_type(b.data,'$.attention')='null') AND COALESCE(json_extract(b.data,'$.kind'),'tasks')!='records')`;
+// Stored board settings are untyped here. Match responseConfig before limiting
+// candidates, so an invalid target cannot hide overdue work from the window.
+const websiteTarget=`CASE WHEN json_type(b.data,'$.responseTargetDays') IN('integer','real') AND json_extract(b.data,'$.responseTargetDays') BETWEEN 0 AND 3650 AND CAST(json_extract(b.data,'$.responseTargetDays') AS INTEGER)=json_extract(b.data,'$.responseTargetDays') THEN json_extract(b.data,'$.responseTargetDays') ELSE 3 END`;
 const personValue=`(SELECT value FROM json_each(r.data) prop WHERE prop.key=COALESCE(json_extract(b.data,'$.attention.personKey'),'assigneeId'))`;
 const scopeSql=(env:Env,enabled:boolean)=>`${enabled?` AND ${levelSql('(SELECT uid FROM caller)','r.space_id')}>=1 AND (r.peer_space_id IS NULL OR ${levelSql('(SELECT uid FROM caller)','r.peer_space_id')}>=1)`:''}${env.CONNECTOR?` AND r.space_id IN(SELECT value FROM json_each((SELECT spaces_json FROM ai_connections WHERE id=? AND user_id=(SELECT uid FROM caller) AND version=? AND revoked_at IS NULL AND expires_at>?)))`:''}`;
 const base64=(value:unknown)=>btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
@@ -63,6 +68,10 @@ export async function collectAttention(env:Env,userId:string,query:Query={},now=
   prepare(`SELECT r.id,${personValue} person_value,${projection} FROM records r ${boardJoin} WHERE r.collection='tasks' AND b.id IS NOT NULL AND ${live('r')} AND ${live('b')} AND (${openRecord}) AND ${configured} AND json_extract(b.data,'$.attention.triage')=1 AND COALESCE(${personValue},'')='' AND (json_type(b.data,'$.attention.triagers')='array' AND EXISTS(SELECT 1 FROM json_each(b.data,'$.attention.triagers') triager WHERE triager.value=(SELECT uid FROM caller)) OR COALESCE(json_extract(b.data,'$.attention.triagers'),'admins')='admins' AND ?=1)${scoped} ORDER BY r.id LIMIT ${caps.record_unassigned+1}`,[admin?1:0],true),
   prepare(`SELECT n.id,n.created_at,${projection} FROM notifications n LEFT JOIN records r ON r.id=n.target_id ${boardJoin} WHERE n.user_id=(SELECT uid FROM caller) AND n.kind='mention' AND n.read_at IS NULL ORDER BY n.created_at,n.id LIMIT ${caps.mention_unread+1}`),
   prepare(`SELECT run.id,run.created_at,${projection} FROM automation_runs run JOIN records r ON r.id=run.automation_id AND r.collection='automations' ${boardJoin} WHERE ?=1 AND run.created_at>=? AND run.status IN('retryable_failure','terminal_failure') AND ${live('r')} AND NOT EXISTS(SELECT 1 FROM automation_runs success WHERE success.automation_id=run.automation_id AND success.status='completed' AND (success.created_at>run.created_at OR success.created_at=run.created_at AND success.id>run.id))${scoped} ORDER BY run.created_at,run.id LIMIT ${caps.automation_failed+1}`,[admin?1:0,now-7*86400000],true),
+  prepare(`SELECT r.id,${projection} FROM records r ${boardJoin} WHERE r.collection='tasks' AND b.id=? AND ${live('r')} AND ${live('b')} AND COALESCE(json_extract(r.data,'$.parentId'),'')='' AND ${configured}
+   AND (json_extract(r.data,'$.assigneeId')=(SELECT uid FROM caller) OR ?=1 AND (COALESCE(json_extract(r.data,'$.assigneeId'),'')='' OR json_extract(r.data,'$.p_wi_stage')='refund_needed'))
+   AND (json_extract(r.data,'$.p_wi_stage')='refund_needed' AND COALESCE(json_extract(r.data,'$.status'),'new')!='done' OR COALESCE(json_extract(r.data,'$.status'),'new') IN('new','in_review') AND COALESCE(json_extract(r.data,'$.p_wi_replied'),'')='' AND (CASE WHEN date(json_extract(r.data,'$.p_wi_received'),'+0 days')=json_extract(r.data,'$.p_wi_received') THEN json_extract(r.data,'$.p_wi_received')<date(?,'-'||(${websiteTarget})||' days') ELSE COALESCE(json_extract(r.data,'$.createdAt'),?)<?-((${websiteTarget})-1)*86400000 END))${scoped}
+   ORDER BY CASE WHEN json_extract(r.data,'$.p_wi_stage')='refund_needed' THEN 0 ELSE 1 END,COALESCE(json_extract(r.data,'$.p_wi_received'),''),r.id LIMIT ${caps.website_aging+1}`,[WEBSITE_INBOX_ID,admin?1:0,settings.today,now+86400000,now],true),
   prepare('SELECT prefs FROM users WHERE id=(SELECT uid FROM caller) AND disabled_at IS NULL'),
  ]);
  const sources=Object.keys(caps) as (keyof typeof caps)[],partialSources=sources.filter((key,i)=>results[i].results.length>caps[key]);
@@ -106,8 +115,17 @@ export async function collectAttention(env:Env,userId:string,query:Query={},now=
   items.push({...base,title:visible?base.title:'',url:visible?'/inbox':null,...(!visible?{restricted:true as const,targetId:'',databaseId:undefined,databaseName:undefined}:{}),date:toDateOnlyInZone(row.created_at!,settings.timeZone)});
  }
  if(currentAdmin)for(const row of buckets[6])if(readable(row.target_id))items.push({...recordItem(row,'automation_failed',2,['open']),targetType:'automation',url:'/automations',date:toDateOnlyInZone(row.created_at!,settings.timeZone)});
+ for(const row of buckets[7]){
+  if(!readable(row.target_id)||!readable(row.board_id))continue;
+  const data=nodes.get(row.target_id!)!.data,board=nodes.get(row.board_id!)!.data,config=attentionConfig(board);if(!config?.enabled)continue;
+  const refund=data.p_wi_stage==='refund_needed'&&data.status!=='done',owner=typeof data.assigneeId==='string'&&data.assigneeId?data.assigneeId:null,triager=isAttentionTriager(config,userId,currentAdmin);
+  if(owner!==userId&&!(triager&&(!owner||refund)))continue;
+  const flat={...data,id:row.target_id!} as FlatRecord,age=responseAge(flat,settings.today,settings.timeZone),target=responseConfig(board).targetDays;
+  if(!refund&&(age===null||age<=target))continue;
+  items.push({...recordItem(row,'website_aging',2,['open']),ownerId:owner,date:receivedDate(flat,settings.timeZone),...(age===null?{}:{ageDays:age}),reason:refund?'Refund needed':'First reply overdue'});
+ }
  const ranked=rankAttention(items.filter(i=>!kinds.length||kinds.includes(i.kind)),settings.today),remaining=ranked.filter(i=>!after||compareAttention(i,after)>0),page=remaining.slice(0,limit);
- return {items:page,nextCursor:remaining.length>limit?base64({f:fingerprint,...attentionRankKey(page.at(-1)!)}):null,partial:partialSources.length>0,partialSources,asOf:now,today:settings.today,urgentCount:ranked.filter(i=>i.severity>=2).length,quietDigest:parsePrefs((results[7].results[0] as {prefs?:string}|undefined)?.prefs).quietDigest===true};
+ return {items:page,nextCursor:remaining.length>limit?base64({f:fingerprint,...attentionRankKey(page.at(-1)!)}):null,partial:partialSources.length>0,partialSources,asOf:now,today:settings.today,urgentCount:ranked.filter(i=>i.severity>=2).length,quietDigest:parsePrefs((results[8].results[0] as {prefs?:string}|undefined)?.prefs).quietDigest===true};
 }
 
 export const attentionApi=new Hono<{Bindings:Env;Variables:{user:AuthUser}}>();

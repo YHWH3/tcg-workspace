@@ -39,6 +39,9 @@ try{
     {id:'ux-records',collection:'boards',patch:{name:'UX records',kind:'records',recordNoun:'Record',columns:[{id:'todo',name:'To do',color:'gray'},{id:'done',name:'Done',color:'green'}],fields:[{id:'date',name:'Date',type:'date'},{id:'email',name:'Email',type:'email'}],defaultViewId:'ux-table',order:'a0'}},
     {id:'ux-tasks',collection:'boards',patch:{name:'UX tasks',kind:'tasks',columns:[{id:'todo',name:'To do',color:'gray'},{id:'done',name:'Done',color:'green'}],fields:[],order:'a1'}},
     {id:'ux-task',collection:'tasks',patch:{boardId:'ux-tasks',title:'UX task for input geometry',status:'todo',order:'a0'}},
+    // Protocol 3 deliberately does not create legacy client seeds. Configure
+    // the existing first-reply rule explicitly in this disposable fixture.
+    {id:'auto-wi-first-reply',collection:'automations',patch:{databaseId:'board-website-inbox',name:'Website inbox: record the first reply date',enabled:true,trigger:{kind:'stage_changed',to:'replied'},conditions:[{key:'p_wi_replied',op:'empty'}],actions:[{type:'set_field',fieldKey:'p_wi_replied',value:'{{today}}'}],createdBy:admin.user.id,createdAt:Date.now()}},
     ...['table','list','gallery','board','calendar','timeline'].map((type,i)=>({id:'ux-'+type,collection:'views',patch:{databaseId:'ux-records',name:type[0].toUpperCase()+type.slice(1),type,config:{visible:['title','status','p_date','p_email'],dateKey:'p_date',groupBy:'status'},order:'a'+i}})),
     ...['Unicode café 👩🏽‍💻 日本語 العربية é','Very long synthetic record title '+('length '.repeat(14))].map((title,i)=>({id:'ux-record-'+i,collection:'tasks',patch:{boardId:'ux-records',title,status:'todo',p_date:new Date().toISOString().slice(0,10),p_email:'synthetic-long-address@example.org',order:'a'+i}})),
   ];

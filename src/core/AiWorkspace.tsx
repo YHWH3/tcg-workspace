@@ -104,12 +104,13 @@ function AiUndoContent(){
  return <div className="mx-auto h-full min-w-0 max-w-4xl space-y-4 overflow-y-auto p-4"><h1 className="text-2xl font-semibold">Review changeset undo</h1><p>Undo restores only fields that have not changed since this operation. Current permissions apply. Large inverses can complete partially; retry resumes their durable journal. Irreversibly reclaimed attachment bytes cannot be recovered.</p><p role="status">{message}</p>{access.status==='ready'&&detail!==null&&<><pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-all text-xs">{JSON.stringify(detail,null,2)}</pre><Button className="h-auto min-h-11 py-2" variant="primary" onClick={()=>void api(`/api/changes/${changesetId}/undo`,{method:'POST',body:{}}).then(r=>{setMessage(JSON.stringify(r));setDetail(null);}).catch(e=>setMessage(String(e)))}>Confirm revision-safe undo</Button></>}<Link to="/ai" className="underline">AI workflows</Link></div>;
 }
 
-type WebsiteWeek={received:number;byFamily:{label:string;count:number}[];patronMovement:{label:string;count:number}[];oldestOpen:{recordId:string;url:string;title:string;ageDays:number}[]};
+type WebsiteWeek={received:number;byFamily:{label:string;count:number}[];patronMovement:{label:string;count:number}[];oldestOpen:{recordId:string;url:string;title:string;ageDays:number|null}[];responseBands?:{label:string;count:number}[];targetBreaches?:number;targetDays?:number};
 /** The weekly digest's Website part (deterministic counts; no model). */
 function WebsiteDigestPart({week}:{week:WebsiteWeek}){
  return <div className="mt-4"><h3 className="font-medium">Website</h3>
   <p className="text-sm text-neutral-600 dark:text-neutral-300">{week.received} {week.received===1?'submission':'submissions'} this week{week.byFamily.length?': '+week.byFamily.map(f=>`${f.label} ${f.count}`).join(', '):''}.</p>
   {!!week.patronMovement.length&&<p className="text-sm text-neutral-600 dark:text-neutral-300">Patron pipeline: {week.patronMovement.map(p=>`${p.label} ${p.count}`).join(', ')}.</p>}
-  {!!week.oldestOpen.length&&<><h4 className="mt-2 text-sm font-medium">Oldest open</h4><ul>{week.oldestOpen.map(r=><li key={r.recordId}><Link className="block min-h-10 break-words underline" to={r.url}>{r.title} · {r.ageDays} {r.ageDays===1?'day':'days'}</Link></li>)}</ul></>}
+  {!!week.oldestOpen.length&&<><h4 className="mt-2 text-sm font-medium">Oldest open</h4><ul>{week.oldestOpen.map(r=><li key={r.recordId}><Link className="block min-h-10 break-words underline" to={r.url}>{r.title} · {r.ageDays===null?'Date unavailable':`${r.ageDays} ${r.ageDays===1?'day':'days'}`}</Link></li>)}</ul></>}
+  {!!week.responseBands?.length&&<p className="mt-2 break-words text-sm">Awaiting first reply: {week.responseBands.map(b=>`${b.label}: ${b.count}`).join('; ')}. {week.targetBreaches??0} past the {week.targetDays??3}-day target.</p>}
   <Link className="mt-1 inline-block min-h-10 text-sm underline" to="/website">Open the Website section</Link></div>;
 }

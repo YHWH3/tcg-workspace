@@ -17,6 +17,14 @@
   }
 }
 
+/* Record properties follow their own panel width, including enlarged text. */
+.ws-record-detail { container-type: inline-size; }
+.ws-record-properties > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+@container (max-width: 25rem) {
+  .ws-record-properties { grid-template-columns: minmax(0, 1fr); }
+  .ws-record-properties > input, .ws-record-properties > select { width: 100%; }
+}
+
 :root {
   color-scheme: light;
 }

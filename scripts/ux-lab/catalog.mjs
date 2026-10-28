@@ -25,6 +25,9 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'Website response desk: offline assignment, guarded bulk undo and follow-up recovery',
+  'Website response desk: bands, full answers, copy-only draft and enlarged text',
+  'Website response desk: status gates and changed-field undo remain guarded',
   'AI review desk: fixture approval, resume, edited suggestion and revision-safe undo',
   'AI review desk: stale sources, rejection, cancellation and expiry stay non-authoritative',
   'AI review desk: loading, failed reads, offline hiding and library recovery',

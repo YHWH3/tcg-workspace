@@ -7,6 +7,7 @@ import { CapturePage } from './Capture';
 import { BoardsSection } from './Sidebar';
 import './TasksBlock';
 import './blocks';
+import {GateMoveDialog} from './GateMove';
 
 export const boardsModule: AppModule = {
   id: 'boards',
@@ -23,4 +24,5 @@ export const boardsModule: AppModule = {
   ],
   collections: ['tasks', 'boards', 'files'],
   sidebarSection: BoardsSection,
+  slots:{stageApproval:({taskId,boardId,stageId,onClose})=><GateMoveDialog attempt={{taskId,boardId,stageId}} onClose={onClose}/>},
 };

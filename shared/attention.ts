@@ -12,6 +12,7 @@ export interface AttentionConfig {enabled:boolean;personKey:AttentionPersonKey;d
 export interface AttentionItem {
  key:string;kind:AttentionKind;targetType:'record'|'page'|'approval'|'preview'|'suggestion'|'automation';targetId:string;
  title:string;url:string|null;databaseId?:string;databaseName?:string;ownerId?:string|null;personKey?:AttentionPersonKey;date?:string|null;ageDays?:number;
+ reason?:'Refund needed'|'First reply overdue';
  severity:0|1|2|3;actions:('open'|'assign_me'|'decide'|'review'|'mark_done'|'snooze')[];restricted?:true;
 }
 export interface AttentionPage {items:AttentionItem[];nextCursor:string|null;partial:boolean;partialSources:string[];asOf:number;today:string;urgentCount:number;quietDigest:boolean}

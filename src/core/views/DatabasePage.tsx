@@ -63,6 +63,7 @@ import { TimelineView } from '../../modules/boards/views/TimelineView';
 import { fieldKeyOf } from '../records';
 import {changeFilterOperator,isDateFilterKey,type DateFieldKey} from '../../../shared/views';
 import {DateFilterControl,DATE_VALUE_OPERATORS} from './DateFilterControl';
+import {useContainerWidth} from '../container';
 import { archivePatch, isArchived } from '../../../shared/archive';
 
 const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3 };
@@ -83,6 +84,7 @@ export function BoardOrDb() {
 /* ============ shell ============ */
 
 export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) {
+  const container=useContainerWidth();
   const { boardId = '', viewId, taskId, recordId } = useParams();
   const openRecordId = propRecordId ?? recordId ?? taskId;
   const navigate = useNavigate();
@@ -92,6 +94,9 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
   const links = useLinks();
   const me = useStore(authStore).user?.id;
   const mobile = useIsMobile();
+  // Keep both panes usable. A tablet database must not shrink to a toolbar
+  // sliver beside a fixed-width detail, especially with enlarged root text.
+  const detailOverlay=mobile||container.width<54*parseFloat(getComputedStyle(document.documentElement).fontSize);
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [attentionOpen,setAttentionOpen]=useState(false);
   useAssistantContext(board ? { kind: 'database', id: board.id } : null);
@@ -114,7 +119,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
 
 
   return (
-    <div className="flex h-full min-h-0">
+    <div ref={container.ref} className="flex h-full min-h-0 min-w-0">
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-neutral-200/70 px-4 py-2.5 dark:border-neutral-800/70">
           <h1 className="flex items-center gap-2 text-base font-semibold tracking-tight">
@@ -238,12 +243,12 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
       </div>
 
       {/* record detail: desktop aside / mobile sheet */}
-      {openRecordId && !mobile && (
+      {openRecordId && !detailOverlay && (
         <aside className="w-[400px] shrink-0 overflow-y-auto border-l border-neutral-200/70 dark:border-neutral-800/70">
           <RecordDetail recordId={openRecordId} board={board} onClose={closeDetail} />
         </aside>
       )}
-      {openRecordId && mobile && (
+      {openRecordId && detailOverlay && (
         <Sheet onClose={closeDetail}>
           <RecordDetail recordId={openRecordId} board={board} onClose={closeDetail} />
         </Sheet>
