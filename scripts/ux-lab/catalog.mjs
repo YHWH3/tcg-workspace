@@ -13,7 +13,8 @@ export const surfaces = [
   {id:'activity',path:'/activity',ready:{role:'heading',name:'Activity'}},
   {id:'inbox',path:'/inbox',ready:{role:'heading',name:'Inbox'}},
   {id:'settings',path:'/settings',ready:{role:'heading',name:'Settings'}},
-  {id:'ai-library-off',path:'/ai',ready:{role:'heading',name:'AI workflows'}},
+  {id:'ai-library-off',path:'/ai?view=library',ready:{role:'heading',name:'AI workflows'}},
+  {id:'ai-review-empty',path:'/ai?view=review',ready:{role:'heading',name:'AI workflows'}},
   {id:'website',path:'/website',ready:{role:'heading',name:'Website'}},
   {id:'website-inbox',path:'/boards/board-website-inbox/views/view-wi-all',ready:{role:'heading',name:'🌐 Website inbox'}},
 ];
@@ -24,6 +25,9 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'AI review desk: fixture approval, resume, edited suggestion and revision-safe undo',
+  'AI review desk: stale sources, rejection, cancellation and expiry stay non-authoritative',
+  'AI review desk: loading, failed reads, offline hiding and library recovery',
   'reliability: local offline edit, explicit pending state and server acknowledgement',
   'reliability: failed upload retains bytes and explicit retry completes it',
   'reliability: held review and rejected export remain separate',

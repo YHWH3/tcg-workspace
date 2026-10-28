@@ -74,9 +74,9 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
   });
   await check(names[5],async()=>{
    const p=await call('propose_suggestion',{targetId:'ai_task',patch:{priority:'high'},rationale:'Fixture suggestion; verify original evidence.'});assert.equal(p.isError,false,p.text);
-   await page.goto(fixture.base+'/ai');const card=page.locator('li').filter({hasText:'ai_task · pending'});await card.getByRole('textbox',{name:'Proposed fields'}).fill('{"priority":"low"}');await card.getByRole('button',{name:'Accept edited suggestion'}).tap();await page.getByText('ai_task · accepted',{exact:true}).waitFor();
+   await page.goto(fixture.base+'/ai');const card=page.locator('li').filter({hasText:'ai_task · pending'});await card.getByRole('textbox',{name:'Proposed fields'}).fill('{"priority":"low"}');await card.getByRole('button',{name:'Accept edited suggestion'}).tap();await card.waitFor({state:'detached'});
    const record=await call('get_record',{recordId:'ai_task'});assert.equal(record.data.record.priority??record.data.record.data?.priority,'low');
-   const suggestions=await api('/api/ai/suggestions');const saved=suggestions.data.suggestions.find(s=>s.id===p.data.suggestionId);assert.ok(saved.changeset_id);await page.goto(fixture.base+'/ai/undo/'+saved.changeset_id);await page.getByRole('heading',{name:'Review changeset undo'}).waitFor();await page.getByRole('button',{name:'Confirm revision-safe undo'}).tap();await page.getByRole('status').filter({hasText:'restored'}).waitFor();assert.notEqual((await call('get_record',{recordId:'ai_task'})).data.record.priority,'low');
+   const suggestions=await api('/api/ai/suggestions');const saved=suggestions.data.suggestions.find(s=>s.id===p.data.suggestionId);assert.equal(saved.status,'accepted');assert.ok(saved.changeset_id);await page.goto(fixture.base+'/ai/undo/'+saved.changeset_id);await page.getByRole('heading',{name:'Review changeset undo'}).waitFor();await page.getByRole('button',{name:'Confirm revision-safe undo'}).tap();await page.getByRole('status').filter({hasText:'restored'}).waitFor();assert.notEqual((await call('get_record',{recordId:'ai_task'})).data.record.priority,'low');
   });
   await check(names[13],async()=>{
    // Exercise the final two workflow contracts with real scoped MCP calls,

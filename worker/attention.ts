@@ -1,3 +1,4 @@
+import {aiDeskLink} from '../shared/aiReviewDesk';
 /** Bounded, request-scoped derived queue. This never persists queue authority. */
 import {Hono} from 'hono';
 import {requireAuth,type Env,type AuthUser,parsePrefs} from './auth';
@@ -87,8 +88,8 @@ export async function collectAttention(env:Env,userId:string,query:Query={},now=
   const visible=readable(row.target_id),base=recordItem(row,'approval_pending',3,['decide']);
   items.push({...base,targetType:'approval',targetId:row.id,title:visible?base.title:'',url:visible?'/approvals':null,...(!visible?{restricted:true as const}:{}),...(visible?{}:{databaseId:undefined,databaseName:undefined})});
  }
- for(const row of buckets[1])items.push({key:`ai_preview_pending:${row.id}`,kind:'ai_preview_pending',targetType:'preview',targetId:row.id,title:'Review proposed changes',url:`/ai/review/${encodeURIComponent(row.id)}`,severity:3,actions:['review']});
- for(const row of buckets[2])if(row.target_id&&editable(row.target_id))items.push({...recordItem(row,'suggestion_pending',1,['review']),targetType:'suggestion',targetId:row.id,url:'/ai',title:title(nodes.get(row.target_id)!.data)});
+ for(const row of buckets[1])items.push({key:`ai_preview_pending:${row.id}`,kind:'ai_preview_pending',targetType:'preview',targetId:row.id,title:'Review proposed changes',url:aiDeskLink('preview',row.id),severity:3,actions:['review']});
+ for(const row of buckets[2])if(row.target_id&&editable(row.target_id))items.push({...recordItem(row,'suggestion_pending',1,['review']),targetType:'suggestion',targetId:row.id,url:aiDeskLink('suggestion',row.id),title:title(nodes.get(row.target_id)!.data)});
  for(const row of buckets[3]){
   if(!readable(row.target_id)||!readable(row.board_id))continue;const data=nodes.get(row.target_id!)!.data,board=nodes.get(row.board_id!)!.data,config=attentionConfig(board);
   if(!config?.enabled||row.person_value!==userId||!openAttentionRecord(data,board))continue;

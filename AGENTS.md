@@ -231,3 +231,15 @@ Blob that WebKit refused and to keep access reconciliation atomic. Never await
 Blob byte conversion inside the quarantine transaction. Existing account-local
 stores and held bytes must survive rollback/recovery; older clients cannot decode
 fallback rows. No encoded bytes belong in synced collections or published QA.
+
+
+### Phase 8 AI review desk
+
+`/ai?view=review` is the operating Review desk; `?view=library` retains workflow
+prompts and deterministic digest/configuration. Attention uses `aiDeskLink()`.
+Reads use `useAiReviewRead` / `createCurrentRead` and remain in memory, keyed by
+account/session/access and hidden offline. Never cache API review responses in the
+service worker. Proposal, suggestion and undo mutation authority stays in existing
+session-authenticated endpoints; the desk never approves through MCP. Tests using
+`connectFixtureMcp(...,{allowHttps:true,fixtureHuman:false})` intentionally disable
+the legacy automatic fixture-human wrapper and exercise actual browser decisions.

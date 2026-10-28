@@ -238,3 +238,36 @@ Item8.9 feature verification is accepted with exact-source evidence in
 The144 wider UI cases retain their e2abd61 source; later upload scanning was
 verified by the54 feature cases. Final native source161619d changes only the
 harness/docs since application ebed3b2. Full Phase8 certification remains pending.
+
+
+## 8.11: AI review desk
+
+Implemented in the containing commit; feature matrix and final phase certificate
+are pending. `/ai` opens Review, with a link to the preserved Workflow library,
+deterministic weekly digest and provider configuration. Review groups active
+proposals with a once-per-second expiry label, approved/executing proposals with
+Resume / Review links, existing pending suggestion editors, and recent changesets
+with links to `/ai/undo/:id`. Recent completed/cancelled proposal results remain
+available in a disclosure. The current endpoints cap windows at50 proposals,
+100 suggestions and50 changesets; the UI labels capped windows and never claims
+workspace totals. An executing proposal can contain committed work or a source
+conflict; the existing detail screen rechecks it before execution. No new approval,
+mutation, schema or paid inference path is introduced.
+
+`useAiReviewRead` uses an in-memory read controller that discards superseded,
+unmounted, account/session/access-changed results. Refresh/failure clears prior
+content; errors do not become empty lists. Online/current-access wrappers hide
+Review and Undo immediately offline. Focus/live/visibility events refresh metadata.
+Attention links target the matching proposal or suggestion in this desk; anchor
+focus runs only once per hash to avoid stealing focus during refresh. Significant
+writes remain session-approved and fenced by the existing server paths.
+
+Browser probes exercise raw MCP proposals (no automatic fixture approval), actual
+session browser decisions, source change after approval, refused execution,
+rejection/cancellation, edited suggestion acceptance and revision-safe undo,
+expiry, loading/failure, offline concealment, library recovery and200% text.
+Existing AI screens lacked an inner scroll region within the clipped shell;
+Review, detail and Undo now own a full-height scrolling region. First failures
+are retained. The OAuth helper opts into TLS only for an exact loopback origin
+with raw review mode, preserving previous HTTP/default fixture behavior. Native
+emulation, genuine human acceptance and final Phase8 certification remain distinct.
