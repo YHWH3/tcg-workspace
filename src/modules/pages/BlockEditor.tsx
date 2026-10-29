@@ -589,11 +589,11 @@ function Handle({ onDragStart }: BlockItemProps) {
 
 function BlockMenu(props: BlockItemProps) {
   return (
-    <span className="mt-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+    <span className="mt-0.5">
       <Popover
         align="right"
         trigger={
-          <IconButton className="h-6 w-6" aria-label="Block options">
+          <IconButton className="h-8 w-8 text-neutral-600 dark:text-neutral-400" aria-label="Block options">
             <span className="text-sm leading-none">···</span>
           </IconButton>
         }
@@ -605,7 +605,7 @@ function BlockMenu(props: BlockItemProps) {
               {
                 node: (
                   <div className="px-2.5 py-1.5">
-                    <p className="mb-1 text-[10px] font-semibold tracking-wide text-neutral-400 uppercase">Turn into</p>
+                    <p className="mb-1 text-[10px] font-semibold tracking-wide text-neutral-600 uppercase dark:text-neutral-400">Turn into</p>
                     <div className="grid grid-cols-2 gap-0.5">
                       {BLOCK_TYPES.map((t) => (
                         <button

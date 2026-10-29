@@ -384,3 +384,14 @@ Earlier schema-drift regressions reproduced before the correction (3 FAIL /
 18 PASS); all three pass in the 67-test run. No feature certificate, native or
 human acceptance is claimed. Full final-source browser/workflow evidence and the
 phase certificate remain pending. No migration or integration-event change.
+
+The first clean-source306-case selection at `0e6b68f` was stopped after83 PASS,
+3 FAIL,1 INTERRUPTED and219 NOT RUN. Whole-page checks found low-contrast empty
+Linked groups/Link control in light tablet/desktop record sheets, plus a faded
+Block options text control at desktop width. The original report remains at
+`.artifacts/ux-lab/2026-10-29T06-49-58.499Z/summary.json`; it is not certification.
+Linked group labels/counts and the Link control now use readable light/dark
+colors. Block options stays visible, has readable text and a32px target. The
+unchanged failing journeys pass12/12 across tablet/desktop light in all three
+engines (`project-health-contrast-corrected.log`). Fresh committed-source focused
+checks, the full306 selection and preserved workflows are still required.
