@@ -1,0 +1,532 @@
+{
+  "schemaVersion": 1,
+  "item": "8.4 Project review cockpit and visual follow-up",
+  "status": "FOCUSED_ENGINEERING_PASS_PHASE_CERTIFICATION_PENDING",
+  "source": {
+    "sha": "1b4aceede75018050b3bfa95e47a253dcc2b1eb0",
+    "tree": "dcad61cd37b859e60d8a065dd47a7a9ada15f257",
+    "fingerprint": "df545a869c8b5f74cc441c6faea9e184af90b733eca61ebaa21cc5084c77b0f8"
+  },
+  "focused": {
+    "tests": 120,
+    "files": 14,
+    "commands": [
+      "npm run typecheck",
+      "npm test -- tests/phase8-project-health.test.ts tests/phase8-project-health-client.test.ts tests/phase8-project-health-read.test.ts tests/phase8-project-health-d1.test.ts tests/phase8-project-health-pack.test.ts tests/phase8-attention-mcp-d1.test.ts tests/assistant-registry.test.ts tests/phase8-attention-pack.test.ts tests/templates.test.ts tests/phase6-previews-d1.test.ts tests/conversion.test.ts tests/phase8-reliability.test.ts tests/phase8-reliability-client.test.ts tests/phase8-reliability-clock.test.ts",
+      "node scripts/_validate-tcg-pack.mjs"
+    ],
+    "results": [
+      {
+        "name": "typecheck",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "focused",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "pack",
+        "exit": 0
+      }
+    ],
+    "complete": true,
+    "identity": {
+      "path": ".artifacts/phase8/project-health-final3-focused-source.json",
+      "sha256": "0b294ddfcccc6b05c8e49ca743d3e52b2b3c178d9b416dd385484da36957d2b8"
+    },
+    "logs": [
+      {
+        "path": ".artifacts/phase8/project-health-final3-typecheck.log",
+        "sha256": "c85faad742c8ad117de8ed591ec6999ea99a21fdd2ba557c5fb19bfa2f97cb5e"
+      },
+      {
+        "path": ".artifacts/phase8/project-health-final3-focused.log",
+        "sha256": "23bb55f2a2d7ba3ea75192056bd070615d63ca1de4676ad1c9b477172abd64be"
+      },
+      {
+        "path": ".artifacts/phase8/project-health-final3-pack.log",
+        "sha256": "492bf23a019627063ececfede88c498205ae60f639217aadb83edec5ea82eb19"
+      }
+    ]
+  },
+  "browser": {
+    "source": {
+      "sha": "1b4aceede75018050b3bfa95e47a253dcc2b1eb0",
+      "fingerprint": "df545a869c8b5f74cc441c6faea9e184af90b733eca61ebaa21cc5084c77b0f8"
+    },
+    "selection": [
+      "--grep",
+      "Project cockpit:"
+    ],
+    "pass": 90,
+    "fail": 0,
+    "skip": 0,
+    "flaky": 0,
+    "exitCode": 0,
+    "projects": 18,
+    "categories": {
+      "projectCockpit": 90
+    },
+    "summary": {
+      "path": ".artifacts/ux-lab/2026-10-29T14-52-38.397Z/summary.json",
+      "sha256": "f5d00cb7e10c4ded2595f0b50e49470923de2814a81ad59a51b28b56616bd09e"
+    },
+    "runtimes": [
+      {
+        "project": "chromium-compact-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-compact-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      }
+    ],
+    "scope": "Final corrected Project cockpit selection only; not the full UX plan or a phase certificate.",
+    "fullUxCoverage": {
+      "required": 990,
+      "executed": 90,
+      "missing": 900,
+      "failed": 0,
+      "complete": false
+    }
+  },
+  "broaderBrowser": {
+    "source": {
+      "sha": "33487805198e3696f50585b982357f2a91959d69",
+      "fingerprint": "4aeb1aec11a880bf33c9c5a021b0e058c37e9f7512f84555301449df1feb7462"
+    },
+    "selection": [
+      "--grep",
+      "Project cockpit:|reliability:|pack upgrade:|surface: records-|surface: page$|surface: task-detail$|opened view controls:|text enlargement:|table: horizontal recovery"
+    ],
+    "pass": 378,
+    "fail": 0,
+    "skip": 0,
+    "flaky": 0,
+    "exitCode": 0,
+    "summary": {
+      "path": ".artifacts/ux-lab/2026-10-29T14-26-57.884Z/summary.json",
+      "sha256": "8497c2599060ed94da2332fd15ee7e1b08e16acad50f5bbe58cd41a30af4a8b2"
+    },
+    "retainedUnaffectedCases": 288,
+    "scope": "72 reliability,18 pack and198 shared record UI cases remain at3348780. Its old90 cockpit cases do not establish the later title correction; final90 has its own source. No single-head378 pass is claimed.",
+    "applicationDifference": [
+      "src/modules/boards/blocks/ProjectHealthBlock.tsx"
+    ],
+    "qualification": "Only Project health link display changed in application code; test assertions/catalog and docs differences are retained."
+  },
+  "preserved": {
+    "source": {
+      "sha": "33487805198e3696f50585b982357f2a91959d69",
+      "tree": "acebdcf08a60720004ea07e4c7821cb1e0ecb9ae",
+      "fingerprint": "4aeb1aec11a880bf33c9c5a021b0e058c37e9f7512f84555301449df1feb7462"
+    },
+    "complete": true,
+    "identity": {
+      "path": ".artifacts/phase8/project-health-final2-preserved/summary.json",
+      "sha256": "1f9e40b391a0ccb2fb608a5d40ccbe6aac86c20408af26f6f8e6d923f01e8c8f"
+    },
+    "gates": [
+      {
+        "name": "MCP Phase3",
+        "command": "node scripts/verify-mcp-phase3.mjs <owned-loopback-url> --no-spawn",
+        "summary": {
+          "pass": 64,
+          "fail": 0,
+          "notRun": 0,
+          "blocking": 0,
+          "total": 64
+        },
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "complete": true,
+        "results": {
+          "path": ".artifacts/phase8/project-health-final2-preserved/mcp-phase3/results.json",
+          "sha256": "c2b352cf10feddc956d3c7cd0c4764d7a15ff4b6ea3b3ccdcb35d40c9eb2f1b7"
+        }
+      },
+      {
+        "name": "Phase6 enabled-permission workflows",
+        "command": "node scripts/verify-phase6.mjs --skip-build",
+        "summary": {
+          "pass": 42,
+          "fail": 0,
+          "notRun": 0,
+          "blocking": 0,
+          "total": 42
+        },
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "complete": true,
+        "results": {
+          "path": ".artifacts/phase8/project-health-final2-preserved/phase6/results.json",
+          "sha256": "14b5deec7a800ad1c53250d252d981b26cac16acc0707319501b4eee3181f8fd"
+        }
+      }
+    ],
+    "approval": "Automated disposable session fixtures; not genuine human approval.",
+    "providers": "Disabled; no real/paid model invocation.",
+    "transport": "Owned loopback HTTP preserved suites; the378-case UX fixture uses owned loopback HTTPS. No system trust changes."
+  },
+  "features": [
+    {
+      "area": "Shared transparent health",
+      "files": [
+        "shared/projectHealth.ts",
+        "shared/projectHealthConfig.ts"
+      ],
+      "behavior": "Blocked stages and dependencies, missing owners/dates, overdue tasks, open Decisions, participant-visible approvals and stale activity; incomplete evidence stays Unknown."
+    },
+    {
+      "area": "Bounded authorized reads",
+      "files": [
+        "worker/projectHealth.ts",
+        "worker/mcpReadTools.ts"
+      ],
+      "behavior": "HTTP, dashboard_snapshot and operating_review_context use shared rules, canonical gates and explicit caps. Current readable source revision changes produce409; one context-bound client read retry."
+    },
+    {
+      "area": "Usable cockpit",
+      "files": [
+        "src/modules/boards/blocks/ProjectHealthBlock.tsx",
+        "src/core/useProjectHealth.ts",
+        "src/core/projectHealthLocal.ts",
+        "src/core/projectHealthRead.ts"
+      ],
+      "behavior": "Configurable database/current-project review, source drill-downs, guarded owner/date fixes, loading/empty/error/recovery and incomplete offline snapshots."
+    },
+    {
+      "area": "Template and conversion",
+      "files": [
+        "templates/tcg-pack.json",
+        "shared/templates.ts",
+        "shared/conversion.ts"
+      ],
+      "behavior": "Pack v4 stable Project Review self block; default Project record panel respects saved/deleted reservations. Health references do not copy unrelated databases."
+    },
+    {
+      "area": "Visual and reactive fixes",
+      "files": [
+        "src/core/reliability.ts",
+        "src/modules/boards/blocks/shared.tsx",
+        "src/core/LinkedPanel.tsx",
+        "src/modules/pages/BlockEditor.tsx"
+      ],
+      "behavior": "Fresh enqueue observation clock; full wrapped dashboard headings; readable empty Linked controls and persistent Block options."
+    }
+  ],
+  "visualReview": {
+    "status": "Agent inspection completed; no human acceptance implied",
+    "selection": [
+      "chromium-compact-light",
+      "firefox-tablet-dark",
+      "webkit-desktop-light"
+    ],
+    "states": [
+      "200 percent CSS text, cockpit",
+      "200 percent CSS text, owner/date action area"
+    ],
+    "qualification": "CSS text enlargement, not native browser zoom. Browser touch emulation is not physical hardware."
+  },
+  "contract": {
+    "version": 2,
+    "bodyChanged": false,
+    "workspaceDocument": {
+      "path": "docs/integrations/the-common-ground.md",
+      "sha256": "fee8510a12a390b85ff7f58c65ada217e1bf7673972586c258d77736f264a5a4"
+    },
+    "websiteCopy": {
+      "checkout": "tcg-website-relay-integration",
+      "source": "1bbc617da62168bbf094a2ad65b0140867f74fa5",
+      "path": "INTEGRATION-WORKSPACE.md",
+      "sha256": "fee8510a12a390b85ff7f58c65ada217e1bf7673972586c258d77736f264a5a4",
+      "identical": true
+    }
+  },
+  "migrations": {
+    "added": [],
+    "latest": "0035_workspace_settings.sql",
+    "manifest": {
+      "path": "scripts/certification/migrations.json",
+      "sha256": "457ae9320003cc73c2fd137eea4299edf6fc0d5c9bc49dde462549a8a036675a"
+    }
+  },
+  "failedHistory": [
+    {
+      "path": ".artifacts/ux-lab/2026-10-29T14-50-02.324Z/summary.json",
+      "result": "Firefox title-level baseline FAIL:442px text inside201px card link. Ancestor clipping hid the issue from document overflow. Corrected normal text wrapping; final90 checks title geometry."
+    },
+    {
+      "source": "0e6b68f",
+      "path": ".artifacts/ux-lab/2026-10-29T06-49-58.499Z/summary.json",
+      "result": "83PASS,3FAIL,1INTERRUPTED,219NOTRUN; contrast findings corrected."
+    },
+    {
+      "source": "008225a",
+      "path": ".artifacts/ux-lab/2026-10-29T06-57-54.065Z/summary.json",
+      "result": "305PASS,1FAIL; actual-D1 false-empty revision race corrected. Remains a failed306 run."
+    },
+    {
+      "path": ".artifacts/phase8/project-health-revision-race-baseline.log",
+      "result": "Controlled actual-D1 baseline failed; corrected explicit409 regression passes."
+    },
+    {
+      "path": ".artifacts/phase8/reliability-clock-baseline.log",
+      "result": "Initial raw-IDB clock hypothesis probe passed and did not reproduce. Prototype reverted; no fix claimed from that probe."
+    },
+    {
+      "path": ".artifacts/phase8/reliability-reactive-clock-baseline.log",
+      "result": "Hook callback with real Dexie enqueue reproduced fresh entry as unknown-age attention; corrected regression also checks genuine aging."
+    },
+    {
+      "path": ".artifacts/phase8/project-health-clock-and-visual-probe.log",
+      "result": "Interrupted after incorrect screenshot heading selector; retained."
+    },
+    {
+      "path": ".artifacts/ux-lab/2026-10-29T14-22-29.150Z/summary.json",
+      "result": "3FAIL: compact/tablet heading clipping and WebKit capture positioning."
+    },
+    {
+      "path": ".artifacts/ux-lab/2026-10-29T14-23-24.479Z/summary.json",
+      "result": "2PASS1FAIL: heading correction passed; WebKit capture positioning remained. Corrected probe3PASS follows."
+    }
+  ],
+  "postVerificationChanges": [
+    "Sanitized evidence and documentation only; catalog and final title assertion are included in1b4acee."
+  ],
+  "remaining": [
+    "8.5 through remaining Phase8 items in roadmap dependency order",
+    "New full Phase8 certify:ai on final phase source",
+    "Native/physical-device qualification for new cockpit; human screen readers/native zoom and independent acceptance",
+    "Owner production backup, release, provider and permission activation gates"
+  ],
+  "publicationPolicy": "Only sanitized summaries tracked. Raw reports/traces/screenshots/fixture sessions and payloads remain ignored/local. No merge, deployment, remote infrastructure, real email/payments/mints or paid inference."
+}

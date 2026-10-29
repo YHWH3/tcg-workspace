@@ -96,10 +96,10 @@ planned work, L = inconsistency.
 | N18 | M (QA) | Release rehearsal retained a 34-migration assertion after Phase 7 added 0035. It failed before running upgrade/restore checkpoints. | Full 79cc6e5 certificate release-rehearsal: 35 !== 34 | Phase 7 updates the expected count to 35 and adds manifest/count self-test; actual rehearsal 12/12 PASS. |
 
 | N19 | M | Device reliability compared fresh reactive queue entries with the clock captured at mount/last tick, falsely reporting unknown age and Review work on this device. | Real Dexie enqueue plus controlled hook callback reproduces attention=true for a one-second-old entry; `reliability-reactive-clock-baseline.log`. | 8.4 follow-up uses observation time; old pending work still alerts. |
-| N20 | M | Shared dashboard heading truncates to R… at 200% text because a second flex spacer consumes heading space. | Three-engine screenshot probe: compact 195px heading in 40px, tablet in 69px. Heading geometry fails before correction. | 8.4 follow-up removes redundant spacer and lets headings wrap; full matrix pending. |
+| N20 | M | Shared dashboard heading truncates to R… at 200% text because a second flex spacer consumes heading space. | Three-engine screenshot probe: compact 195px heading in 40px, tablet in 69px. Heading geometry fails before correction. | 8.4 follow-up removes redundant spacer and lets headings wrap;378-case selection PASS at3348780. |
 | N21 | H | Project health could return an empty success if a readable source changed revision between selection and authorization. | Actual-D1 controlled revision race, `project-health-revision-race-baseline.log`. | `575a7f0`: explicit409 plus one current-context read retry; authorization denial remains redacted. |
 
-| N22 | M | Firefox200% long Project title spills beyond its card; page-level overflow misses ancestor clipping. | Title-level check reproduces442px text in201px link; project-health-title-baseline.log. | Project link uses normal wrapping text flow; corrected three-engine3/3 probe PASS, final affected matrix pending. |
+| N22 | M | Firefox200% long Project title spills beyond its card; page-level overflow misses ancestor clipping. | Title-level check reproduces442px text in201px link; project-health-title-baseline.log. | Project link uses normal wrapping text flow; final90 cockpit cases PASS at1b4acee. |
 
 Add new findings as N23+ with the same columns.
 

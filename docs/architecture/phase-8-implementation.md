@@ -460,3 +460,27 @@ The mandatory UX catalog also names the already executed fresh-edit regression.
 Run fresh120 focused and90 affected cockpit cases on the new committed source.
 Keep the288 unrelated cases and64/42 preserved workflows tied to3348780; do not
 claim a new-head378 pass or visual acceptance from the old page-overflow assertion.
+
+#### 8.4 final source-bound feature evidence
+
+At `1b4aceede75018050b3bfa95e47a253dcc2b1eb0` (tree
+`dcad61cd37b859e60d8a065dd47a7a9ada15f257`, fingerprint
+`df545a869c8b5f74cc441c6faea9e184af90b733eca61ebaa21cc5084c77b0f8`),
+clean120 focused tests/14 files, typecheck, pack validation and90 cockpit cases
+pass,18 projects, no skips/flaky/retries. The final title assertion measures the
+actual link as well as document overflow. Six final200% screenshots were reviewed
+across Chromium compact/light, Firefox tablet/dark and WebKit desktop/light.
+
+The broader378 selection at3348780 passed; its288 non-cockpit reliability/pack/
+shared UI cases remain separate unchanged-code evidence. Preserved MCP Phase3
+64/64 and Phase6 42/42 also passed at3348780. The only later application difference
+is Project health link display; worker/shared/template code is identical. Do not
+claim a single-head378 PASS. Source hashes, commands, artifact hashes, platform
+matrix, retained failures and limits are in
+`docs/roadmap/evidence/P8-project-cockpit-1b4acee.json`. Providers stayed disabled;
+automated session approvals were disposable fixtures. UX used owned loopback
+HTTPS, preserved suites owned HTTP; no global trust change.
+
+Only sanitized docs/evidence follow verification. This is feature engineering
+evidence, not a final Phase8 certificate or native/physical/human acceptance.
+Continue with8.5 Funding and finance in the roadmap's dependency order.
