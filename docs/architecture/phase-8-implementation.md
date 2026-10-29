@@ -532,3 +532,14 @@ independent root-to-snapshot revision comparison now passes in both modes.
 Final clean-source focused/typecheck/pack, full affected browser matrix, preserved
 MCP/Phase6 and source-bound evidence/publication remain pending. No migration,
 integration body/secret/env change, real provider/email/payment or production work.
+
+
+Finance rounding follow-up: a paired expense/reversal of ±1.125 reproduced a
+one-cent residual (1 FAIL/14 PASS). Decimal formatting now rounds half units
+symmetrically, consistent with displayed currency; ungrouped digits are parsed
+into safe integer minor units before summation. Regressions cover1.005,10.075,
+exact reversals and zero/two/three-decimal currencies. Corrected calculation and
+D1 checks38/38 PASS. The earlier frozen8c7ddf7 selection is INTERRUPTED, exit130:
+88 PASS,1 interrupted,271 NOT RUN. Its report remains preserved at
+.artifacts/ux-lab/2026-10-29T15-27-52.148Z/summary.json; it is not acceptance evidence.
+New committed-source focused and browser verification are required.

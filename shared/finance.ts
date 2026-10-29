@@ -1,5 +1,5 @@
 /** Focused operating summaries, not a ledger or exchange-rate engine. */
-import {fieldsOf,optionByName,type FieldDef} from './fields';
+import {optionByName,type FieldDef} from './fields';
 import {validCurrency} from './workspaceSettings';
 export type FinanceRecord={id:string}&Record<string,unknown>;
 export interface FinanceLink {id:string;kind:string;fieldId?:string;fromId:string;toId:string;deleted?:boolean;archived?:boolean}
@@ -15,10 +15,13 @@ export interface ProjectMoney {
 }
 const active=(r:FinanceRecord)=>!r.deleted&&!r.archived;
 /** Validate untyped record values at the calculation boundary. Missing is not0. */
-function minorAmount(raw:unknown,factor:number):number|null {
+function minorAmount(raw:unknown,formatter:Intl.NumberFormat):number|null {
  if(typeof raw!=='number'||!Number.isFinite(raw))return null;
- const minor=Math.round(raw*factor);
- return Number.isSafeInteger(minor)?minor:null;
+ // Intl rounds decimal ties away from zero, matching displayed money. Parse
+ // its ungrouped Latin digits directly so binary multiplication cannot change
+ // a half-unit or leave a cent after an exact negative reversal.
+ const minor=BigInt(formatter.format(raw).replace('.',''));
+ return minor>=BigInt(Number.MIN_SAFE_INTEGER)&&minor<=BigInt(Number.MAX_SAFE_INTEGER)?Number(minor):null;
 }
 export function projectMoney(project:FinanceRecord,transactions:FinanceRecord[],links:FinanceLink[],ctx:FinanceFieldsContext):ProjectMoney {
  const issues=new Set<string>(ctx.partial?['partial_sources']:[]),transactionIds:string[]=[],excludedBudgetLineIds:string[]=[];
@@ -30,8 +33,8 @@ export function projectMoney(project:FinanceRecord,transactions:FinanceRecord[],
  if(budgetField?.type!=='number'||amountField?.type!=='number'||typeField?.type!=='select'||ctx.relationField.type!=='relation'||ctx.relationField.relation?.target!==ctx.transactionDatabaseId){issues.add('field_configuration');return result();}
  if(currencies.some(c=>!validCurrency(c))){issues.add('currency_configuration');return result();}
  if(currencies.length>1)return result({error:'mixed_currency',currencies});
- const currency=currencies[0]!,digits=new Intl.NumberFormat('en',{style:'currency',currency}).resolvedOptions().maximumFractionDigits!,factor=10**digits;
- const budget=minorAmount(project[budgetKey],factor);if(budget===null)issues.add('budget_missing_or_invalid');
+ const currency=currencies[0]!,digits=new Intl.NumberFormat('en',{style:'currency',currency}).resolvedOptions().maximumFractionDigits!,factor=10**digits,formatter=new Intl.NumberFormat('en-US',{useGrouping:false,minimumFractionDigits:digits,maximumFractionDigits:digits});
+ const budget=minorAmount(project[budgetKey],formatter);if(budget===null)issues.add('budget_missing_or_invalid');
  const expense=optionByName(typeField,'expense'),income=optionByName(typeField,'income'),budgetLine=optionByName(typeField,'budget line');
  if(!expense||!income){issues.add('type_configuration');return result({budget:budget===null?null:budget/factor});}
  const relation=ctx.relationField.relation,reverse=relation.primary!==true&&!!relation.pairedFieldId,fieldId=reverse?relation.pairedFieldId!:ctx.relationField.id;
@@ -43,7 +46,7 @@ export function projectMoney(project:FinanceRecord,transactions:FinanceRecord[],
   const row=byId.get(id);if(!row||row.boardId!==ctx.transactionDatabaseId){issues.add('transaction_unavailable');complete=false;continue;}
   if(budgetLine&&row[typeKey]===budgetLine.id){excludedBudgetLineIds.push(id);continue;}
   transactionIds.push(id);
-  const amount=minorAmount(row[amountKey],factor),kind=row[typeKey];
+  const amount=minorAmount(row[amountKey],formatter),kind=row[typeKey];
   if(amount===null){issues.add('amount_missing_or_invalid');complete=false;continue;}
   if(kind===expense.id)spent+=amount;else if(kind===income.id)received+=amount;else{issues.add('transaction_type_unknown');complete=false;}
   if(!Number.isSafeInteger(spent)||!Number.isSafeInteger(received)){issues.add('amount_out_of_range');complete=false;}
@@ -54,15 +57,15 @@ export function projectMoney(project:FinanceRecord,transactions:FinanceRecord[],
 }
 export interface ProductEconomics {price:number|null;cost:number|null;difference:number|null;marginPercent:number|null;currency:string|null;partial:boolean;issues:string[];error?:'mixed_currency';currencies?:string[]}
 export function productEconomics(product:FinanceRecord,ctx:{fields:FieldDef[];workspaceCurrency:string;priceKey?:string;costKey?:string;partial?:boolean}):ProductEconomics {
- const priceKey=ctx.priceKey??'p_f_price',costKey=ctx.costKey??'p_f_cost',fields=fieldsOf({fields:ctx.fields}),priceField=fields.find(f=>`p_${f.id}`===priceKey),costField=fields.find(f=>`p_${f.id}`===costKey);
+ const priceKey=ctx.priceKey??'p_f_price',costKey=ctx.costKey??'p_f_cost',fields=ctx.fields,priceField=fields.find(f=>`p_${f.id}`===priceKey),costField=fields.find(f=>`p_${f.id}`===costKey);
  const issues=new Set<string>(ctx.partial?['partial_sources']:[]),currencies=[...new Set([priceField?.currency??ctx.workspaceCurrency,costField?.currency??ctx.workspaceCurrency])].sort();
  const result=(values:Partial<ProductEconomics>={}):ProductEconomics=>({price:null,cost:null,difference:null,marginPercent:null,currency:currencies.length===1?currencies[0]:null,partial:issues.size>0,issues:[...issues].sort(),...values});
  if(!active(product)){issues.add('product_unavailable');return result();}
  if(priceField?.type!=='number'||costField?.type!=='number'||priceKey===costKey){issues.add('field_configuration');return result();}
  if(currencies.some(c=>!validCurrency(c))){issues.add('currency_configuration');return result();}
  if(currencies.length>1)return result({error:'mixed_currency',currencies});
- const currency=currencies[0]!,factor=10**new Intl.NumberFormat('en',{style:'currency',currency}).resolvedOptions().maximumFractionDigits!;
- const price=minorAmount(product[priceKey],factor),cost=minorAmount(product[costKey],factor);
+ const currency=currencies[0]!,digits=new Intl.NumberFormat('en',{style:'currency',currency}).resolvedOptions().maximumFractionDigits!,factor=10**digits,formatter=new Intl.NumberFormat('en-US',{useGrouping:false,minimumFractionDigits:digits,maximumFractionDigits:digits});
+ const price=minorAmount(product[priceKey],formatter),cost=minorAmount(product[costKey],formatter);
  if(price===null)issues.add('price_missing_or_invalid');if(cost===null)issues.add('cost_missing_or_invalid');
  const difference=price!==null&&cost!==null?price-cost:null;
  if(difference!==null&&!Number.isSafeInteger(difference)){issues.add('amount_out_of_range');return result();}

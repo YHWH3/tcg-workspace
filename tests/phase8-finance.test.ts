@@ -52,3 +52,18 @@ it('keeps loss, effective currencies, field drift and partial product evidence v
 });
 
 it('excludes known deleted and archived transactions without retaining their identities',()=>{for(const flag of ['deleted','archived'])expect(projectMoney(project,[{...tx('a','e',20),[flag]:true}],[link('a')],ctx)).toMatchObject({spent:0,partial:false,transactionIds:[]});});
+it('rounds decimal half units symmetrically and cancels exact signed reversals',()=>{
+ for(const amount of [1.125,1.005,10.075]){
+  const result=projectMoney(project,[tx('charge','e',amount),tx('reversal','e',-amount)],[link('charge'),link('reversal')],ctx);
+  expect(result).toMatchObject({spent:0,remaining:100,partial:false});
+ }
+ expect(projectMoney(project,[tx('charge','e',1.005)],[link('charge')],ctx).spent).toBe(1.01);
+ expect(projectMoney(project,[tx('charge','e',10.075)],[link('charge')],ctx).spent).toBe(10.08);
+ expect(productEconomics({id:'cup',p_f_price:1.005,p_f_cost:0},productCtx).price).toBe(1.01);
+});
+it('uses zero and three-decimal currency precision consistently for signed values',()=>{
+ for(const [currency,value,expected]of [['JPY',1.5,2],['KWD',1.2345,1.235]] as const){
+  expect(projectMoney(project,[tx('a','e',value)],[link('a')],{...ctx,workspaceCurrency:currency}).spent).toBe(expected);
+  expect(projectMoney(project,[tx('a','e',value),tx('b','e',-value)],[link('a'),link('b')],{...ctx,workspaceCurrency:currency}).spent).toBe(0);
+ }
+});
