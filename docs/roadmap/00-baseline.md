@@ -101,7 +101,11 @@ planned work, L = inconsistency.
 
 | N22 | M | Firefox200% long Project title spills beyond its card; page-level overflow misses ancestor clipping. | Title-level check reproduces442px text in201px link; project-health-title-baseline.log. | Project link uses normal wrapping text flow; final90 cockpit cases PASS at1b4acee. |
 
-Add new findings as N23+ with the same columns.
+| N23 | M | Compact200% View transactions button extended beyond its finance card, though document geometry passed. | New own-card assertion: right311.5px versus card boundary257px; finance-button-baseline.log. | Budget buttons are width-constrained and caption span wraps; corrected9-case3-engine probe PASS. Final matrix pending. |
+| N24 | M (QA) | Pack validator rejected the existing supported within date operator when Funding added its stale-action view. | finance-pack-first.log: bad op within. | Validator recognizes within; pack and shared filter tests keep runtime behavior aligned. |
+| N25 | H | Finance root snapshot could use an older budget after a concurrent change when permissions were disabled. | Controlled actual-D1 baseline returns200 instead of409 in disabled mode; enabled mode already refused. | Root revisions compared against the second snapshot independently of the read gate; both-mode regressions PASS. |
+
+Add new findings as N26+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

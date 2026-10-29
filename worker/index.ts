@@ -33,6 +33,7 @@ import type { Env, AuthUser } from './auth';
 import { accessEnabled } from './readAccess';
 import {attentionApi} from './attention';
 import {projectHealthApi} from './projectHealth';
+import {financeApi} from './finance';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 // API state must not survive account switches or public-form disable/re-enable
@@ -102,6 +103,7 @@ app.route('/api/ingest/website', websiteIngestApi);
 app.route('/api/workspace',workspaceSettingsApi);
 app.route('/api/attention',attentionApi);
 app.route('/api/project-health',projectHealthApi);
+app.route('/api/finance',financeApi);
 app.route('/api', admin);
 
 app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));

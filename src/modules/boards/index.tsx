@@ -8,6 +8,7 @@ import { BoardsSection } from './Sidebar';
 import './TasksBlock';
 import './blocks';
 import {GateMoveDialog} from './GateMove';
+import {ProductEconomicsDatabase} from './blocks/BudgetBlock';
 import {ProjectHealthRecordBody} from './blocks/ProjectHealthBlock';
 
 export const boardsModule: AppModule = {
@@ -25,5 +26,5 @@ export const boardsModule: AppModule = {
   ],
   collections: ['tasks', 'boards', 'files'],
   sidebarSection: BoardsSection,
-  slots:{taskDetail:ProjectHealthRecordBody,stageApproval:({taskId,boardId,stageId,onClose})=><GateMoveDialog attempt={{taskId,boardId,stageId}} onClose={onClose}/>},
+  slots:{databaseSummary:ProductEconomicsDatabase,taskDetail:ProjectHealthRecordBody,stageApproval:({taskId,boardId,stageId,onClose})=><GateMoveDialog attempt={{taskId,boardId,stageId}} onClose={onClose}/>},
 };

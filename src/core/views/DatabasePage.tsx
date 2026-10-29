@@ -1,3 +1,5 @@
+import {modules} from '../../modules';
+import {Slot} from '../../modules/slots';
 import {AttentionEditor} from '../../modules/boards/AttentionEditor';
 import {MoveSpaceButton} from '../MoveSpace';
 /**
@@ -177,6 +179,8 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
             </button>
           </div>
         )}
+
+        <Slot modules={modules} kind="databaseSummary" props={{databaseId:board.id}}/>
 
         {/* view tabs */}
         <div className="flex items-center gap-1 overflow-x-auto border-b border-neutral-200/70 px-3 py-1.5 dark:border-neutral-800/70">

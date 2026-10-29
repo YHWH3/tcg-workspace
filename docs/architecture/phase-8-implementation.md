@@ -484,3 +484,51 @@ HTTPS, preserved suites owned HTTP; no global trust change.
 Only sanitized docs/evidence follow verification. This is feature engineering
 evidence, not a final Phase8 certificate or native/physical/human acceptance.
 Continue with8.5 Funding and finance in the roadmap's dependency order.
+
+## 8.5 Funding and finance desk (implementation, final evidence pending)
+
+The new shared finance calculation uses configured numeric/type/relation fields,
+including the primary-normalized reverse Transactions relation. Signed negative
+expenses/income reverse only their own subtotal. Budget line rows are planning
+values and do not count as actuals. Remaining is budget minus net expenses;
+income is shown separately, never added into budget again. Effective currency is
+a field override or workspace setting; mixed currencies return an explicit error,
+with no exchange conversion. Integer minor units avoid binary-fraction accumulation
+and unsafe sums are refused. Unknown amounts/types and missing budgets remain
+explicit; known deleted/archived transactions are excluded in both permission
+modes. Product economics computes Price minus Cost and percentage only for positive
+Price, while preserving the existing text Margin field.
+
+The Worker collector projects only money/filter metadata, caps roots/relations/
+records/databases and uses the canonical read gate, sponsor/session context and
+final observed-authority fence. Its source revision check also works with
+permissions disabled. HTTP and dashboard_snapshot share the same calculation;
+MCP supports Products database context and combines budget and Project health
+under the invocation budget. Local indexed sources are always a partial device
+snapshot. Current-context read conflict gets one retry; repeated races and other
+failures surface. The budget UI has source records, exact transaction drills,
+configuration, empty/loading/error/recovery and mixed-currency states. Products
+can open the same content through a databaseSummary slot, without silently
+persisting a block. No database/accounting/feed/reconciliation system is added.
+
+Packv5 adds stable stale next-action filters (2000-01-01 through today-1; exclude
+won/lost, retain dormant), project budgets on Finance/Finance Review, current-record
+budget on Project Review and Common Cupboard economics. Template copies retain
+live money references instead of copying related databases. Conversion copies
+only validated self-budget configuration bound to the destination, through the
+existing frozen preview and disposable session-approved execution. explain_budget
+is a read-only contextual prompt; it is not a new MCP tool or provider inference.
+
+Working-tree focused73/73 tests across9 files PASS; corrected9-case three-engine
+probe PASS (Chromium compact/light, Firefox tablet/dark, WebKit desktop/light).
+Earlier results remain retained: initial25 calculation/D1 checks; stricter deleted-
+transaction test exposed mode differences, corrected to active totals; pack
+validator rejected the existing within operator and now recognizes it. Screenshot
+review found a button spilling beyond its card at200%; new geometry assertion
+reproduces right311.5px versus257px boundary. Width constraint and wrapping caption
+correct it. A disabled-mode root revision race reproduced200 instead of409;
+independent root-to-snapshot revision comparison now passes in both modes.
+
+Final clean-source focused/typecheck/pack, full affected browser matrix, preserved
+MCP/Phase6 and source-bound evidence/publication remain pending. No migration,
+integration body/secret/env change, real provider/email/payment or production work.

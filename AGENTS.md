@@ -266,3 +266,20 @@ mutations. Derived self panels respect saved and deleted body reservations; heal
 references must not cause unrelated database copies during template conversion.
 Device reliability reactive reads use observation time, not the periodic refresh
 clock. Fresh queued work is pending; it is not automatically an unknown-age warning.
+
+### Phase 8 funding and finance desk
+
+`shared/finance.ts` owns projectMoney/productEconomics; shared financePage/config
+keep HTTP, MCP and device displays aligned. These are focused summaries, not a
+ledger: signed reversals reduce their own expense/income subtotal; Budget line
+rows are excluded; remaining is budget minus net expenses, with income separate.
+Use effective field/workspace currency and refuse mixed currencies. Missing or
+unsafe amounts/types must remain explicit. Do not overwrite text Margin.
+`worker/finance.ts` reads bounded projected metadata under canonical gates and
+fences root revisions even with permissions disabled. Unavailable source errors
+never become an empty success; only an explicit read conflict gets one current-
+context retry. Device indexes provide explicitly partial snapshots, never server
+completeness. The Products databaseSummary slot opens existing budget content
+without persisting derived rows. Template copies retain live money references;
+only validated self-budget blocks get the existing destination-bound conversion
+exception, under frozen preview/session approval.

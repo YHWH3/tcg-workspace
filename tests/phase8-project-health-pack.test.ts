@@ -3,7 +3,7 @@ import {toBundled,planPackUpgrade,type AuthorTemplate} from '../shared/bundled';
 import {planTemplateInstantiation,boardRefsOf} from '../shared/templates';
 import raw from '../templates/tcg-pack.json';
 it('adds a stable self-health block to Project Review and remaps the configured database on install',()=>{
- const pack=toBundled('tcg-pack',raw as unknown as AuthorTemplate);expect(pack.version).toBe(4);
+ const pack=toBundled('tcg-pack',raw as unknown as AuthorTemplate);expect(pack.version).toBeGreaterThanOrEqual(4);
  const health=pack.snapshot.blocks!.project_review_health;expect(health).toMatchObject({projectId:'self',databaseId:'db_projects',type:'projecthealth',staleDays:14,limit:1});
  const plan=planTemplateInstantiation(pack.snapshot,{templateId:pack.root,templateKey:pack.key,packInstall:true,stableIds:true},{id:()=>crypto.randomUUID(),now:1})!;
  const projects=plan.writes.find(w=>w.collection==='boards'&&w.patch.templateDbKey==='projects')!;

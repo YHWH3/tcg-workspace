@@ -7,3 +7,5 @@ import './MyWorkBlock';
 
 import './AttentionBlock';
 import './ProjectHealthBlock';
+
+import './BudgetBlock';

@@ -35,7 +35,7 @@ Reports/traces are local-only and may contain disposable session credentials. Do
 
 The explicit matrix is Chromium/Firefox/WebKit × 390/820/1440px × light/dark: 18 projects. The catalog covers 21 named rendered states: home/page, database index, six record views, task detail and unavailable task, moodboard/form/automation empty states, approvals, Activity, Inbox, Settings, AI library with inference off, Website dashboard and Website inbox.
 
-The current required plan has 55 cases × 18 projects = 990 cases; `requiredCases` in `scripts/ux-lab/catalog.mjs` is authoritative. Historical phase counts below keep their original source. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
+The current required plan has 58 cases × 18 projects = 1,044 cases; `requiredCases` in `scripts/ux-lab/catalog.mjs` is authoritative. Historical phase counts below keep their original source. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
 
 Fast-check generates bounded sequences of stage changes, Unicode/long title edits, offline edits, reloads, breakpoint changes, theme changes and keyboard search. It compares title/stage with a small model and verifies server persistence before reload. Every generated case resets its starting viewport/theme/connectivity; failures retain seed, shrink path, command sequence and a replay command. The default is three generated sequences per project, each with 6–14 commands. This is bounded exploration, not all possible sequences.
 
@@ -120,3 +120,9 @@ a title spilling inside a clipped ancestor. The fresh-edit reliability case hold
 a real pending edit, checks for false unknown-age attention, then verifies server
 receipt and queue removal. Full phase acceptance still requires the complete
 current plan; the focused90/378 selections keep their separate source identities.
+
+Phase8 finance adds three named journeys: exact totals and transaction drills with
+offline recovery; filter persistence, mixed-currency refusal, failed-read recovery
+and200% text; Products database economics with zero/missing values and retained
+text Margin. Enlarged checks measure both title text and the transaction button
+against its own card; clipped ancestors cannot turn card overflow into a pass.

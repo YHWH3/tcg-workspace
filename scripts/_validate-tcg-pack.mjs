@@ -29,11 +29,11 @@ const FIELDKEY = /^(p|rel)_(.+)$/;
 const VIEW_TYPES = new Set(['board', 'table', 'list', 'gallery', 'calendar', 'timeline']);
 const FILTER_OPS = new Set([
   'is', 'is_not', 'contains', 'not_contains', 'empty', 'not_empty',
-  'before', 'after', 'on_or_before', 'on_or_after', 'checked', 'unchecked', 'me',
+  'before', 'after', 'on_or_before', 'on_or_after', 'within', 'checked', 'unchecked', 'me',
 ]);
 const BLOCK_TYPES = new Set([
   'text', 'h1', 'h2', 'h3', 'bulleted', 'todo', 'divider', 'callout', 'tasks',
-  'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'embed',
+  'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'embed',
 ]);
 
 const errors = [];
@@ -167,6 +167,16 @@ for (const pg of tpl.pages ?? []) {
         if (b.inline != null) checkConfig(db, b.inline, `${where}.inline`);
         for (const f of b.filters ?? []) checkFieldKey(db, f.key, `${where}.filters`);
         if (b.fieldKey != null) checkFieldKey(db, b.fieldKey, `${where}.fieldKey`);
+        if(b.type==='budget'){
+          const keys=b.mode==='product'?['priceKey','costKey']:['budgetKey'];
+          for(const key of keys){const fallback={priceKey:'p_f_price',costKey:'p_f_cost',budgetKey:'p_f_budget'}[key],value=b[key]??fallback;checkFieldKey(db,value,`${where}.${key}`);if(!(db.fields??[]).some(f=>`p_${f.id}`===value&&f.type==='number'))err(`${where}.${key}: expected number field`);}
+          if(b.mode!=='product'){
+            const field=(db.fields??[]).find(f=>`rel_${f.id}`===(b.relationKey??'rel_f_transactions')),target=dbs.get(field?.relation?.target);
+            if(!target)err(`${where}: transactions relation target missing`);
+            else for(const [key,fallback,type]of [['amountKey','p_f_amount','number'],['typeKey','p_f_type','select']]){const value=b[key]??fallback;checkFieldKey(target,value,`${where}.${key}`);if(!(target.fields??[]).some(f=>`p_${f.id}`===value&&f.type===type))err(`${where}.${key}: expected ${type} field`);}
+          }
+          if(b.recordId&&b.recordId!=='self'&&!recordIds.has(b.recordId))err(`${where}: recordId not a record or self`);
+        }
         if(b.type==='projecthealth'){
           for(const [key,fallback,type]of [['ownerKey','p_f_owner','person'],['startKey','p_f_start','date'],['endKey','p_f_end','date']]){
             const value=b[key]??fallback;checkFieldKey(db,value,`${where}.${key}`);

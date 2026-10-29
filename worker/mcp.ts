@@ -40,6 +40,7 @@ import { linkId } from '../shared/linkid';
 import { edgesOf, wouldCreateDependencyCycle } from '../shared/deps';
 import { planConversion } from '../shared/conversion';
 import {projectHealthConfigSchema} from '../shared/projectHealthConfig';
+import {financeConfigSchema} from '../shared/financeConfig';
 import { archivePatch, isArchived } from '../shared/archive';
 import { findReusableBoards, planInstallPreview,planPackUpgrade } from '../shared/bundled';
 import {loadPackUpgradeRecords} from './packUpgrade';
@@ -4017,7 +4018,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   );
 
   /** Block types that pull a database embed — never copied into a record body. */
-  const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth']);
+  const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget']);
 
   const convertCore = async (a: { recordId: string; toDatabaseId: string; templateId?: string; linkKind?: string; sourceStage?: string; title?: string; expectedRev?: number }): Promise<ToolResult> => {
     const src = await rec(ctx.env, 'tasks', a.recordId);
@@ -4060,7 +4061,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       for (const b of tplBlocks) {
         const type = String(b.data.type ?? 'p');
         const health=type==='projecthealth'&&b.data.projectId==='self'?projectHealthConfigSchema.safeParse({...b.data,databaseId:a.toDatabaseId}):null;
-        if (RECORD_BODY_SKIP_TYPES.has(type)&&!health?.success) { skipped.add(type); continue; }
+        const budget=type==='budget'&&b.data.recordId==='self'?financeConfigSchema.safeParse({...b.data,databaseId:a.toDatabaseId}):null;
+        if (RECORD_BODY_SKIP_TYPES.has(type)&&!health?.success&&!budget?.success) { skipped.add(type); continue; }
         copied++;
         ops.push({
           collection: 'blocks',
@@ -4074,6 +4076,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
             ...(b.data.checked !== undefined ? { checked: b.data.checked } : {}),
             ...(b.data.url !== undefined ? { url: b.data.url } : {}),
             ...(health?.success?{...health.data,heading:b.data.heading??'Project health'}:{}),
+            ...(budget?.success?{...budget.data,heading:b.data.heading??'Project budget'}:{}),
           },
         });
       }

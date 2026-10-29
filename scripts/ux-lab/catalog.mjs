@@ -25,6 +25,9 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'Finance desk: exact totals, transaction drill-down and offline recovery',
+  'Finance desk: configured filters, mixed currency, failure recovery and enlarged text',
+  'Finance desk: Products database economics and missing-value states preserve text Margin',
   'Project cockpit: transparent signals, exact cross-database sources and recovery',
   'Project cockpit: guarded offline owner/date changes and concurrent edit refusal',
   'Project cockpit: filter configuration, empty/error states and 200 percent reflow',

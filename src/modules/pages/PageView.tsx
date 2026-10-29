@@ -23,7 +23,7 @@ import { AskAiMenu } from '../../core/assistant/AskAiMenu';
 import { useAssistantContext } from '../../core/assistant/store';
 
 /** Block types that make a page a dashboard (Phase 3 dashboard blocks). */
-const DASHBOARD_BLOCKS = new Set(['metric', 'view', 'mywork', 'activity', 'calendar', 'attention', 'projecthealth']);
+const DASHBOARD_BLOCKS = new Set(['metric', 'view', 'mywork', 'activity', 'calendar', 'attention', 'projecthealth','budget']);
 
 export function PagesHome() {
   const pages = usePages();
