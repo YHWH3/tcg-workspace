@@ -65,8 +65,8 @@ export function DashBlock({
     <div ref={ref} className="rounded-xl border border-neutral-200/80 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900/40">
       <div className="flex items-center gap-1.5">
         <Icon size={13} className="shrink-0 text-neutral-300 dark:text-neutral-600" aria-hidden />
-        {heading && <h3 className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">{heading}</h3>}
-        <span className="flex-1" />
+        {heading && <h3 className="min-w-0 flex-1 break-words text-sm font-semibold tracking-tight">{heading}</h3>}
+        {!heading && <span className="flex-1" />}
         <Popover
           adaptive
           align="right"

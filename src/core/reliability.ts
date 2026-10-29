@@ -17,7 +17,8 @@ export function useReliability(){
  const result=useLiveQuery(async()=>{
   if(!ready||!userId)return {identity,data:null,error:null};
   const current=()=>{const a=accessClientStore.get();if(authStore.get().user?.id!==userId||getToken()!==token||a.epoch!==access.epoch||!['ready','offline'].includes(a.status)||db.name!==`workspace-${userId}`)throw new Error('access_changed');};
-  try{return {identity,data:await readReliability(db,userId,now,{uploading:uploads.userId===userId?uploads.ids:[],connected:live.connected,online:navigator.onLine},current),error:null};}
+  // Dexie can rerun between age-refresh ticks; observe new entries against the current clock.
+  try{return {identity,data:await readReliability(db,userId,Date.now(),{uploading:uploads.userId===userId?uploads.ids:[],connected:live.connected,online:navigator.onLine},current),error:null};}
   catch{return {identity,data:null,error:'Device reliability could not be read. Retry after checking access.'};}
  },[identity,ready,now,uploads,live.connected]);
  return {data:ready&&result?.identity===identity?result.data:null,error:ready&&result?.identity===identity?result.error:null,loading:ready&&result===undefined,refresh:()=>setNow(Date.now())};

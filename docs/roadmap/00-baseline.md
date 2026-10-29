@@ -95,7 +95,11 @@ planned work, L = inconsistency.
 | N17 | M (QA) | Canvas pointer hit-point helper selected a nested comment button when earlier fixtures overlapped the note. Its pointer-down stops by design, so WebKit's geometry assertion observed no move. | Full 79cc6e5 certificate v7 trace: start (837.117, 293.880) in comment control; three-engine static overlap regression reproduces the wrong target | Phase 7 harness correction: exclude interactive children and resize handles, retain covered-item refusal and original geometry assertions; full v7 114/114 PASS. |
 | N18 | M (QA) | Release rehearsal retained a 34-migration assertion after Phase 7 added 0035. It failed before running upgrade/restore checkpoints. | Full 79cc6e5 certificate release-rehearsal: 35 !== 34 | Phase 7 updates the expected count to 35 and adds manifest/count self-test; actual rehearsal 12/12 PASS. |
 
-Add new findings as N19+ with the same columns.
+| N19 | M | Device reliability compared fresh reactive queue entries with the clock captured at mount/last tick, falsely reporting unknown age and Review work on this device. | Real Dexie enqueue plus controlled hook callback reproduces attention=true for a one-second-old entry; `reliability-reactive-clock-baseline.log`. | 8.4 follow-up uses observation time; old pending work still alerts. |
+| N20 | M | Shared dashboard heading truncates to R… at 200% text because a second flex spacer consumes heading space. | Three-engine screenshot probe: compact 195px heading in 40px, tablet in 69px. Heading geometry fails before correction. | 8.4 follow-up removes redundant spacer and lets headings wrap; full matrix pending. |
+| N21 | H | Project health could return an empty success if a readable source changed revision between selection and authorization. | Actual-D1 controlled revision race, `project-health-revision-race-baseline.log`. | `575a7f0`: explicit409 plus one current-context read retry; authorization denial remains redacted. |
+
+Add new findings as N22+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

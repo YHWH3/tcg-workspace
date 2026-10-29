@@ -76,3 +76,27 @@ only when their source fingerprint, exit and mandatory completion all agree.
 External gates remain physical hardware, human screen readers/native zoom,
 genuine human acceptance, owner production backup/staging/provider/legal and
 release decisions. Automated approvals are labelled disposable fixtures.
+
+Paused at owner request on2026-10-29 at local `575a7f0`. Clean107 focused checks,
+90 cockpit browser cases,64 MCP Phase3 and42 Phase6 workflows PASS at that source.
+Visual acceptance remains pending: enlarged screenshots show a device-work warning.
+A3-case metadata diagnostic completed but its queue attachments are not inspected.
+The clock hypothesis did not reproduce; no reliability application fix is claimed.
+Uncommitted diagnostic test change is preserved. Publication/evidence packaging and
+remaining roadmap work are pending. Resume checkpoint:
+`.artifacts/phase8/PAUSE-2026-10-29-project-health.md`. No active task test runner.
+
+Resumed on2026-10-29. The diagnostic queue contains only fresh pending changes,
+no held/rejected work. A controlled hook/Dexie test now reproduces the stale-clock
+warning (1 FAIL before correction,9/9 related checks after). Each reactive read
+uses observation time; genuinely old pending work still alerts. A real-edit
+browser probe and server-acknowledged configuration recovery pass6/6 on three
+engines. Screenshot inspection then found the shared heading reduced to R… at
+200% text. Geometry reproduced compact/tablet clipping; the first three-case
+probe also exposed WebKit capture positioning. Heading now wraps without a second
+flex spacer. Corrected screenshot/action probe3/3 PASS on Chromium compact/light,
+Firefox tablet/dark and WebKit desktop/light. A prior wrong-heading capture probe
+was intentionally interrupted and retained. Final committed-source focused and
+combined UI/reliability matrix are pending; earlier575a7f0 results remain tied to
+that source. Source commit: containing commit. No publication or phase certificate
+is claimed by this checkpoint.

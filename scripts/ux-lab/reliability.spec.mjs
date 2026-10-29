@@ -17,6 +17,22 @@ async function openPage(page,f){await open(page,{id:'reliability-page',path:'/pa
  }).toBe(true);
 }
 
+test('reliability: fresh reactive edit does not trigger an unknown-age warning',async({page},info)=>{
+ const f=await seed(info);let release;const held=new Promise(resolve=>{release=resolve;});
+ try{
+  await openPage(page,f);await expect.poll(async()=>(await readAccountStore(page,'outbox')).length).toBe(0);
+  await expect(page.getByRole('link',{name:'Review work on this device',exact:true})).toHaveCount(0);
+  await page.route('**/api/sync/push',async route=>{await held;await route.continue();});
+  await page.clock.setFixedTime(new Date(await page.evaluate(()=>Date.now()+1000)));
+  const text='Fresh device edit '+f.suffix,editor=page.locator(`[data-block-id="${f.body}"] [contenteditable="true"]`);
+  await editor.fill(text);await editor.press('Tab');
+  await expect.poll(async()=>(await readAccountStore(page,'outbox')).some(e=>e.id===f.body)).toBe(true);
+  await expect(page.getByRole('link',{name:'Review work on this device',exact:true})).toHaveCount(0);
+  expect((await readRecord(f.body)).data.text).toBe('Original device note');
+  release();await expect.poll(async()=>(await readRecord(f.body)).data.text).toBe(text);await expect.poll(async()=>(await readAccountStore(page,'outbox')).length).toBe(0);
+ }finally{release();await page.unroute('**/api/sync/push');await cleanup(f);}
+});
+
 test('reliability: local offline edit, explicit pending state and server acknowledgement',async({page,context},info)=>{
  const f=await seed(info);
  try{

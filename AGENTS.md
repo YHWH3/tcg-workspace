@@ -254,3 +254,15 @@ Response actions use guarded mutate calls and existing approval slots; copy-only
 drafts never send or mark replied. First-reply dates require the existing
 auto-wi-first-reply configuration. Protocol3 fixtures configure it explicitly;
 never recreate intentionally deleted/disabled user automations to make a test pass.
+
+### Phase 8 Project review cockpit
+
+`shared/projectHealth.ts` owns transparent health rules. `worker/projectHealth.ts`
+collects bounded, canonically gated sources for HTTP, dashboard MCP and operating
+review. A readable row changing revision is `project_sources_changed`, never an
+empty success; client retries that read once within the current account/access.
+Offline device evidence stays Unknown. Owner/date edits use normal guarded
+mutations. Derived self panels respect saved and deleted body reservations; health
+references must not cause unrelated database copies during template conversion.
+Device reliability reactive reads use observation time, not the periodic refresh
+clock. Fresh queued work is pending; it is not automatically an unknown-age warning.

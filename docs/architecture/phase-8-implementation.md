@@ -423,3 +423,26 @@ cases from the completed008225a selection remain separate unchanged-code evidenc
 the old failed306 run must never be relabelled a single-head306 PASS. The full
 Phase8 certificate still requires the remaining roadmap items and all mandatory
 checks on its final source.
+
+#### 8.4 visual follow-up
+
+The575a7f0 source passed107 focused checks,90 cockpit cases across18 projects,
+64 preserved MCP Phase3 checks and42 Phase6 workflows. Screenshot review remained
+open. Captured queue metadata showed fresh pending entries and no rejections or
+held work. A hook-level regression with real Dexie rows reproduces use of the
+mount/periodic clock for a new reactive read: the entry appears to be in the future,
+so attention becomes true. Reactive reads now use current observation time while
+the interval still schedules aging. The regression verifies both fresh pending
+and genuinely aged attention. A browser check holds a real edit before acceptance
+and verifies pending behavior, server receipt and queue removal after release.
+
+At200% text the shared DashBlock heading was also visibly truncated. Its redundant
+flex spacer competed with the heading; remove that spacer when a heading exists
+and allow wrapping. Measured compact/tablet failures now pass, with explicit server
+acknowledgement of configuration add/remove, empty/error/409 recovery and separate
+cockpit/action screenshots. The corrected three-engine probe passes3/3. The first
+probe had an incorrect heading selector and was interrupted; later WebKit capture
+positioning was corrected by scrolling the actual Refresh control into view.
+Those failed/interrupted reports remain retained. Fresh committed-source focused
+and affected browser matrix evidence is still required. No migration, event-body
+change, production or human/physical acceptance.
