@@ -592,7 +592,7 @@ function NewViewMenu({ board, cols, onCreate }: { board: BoardRow; cols: { id: s
   );
 }
 
-function FilterRow({ board, keys, filter, onChange }: { board: BoardRow; keys: FieldKey[]; filter: VFilter; onChange: (f: VFilter | null) => void }) {
+export function FilterRow({ board, keys, filter, onChange }: { board: BoardRow; keys: FieldKey[]; filter: VFilter; onChange: (f: VFilter | null) => void }) {
   const noValue = ['empty', 'not_empty', 'checked', 'unchecked', 'me'].includes(filter.op);
   const fields=fieldsOf(board),isDate=isDateFilterKey(filter.key,fields);
   const structuredDate=isDate&&DATE_VALUE_OPERATORS.includes(filter.op);

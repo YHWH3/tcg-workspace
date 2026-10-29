@@ -39,6 +39,7 @@ import { sanitizeSvg, SVG_MAX_BYTES } from '../shared/svgSanitize';
 import { linkId } from '../shared/linkid';
 import { edgesOf, wouldCreateDependencyCycle } from '../shared/deps';
 import { planConversion } from '../shared/conversion';
+import {projectHealthConfigSchema} from '../shared/projectHealthConfig';
 import { archivePatch, isArchived } from '../shared/archive';
 import { findReusableBoards, planInstallPreview,planPackUpgrade } from '../shared/bundled';
 import {loadPackUpgradeRecords} from './packUpgrade';
@@ -4016,7 +4017,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   );
 
   /** Block types that pull a database embed — never copied into a record body. */
-  const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork', 'attention']);
+  const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth']);
 
   const convertCore = async (a: { recordId: string; toDatabaseId: string; templateId?: string; linkKind?: string; sourceStage?: string; title?: string; expectedRev?: number }): Promise<ToolResult> => {
     const src = await rec(ctx.env, 'tasks', a.recordId);
@@ -4058,7 +4059,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const skipped = new Set<string>();
       for (const b of tplBlocks) {
         const type = String(b.data.type ?? 'p');
-        if (RECORD_BODY_SKIP_TYPES.has(type)) { skipped.add(type); continue; }
+        const health=type==='projecthealth'&&b.data.projectId==='self'?projectHealthConfigSchema.safeParse({...b.data,databaseId:a.toDatabaseId}):null;
+        if (RECORD_BODY_SKIP_TYPES.has(type)&&!health?.success) { skipped.add(type); continue; }
         copied++;
         ops.push({
           collection: 'blocks',
@@ -4071,6 +4073,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
             text: b.data.text ?? '',
             ...(b.data.checked !== undefined ? { checked: b.data.checked } : {}),
             ...(b.data.url !== undefined ? { url: b.data.url } : {}),
+            ...(health?.success?{...health.data,heading:b.data.heading??'Project health'}:{}),
           },
         });
       }

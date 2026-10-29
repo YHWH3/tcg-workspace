@@ -5097,6 +5097,18 @@
           "key": "tpl_4v"
         },
         {
+          "key": "project_review_health",
+          "type": "projecthealth",
+          "projectId": "self",
+          "databaseId": "db_projects",
+          "heading": "Project health",
+          "ownerKey": "p_f_owner",
+          "startKey": "p_f_start",
+          "endKey": "p_f_end",
+          "staleDays": 14,
+          "limit": 1
+        },
+        {
           "type": "h2",
           "text": "What was planned?",
           "key": "tpl_4w"
@@ -6307,5 +6319,5 @@
       ]
     }
   ],
-  "version": 3
+  "version": 4
 }

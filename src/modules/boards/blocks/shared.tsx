@@ -194,11 +194,18 @@ export function StageChip({ rec, board }: { rec: TaskRow; board: BoardRow }) {
  * Back closes; the sheet never navigated away so the page's scroll position
  * is restored untouched. Each row drills to the record route.
  */
-export function RecordListSheet({ ids, board, onClose }: { ids: string[]; board: BoardRow; onClose: () => void }) {
+export function RecordListSheet({ ids, board, sourceRefs, onClose }: { ids: string[]; board?: BoardRow; sourceRefs?:{id:string;title:string;databaseId:string}[];onClose: () => void }) {
   const navigate = useNavigate();
-  const tasks = useTasksQuery();
-  const byId = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t])), [tasks]);
-  const rows = ids.map((id) => byId.get(id)).filter((t): t is TaskRow => !!t && !t.deleted);
+  const tasks=useLiveQuery(()=>db.tasks.bulkGet(ids),[JSON.stringify(ids)]);
+  const databaseIds=[...new Set(sourceRefs?.map(r=>r.databaseId)??[])];
+  const sourceBoards=useLiveQuery(()=>db.boards.bulkGet(databaseIds),[JSON.stringify(databaseIds)]);
+  const byId = useMemo(() => new Map((tasks ?? []).filter((r):r is LocalRow=>!!r).map(t=>[t.id,t as TaskRow])), [tasks]);
+  const rows=ids.flatMap(id=>{
+    const record=byId.get(id),source=sourceRefs?.find(r=>r.id===id);
+    if(record?.deleted||!record&&!source)return [];
+    const databaseId=String(record?.boardId??source?.databaseId??board?.id??'board-default');
+    return [{id,title:String(record?.title??source?.title??'Untitled'),databaseId,record,board:sourceRefs?sourceBoards?.find(b=>b?.id===databaseId) as BoardRow|undefined:board}];
+  });
   return (
     <Sheet side="bottom" onClose={onClose} label="Records">
       <div className="flex max-h-[80vh] flex-col">
@@ -217,15 +224,15 @@ export function RecordListSheet({ ids, board, onClose }: { ids: string[]; board:
                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-neutral-100 focus-visible:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus-visible:bg-neutral-800"
                 onClick={() => {
                   onClose();
-                  navigate(recordHref(board.id, undefined, r.id));
+                  navigate(recordHref(r.databaseId, undefined, r.id));
                 }}
               >
-                <span className="min-w-0 flex-1 truncate">{String(r.title ?? 'Untitled')}</span>
-                <StageChip rec={r} board={board} />
+                <span className="min-w-0 flex-1 break-words">{r.title}</span>
+                {r.record&&r.board&&<StageChip rec={r.record} board={r.board} />}
               </button>
             </li>
           ))}
-          {rows.length === 0 && <li className="px-3 py-4 text-center text-xs text-neutral-400">Nothing to show.</li>}
+          {rows.length === 0 && <li className="px-3 py-4 text-center text-xs text-neutral-600 dark:text-neutral-400">{tasks===undefined?'Loading records…':'Nothing to show.'}</li>}
         </ul>
       </div>
     </Sheet>

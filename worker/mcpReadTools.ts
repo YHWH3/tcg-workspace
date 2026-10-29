@@ -12,6 +12,10 @@ import {argsHash} from '../shared/stablejson';
 import {recordHref} from '../shared/recordRoutes';
 import {collectAttention} from './attention';
 import {ATTENTION_KINDS,type AttentionKind} from '../shared/attention';
+import {collectProjectHealth,projectHealthForOrigin} from './projectHealth';
+import {projectHealthConfigSchema,type ProjectHealthConfig} from '../shared/projectHealthConfig';
+import {hasD1Budget} from './d1budget';
+import {defaultProjectHealthBlock} from '../shared/projectHealth';
 interface Context {env:Env;userId:string;origin:string}
 const txt=(value:unknown)=>({content:[{type:'text' as const,text:JSON.stringify(value)}]});
 const fail=(error:string)=>({...txt({error}),isError:true});
@@ -64,12 +68,21 @@ export function registerReadTools(server:McpServer,c:Context) {
   }
   return txt({nodes:[...nodes.values()].map(r=>({id:r.id,type:r.collection,title:title(r),rev:r.rev,trust})),edges:[...edges.values()],truncated,nextCursor:null});
  });
- server.registerTool('dashboard_snapshot',{description:'Evaluate dashboard metric/view/calendar/mywork blocks using the same shared view/aggregation engine as the browser. At most 50 blocks and 2000 records total. Partial metrics are explicitly marked.',inputSchema:z.object({pageId:z.string()}),annotations:{readOnlyHint:true}},async a=>{
+ server.registerTool('dashboard_snapshot',{description:'Evaluate dashboard metric/view/calendar/mywork/projecthealth blocks using the same shared engines as the browser. At most 50 blocks; record, link and processing caps are explicit. Project health includes source-linked signals and participant-visible approvals, never a risk score.',inputSchema:z.object({pageId:z.string()}),annotations:{readOnlyHint:true}},async a=>{
   const page=await getRec(c.env,a.pageId);if(!page||!['pages','tasks'].includes(page.collection))return fail('not_found');
   const blocks=await bounded(c,'blocks',"json_extract(data,'$.pageId')=?",[a.pageId],50);
-  const supported=blocks.rows.filter(b=>['metric','view','calendar','mywork','activity','attention'].includes(String(b.data.type)));
+  const supported=blocks.rows.filter(b=>['metric','view','calendar','mywork','activity','attention','projecthealth'].includes(String(b.data.type)));
+  if(page.collection==='tasks'){
+   const board=await getRec(c.env,String(page.data.boardId??'board-default'));
+   if(board?.collection==='boards'&&board.data.templateDbKey==='projects'){
+    // A tombstone is a reservation, never a reason to recreate user content.
+    const reserved=await c.env.DB.prepare("SELECT EXISTS(SELECT 1 FROM records WHERE collection='blocks' AND json_extract(data,'$.pageId')=? AND json_extract(data,'$.type')='projecthealth') present").bind(page.id).first<{present:number}>();
+    const derived=defaultProjectHealthBlock({...page.data,id:page.id},{...board.data,id:board.id},reserved?.present?['projecthealth']:[]);
+    if(derived)supported.push({...page,id:derived.id,collection:'blocks',data:{...derived,derived:true}});
+   }
+  }
   const attention=supported.some(b=>b.data.type==='attention')?await collectAttention(c.env,c.userId):null;
-  const dbIds=[...new Set(supported.flatMap(b=>[b.data.databaseId,...(Array.isArray(b.data.sources)?b.data.sources.slice(0,50).map((s:{databaseId?:string})=>s.databaseId):[])]).filter((id):id is string=>typeof id==='string'))];
+  const dbIds=[...new Set(supported.filter(b=>b.data.type!=='projecthealth').flatMap(b=>[b.data.databaseId,...(Array.isArray(b.data.sources)?b.data.sources.slice(0,50).map((s:{databaseId?:string})=>s.databaseId):[])]).filter((id):id is string=>typeof id==='string'))];
   const boards=await getRecs(c.env,dbIds.slice(0,50));
   const mywork=supported.some(b=>b.data.type==='mywork');
   const tasks=await bounded(c,'tasks',"(COALESCE(json_extract(data,'$.boardId'),'board-default') IN(SELECT value FROM json_each(?)) OR (?=1 AND json_extract(data,'$.assigneeId')=?))",[JSON.stringify([...boards.keys()]),mywork?1:0,c.userId],2000);
@@ -81,10 +94,24 @@ export function registerReadTools(server:McpServer,c:Context) {
   const relationTargets=await getRecs(c.env,[...new Set(relationLinks.rows.map(l=>String(l.data.toId)))].slice(0,500));
   const views=await getRecs(c.env,[...supported.map(b=>b.data.viewId),...[...boards.values()].map(b=>b.data.defaultViewId)].filter((id):id is string=>typeof id==='string'));
   const dateContext=await serverDateContext(c.env);
+  const healthRows=new Map<string,Record<string,unknown>>(),healthConfigs:{id:string;config:ProjectHealthConfig}[]=[];
+  for(const block of supported.filter(b=>b.data.type==='projecthealth')){
+   const parsed=projectHealthConfigSchema.safeParse({...block.data,...(block.data.projectId==='self'&&page.collection==='tasks'?{projectId:page.id,databaseId:page.data.boardId??'board-default'}:{})});
+   if(!parsed.success||parsed.data.projectId==='self')healthRows.set(block.id,{status:'configuration_required',partial:true,partialSources:['project_context'],projects:[]});
+   else if(healthConfigs.length>=20)healthRows.set(block.id,{status:'partial',partial:true,partialSources:['block_limit'],projects:[]});
+   else healthConfigs.push({id:block.id,config:parsed.data});
+  }
+  if(healthConfigs.length){
+   if(hasD1Budget(c.env.DB,26)){
+    const pages=await collectProjectHealth(c.env,c.userId,healthConfigs.map(h=>h.config));
+    healthConfigs.forEach((h,i)=>healthRows.set(h.id,{...projectHealthForOrigin(pages[i]!,c.origin)}));
+   }else for(const h of healthConfigs)healthRows.set(h.id,{status:'partial',partial:true,partialSources:['processing_budget'],projects:[]});
+  }
   const contextFor=(board:typeof page)=>({meId:c.userId,today:dateContext.today,timeZone:dateContext.timeZone,fieldsById:new Map(fieldsOf(board.data).map(f=>[f.id,f])),columnsById:(board.data.columns as {id:string}[]|undefined)?.map(s=>s.id),relationTitles:(id:string,fid:string)=>relationLinks.rows.filter(l=>l.data.fromId===id&&l.data.fieldId===fid&&relationTargets.has(String(l.data.toId))).map(l=>title(relationTargets.get(String(l.data.toId))!))});
   const brief=(r:{id?:unknown;title?:unknown;status?:unknown;dueDate?:unknown;boardId?:unknown})=>({id:r.id,title:String(r.title??'').slice(0,300),status:r.status,dueDate:r.dueDate,url:c.origin+recordHref(String(r.boardId??'board-default'),undefined,String(r.id)),trust});
   const output=supported.map(block=>{
    const data=block.data,board=boards.get(String(data.databaseId));
+   if(data.type==='projecthealth')return {id:block.id,type:data.type,...healthRows.get(block.id)};
    if(data.type==='attention'){
     const kinds=Array.isArray(data.kinds)?data.kinds as AttentionKind[]:[],limit=[5,10,20].includes(Number(data.limit))?Number(data.limit):10;
     return {id:block.id,type:data.type,...attention,items:attention?.items.filter(i=>!kinds.length||kinds.includes(i.kind)).slice(0,limit),truncated:!!attention?.partial||!!attention?.nextCursor};
@@ -116,6 +143,6 @@ export function registerReadTools(server:McpServer,c:Context) {
    const evaluated=applyView(rows,{...config,...(data.type==='mywork'?{mine:true}:{} )},context).rows;
    return {id:block.id,type:data.type,records:evaluated.slice(0,100).map(brief),truncated:tasks.truncated||relationLinks.truncated||evaluated.length>100};
   });
-  return txt({pageId:a.pageId,blocks:output,truncated:blocks.truncated||tasks.truncated,trust});
+  return txt({pageId:a.pageId,blocks:output,truncated:blocks.truncated||tasks.truncated||[...healthRows.values()].some(h=>h.partial===true),trust});
  });
 }

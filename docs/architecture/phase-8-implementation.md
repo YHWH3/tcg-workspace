@@ -332,3 +332,55 @@ Raw fixture data and failures remain local. Native Safari/Android qualification
 for this desk, physical hardware, human screen readers/native zoom, independent
 acceptance and the final full-phase certificate remain explicitly incomplete.
 Next item is8.4 Project review cockpit; no release/deployment decision is implied.
+
+## 8.4: Project review cockpit (implementation in progress)
+
+The new `shared/projectHealth.ts` calculator explains blocked stages, incoming
+unfinished dependencies, missing owner/dates, overdue tasks, open decisions,
+participant-visible pending approvals and stale activity. Partial evidence is
+Unknown; owner/approval/activity notices do not invent additional risk scores.
+Named terminal stages retain Projects/Decisions pack semantics.
+
+The authenticated `/api/project-health` reader and MCP `dashboard_snapshot` /
+`operating_review_context` use one bounded collector. It loads named roots,
+relations, descendants, incoming blockers, latest authorized activity and only
+approvals requested by or assigned to the caller. It projects metadata, not body,
+notes or file bytes. Current principal/access/connector fences apply before
+publication. Caps and changed owner/date schemas remain explicit. Actual-D1
+checks cover both permission modes, private sources, late disablement, relation
+filters and a 520-child source cap; all calls remain within the 45-binding budget.
+
+The registered `projecthealth` block uses normal configuration and shared view
+filters, source-linked cross-database drills, guarded owner/date writes and
+explicit loading/error/offline/recovery states. An offline device snapshot has
+no cached server approvals and stays Unknown. In-memory read generations are
+account/session/access/config bound. Connection changes replace read evidence
+while preserving unsaved edits in that same account generation. Record changes
+remain normal local `mutate` writes; server sync is separately acknowledged.
+
+Projects record details use the existing task-detail slot for a derived `self`
+panel without silently rewriting bodies. Any saved health block, including a
+tombstone, suppresses the default. Customize/Hide explicitly save a deterministic
+body block/reservation. MCP derives the same default. Pack v4 adds one stable-key
+self block to Project Review; the template copier preserves configuration and
+live references without pulling another database merely for health. Record
+conversion has a narrow validated self-health exception, bound to its destination.
+Existing team content, deletions, title, order and settings remain authoritative.
+
+Focused implementation run: 100/100 across ten files and typecheck PASS in
+`.artifacts/phase8/project-health-focused-10.log`. It includes frozen conversion
+plans, labelled disposable session decisions, exact execution/replay and existing
+preview/conversion regressions. A corrected three-engine probe passes15/15 in
+`project-health-three-engine-2.log` (Chromium compact/light, Firefox tablet/dark,
+WebKit compact/light). These are preliminary working-tree results; final source
+certification has not run. Pack reference validation PASS
+in `project-health-pack-validation-2.log`; the old validator omitted existing
+attention blocks and internal archived filters. The first browser probe retained
+9 PASS / 6 FAIL across three selected projects. It exposed a missing dashboard
+classification: comment overlays obscured Configure in Firefox. An empty-body
+placeholder also failed contrast. Both are corrected; the unchanged whole-page
+accessibility and real pointer assertions pass in the15-case corrected probe.
+Earlier schema-drift regressions reproduced before the correction (3 FAIL /
+18 PASS); all three pass in the 67-test run. No feature certificate, native or
+human acceptance is claimed. Full final-source browser/workflow evidence and the
+phase certificate remain pending. No migration or integration-event change.

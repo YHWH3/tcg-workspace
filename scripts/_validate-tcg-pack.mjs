@@ -24,7 +24,7 @@ import { readFileSync } from 'node:fs';
 const file = process.argv[2] ?? new URL('../templates/tcg-pack.json', import.meta.url).pathname;
 const tpl = JSON.parse(readFileSync(file, 'utf8'));
 
-const BUILTINS = new Set(['title', 'status', 'assigneeId', 'dueDate', 'priority', 'createdAt', 'createdBy']);
+const BUILTINS = new Set(['title', 'status', 'assigneeId', 'dueDate', 'priority', 'createdAt', 'createdBy', 'archived']);
 const FIELDKEY = /^(p|rel)_(.+)$/;
 const VIEW_TYPES = new Set(['board', 'table', 'list', 'gallery', 'calendar', 'timeline']);
 const FILTER_OPS = new Set([
@@ -33,7 +33,7 @@ const FILTER_OPS = new Set([
 ]);
 const BLOCK_TYPES = new Set([
   'text', 'h1', 'h2', 'h3', 'bulleted', 'todo', 'divider', 'callout', 'tasks',
-  'view', 'metric', 'calendar', 'activity', 'mywork', 'embed',
+  'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'embed',
 ]);
 
 const errors = [];
@@ -167,6 +167,13 @@ for (const pg of tpl.pages ?? []) {
         if (b.inline != null) checkConfig(db, b.inline, `${where}.inline`);
         for (const f of b.filters ?? []) checkFieldKey(db, f.key, `${where}.filters`);
         if (b.fieldKey != null) checkFieldKey(db, b.fieldKey, `${where}.fieldKey`);
+        if(b.type==='projecthealth'){
+          for(const [key,fallback,type]of [['ownerKey','p_f_owner','person'],['startKey','p_f_start','date'],['endKey','p_f_end','date']]){
+            const value=b[key]??fallback;checkFieldKey(db,value,`${where}.${key}`);
+            if(value!==(type==='person'?'assigneeId':'dueDate')&&!(db.fields??[]).some(f=>`p_${f.id}`===value&&f.type===type))err(`${where}.${key}: expected ${type} field`);
+          }
+          if(b.projectId&&b.projectId!=='self'&&!recordIds.has(b.projectId))err(`${where}: projectId '${b.projectId}' not a record or self`);
+        }
         if (b.type === 'calendar') err(`${where}: calendar block uses databaseId, expected sources[]`);
       }
     }

@@ -6,3 +6,4 @@ import './ActivityBlock';
 import './MyWorkBlock';
 
 import './AttentionBlock';
+import './ProjectHealthBlock';

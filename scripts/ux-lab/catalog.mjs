@@ -25,6 +25,11 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'Project cockpit: transparent signals, exact cross-database sources and recovery',
+  'Project cockpit: guarded offline owner/date changes and concurrent edit refusal',
+  'Project cockpit: filter configuration, empty/error states and 200 percent reflow',
+  'Project cockpit: default current-record panel respects explicit hiding',
+  'Project cockpit: customized current-record block persists without rewriting existing body text',
   'Website response desk: offline assignment, guarded bulk undo and follow-up recovery',
   'Website response desk: bands, full answers, copy-only draft and enlarged text',
   'Website response desk: status gates and changed-field undo remain guarded',

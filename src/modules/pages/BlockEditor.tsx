@@ -252,7 +252,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
     >
       {blocks.length === 0 && (
         <button
-          className="block w-full cursor-text rounded-md px-1 py-0.5 text-left text-[15px] leading-7 text-neutral-300 hover:bg-neutral-50 dark:text-neutral-600 dark:hover:bg-neutral-900/50"
+          className="block w-full cursor-text rounded-md px-1 py-0.5 text-left text-[15px] leading-7 text-neutral-600 hover:bg-neutral-50 dark:text-neutral-400 dark:hover:bg-neutral-900/50"
           onClick={() => void focusLastOrCreate()}
           data-placeholder-block
         >
@@ -436,7 +436,7 @@ function BlockItem(props: BlockItemProps) {
   // Registered media blocks (image, video, audio, file, tasks…) render via the registry.
   const Media = blockRenderer(type);
   if (Media) {
-    const dashboard=['metric','view','calendar','mywork','activity','attention'].includes(type);
+    const dashboard=['metric','view','calendar','mywork','activity','attention','projecthealth'].includes(type);
     return (
       <div
         className={cn('group relative flex items-start gap-0.5 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-blue-300', props.dragOver && 'border-t-2 border-blue-400')}

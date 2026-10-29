@@ -106,7 +106,7 @@ function subtreeIds(pages: RecSnapshot['pages'], rootId: string): string[] {
   return out;
 }
 
-const DASHBOARD_BLOCK_TYPES = new Set(['view', 'metric', 'calendar', 'activity', 'mywork', 'attention']);
+const DASHBOARD_BLOCK_TYPES = new Set(['view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth']);
 
 /** Database ids a block pulls into a copy: a `tasks` embed's board, or the
  * database(s) a dashboard block reads. Shared with the server's targeted
@@ -114,7 +114,7 @@ const DASHBOARD_BLOCK_TYPES = new Set(['view', 'metric', 'calendar', 'activity',
 export function boardRefsOf(b: Record<string, unknown>): string[] {
   const out: string[] = [];
   if (b.type === 'tasks' && typeof b.boardId === 'string' && b.boardId) out.push(b.boardId);
-  if (DASHBOARD_BLOCK_TYPES.has(String(b.type))) {
+  if (DASHBOARD_BLOCK_TYPES.has(String(b.type)) && b.type!=='projecthealth') {
     if (typeof b.databaseId === 'string' && b.databaseId) out.push(b.databaseId);
     if (Array.isArray(b.sources)) {
       for (const s of b.sources) {
@@ -443,12 +443,13 @@ export function planTemplateInstantiation(
     // Dashboard block whitelist (Phase 3 §3): config fields copy through,
     // authored databaseId/viewId/sources[].databaseId remap to live ids.
     if (DASHBOARD_BLOCK_TYPES.has(String(b.type))) {
-      for (const k of ['limit', 'agg', 'fieldKey', 'format', 'scope', 'url', 'inline', 'filters', 'kinds', 'compact'] as const) {
+      for (const k of ['limit', 'agg', 'fieldKey', 'format', 'scope', 'url', 'inline', 'filters', 'kinds', 'compact','ownerKey','startKey','endKey','staleDays'] as const) {
         if (b[k] !== undefined) patch[k] = typeof b[k] === 'object' && b[k] !== null ? JSON.parse(JSON.stringify(b[k])) : b[k];
       }
       if (b.heading !== undefined) patch.heading = substituteVars(b.heading, vars);
       if (b.label !== undefined) patch.label = substituteVars(b.label, vars);
       if (b.databaseId !== undefined) patch.databaseId = boardMap.get(String(b.databaseId)) ?? b.databaseId;
+      if (b.projectId !== undefined) patch.projectId = taskMap.get(String(b.projectId)) ?? b.projectId;
       if (b.viewId !== undefined) patch.viewId = viewMap.get(String(b.viewId)) ?? b.viewId;
       if (Array.isArray(b.sources)) {
         patch.sources = (b.sources as Record<string, unknown>[]).map((s) => {

@@ -81,12 +81,17 @@ export interface AuthorBlock {
   key?: string;
   type:
     | 'text' | 'h1' | 'h2' | 'h3' | 'bulleted' | 'todo' | 'divider' | 'callout' | 'tasks'
-    | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'attention' | 'embed';
+    | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'attention' | 'projecthealth' | 'embed';
   text?: string;
   checked?: boolean;
   url?: string;
   // dashboard block config (Phase 3 §3) — databaseId/sources ids are authored
   databaseId?: string;
+  projectId?: string;
+  ownerKey?: string;
+  startKey?: string;
+  endKey?: string;
+  staleDays?: number;
   viewId?: string;
   limit?: number;
   heading?: string;
@@ -158,7 +163,7 @@ function toStoredBlock(b: AuthorBlock, pageId: string, order: string): Record<st
   }
   for (const k of [
     'databaseId', 'viewId', 'inline', 'limit', 'heading', 'filters', 'kinds', 'compact',
-    'agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url',
+    'agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url', 'projectId','ownerKey','startKey','endKey','staleDays',
   ] as const) {
     const v = b[k as keyof AuthorBlock];
     if (v !== undefined) out[k] = v;
