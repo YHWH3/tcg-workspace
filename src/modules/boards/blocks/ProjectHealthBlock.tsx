@@ -23,7 +23,7 @@ import {DashBlock,HeadingField,DatabasePicker,RecordListSheet,pickableBoards,str
 
 const control='h-auto min-h-11 w-full min-w-0 max-w-full py-2';
 const button='h-auto min-h-11 py-2';
-const link='inline-flex min-h-11 items-center break-words py-2 underline underline-offset-4 focus-visible:outline-2';
+const link='inline-block min-h-11 break-words py-2 underline underline-offset-4 focus-visible:outline-2';
 const statusLabel={on_track:'On track',at_risk:'At risk',blocked:'Blocked',unknown:'Unknown'};
 
 function ProjectHealthConfigure({block}:{block:LocalRow}){

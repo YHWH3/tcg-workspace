@@ -446,3 +446,17 @@ positioning was corrected by scrolling the actual Refresh control into view.
 Those failed/interrupted reports remain retained. Fresh committed-source focused
 and affected browser matrix evidence is still required. No migration, event-body
 change, production or human/physical acceptance.
+
+#### 8.4 title-level reflow correction
+
+The3348780 source completed120 focused tests,378 selected browser cases and the
+64/42 preserved workflows, all clean and source unchanged. Final screenshot review
+found another visible condition: Firefox200% renders a long Project link outside
+its card even though a clipped ancestor keeps document.scrollWidth unchanged.
+A new title-level width assertion reproduces442px text inside201px. The link now
+uses normal wrapping text flow rather than an anonymous flex text item. Corrected
+three-engine probe3/3 PASS; this is the only application change after3348780.
+The mandatory UX catalog also names the already executed fresh-edit regression.
+Run fresh120 focused and90 affected cockpit cases on the new committed source.
+Keep the288 unrelated cases and64/42 preserved workflows tied to3348780; do not
+claim a new-head378 pass or visual acceptance from the old page-overflow assertion.

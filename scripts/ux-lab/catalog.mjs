@@ -36,6 +36,7 @@ export const requiredCases=[
   'AI review desk: fixture approval, resume, edited suggestion and revision-safe undo',
   'AI review desk: stale sources, rejection, cancellation and expiry stay non-authoritative',
   'AI review desk: loading, failed reads, offline hiding and library recovery',
+  'reliability: fresh reactive edit does not trigger an unknown-age warning',
   'reliability: local offline edit, explicit pending state and server acknowledgement',
   'reliability: failed upload retains bytes and explicit retry completes it',
   'reliability: held review and rejected export remain separate',

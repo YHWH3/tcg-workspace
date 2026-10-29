@@ -100,3 +100,16 @@ was intentionally interrupted and retained. Final committed-source focused and
 combined UI/reliability matrix are pending; earlier575a7f0 results remain tied to
 that source. Source commit: containing commit. No publication or phase certificate
 is claimed by this checkpoint.
+
+At3348780 the full selected378 cases and preserved MCP64/64 plus Phase6 42/42
+passed, source unchanged. Final screenshot review then found a Firefox200%
+project-title spill beyond its card. Page-level root overflow did not catch
+ancestor clipping. A title-level assertion reproduces442px text in a201px link.
+Project health links now use wrapping text flow instead of an anonymous flex
+text item; corrected Chromium compact/light, Firefox tablet/dark and WebKit
+desktop/light probe3/3 PASS. This is the only application change after3348780.
+The required-case catalog also adds the already executed fresh reactive edit.
+Fresh committed-source120 focused and90 affected cockpit checks are required.
+Retain the broader288 unaffected cases and64/42 workflows at3348780 with explicit
+source identity; do not relabel them as a new-head378 pass. Source: containing
+commit.8.4 visual acceptance/publication and later roadmap remain pending.

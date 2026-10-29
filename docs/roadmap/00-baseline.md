@@ -99,7 +99,9 @@ planned work, L = inconsistency.
 | N20 | M | Shared dashboard heading truncates to R… at 200% text because a second flex spacer consumes heading space. | Three-engine screenshot probe: compact 195px heading in 40px, tablet in 69px. Heading geometry fails before correction. | 8.4 follow-up removes redundant spacer and lets headings wrap; full matrix pending. |
 | N21 | H | Project health could return an empty success if a readable source changed revision between selection and authorization. | Actual-D1 controlled revision race, `project-health-revision-race-baseline.log`. | `575a7f0`: explicit409 plus one current-context read retry; authorization denial remains redacted. |
 
-Add new findings as N22+ with the same columns.
+| N22 | M | Firefox200% long Project title spills beyond its card; page-level overflow misses ancestor clipping. | Title-level check reproduces442px text in201px link; project-health-title-baseline.log. | Project link uses normal wrapping text flow; corrected three-engine3/3 probe PASS, final affected matrix pending. |
+
+Add new findings as N23+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 
