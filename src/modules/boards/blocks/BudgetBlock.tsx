@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useId,useState} from 'react';
 import {useLiveQuery} from 'dexie-react-hooks';
 import {Link} from 'react-router';
 import {Wallet} from 'lucide-react';
@@ -37,7 +37,7 @@ function BudgetConfigure({block}:{block:LocalRow}){
  </>;
 }
 function BudgetReader({config,offline}:{config:FinanceConfig;offline:boolean}){
- const state=useFinance(config,offline),page=state.value,[drill,setDrill]=useState<string[]|null>(null);
+ const progressPrefix=useId(),state=useFinance(config,offline),page=state.value,[drill,setDrill]=useState<string[]|null>(null);
  const money=(value:number|null,currency:string|null)=>value===null?'Unavailable':formatNumber(value,{format:'currency',currency:currency??page?.currency},page?.currency??'INR');
  return <section aria-label="Budget summary" className="min-w-0 space-y-3 text-sm text-neutral-900 dark:text-neutral-100">
   <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{config.mode==='product'?'Product price and cost':'Project budget'}</h3><Button className={button} disabled={state.loading} onClick={()=>void state.reload()}>{state.loading?'Refreshing…':'Refresh budget'}</Button></div>
@@ -45,12 +45,12 @@ function BudgetReader({config,offline}:{config:FinanceConfig;offline:boolean}){
   {state.error&&<p role="alert" className="break-words text-red-700 dark:text-red-300">Money sources could not be refreshed. Check connection and access, then retry.</p>}
   {page?.status==='source_unavailable'&&<p>The source is missing, archived or unavailable. Choose another source in Configure.</p>}
   {page?.status==='ready'&&!page.items.length&&<p>No available records match this summary. Adjust the source or filters.</p>}
-  <ul className="space-y-3">{page?.items.map(item=>{
+  <ul className="space-y-3">{page?.items.map((item,index)=>{
    const value=item.money??item.economics!,currency=value.currency;
    return <li key={item.id} className="min-w-0 space-y-2 rounded-lg border border-neutral-200 p-3 dark:border-neutral-700"><Link className="block min-h-11 break-words py-2 font-medium underline" to={item.url}>{item.title}</Link>
     {value.error==='mixed_currency'?<p role="status">Cannot combine currencies: {value.currencies?.join(', ')}. Align the field currencies to compare them; no conversion was applied.</p>:<>
      <dl className="space-y-2">{(item.money?[['Budget',item.money.budget],['Net expenses',item.money.spent],['Income, shown separately',item.money.income],['Remaining: budget minus net expenses',item.money.remaining]]:[['Price',item.economics!.price],['Cost',item.economics!.cost],['Price minus cost',item.economics!.difference]]).map(([label,amount])=><div key={String(label)} className="flex min-w-0 flex-wrap justify-between gap-2"><dt className="min-w-0 break-words">{label}</dt><dd className="min-w-0 break-words font-medium tabular-nums">{money(amount as number|null,currency)}</dd></div>)}</dl>
-     {item.money&&item.money.budget!==null&&item.money.budget>0&&item.money.spent!==null&&<><label className="block" htmlFor={'budget-'+item.id}>Net expenses against budget</label><progress id={'budget-'+item.id} className="h-3 w-full" value={Math.max(0,Math.min(item.money.spent,item.money.budget))} max={item.money.budget}/></>}
+     {item.money&&item.money.budget!==null&&item.money.budget>0&&item.money.spent!==null&&<><label className="block" htmlFor={progressPrefix+'-'+index}>Net expenses against budget</label><progress id={progressPrefix+'-'+index} className="h-3 w-full" value={Math.max(0,Math.min(item.money.spent,item.money.budget))} max={item.money.budget}/></>}
      {item.economics&&<p>Margin: {item.economics.marginPercent===null?'Unavailable':new Intl.NumberFormat('en',{maximumFractionDigits:2}).format(item.economics.marginPercent)+'%'}. Computed from Price and Cost; your text Margin is unchanged.</p>}
     </>}
     {value.issues.length>0&&<p className="break-words text-xs text-neutral-600 dark:text-neutral-400">Review needed: {value.issues.map(i=>i.replaceAll('_',' ')).join(', ')}.</p>}

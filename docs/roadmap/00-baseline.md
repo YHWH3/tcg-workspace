@@ -105,8 +105,9 @@ planned work, L = inconsistency.
 | N24 | M (QA) | Pack validator rejected the existing supported within date operator when Funding added its stale-action view. | finance-pack-first.log: bad op within. | Validator recognizes within; pack and shared filter tests keep runtime behavior aligned. |
 | N25 | H | Finance root snapshot could use an older budget after a concurrent change when permissions were disabled. | Controlled actual-D1 baseline returns200 instead of409 in disabled mode; enabled mode already refused. | Root revisions compared against the second snapshot independently of the read gate; both-mode regressions PASS. |
 | N26 | M | Binary multiplication and asymmetric rounding left a cent after equal positive/negative expenses and disagreed with displayed decimal money. | finance-rounding-baseline.log: matching ±1.125 produced spent0.01; 1 FAIL/14 PASS. | Convert through ungrouped Intl decimal rounding into safe integer minor units; exact reversal and zero/two/three-decimal regressions PASS. Final frozen verification pending. |
+| N27 | M | Repeated budget blocks for one Project reused a progress ID, breaking independent accessible labels. | finance-repeated-label-baseline.log: two bars have only one distinct ID,1 FAIL. | Per-mounted-reader IDs and list index keep label targets unique; all finance browser cases require fresh verification. |
 
-Add new findings as N26+ with the same columns.
+Add new findings as N28+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

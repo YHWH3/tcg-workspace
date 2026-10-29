@@ -543,3 +543,14 @@ D1 checks38/38 PASS. The earlier frozen8c7ddf7 selection is INTERRUPTED, exit130
 88 PASS,1 interrupted,271 NOT RUN. Its report remains preserved at
 .artifacts/ux-lab/2026-10-29T15-27-52.148Z/summary.json; it is not acceptance evidence.
 New committed-source focused and browser verification are required.
+
+
+At a96c789, clean167 focused/typecheck/pack and360/360 selected browser cases
+passed across all18 projects, zero skips/flaky. Post-run review then reproduced
+repeated budget blocks sharing one progress ID (1 FAIL). The only subsequent
+application change uses a per-mounted-reader ID prefix plus item index, so labels
+remain unique even for the same Project in several blocks. The existing finance
+journey now checks both IDs and each bar's accessible name. Final54 affected
+finance cases, focused checks, preserved suites and screenshot review are pending.
+Retain306 unaffected Project/pack/shared UI cases at a96c789; do not claim a final-
+source360 PASS. New Products normal/zero-price images supplement enlarged review.

@@ -126,3 +126,8 @@ offline recovery; filter persistence, mixed-currency refusal, failed-read recove
 and200% text; Products database economics with zero/missing values and retained
 text Margin. Enlarged checks measure both title text and the transaction button
 against its own card; clipped ancestors cannot turn card overflow into a pass.
+
+Repeated budget summaries for the same Project must have distinct progress IDs
+and the correct accessible name on each bar. The finance journey exercises this
+alongside offline recovery; screenshots also retain Products normal/zero-price
+states for direct visual review.
