@@ -1,10 +1,11 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
-import {api,getToken} from './api';
+import {getToken} from './api';
 import {authStore} from './auth';
 import {accessClientStore} from './accessClient';
 import {db} from './db';
 import {createCurrentRead,type CurrentRead} from './aiReviewRead';
 import {readLocalProjectHealth} from './projectHealthLocal';
+import {readServerProjectHealth} from './projectHealthRead';
 import {useWorkspaceLocale,workspaceTimeZone} from './workspaceLocale';
 import type {ProjectHealthConfig} from '../../shared/projectHealthConfig';
 import type {ProjectHealthPage} from '../../shared/projectHealth';
@@ -17,7 +18,7 @@ export function useProjectHealth(config:ProjectHealthConfig,offline:boolean){
  useEffect(()=>{
   const uid=authStore.get().user?.id,token=getToken(),epoch=accessClientStore.get().epoch;
   const current=()=>!!uid&&!!token&&db.name===`workspace-${uid}`&&authStore.get().user?.id===uid&&getToken()===token&&accessClientStore.get().epoch===epoch&&accessClientStore.get().manifest?.userId===uid&&(offline?['ready','offline'].includes(accessClientStore.get().status):navigator.onLine&&accessClientStore.get().status==='ready');
-  const request=()=>offline?readLocalProjectHealth(db,config,{userId:uid!,today:locale.today,timeZone:zone,now:Date.now()}):api<{pages:[ProjectHealthPage]}>('/api/project-health',{method:'POST',body:[config]}).then(r=>r.pages[0]);
+  const request=()=>offline?readLocalProjectHealth(db,config,{userId:uid!,today:locale.today,timeZone:zone,now:Date.now()}):readServerProjectHealth(config,current);
   const read=createCurrentRead<ProjectHealthPage>({current,request,publish:next=>setState(previous=>({...next,value:next.loading?previous.value:next.value}))});loader.current=read;
   void read.load();let timer:ReturnType<typeof setTimeout>|undefined;
   const wake=()=>{if(document.visibilityState!=='visible')return;clearTimeout(timer);timer=setTimeout(()=>void read.load(),150);};

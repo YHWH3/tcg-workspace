@@ -28,7 +28,7 @@ test('Project cockpit: transparent signals, exact cross-database sources and rec
   const sheet=page.getByRole('dialog',{name:'Records',exact:true});await expect(sheet).toContainText('Blocked work');await sheet.getByRole('button',{name:/Blocked work/}).click();await expect(page).toHaveURL(new RegExp('/boards/'+f.tasks+'/tasks/'+f.task+'$'));
   const back=await cockpit(page,f);await setOfflineForTest(page,context,true);await expect(back).toContainText('Offline device snapshot');await expect(back).toContainText('Unknown');await health(page,'Project cockpit offline',info);
   await setOfflineForTest(page,context,false);await expect(back.getByRole('button',{name:'Refresh health'})).toBeEnabled();await back.getByRole('button',{name:'Refresh health'}).click();await expect(back).toContainText('Blocked');await health(page,'Project cockpit recovered',info);
- }finally{await setOfflineForTest(page,context,false);await f.cleanup();}
+ }finally{if(!page.isClosed())await setOfflineForTest(page,context,false);await f.cleanup();}
 });
 
 test('Project cockpit: guarded offline owner/date changes and concurrent edit refusal',async({page,context},info)=>{
@@ -44,7 +44,7 @@ test('Project cockpit: guarded offline owner/date changes and concurrent edit re
   // Explicitly refresh the health read, while the editor retains its baseline.
   await region.getByRole('button',{name:'Refresh health',exact:true}).click();await expect(region.getByRole('button',{name:'Refresh health',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Save project changes',exact:true}).click();await expect(page.getByRole('alert')).toHaveText('Project changed. Close and reopen this editor before saving.');expect((await readRecord(f.project)).data.p_f_end).toBe('2026-11-15');await health(page,'Project cockpit edit guard',info);
- }finally{await setOfflineForTest(page,context,false);await f.cleanup();}
+ }finally{if(!page.isClosed())await setOfflineForTest(page,context,false);await f.cleanup();}
 });
 
 test('Project cockpit: filter configuration, empty/error states and 200 percent reflow',async({page},info)=>{
@@ -53,6 +53,7 @@ test('Project cockpit: filter configuration, empty/error states and 200 percent 
   const region=await cockpit(page,f);await page.getByRole('button',{name:'Configure Project health',exact:true}).press('Enter');await page.getByRole('button',{name:'Add project filter',exact:true}).click();await page.getByLabel('Filter value',{exact:true}).fill('no matching project');await page.keyboard.press('Escape');await expect(region).toContainText('No available projects match');
   await page.getByRole('button',{name:'Configure Project health',exact:true}).click();await page.getByRole('button',{name:'Remove filter',exact:true}).click();await page.keyboard.press('Escape');await expect(region.getByText(f.title,{exact:true})).toBeVisible();
   await page.route('**/api/project-health',route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"disposable_outage"}'}));await region.getByRole('button',{name:'Refresh health',exact:true}).click();await expect(region).toContainText('Project sources could not be refreshed');await page.unroute('**/api/project-health');await region.getByRole('button',{name:'Refresh health',exact:true}).click();await expect(region.getByText(f.title,{exact:true})).toBeVisible();
+  let reads=0;await page.route('**/api/project-health',route=>++reads===1?route.fulfill({status:409,contentType:'application/json',body:'{"error":"project_sources_changed"}'}):route.continue());await region.getByRole('button',{name:'Refresh health',exact:true}).click();await expect(region.getByText(f.title,{exact:true})).toBeVisible();await expect.poll(()=>reads).toBeGreaterThanOrEqual(2);await page.unroute('**/api/project-health');
   await page.addStyleTag({content:'html{font-size:200%!important}'});await health(page,'Project cockpit enlarged',info);await info.attach('project-cockpit-enlarged',{body:await page.screenshot(),contentType:'image/png'});
  }finally{await f.cleanup();}
 });

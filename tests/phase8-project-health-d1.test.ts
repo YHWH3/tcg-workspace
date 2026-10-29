@@ -62,6 +62,10 @@ for(const enabled of [false,true])describe(`project health actual D1 permissions
   const [empty,missing]=await collectProjectHealth(withWorkspaceContext(withD1Budget(f.env)),'alice',[cfg(),projectHealthConfigSchema.parse({projectId:'project'})],now);
   expect(empty).toMatchObject({status:'ready',projects:[]});expect(missing).toMatchObject({status:'source_unavailable',projects:[]});
  });
+ it('treats a configured page id as an unavailable database, not a healthy empty source',async()=>{
+  await seed(enabled);await applyChanges(f.env,'alice',[{id:'not-a-database',collection:'pages',patch:{title:'A page'},ts:now}],{serverTs:true});
+  const [page]=await collectProjectHealth(withWorkspaceContext(withD1Budget(f.env)),'alice',[projectHealthConfigSchema.parse({databaseId:'not-a-database'})],now);expect(page).toMatchObject({status:'source_unavailable',projects:[]});
+ });
  it('shares health evidence with dashboard and operating-review MCP reads',async()=>{
   await seed(enabled);await applyChanges(f.env,'alice',[{id:'review',collection:'pages',patch:{title:'Project review'},ts:now},{id:'health',collection:'blocks',patch:{pageId:'review',type:'projecthealth',databaseId:'projects',order:'a0'},ts:now}],{serverTs:true});
   const [direct]=await collectProjectHealth(withWorkspaceContext(withD1Budget(f.env)),'alice',[cfg()],now);
@@ -124,4 +128,17 @@ it('withholds a completed snapshot when the principal is disabled during its fin
   const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
  }});
  await expect(collectProjectHealth(withWorkspaceContext(withD1Budget({...f.env,DB:database})),'alice',[cfg()],now)).rejects.toThrow('access_reset_required');expect(revoked).toBe(true);
+});
+it('reports source changes when a root revision changes between selection and authorization',async()=>{
+ await seed(true);let changed=false;
+ const wrap=(statement:D1PreparedStatement,sql:string):D1PreparedStatement=>new Proxy(statement,{get(target,key){
+  if(key==='bind')return(...values:Parameters<D1PreparedStatement['bind']>)=>wrap(target.bind(...values),sql);
+  if(key==='all')return async()=>{const result=await target.all();if(!changed&&sql.includes("'root' bucket")){changed=true;await applyChanges(f.env,'alice',[{id:'project',collection:'tasks',patch:{p_f_end:'2026-12-01'},ts:now}],{serverTs:true});}return result;};
+  const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
+ }});
+ const database=new Proxy(f.db,{get(target,key){if(key==='prepare')return(sql:string)=>wrap(target.prepare(sql),sql);const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});
+ await expect(collectProjectHealth(withWorkspaceContext(withD1Budget({...f.env,DB:database})),'alice',[cfg()],now)).rejects.toThrow('project_sources_changed');expect(changed).toBe(true);
+ const [fresh]=await collectProjectHealth(withWorkspaceContext(withD1Budget(f.env)),'alice',[cfg()],now);expect(fresh.projects.map(p=>p.id)).toEqual(['project']);
+ changed=false;await applyChanges(f.env,'alice',[{id:'project',collection:'tasks',patch:{p_f_end:'2026-11-01'},ts:now}],{serverTs:true});
+ const response=await projectHealthApi.request('https://local.test/',{method:'POST',headers:f.auth('alice'),body:JSON.stringify([cfg()])},withWorkspaceContext(withD1Budget({...f.env,DB:database})));expect(response.status).toBe(409);expect(await response.json()).toEqual({error:'project_sources_changed'});
 });

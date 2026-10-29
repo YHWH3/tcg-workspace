@@ -395,3 +395,31 @@ colors. Block options stays visible, has readable text and a32px target. The
 unchanged failing journeys pass12/12 across tablet/desktop light in all three
 engines (`project-health-contrast-corrected.log`). Fresh committed-source focused
 checks, the full306 selection and preserved workflows are still required.
+
+The corrected306 selection at `008225a` completed305 PASS /1 FAIL, no skips or
+flaky retries (`.artifacts/ux-lab/2026-10-29T06-57-54.065Z/summary.json`). The
+Firefox desktop offline-save case timed out after a health refresh returned a
+complete-looking empty list. A controlled actual-D1 test reproduces exactly that
+result when the root revision changes between selection and authorization
+(`project-health-revision-race-baseline.log`,1 FAIL). The health collector now
+reports readable-but-changed source rows as an explicit `project_sources_changed`
+HTTP409 instead of silently dropping them. Normal canonical access denial remains
+redacted. The browser retries this read once only while its account/access
+generation is current; repeated races and network/auth/server failures surface.
+MCP receives the source-change error. Wrong-collection database ids are explicitly
+unavailable. No write retry, weaker authorization or new binding call is introduced.
+
+Twenty-four focused checks (including real HTTP409, both permission modes and
+one-retry/error/context boundaries) pass. A working-tree15-case three-engine
+probe passes with the strengthened simulated409 recovery assertion and the
+original offline/concurrent-edit assertions. Cleanup skips an already closed
+browser page so it cannot replace the original failure with a cleanup error.
+The first retry-test mock accidentally returned its mock as a beforeEach cleanup;
+that harness failure remains retained and the callback now returns nothing.
+
+Next: clean committed-source107 focused checks and90 cockpit cases across all18
+projects, followed by preserved MCP Phase3 and Phase6 workflows. The216 shared UI
+cases from the completed008225a selection remain separate unchanged-code evidence;
+the old failed306 run must never be relabelled a single-head306 PASS. The full
+Phase8 certificate still requires the remaining roadmap items and all mandatory
+checks on its final source.

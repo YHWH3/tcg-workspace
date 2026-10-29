@@ -3,7 +3,7 @@
 import {Hono} from 'hono';
 import {z} from 'zod';
 import {requireAuth,type AuthUser,type Env} from './auth';
-import {withReadGate,gateRows} from './readAccess';
+import {withReadGate} from './readAccess';
 import {loadAccessContext} from './access';
 import {getRecs} from './records';
 import {serverDateContext} from './workspaceSettings';
@@ -18,6 +18,16 @@ const live=`COALESCE(json_extract(r.data,'$.deleted'),0)!=1 AND COALESCE(json_ex
 const recordProjection=`json_patch(json_object('title',json_extract(r.data,'$.title'),'boardId',json_extract(r.data,'$.boardId'),'parentId',json_extract(r.data,'$.parentId'),'status',json_extract(r.data,'$.status'),'assigneeId',json_extract(r.data,'$.assigneeId'),'dueDate',json_extract(r.data,'$.dueDate'),'createdAt',json_extract(r.data,'$.createdAt')),
  COALESCE((SELECT json_group_object(p.key,p.value) FROM json_each(r.data) p WHERE p.key IN(SELECT value FROM json_each(?2))),'{}'))`;
 const flat=(r:{id:string;data:Record<string,unknown>}):HealthRecord=>({...r.data,id:r.id});
+class ProjectHealthSourceChanged extends Error{constructor(){super('project_sources_changed');}}
+/** A readable row with a newer revision is a changed snapshot, not a missing
+ * project. Keep normal denial redaction while refusing stale source bytes. */
+async function currentHealthRows<T extends {id:string;rev?:number}>(env:Env,rows:T[]):Promise<T[]>{
+ if(!rows.length)return [];
+ const decision=await env.READ_GATE!.decide(rows.map(r=>r.id));
+ if(!decision.enabled)return rows;
+ if(rows.some(r=>decision.readable.has(r.id)&&r.rev!==undefined&&decision.revs.get(r.id)!==r.rev))throw new ProjectHealthSourceChanged();
+ return rows.filter(r=>decision.readable.has(r.id));
+}
 /** MCP links need an origin; the authenticated app keeps relative routes. */
 export function projectHealthForOrigin(page:ProjectHealthPage,origin:string):ProjectHealthPage {
  return {...page,projects:page.projects.map(p=>({...p,url:origin+p.url})),records:page.records.map(r=>({...r,url:origin+r.url}))};
@@ -31,7 +41,7 @@ export async function collectProjectHealth(env:Env,userId:string,configs:Project
  if(projectIds.includes('self'))throw new Error('project_context_required');
  const keys=[...new Set(configs.flatMap(c=>[c.ownerKey,c.startKey,c.endKey,...(c.filters??[]).map(f=>f.key)]))];
  const raw=await env.DB.prepare(`SELECT 'root' bucket,r.id,r.collection,${recordProjection} data,r.seq rev FROM records r WHERE r.collection='tasks' AND ${live} AND (r.id IN(SELECT value FROM json_each(?1)) OR json_extract(r.data,'$.boardId') IN(SELECT value FROM json_each(?3)) AND COALESCE(json_extract(r.data,'$.parentId'),'')='') ORDER BY r.id LIMIT 201`).bind(JSON.stringify(projectIds),JSON.stringify(keys),JSON.stringify(databaseIds)).all<Source>();
- const roots=(await gateRows(env,raw.results.slice(0,200))).map(r=>flat({id:r.id,data:JSON.parse(r.data)}));
+ const roots=(await currentHealthRows(env,raw.results.slice(0,200))).map(r=>flat({id:r.id,data:JSON.parse(r.data)}));
  const rootBoards=await getRecs(env,[...new Set([...databaseIds,...roots.map(r=>String(r.boardId??''))])]);
  // Resolve relations before evaluating filters; relation values are never
  // record properties. Filter and cap projects only after this gated snapshot.
@@ -52,7 +62,7 @@ export async function collectProjectHealth(env:Env,userId:string,configs:Project
  UNION ALL SELECT 'link',r.id,'links',json_object('kind',json_extract(r.data,'$.kind'),'fromId',json_extract(r.data,'$.fromId'),'toId',json_extract(r.data,'$.toId')),r.seq FROM incoming r
  UNION ALL SELECT 'caps','caps','',json_object('project_tree',(SELECT COUNT(*) FROM project_tree),'relations',(SELECT COUNT(*) FROM relations),'neighbors',(SELECT COUNT(*) FROM neighbors),'task_tree',(SELECT COUNT(*) FROM task_tree),'incoming',(SELECT COUNT(*) FROM incoming),'sources',(SELECT COUNT(*) FROM sources),'boards',(SELECT COUNT(*) FROM boards)),0`).bind(JSON.stringify(selected),JSON.stringify(keys)).all<Source>();
  const caps=JSON.parse(snapshot.results.find(r=>r.bucket==='caps')!.data) as Record<string,number>,partial=Object.entries(caps).filter(([k,n])=>n>(k==='sources'?1000:k==='boards'?100:500)).map(([k])=>k);
- const allowed=await gateRows(env,snapshot.results.filter(r=>r.bucket!=='caps'));
+ const allowed=await currentHealthRows(env,snapshot.results.filter(r=>r.bucket!=='caps'));
  const records=allowed.filter(r=>r.bucket==='record').map(r=>flat({id:r.id,data:JSON.parse(r.data)})),boards=allowed.filter(r=>r.bucket==='board').map(r=>flat({id:r.id,data:JSON.parse(r.data)}));
  const links=allowed.filter(r=>r.bucket==='link').map(r=>({id:r.id,...JSON.parse(r.data)}) as HealthLink);
  const ids=records.map(r=>r.id);
@@ -62,7 +72,7 @@ export async function collectProjectHealth(env:Env,userId:string,configs:Project
  ]);
  const activityRows=extra[0].results as unknown as {id:string;rev:number;target_id:string;at:number}[];
  if(activityRows.length>1000)partial.push('activity');
- const activity:HealthActivity[]=(await gateRows(env,activityRows.slice(0,1000))).map(r=>({id:r.id,targetId:r.target_id,at:r.at}));
+ const activity:HealthActivity[]=(await currentHealthRows(env,activityRows.slice(0,1000))).map(r=>({id:r.id,targetId:r.target_id,at:r.at}));
  const approvals=extra[1].results as unknown as {id:string;target_id:string;status:string}[];
  if(approvals.length>200)partial.push('approvals');
  const approvalContext:HealthApproval[]=approvals.slice(0,200).map(r=>({id:r.id,targetId:r.target_id,status:r.status}));
@@ -77,7 +87,7 @@ export async function collectProjectHealth(env:Env,userId:string,configs:Project
   const filtered=applyView(candidates,{filters:config.filters},{meId:userId,today:date.today,timeZone:date.timeZone,fieldsById:new Map(fieldsOf({fields:board?.fields}).map(f=>[f.id,f])),relationTitles:(id,fid)=>links.filter(l=>l.kind==='relation'&&l.fromId===id&&l.fieldId===fid&&byId.has(l.toId)).map(l=>String(byId.get(l.toId)!.title??''))}).rows as HealthRecord[];
   const chosen=filtered.slice(0,config.limit);
   if(board&&!projectHealthFieldsAvailable(board,config))sources.push('field_configuration');
-  const unavailable=!!config.databaseId&&(!database||database.data.deleted||database.data.archived)||!!config.projectId&&!chosen.length;
+  const unavailable=!!config.databaseId&&(!database||database.collection!=='boards'||database.data.deleted||database.data.archived)||!!config.projectId&&!chosen.length;
   const projects=chosen.map(r=>{
    const project=byId.get(r.id)!,health=projectHealth(project,{today:date.today,now,records,boards,links,activity,approvals:approvalContext,partialSources:sources,ownerKey:config.ownerKey,startKey:config.startKey,endKey:config.endKey,staleDays:config.staleDays});
    return {id:project.id,title:String(project.title??'Untitled project').slice(0,300),databaseId:String(project.boardId),url:recordHref(String(project.boardId),undefined,project.id),health};
@@ -88,6 +98,7 @@ export async function collectProjectHealth(env:Env,userId:string,configs:Project
 }
 
 export const projectHealthApi=new Hono<{Bindings:Env;Variables:{user:AuthUser}}>();
+projectHealthApi.onError((error,c)=>{if(error instanceof ProjectHealthSourceChanged)return c.json({error:error.message},409);throw error;});
 projectHealthApi.use('*',requireAuth);
 projectHealthApi.post('/',async c=>{
  const raw=await c.req.text();if(raw.length>12_000)return c.json({error:'configuration_too_large'},413);
