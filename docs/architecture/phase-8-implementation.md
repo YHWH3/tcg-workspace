@@ -554,3 +554,19 @@ journey now checks both IDs and each bar's accessible name. Final54 affected
 finance cases, focused checks, preserved suites and screenshot review are pending.
 Retain306 unaffected Project/pack/shared UI cases at a96c789; do not claim a final-
 source360 PASS. New Products normal/zero-price images supplement enlarged review.
+
+
+8.5 feature verification completed at3ebba8240547be4b7dc4c4a38f027233a73599e5,
+tree2cd9e1714a3f0d7ea877986257dd5c1b612d2468, fingerprint
+1cb7d3ca2ef82cf6b9bfcec372a75ff081f9b270f65b40b46b31b69dcf4b5166.
+Clean167 focused tests/19 files,typecheck/pack,54/54 final finance cases on all18
+projects, MCP64/64 and Phase6 42/42 PASS, source unchanged. The broader360 passed
+at a96c789; retain306 unaffected Project/pack/shared UI cases at that source.
+No single-head360 PASS is claimed. Nine final images inspected: enlarged card/
+button wrapping and Products normal/zero-price states. Screenshots immediately
+follow injected server writes and do not assert settled table-sync behavior.
+Native zoom, physical devices, human AT/approval and independent acceptance are
+not inferred. Exact commands,historical failures,hashes and platform matrix:
+`docs/roadmap/evidence/P8-finance-3ebba82.json`. Contract remainsv2, copies identical;
+no migration/env/secret change. Only sanitized docs/evidence follow verification.
+Phase8 remains HOLD pending8.6 and subsequent items plus final certification.
