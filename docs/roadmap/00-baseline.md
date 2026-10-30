@@ -107,7 +107,11 @@ planned work, L = inconsistency.
 | N26 | M | Binary multiplication and asymmetric rounding left a cent after equal positive/negative expenses and disagreed with displayed decimal money. | finance-rounding-baseline.log: matching ±1.125 produced spent0.01; 1 FAIL/14 PASS. | Convert through ungrouped Intl decimal rounding into safe integer minor units; exact reversal and zero/two/three-decimal regressions PASS; final167 focused/54 finance PASS at3ebba82. |
 | N27 | M | Repeated budget blocks for one Project reused a progress ID, breaking independent accessible labels. | finance-repeated-label-baseline.log: two bars have only one distinct ID,1 FAIL. | Per-mounted-reader IDs and list index keep label targets unique; final54 finance cases assert distinct IDs and accessible names at3ebba82. |
 
-Add new findings as N28+ with the same columns.
+| N28 | M | Gallery/document capture inputs deferred reading a cleared FileList, losing staged attachments. | Field interruption browser probe lost media after selection. | Snapshot FileList before clearing inputs; final capture regression must verify restored photo/document and one record. |
+| N29 | M | Upload sweep attempted staged bytes before their file metadata existed, producing404 and disrupting recovery. | Two actual-Dexie baseline regressions FAIL; retained capture trace. | Retain bytes and defer upload until metadata exists, including canonical thumbnail ownership. Final media/capture gates required. |
+| N30 | M | Raw Blob draft staging failed in WebKit despite normal attachment byte fallback. | Three-engine field probe11 PASS/1 FAIL, WebKit capture draft lacks media refs. | Reuse putBlobRow for cached staging; forced-Blob-refusal unit and corrected WebKit capture probe PASS. Full final matrix pending. |
+
+Add new findings as N31+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

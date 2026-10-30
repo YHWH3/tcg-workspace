@@ -1,3 +1,4 @@
+import {useRequestedFieldFocus} from '../../core/useRequestedFieldFocus';
 import {workspaceTimeZone} from '../../core/workspaceLocale';
 import {useWorkspaceLocale} from '../../core/workspaceLocale';
 import {HistoryButton} from '../../core/History';
@@ -52,7 +53,9 @@ function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClo
   useWorkspaceLocale();
   useAssistantContext(task && !task.deleted ? { kind: 'record', id: task.id } : null);
   const users = useUsers();
-  const boards = useBoards();
+  const boards = useBoards(),detailRoot=useRef<HTMLDivElement>(null);
+  const focusBoard=task?boards.find(b=>b.id===taskBoardId(task)):undefined;
+  useRequestedFieldFocus(detailRoot,task?.id,fieldsOf(focusBoard));
   const files = useAttachments(taskId);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -113,7 +116,7 @@ function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClo
   };
 
   return (
-    <>
+    <div ref={detailRoot} className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between border-b border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
         <span className="flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
           <span>{String(board?.icon ?? '🗂️')}</span> {String(board?.name ?? 'Board')}
@@ -216,7 +219,7 @@ function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClo
               className={cn('w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10', overdue && 'border-red-300 text-red-600 dark:border-red-800 dark:text-red-400')}
             />
             {fieldsOf(board).map((f) => (
-              <FieldRow key={f.id} field={f} task={task} />
+              <div className="contents" data-record-field={`p_${f.id}`} key={f.id}><FieldRow field={f} task={task}/></div>
             ))}
           </div>
           <div className="mt-4">
@@ -257,7 +260,7 @@ function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClo
         <Slot modules={modules} kind="taskDetail" props={{ taskId: task.id }} />
       </div>
       {lightbox && <Lightbox files={images} startId={lightbox} onClose={() => setLightbox(null)} />}
-    </>
+    </div>
   );
 }
 

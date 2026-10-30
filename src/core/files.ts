@@ -140,7 +140,7 @@ async function mediaDuration(blob: Blob, kind: 'audio' | 'video'): Promise<numbe
  * the row still can't be written — callers must then record an honest
  * 'failed' state rather than let the throw swallow their surrounding save.
  */
-async function putBlobRow(row: BlobRow): Promise<boolean> {
+export async function putBlobRow(row: BlobRow): Promise<boolean> {
   try {
     await db.blobs.put({...row,pendingSince:row.pendingSince??Date.now()});
     return true;
@@ -299,6 +299,16 @@ export async function uploadPendingBlobs(checkSession: () => void = () => {}): P
       assertCurrent();
       const file = await db.files.get(row.id); assertCurrent();
       if (file?.deleted) { await db.blobs.delete(row.id); continue; }
+      // addFile stages bytes before its metadata mutation. A partial save may
+      // leave only those bytes; keep them for the same capture's retry rather
+      // than uploading an unknown file and blocking sync with a 404. Canonical
+      // thumbnails intentionally use their main file's metadata instead.
+      if (!file) {
+        const parentId = thumbnailParentId(row.id);
+        if (!parentId) continue;
+        const owner = await db.files.get(parentId); assertCurrent();
+        if (!owner || owner.deleted || owner.thumbId !== row.id) continue;
+      }
       const total = chunkCount(row.blob.size);
       for (let i = row.uploadedChunks; i < total; i++) {
         await putChunk(row.id, i, chunkSlice(row.blob, i), assertCurrent);

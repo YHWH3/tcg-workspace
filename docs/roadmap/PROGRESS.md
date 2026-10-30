@@ -124,3 +124,18 @@ The full Phase8 decision remains HOLD: nine roadmap items, applicable native
 checks and the final canonical certificate are incomplete. Missing engineering
 evidence is not relabelled external. Failed/interrupted attempts and the first
 unreproduced clock probe remain preserved. No production operation occurred.
+
+
+8.6 Field evidence implementation checkpoint (2026-10-30): shared normalized
+visits, exact-unit measurements, accessible SVG/table/source links, intentional
+field focus, bounded canonical HTTP/MCP reads and partial device snapshots.
+Packv6 adds stable Field evidence/Field Visit blocks. No migration/contract change.
+N28–N30 cover real capture file-selection, unmatched-staged upload and WebKit
+draft byte-storage failures. All failed/interrupted development reports remain
+in .artifacts/phase8 and .artifacts/ux-lab. Corrected three-engine probe11/12 and
+subsequent corrected WebKit capture1/1 are separate working-tree evidence.
+Historical absent/null capture intent and capped planned media are now distinct;
+focused/source-frozen final checks remain required. Full Phase8 remains HOLD.
+Next: freeze/commit8.6, focused/typecheck/pack,414 affected browser cases, preserved
+MCP/Phase6 workflows, image review, sanitized evidence and draftPR17 update; then
+8.7. No physical/native AT, production or genuine-human acceptance is claimed.

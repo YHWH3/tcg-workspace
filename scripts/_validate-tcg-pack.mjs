@@ -33,7 +33,7 @@ const FILTER_OPS = new Set([
 ]);
 const BLOCK_TYPES = new Set([
   'text', 'h1', 'h2', 'h3', 'bulleted', 'todo', 'divider', 'callout', 'tasks',
-  'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'embed',
+  'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart', 'embed',
 ]);
 
 const errors = [];
@@ -167,6 +167,14 @@ for (const pg of tpl.pages ?? []) {
         if (b.inline != null) checkConfig(db, b.inline, `${where}.inline`);
         for (const f of b.filters ?? []) checkFieldKey(db, f.key, `${where}.filters`);
         if (b.fieldKey != null) checkFieldKey(db, b.fieldKey, `${where}.fieldKey`);
+        if(['fieldsessions','measurechart'].includes(b.type)){
+          for(const [key,fallback,type]of [['dateKey','p_f_date','date'],['measurementKey','p_f_measurement','number'],['unitKey','p_f_unit','text'],['observationKey','p_f_observation','text'],['photoKey','p_f_photos','url'],['placeKey','rel_f_place','relation'],['experimentKey','rel_f_experiment','relation'],['projectKey','rel_f_project','relation']]){
+            const value=b[key]??fallback;checkFieldKey(db,value,`${where}.${key}`);
+            if(!(db.fields??[]).some(f=>`${type==='relation'?'rel':'p'}_${f.id}`===value&&f.type===type))err(`${where}.${key}: expected ${type} field`);
+          }
+          if(b.limit!=null&&(!Number.isInteger(b.limit)||b.limit<1||b.limit>50))err(`${where}: limit must be1–50`);
+          if(b.unit!=null&&(typeof b.unit!=='string'||b.unit.length>100))err(`${where}: unit must be at most100 characters`);
+        }
         if(b.type==='budget'){
           const keys=b.mode==='product'?['priceKey','costKey']:['budgetKey'];
           for(const key of keys){const fallback={priceKey:'p_f_price',costKey:'p_f_cost',budgetKey:'p_f_budget'}[key],value=b[key]??fallback;checkFieldKey(db,value,`${where}.${key}`);if(!(db.fields??[]).some(f=>`p_${f.id}`===value&&f.type==='number'))err(`${where}.${key}: expected number field`);}

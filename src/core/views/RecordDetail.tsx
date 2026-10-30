@@ -1,3 +1,4 @@
+import {useRequestedFieldFocus} from '../useRequestedFieldFocus';
 import {HistoryButton} from '../History';
 /**
  * RecordDetail — generic record page body for both tasks and records.
@@ -77,7 +78,8 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
   const cols = stagesOf(board);
   const builtins = showBuiltinsOf(board);
   const noun = recordNoun(board);
-  const fields = fieldsOf(board);
+  const fields = fieldsOf(board),detailRoot=useRef<HTMLDivElement>(null);
+  useRequestedFieldFocus(detailRoot,rec.id,fields);
   const kids = childrenOf(tasks, rec.id);
   const parent = rec.parentId ? tasks.find((t) => t.id === rec.parentId) : undefined;
 
@@ -97,7 +99,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
 
 
   return (
-    <div className="ws-record-detail flex h-full min-w-0 flex-col">
+    <div ref={detailRoot} className="ws-record-detail flex h-full min-w-0 flex-col">
       <div className="flex flex-wrap items-center gap-1 border-b border-neutral-200/70 px-3 py-2 dark:border-neutral-800/70">
         <button className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={onClose} aria-label="Close">
           <X size={16} />
@@ -238,11 +240,9 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           )}
           {/* all fields incl. relation pickers */}
           {fields.map((f) =>
-            isRelationField(f) ? (
-              <RelationRow key={f.id} field={f} rec={rec} />
-            ) : (
-              <FieldRow key={f.id} field={f} task={rec} />
-            ),
+            <div className="contents" data-record-field={`${isRelationField(f)?'rel':'p'}_${f.id}`} key={f.id}>
+              {isRelationField(f)?<RelationRow field={f} rec={rec}/>:<FieldRow field={f} task={rec}/>}
+            </div>,
           )}
         </div>
 

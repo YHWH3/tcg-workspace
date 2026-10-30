@@ -81,7 +81,7 @@ export interface AuthorBlock {
   key?: string;
   type:
     | 'text' | 'h1' | 'h2' | 'h3' | 'bulleted' | 'todo' | 'divider' | 'callout' | 'tasks'
-    | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'attention' | 'projecthealth' | 'budget' | 'embed';
+    | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'attention' | 'projecthealth' | 'budget' | 'fieldsessions' | 'measurechart' | 'embed';
   text?: string;
   checked?: boolean;
   url?: string;
@@ -90,6 +90,18 @@ export interface AuthorBlock {
   projectId?: string;
   recordId?: string;
   mode?: 'project' | 'product';
+  dateKey?: string;
+  measurementKey?: string;
+  unitKey?: string;
+  observationKey?: string;
+  photoKey?: string;
+  placeKey?: string;
+  experimentKey?: string;
+  projectKey?: string;
+  experimentId?: string;
+  placeId?: string;
+  unit?: string;
+  missingOnly?: boolean;
   budgetKey?: string;
   amountKey?: string;
   typeKey?: string;
@@ -171,7 +183,7 @@ function toStoredBlock(b: AuthorBlock, pageId: string, order: string): Record<st
   }
   for (const k of [
     'databaseId', 'viewId', 'inline', 'limit', 'heading', 'filters', 'kinds', 'compact',
-    'agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url', 'projectId','recordId','mode','budgetKey','amountKey','typeKey','relationKey','priceKey','costKey','ownerKey','startKey','endKey','staleDays',
+    'agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url', 'projectId','recordId','mode','measurementKey','unitKey','observationKey','photoKey','placeKey','experimentKey','projectKey','experimentId','placeId','unit','missingOnly','dateKey','budgetKey','amountKey','typeKey','relationKey','priceKey','costKey','ownerKey','startKey','endKey','staleDays',
   ] as const) {
     const v = b[k as keyof AuthorBlock];
     if (v !== undefined) out[k] = v;

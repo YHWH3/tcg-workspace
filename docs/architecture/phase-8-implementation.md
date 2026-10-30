@@ -570,3 +570,65 @@ not inferred. Exact commands,historical failures,hashes and platform matrix:
 `docs/roadmap/evidence/P8-finance-3ebba82.json`. Contract remainsv2, copies identical;
 no migration/env/secret change. Only sanitized docs/evidence follow verification.
 Phase8 remains HOLD pending8.6 and subsequent items plus final certification.
+
+## 8.6 Field evidence (implementation; final verification pending)
+
+Shared fieldSessions groups the authorized Date/Place/Experiment tuple without
+locale-dependent ordering. measurements selects exact trimmed/lowercase units,
+refuses mixed units unless a unit is explicitly selected, preserves zero/negative
+values and reports missing Date/Unit omissions. measurementLayout scales extreme
+signed finite values before subtraction, keeping SVG geometry finite.
+
+The shared normalizer validates untyped configured values once and returns only
+metadata, gaps and source links. Neither the Worker nor MCP returns Observation
+text or attachment bytes in these summaries: SQL derives its Unicode-trimmed
+presence bit. Malformed scalar/object values remain invalid; schema drift,
+source caps, inaccessible context and partial device snapshots stay explicit.
+A single bounded collector serves HTTP and both dashboard_snapshot blocks under
+canonical gates with source-revision/current principal/connector fences. Only
+an explicit revision409 gets one current-context browser retry.
+
+fieldsessions lists recent visits with expandable source records and missing-field
+fix links. Intentional URL field focus is consumed once after the configured
+control mounts, on both record and legacy-task details; normal sync cannot steal
+focus. measurechart provides titled SVG, roving keyboard points, original-record
+links and a data table alternative. It reports units, dates, ranges and omissions.
+The source text stays unchanged; interpretation is separate and no provider runs.
+
+New capture records store captureEvidence v1/photoCount in their initial normal
+mutation, before file creation. This is planned photo intent, not upload proof.
+Authorized image/file-link metadata can establish evidence availability; older
+records retain Unknown intent. Existing durable media refs and deterministic
+capture IDs remain the retry authority. Device reliability is linked from both summaries. Gallery/document file handlers snapshot
+FileList before clearing inputs; the browser probe exposed deferred reads losing
+selected files. The regression forces a local files-write failure, verifies an
+initial partial record with intent, restores the staged draft after online shell
+reload and retries offline without duplicating record/photo/document. The UX lab
+blocks service workers; this does not claim offline shell loading.
+
+Packv6 adds a Field evidence page under Common Lab and stable Field Visit blocks,
+preserving team edits and deleted reservations. Copies retain live source database
+references and remap copied context IDs; record conversion skips dashboard blocks
+through its existing policy. No migration, collection, secret or event body change.
+Working-tree failures and corrected results stay in .artifacts/phase8. Final clean-
+source focused/browser/preserved checks and visual review are required before
+publication. Native/physical/AT and final Phase8 certification remain incomplete.
+
+
+The interruption probe also reproduced upload sweeping of staged bytes lacking a
+file row, causing404 and access recovery failure. Two actual-Dexie upload tests
+fail against the original path. The sweep now retains such bytes and skips network
+work until metadata exists, while resolving valid deterministic thumbnails through
+the canonical owner. It never deletes unclaimed bytes or marks them uploaded.
+Full media tests and capture recovery must pass alongside new desk gates.
+
+Capture draft staging now uses the same Blob/ArrayBuffer fallback as ordinary
+attachments. The WebKit interruption probe reproduced raw Blob staging refusal;
+a cached-byte regression refuses Blob writes and verifies restored bytes. A
+known planned photo with capped metadata stays distinct from historical unknown
+intent. Missing/null provenance is unknown, while malformed provenance is invalid.
+
+Pre-freeze checks are development evidence only. Four new UX journeys extend the
+required catalog to62 cases ×18 projects (1116); final verification selects the
+72 new Field evidence cases and affected finance/reliability/shared UI workflows.
+The rest of the full catalog and canonical phase certification remain pending.

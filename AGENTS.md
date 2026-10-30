@@ -283,3 +283,19 @@ completeness. The Products databaseSummary slot opens existing budget content
 without persisting derived rows. Template copies retain live money references;
 only validated self-budget blocks get the existing destination-bound conversion
 exception, under frozen preview/session approval.
+
+
+### Phase 8 field evidence desk
+
+Field evidence summaries share `fieldEvidencePage` across bounded Worker/MCP
+metadata reads and partial indexed device reads. Observation content never enters
+the summary; the Worker projects a Unicode-trimmed presence bit. Photo intent
+(`captureEvidence` v1/photoCount) is recorded before capture file creation and
+is distinct from attachment metadata availability and byte/upload completion.
+Missing historical intent stays unknown, not invalid; capped known intent stays
+explicitly incomplete. Exact units are trimmed/lowercased without conversion.
+Intentional fix links consume one focus request only after the authorized field
+mounts; background sync must not steal focus. Draft media uses `putBlobRow` so
+WebKit's byte fallback is retained. Upload sweeps retain unmatched staged bytes
+and wait for metadata; canonical deterministic thumbnails resolve their owner.
+Never interpret staged bytes as uploaded or delete them as a recovery shortcut.

@@ -5,7 +5,7 @@ import {applyView,type ViewConfig} from '../shared/views';
 import {AI_ACTIONS} from '../shared/aiActions';
 import raw from '../templates/tcg-pack.json';
 it('adds stable finance blocks and a bounded stale-action view without changing text Margin',()=>{
- const pack=toBundled('tcg-pack',raw as unknown as AuthorTemplate);expect(pack.version).toBe(5);
+ const pack=toBundled('tcg-pack',raw as unknown as AuthorTemplate);expect(pack.version).toBeGreaterThanOrEqual(5);
  expect(pack.snapshot.blocks!.finance_project_budgets).toMatchObject({type:'budget',databaseId:'db_projects',mode:'project'});expect(pack.snapshot.blocks!.project_review_budget).toMatchObject({recordId:'self',limit:1});
  expect(pack.snapshot.blocks!.finance_product_economics).toMatchObject({type:'budget',databaseId:'db_products',mode:'product'});
  expect((pack.snapshot.boards!.db_products.fields as {id:string;type:string}[]).find(f=>f.id==='f_margin')?.type).toBe('text');

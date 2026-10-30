@@ -142,3 +142,24 @@ it('reads only one pending byte payload before its upload rather than materializ
   finally {db.blobs.hook('reading').unsubscribe(observe);}
   expect((await db.blobs.get('buffer-a'))?.state).toBe('uploaded');expect((await db.blobs.get('buffer-b'))?.state).toBe('uploaded');
 });
+
+it('retains staged bytes without attempting upload until file metadata exists',async()=>{
+ await db.blobs.put({id:'staged',blob:new Blob(['Recoverable staged bytes']),state:'pending',uploadedChunks:0});
+ const calls:string[]=[];vi.stubGlobal('fetch',vi.fn(async(path:string)=>{calls.push(path);return new Response('{}',{status:200});}));
+ await media.uploadPendingBlobs();expect(calls).toEqual([]);expect((await db.blobs.get('staged'))?.state).toBe('pending');
+ await db.files.put({id:'staged',_ts:{},parentId:'record'});await media.uploadPendingBlobs();expect(calls).toEqual(['/api/files/staged/chunks/0','/api/files/staged/complete']);expect((await db.blobs.get('staged'))?.state).toBe('uploaded');
+});
+it('uploads a canonical thumbnail through its owner while holding unclaimed thumbnail bytes',async()=>{
+ await db.files.update('file',{thumbId:'filet'});for(const id of ['filet','othert'])await db.blobs.put({id,blob:new Blob(['thumbnail']),state:'pending',uploadedChunks:0});
+ const calls:string[]=[];vi.stubGlobal('fetch',vi.fn(async(path:string)=>{calls.push(path);return new Response('{}',{status:200});}));
+ await media.uploadPendingBlobs();expect(calls).toEqual(['/api/files/filet/chunks/0','/api/files/filet/complete']);expect((await db.blobs.get('filet'))?.state).toBe('uploaded');expect((await db.blobs.get('othert'))?.state).toBe('pending');
+});
+
+it('stages cached capture bytes through the existing fallback when the engine refuses Blob storage',async()=>{
+ const refuseBlobs=(_key:unknown,row:{blob?:unknown})=>{if(row.blob instanceof Blob)throw new DOMException('Synthetic Blob refusal','UnknownError');};db.blobs.hook('creating',refuseBlobs);
+ try{
+  expect(await media.putBlobRow({id:'capdraft_photo',blob:new Blob(['Original capture photo']),state:'cached',uploadedChunks:0})).toBe(true);
+  db.close();await db.open();expect(await (await db.blobs.get('capdraft_photo'))?.blob.text()).toBe('Original capture photo');expect((await db.blobs.get('capdraft_photo'))?.state).toBe('cached');
+  const network=vi.fn();vi.stubGlobal('fetch',network);await media.uploadPendingBlobs();expect(network).not.toHaveBeenCalled();
+ }finally{db.blobs.hook('creating').unsubscribe(refuseBlobs);}
+});

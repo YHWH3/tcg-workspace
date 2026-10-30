@@ -4900,6 +4900,21 @@
           "text": "",
           "checked": false,
           "key": "tpl_48"
+        },
+        {
+          "key": "field_visit_sessions",
+          "type": "fieldsessions",
+          "heading": "Field evidence to review",
+          "databaseId": "db_fieldlog",
+          "limit": 5,
+          "missingOnly": true
+        },
+        {
+          "key": "field_visit_measurements",
+          "type": "measurechart",
+          "heading": "Source measurements",
+          "databaseId": "db_fieldlog",
+          "unit": ""
         }
       ],
       "key": "pg_tpl_field_visit"
@@ -6027,6 +6042,33 @@
         }
       ],
       "key": "pg_tpl_volunteer"
+    },
+    {
+      "id": "pg_field_evidence",
+      "key": "pg_field_evidence",
+      "title": "Field evidence",
+      "icon": "📋",
+      "parentId": "pg_commonlab",
+      "blocks": [
+        {
+          "type": "text",
+          "text": "Review visits and their missing context. Open an observation to read the original notes and attachments. Photo intent is unknown for older captures."
+        },
+        {
+          "key": "field_evidence_sessions",
+          "type": "fieldsessions",
+          "heading": "Recent field visits",
+          "databaseId": "db_fieldlog",
+          "limit": 10
+        },
+        {
+          "key": "field_evidence_measurements",
+          "type": "measurechart",
+          "heading": "Measurements over time",
+          "databaseId": "db_fieldlog",
+          "unit": ""
+        }
+      ]
     }
   ],
   "links": [
@@ -6393,5 +6435,5 @@
       ]
     }
   ],
-  "version": 5
+  "version": 6
 }

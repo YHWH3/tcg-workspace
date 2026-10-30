@@ -9,3 +9,5 @@ import './AttentionBlock';
 import './ProjectHealthBlock';
 
 import './BudgetBlock';
+
+import './FieldEvidenceBlock';
