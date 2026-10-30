@@ -113,7 +113,9 @@ planned work, L = inconsistency.
 
 | N31 | M | A transport failure briefly raised an error access barrier before validating the same cache offline, unmounting an editor with pending text. | Frozen414 selection stopped85 PASS/1 FAIL/328 skipped or incomplete; deterministic real-engine regression1 FAIL. | Let the existing sync owner validate transport fallback before publishing error; HTTP denial and stale-cache barriers unchanged.44 engine/media checks and6 three-engine workflows PASS; final frozen selection pending. |
 
-Add new findings as N32+ with the same columns.
+| N32 | M | Long Observation labels forced the compact measurement table sideways despite its three-column layout. | Screenshot review and new geometry assertion: 324px table in a 290px region, 1 FAIL. | Wrap source labels and units with overflow-wrap:anywhere; corrected three-engine chart/table probe 3/3 PASS. Final 72 field cases pending. |
+
+Add new findings as N33+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

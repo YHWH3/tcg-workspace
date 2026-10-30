@@ -149,3 +149,16 @@ on transport fallback, not an accepted test flake. Deterministic engine baseline
 1 FAIL; corrected44 engine/media checks,typecheck and6 original three-engine
 editor/capture journeys PASS. Containing correction commit must get fresh frozen
 focused and414 browser checks before8.6 publication. Full Phase8 remains HOLD.
+
+
+8.6 resumed verification at f83e190: 293 focused tests across 29 files, typecheck
+and pack validation PASS. The owner-paused browser run retained 225 completed
+cases; the exact remaining189 all PASS. Validated union covers all414 cases
+without gaps or duplicates, with separate run exits130 and0 retained.
+
+Screenshot review then exposed N32 compact measurement-table overflow. Baseline
+geometry FAIL (324px in290px); corrected three-engine probe3/3 PASS. The only
+application change since f83e190 wraps long table labels and units. Containing
+commit needs fresh293 focused and72 field cases. Retain342 unaffected cases at
+f83e190; never claim a single-head414 PASS. Preserved MCP/V8/Phase6, final image
+review, evidence packaging and publication are pending. Phase8 remains HOLD.

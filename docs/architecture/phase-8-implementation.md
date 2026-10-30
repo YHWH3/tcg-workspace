@@ -643,3 +643,19 @@ raised reconciliation barrier and still fails closed immediately on HTTP denial.
 44 engine/media checks and6 original three-engine editor/capture journeys PASS.
 No authorization rule is relaxed; stale/required caches and replacement sessions
 retain their barriers. Final source-frozen verification must be repeated.
+
+
+The owner-paused run at f83e190 completed 225 cases; a source-identical resume
+completed the remaining 189. Exact-case union validation covers all 414 cases
+without gaps, duplicates or retries. Preserve the first report's exit130 and the
+resume's exit0; this is not a single uninterrupted run.
+
+Post-run screenshot inspection found N32: long Observation labels forced the
+three-column compact measurement table sideways. A new geometry assertion fails
+with 324px inside a 290px region. Labels and units now use overflow-wrap:anywhere
+to reduce intrinsic cell widths; the corrected chart/table probe passes in
+Chromium compact/light, Firefox tablet/dark and WebKit desktop/light. This is the
+only application change after f83e190. Fresh final-source focused checks and all
+72 field cases are required; retain the other 342 cases explicitly at f83e190.
+Final screenshots and preserved MCP, Operating Pack and Phase6 workflows remain
+pending. No final-source 414-case claim is made.
