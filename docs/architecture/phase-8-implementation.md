@@ -632,3 +632,14 @@ Pre-freeze checks are development evidence only. Four new UX journeys extend the
 required catalog to62 cases ×18 projects (1116); final verification selects the
 72 new Field evidence cases and affected finance/reliability/shared UI workflows.
 The rest of the full catalog and canonical phase certification remain pending.
+
+The first4e28c86 frozen selection stopped with85 PASS,1 FAIL and328 skipped or
+incomplete (exit130). The existing tablet offline-editor journey exposed a
+transient access-error barrier before the owning sync transport fallback validated
+the same cache. It unmounted the editor and rejected its pending text flush. A
+real-engine test fails on the old transition. prepareOnlineAccess now leaves
+transport errors to syncNow's existing cache validator; it retains any already
+raised reconciliation barrier and still fails closed immediately on HTTP denial.
+44 engine/media checks and6 original three-engine editor/capture journeys PASS.
+No authorization rule is relaxed; stale/required caches and replacement sessions
+retain their barriers. Final source-frozen verification must be repeated.

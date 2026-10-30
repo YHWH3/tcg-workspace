@@ -111,7 +111,9 @@ planned work, L = inconsistency.
 | N29 | M | Upload sweep attempted staged bytes before their file metadata existed, producing404 and disrupting recovery. | Two actual-Dexie baseline regressions FAIL; retained capture trace. | Retain bytes and defer upload until metadata exists, including canonical thumbnail ownership. Final media/capture gates required. |
 | N30 | M | Raw Blob draft staging failed in WebKit despite normal attachment byte fallback. | Three-engine field probe11 PASS/1 FAIL, WebKit capture draft lacks media refs. | Reuse putBlobRow for cached staging; forced-Blob-refusal unit and corrected WebKit capture probe PASS. Full final matrix pending. |
 
-Add new findings as N31+ with the same columns.
+| N31 | M | A transport failure briefly raised an error access barrier before validating the same cache offline, unmounting an editor with pending text. | Frozen414 selection stopped85 PASS/1 FAIL/328 skipped or incomplete; deterministic real-engine regression1 FAIL. | Let the existing sync owner validate transport fallback before publishing error; HTTP denial and stale-cache barriers unchanged.44 engine/media checks and6 three-engine workflows PASS; final frozen selection pending. |
+
+Add new findings as N32+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

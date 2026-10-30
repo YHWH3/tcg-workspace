@@ -139,3 +139,13 @@ focused/source-frozen final checks remain required. Full Phase8 remains HOLD.
 Next: freeze/commit8.6, focused/typecheck/pack,414 affected browser cases, preserved
 MCP/Phase6 workflows, image review, sanitized evidence and draftPR17 update; then
 8.7. No physical/native AT, production or genuine-human acceptance is claimed.
+
+
+8.6 first frozen source4e28c8653dad98ffa8ce596b72b40f938810b719:265 focused
+tests/28 files,typecheck/pack PASS, unchanged source. The414 browser selection
+was stopped after85 PASS/1 FAIL/328 skipped or incomplete (exit130), retained at
+.artifacts/ux-lab/2026-10-30T06-48-36.704Z. N31 is a real transient access barrier
+on transport fallback, not an accepted test flake. Deterministic engine baseline
+1 FAIL; corrected44 engine/media checks,typecheck and6 original three-engine
+editor/capture journeys PASS. Containing correction commit must get fresh frozen
+focused and414 browser checks before8.6 publication. Full Phase8 remains HOLD.

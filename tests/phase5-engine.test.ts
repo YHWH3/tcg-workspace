@@ -63,6 +63,15 @@ describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
     expect(fixture.calls).toEqual(['GET /api/access']); expect(await db.outbox.count()).toBe(1);
   });
 
+  it('does not unmount an already authorized editor before validating a transport fallback', async () => {
+    await engine.syncNow();const access=await import('../src/core/accessClient');
+    const states:string[]=[];const unsubscribe=access.accessClientStore.subscribe(()=>states.push(access.accessClientStore.get().status));
+    try{accessFailure='network';await engine.syncNow();}finally{unsubscribe();}
+    expect(states).not.toContain('error');expect(states.at(-1)).toBe('offline');
+    await engine.mutate('blocks','offline-editor',{pageId:'visible',text:'Retained offline note'});
+    expect((await db.outbox.toArray()).some(r=>r.id==='offline-editor')).toBe(true);
+  });
+
   it('does not unlock known-stale permissions during a transport outage with online navigator', async () => {
     await engine.syncNow();
     await db.meta.put({ key: 'access_reconciliation_required', value: { userId: fixture.userId, generation: 21 } });

@@ -299,3 +299,9 @@ mounts; background sync must not steal focus. Draft media uses `putBlobRow` so
 WebKit's byte fallback is retained. Upload sweeps retain unmatched staged bytes
 and wait for metadata; canonical deterministic thumbnails resolve their owner.
 Never interpret staged bytes as uploaded or delete them as a recovery shortcut.
+
+Transport failure in `prepareOnlineAccess` is rethrown to `syncNow`, which owns
+validated offline fallback. Do not raise a transient error barrier before that
+validation: it unmounts editors and rejects pending flushes. Keep barriers already
+raised for access changes, and fail closed on HTTP denial, stale cache or changed
+session. The engine regression observes intermediate states, not only final status.
