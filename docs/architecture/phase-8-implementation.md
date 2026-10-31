@@ -659,3 +659,23 @@ only application change after f83e190. Fresh final-source focused checks and all
 72 field cases are required; retain the other 342 cases explicitly at f83e190.
 Final screenshots and preserved MCP, Operating Pack and Phase6 workflows remain
 pending. No final-source 414-case claim is made.
+
+
+8.6 final feature evidence: source579dec6aab59e17b21b3cf73cde9cc6b7adee54e,
+tree0e60fb1fdf311eccb08774d7856f965a627de313, fingerprint
+52032b95c94b8ab1b8f06b81455220464f18d338dd15589f8b6943b71b9577a1.
+293 focused tests/29 files, typecheck/pack,72 final field browser cases, MCP64,
+Operating Pack140 automated assertions and Phase6 42 PASS; source unchanged.
+Six final screenshots inspected. The Operating Pack's three physical-device/AT
+checks remain explicitly external NOT RUN, not automated evidence.
+
+Retain342 unaffected browser cases atf83e190 from the validated414-case union
+of225 completed pre-pause cases and189 resumed cases. The paused report remains
+exit130; the resume is exit0. The table-only change afterf83e190 is covered by all
+72 final field cases; no single-head414 result. Failed baselines, interruption
+and an empty anchored command selection remain retained. Exact evidence:
+`docs/roadmap/evidence/P8-field-evidence-579dec6.json`. Contractv2 copies remain
+identical; no migration, secret, remote infrastructure or provider change.
+Remaining Phase8 implementation and full canonical/native qualification stay
+pending; physical devices, native zoom, human AT and independent acceptance are
+not inferred from Playwright or agent screenshot review.

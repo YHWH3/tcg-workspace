@@ -69,7 +69,8 @@ integration branches and existing PRs remain unchanged.
 | 8.5 rounding follow-up | correction verified narrowly; final verification pending | Containing commit | .artifacts/phase8/finance-rounding-baseline.log; finance-rounding-corrected.log; .artifacts/ux-lab/2026-10-29T15-27-52.148Z/summary.json | Paired ±1.125 expenses left0.01 under old rounding. Decimal half-unit rounding now matches displayed money and reversals cancel;38/38 calculation/D1 tests PASS. Earlier clean8c7ddf7 focused165/typecheck/pack PASS;360 selection deliberately interrupted before correction:88 PASS,1 interrupted,271 NOT RUN, exit130. Preserve all evidence; new source freeze and full affected checks required. Not pushed. |
 | 8.5 repeated-budget accessibility | reproduced and corrected; final affected checks pending | Containing commit (labels);a96c789 (broader) | .artifacts/phase8/finance-repeated-label-baseline.log; .artifacts/ux-lab/2026-10-29T15-41-18.069Z/summary.json | Clean167 focused/typecheck/pack and360/360 browser cases PASS at a96c789. New repeated-block check then reproduces duplicate progress IDs. Per-mounted-reader prefix and item index correct label association; new regression requires unique IDs and correct names. Final54 finance,167 focused,64/42 preserved and visual review pending. Retain306 unaffected cases at a96c789; no single-head360 claim. |
 | 8.5 final feature verification | focused engineering PASS; full phase certificate pending | 3ebba8240547be4b7dc4c4a38f027233a73599e5 (final finance);a96c789 (broader) | evidence/P8-finance-3ebba82.json | Clean167 focused tests/19 files,typecheck/pack,54/54 final finance across18 projects and preserved MCP64/64 plus Phase6 42/42 PASS. Broader360 PASS at a96c789; retain306 unchanged Project/pack/shared UI cases there. Only later application change is unique progress label IDs, with explicit regression. Nine final images inspected; native/physical/human acceptance and full1044-cell/final Phase8 certificate remain incomplete. Earlier failures/interruption retained. Next8.6. |
-| Phases 8 desks–13 / A | 8.0, 8.1, 8.9, 8.11, 8.3,8.4 and8.5 feature evidence recorded; next8.6 | — | README.md dependency order | Keep owner gates and one stacked draft PR per phase. |
+| 8.6 final feature verification | focused engineering PASS; phase certificate pending | 579dec6aab59e17b21b3cf73cde9cc6b7adee54e (final field); f83e190 (broader) | evidence/P8-field-evidence-579dec6.json | Clean293 focused/29 files, typecheck/pack,72/72 final field cases on18 projects, MCP64/64, Operating Pack140 automated assertions and Phase6 42/42 PASS. Pack report retains3 external physical/AT checks NOT RUN. Six final images inspected. Retain342 unaffected cases atf83e190 from exact414-case union (225 paused plus189 resumed); original exit130 unchanged. N28–N32 corrected, prior failures and empty command selection retained. No single-head414/full1116 or full phase certificate claimed. Next8.7. |
+| Phases 8 desks–13 / A | 8.0, 8.1, 8.9, 8.11, 8.3, 8.4, 8.5 and8.6 feature evidence recorded; next8.7 | — | README.md dependency order | Keep owner gates and one stacked draft PR per phase. |
 
 Each implementation commit updates this file. “Containing commit” is bound by
 Git history: a commit cannot contain its own full SHA. Source remains frozen
@@ -162,3 +163,22 @@ application change since f83e190 wraps long table labels and units. Containing
 commit needs fresh293 focused and72 field cases. Retain342 unaffected cases at
 f83e190; never claim a single-head414 PASS. Preserved MCP/V8/Phase6, final image
 review, evidence packaging and publication are pending. Phase8 remains HOLD.
+
+
+8.6 feature verification is complete at579dec6aab59e17b21b3cf73cde9cc6b7adee54e.
+Final clean-source293 focused/typecheck/pack,72 field cases across18 projects,
+preserved MCP64, Operating Pack140 automated assertions and Phase6 42 PASS.
+Source stayed unchanged throughout. The three external physical-device/AT
+checks remain NOT RUN. Six final screenshots were inspected; long table source
+labels now wrap within compact cells, and enlarged fix actions remain in cards.
+The empty anchored-filter command failed before executing tests and is retained;
+the corrected selection executed all72 cases.
+
+The broader414-case result atf83e190 is an exact union of225 completed cases from
+the owner-paused run and189 resumed cases, with no duplicates or gaps. Keep both
+run exits130 and0. After the table-only correction, retain342 unaffected cases
+there and use final72 field cases at579dec6; no single-head414 claim. Exact SHA,
+tree, fingerprint, commands, hashes, platform matrix and earlier failures are in
+evidence/P8-field-evidence-579dec6.json. Only sanitized evidence/docs follow this
+verification. Next8.7; remaining Phase8 items, applicable native checks and the
+full canonical certificate keep the overall decision HOLD.

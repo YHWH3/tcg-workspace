@@ -1,0 +1,606 @@
+{
+  "schemaVersion": 1,
+  "item": "8.6 Field evidence desk",
+  "status": "FOCUSED_ENGINEERING_PASS_PHASE_CERTIFICATION_PENDING",
+  "source": {
+    "sha": "579dec6aab59e17b21b3cf73cde9cc6b7adee54e",
+    "tree": "0e60fb1fdf311eccb08774d7856f965a627de313",
+    "fingerprint": "52032b95c94b8ab1b8f06b81455220464f18d338dd15589f8b6943b71b9577a1"
+  },
+  "focused": {
+    "tests": 293,
+    "files": 29,
+    "commands": [
+      "npm run typecheck",
+      "npm test -- tests/phase8-project-health.test.ts tests/phase8-project-health-client.test.ts tests/phase8-project-health-read.test.ts tests/phase8-project-health-d1.test.ts tests/phase8-project-health-pack.test.ts tests/phase8-attention-mcp-d1.test.ts tests/assistant-registry.test.ts tests/phase8-attention-pack.test.ts tests/templates.test.ts tests/phase6-previews-d1.test.ts tests/conversion.test.ts tests/phase8-reliability.test.ts tests/phase8-reliability-client.test.ts tests/phase8-reliability-clock.test.ts tests/phase8-finance.test.ts tests/phase8-finance-d1.test.ts tests/phase8-finance-client.test.ts tests/phase8-finance-pack.test.ts tests/phase8-finance-read.test.ts tests/phase8-field-evidence.test.ts tests/phase8-field-evidence-d1.test.ts tests/phase8-field-evidence-client.test.ts tests/phase8-field-evidence-pack.test.ts tests/phase8-field-evidence-read.test.ts tests/fieldMode.test.ts tests/phase5-media.test.ts tests/phase5-engine.test.ts tests/phase4-file-chunks-d1.test.ts tests/phase5-files-d1.test.ts",
+      "node scripts/_validate-tcg-pack.mjs"
+    ],
+    "results": [
+      {
+        "name": "typecheck",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "focused",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "pack",
+        "exit": 0
+      }
+    ],
+    "complete": true,
+    "identity": {
+      "path": ".artifacts/phase8/field-evidence-final-focused-source.json",
+      "sha256": "ccbb4d39310677bd9ec50abfb3ff4413ab004d1bc1f526723e6b50ec022c0762"
+    },
+    "logs": [
+      {
+        "path": ".artifacts/phase8/field-evidence-final-typecheck.log",
+        "sha256": "c85faad742c8ad117de8ed591ec6999ea99a21fdd2ba557c5fb19bfa2f97cb5e"
+      },
+      {
+        "path": ".artifacts/phase8/field-evidence-final-focused.log",
+        "sha256": "ff21115a9f08069298ee1793ce1e1faebd09c1fccaa8ffc17c6a85d135c66f9d"
+      },
+      {
+        "path": ".artifacts/phase8/field-evidence-final-pack.log",
+        "sha256": "f9fb4f9fde4fb281e7767b974aabaddf5a17ce8b680cd3387de0bc0a1ff1a265"
+      }
+    ]
+  },
+  "browser": {
+    "source": {
+      "sha": "579dec6aab59e17b21b3cf73cde9cc6b7adee54e",
+      "fingerprint": "52032b95c94b8ab1b8f06b81455220464f18d338dd15589f8b6943b71b9577a1"
+    },
+    "selection": [
+      "--grep",
+      "Field evidence:"
+    ],
+    "pass": 72,
+    "fail": 0,
+    "skip": 0,
+    "flaky": 0,
+    "exitCode": 0,
+    "projects": 18,
+    "categories": {
+      "fieldEvidence": 72
+    },
+    "summary": {
+      "path": ".artifacts/ux-lab/2026-10-30T18-02-08.421Z/summary.json",
+      "sha256": "10ec3308f62253153d2c0b6ee41698e7fbc71b17f99b799ccfabc9b70429b03f"
+    },
+    "runtimes": [
+      {
+        "project": "chromium-compact-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-compact-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      }
+    ],
+    "scope": "Matrix: 3 engines × 3 viewport sizes × 2 themes. Only executed named states and bounded generated interactions count. No claim of all features/devices.",
+    "notCovered": [
+      "Physical iPhone/iPad/Android/Windows hardware, native software keyboards, camera/microphone and OS permission dialogs",
+      "Human assistive-technology assessment; native OS select popup positioning (separate headful review)",
+      "Every combination of editor blocks, attachments, canvas gestures, public forms/shares, account lifecycle and AI approval states",
+      "Production/provider/paid inference, email, payment and token behavior"
+    ],
+    "preservedUnaffected": {
+      "source": {
+        "sha": "f83e190b91f8c29c2437ca8fd20da7bef4059f53",
+        "fingerprint": "0aa76322b3ae628afd718d9ca985de3b3d12acadd5936eab7a2b451bae480387"
+      },
+      "pass": 342,
+      "categories": {
+        "finance": 54,
+        "reliability": 72,
+        "packUpgrade": 18,
+        "sharedRecordUi": 198
+      },
+      "fromCompletedCaseUnion": 414,
+      "summary": {
+        "path": ".artifacts/phase8/field-evidence-browser-combined.json",
+        "sha256": "3766a1a5451bc43851b80e5966a80bea27e8dbdaec54b3775f54f101e2836004"
+      },
+      "reports": [
+        {
+          "path": ".artifacts/ux-lab/2026-10-30T06-58-41.244Z/summary.json",
+          "sha256": "9efea070ce47ad612e536dc1b90a3def18198c5edc66d63cbcf0581fafbedf42",
+          "exitCode": 130,
+          "completedAccepted": 225,
+          "status": "OWNER_PAUSED_PARTIAL",
+          "originalStats": {
+            "startTime": "2026-10-30T06:58:52.659Z",
+            "duration": 789509.162,
+            "expected": 225,
+            "skipped": 189,
+            "unexpected": 0,
+            "flaky": 0
+          }
+        },
+        {
+          "path": ".artifacts/ux-lab/2026-10-30T17-44-17.922Z/summary.json",
+          "sha256": "f556fae0e2d003b1fd43a7d298841db0f49c59efd8514d9f68e2ddf7ac176ebc",
+          "exitCode": 0,
+          "completedAccepted": 189,
+          "status": "RESUMED_SELECTION_PASS",
+          "originalStats": {
+            "startTime": "2026-10-30T17:44:31.117Z",
+            "duration": 744966.77,
+            "expected": 189,
+            "skipped": 0,
+            "unexpected": 0,
+            "flaky": 0
+          }
+        }
+      ],
+      "laterDelta": [
+        "docs/architecture/phase-8-implementation.md",
+        "docs/roadmap/00-baseline.md",
+        "docs/roadmap/PROGRESS.md",
+        "scripts/ux-lab/field-evidence.spec.mjs",
+        "src/modules/boards/blocks/FieldEvidenceBlock.tsx"
+      ],
+      "reason": "The only later application changes wrap long labels/units in the measurement table. All72 field cases rerun at final source. No single-head414 claim."
+    }
+  },
+  "preserved": {
+    "summary": {
+      "path": ".artifacts/phase8/field-evidence-preserved/summary.json",
+      "sha256": "c86f54cbc43da3bb5f98481146022c9e4993a4fb298b0f19c9734271a3f8e719"
+    },
+    "results": [
+      {
+        "summary": {
+          "pass": 64,
+          "fail": 0,
+          "notRun": 0,
+          "blocking": 0,
+          "total": 64
+        },
+        "externalNotRun": [],
+        "complete": true,
+        "exitCode": 0,
+        "source": {
+          "sha": "579dec6aab59e17b21b3cf73cde9cc6b7adee54e",
+          "tree": "0e60fb1fdf311eccb08774d7856f965a627de313",
+          "fingerprint": "52032b95c94b8ab1b8f06b81455220464f18d338dd15589f8b6943b71b9577a1"
+        },
+        "sourceUnchanged": true,
+        "identity": {
+          "path": ".artifacts/phase8/field-evidence-preserved/mcp-phase3/results.json",
+          "sha256": "49d0fe34da40d9a45829f6c65b8f2c2e3d62f6fc106f455a0c232706612a616b"
+        }
+      },
+      {
+        "summary": {
+          "pass": 140,
+          "fail": 0,
+          "notRun": 3,
+          "blocking": 0,
+          "total": 143
+        },
+        "externalNotRun": [
+          "physical iOS Safari device run",
+          "physical Android device run",
+          "assistive technology (VoiceOver/TalkBack) audit"
+        ],
+        "complete": true,
+        "exitCode": 0,
+        "source": {
+          "sha": "579dec6aab59e17b21b3cf73cde9cc6b7adee54e",
+          "tree": "0e60fb1fdf311eccb08774d7856f965a627de313",
+          "fingerprint": "52032b95c94b8ab1b8f06b81455220464f18d338dd15589f8b6943b71b9577a1"
+        },
+        "sourceUnchanged": true,
+        "identity": {
+          "path": ".artifacts/phase8/field-evidence-preserved/v8/results.json",
+          "sha256": "516cf0916f246bc494e0947aa5ac9ac0f4cd6f09bd597f7e54c5c9d2054c04c6"
+        }
+      },
+      {
+        "summary": {
+          "pass": 42,
+          "fail": 0,
+          "notRun": 0,
+          "blocking": 0,
+          "total": 42
+        },
+        "externalNotRun": [],
+        "complete": true,
+        "exitCode": 0,
+        "source": {
+          "sha": "579dec6aab59e17b21b3cf73cde9cc6b7adee54e",
+          "tree": "0e60fb1fdf311eccb08774d7856f965a627de313",
+          "fingerprint": "52032b95c94b8ab1b8f06b81455220464f18d338dd15589f8b6943b71b9577a1"
+        },
+        "sourceUnchanged": true,
+        "identity": {
+          "path": ".artifacts/phase8/field-evidence-preserved/phase6/results.json",
+          "sha256": "5ef77633298954b4bd80530b6a2ef92c104b563876b61757232738d8eb3f1d1e"
+        }
+      }
+    ],
+    "complete": true
+  },
+  "visual": {
+    "identity": {
+      "path": ".artifacts/phase8/field-evidence-visual-review.json",
+      "sha256": "8c3a6780b5b2367a0d069276394c0553b95451b6aa8986a1c892c9a9f87d4b5f"
+    },
+    "complete": true,
+    "images": [
+      {
+        "path": ".artifacts/phase8/field-evidence-final-visual/chromium-compact-light-field-chart-table.png",
+        "sha256": "dd78f88f369d242fbec4debd75b08831dcf6e05cbbcad0acab584ee0cf572404",
+        "project": "chromium-compact-light",
+        "state": "field-chart-table",
+        "summary": ".artifacts/ux-lab/2026-10-30T18-02-08.421Z/summary.json",
+        "inspected": true,
+        "assessment": "Table columns fit; source labels wrap within cells; dates/values remain readable."
+      },
+      {
+        "path": ".artifacts/phase8/field-evidence-final-visual/chromium-compact-light-field-sessions-enlarged.png",
+        "sha256": "f60b11747037bc8dff7f54e57a5c8cca7b14394341748e9f43d1cf1a6ecba8d0",
+        "project": "chromium-compact-light",
+        "state": "field-sessions-enlarged",
+        "summary": ".artifacts/ux-lab/2026-10-30T18-02-08.421Z/summary.json",
+        "inspected": true,
+        "assessment": "Enlarged source text and fix actions remain within their cards. Long words wrap at compact width; all label text remains present."
+      },
+      {
+        "path": ".artifacts/phase8/field-evidence-final-visual/firefox-tablet-dark-field-chart-table.png",
+        "sha256": "4c0825906035f996dca7cc2124fe8498be66c9358cd1e696b79ce150742e5316",
+        "project": "firefox-tablet-dark",
+        "state": "field-chart-table",
+        "summary": ".artifacts/ux-lab/2026-10-30T18-02-08.421Z/summary.json",
+        "inspected": true,
+        "assessment": "Table columns fit; source labels wrap within cells; dates/values remain readable."
+      },
+      {
+        "path": ".artifacts/phase8/field-evidence-final-visual/firefox-tablet-dark-field-sessions-enlarged.png",
+        "sha256": "17864b451dd4e4a3b61a820b336154bce95071409e5798cadcf750cbbd269d40",
+        "project": "firefox-tablet-dark",
+        "state": "field-sessions-enlarged",
+        "summary": ".artifacts/ux-lab/2026-10-30T18-02-08.421Z/summary.json",
+        "inspected": true,
+        "assessment": "Enlarged source text and fix actions remain within their cards. Long words wrap at compact width; all label text remains present."
+      },
+      {
+        "path": ".artifacts/phase8/field-evidence-final-visual/webkit-desktop-light-field-chart-table.png",
+        "sha256": "49edc0fbec7e2384cf8b9e4cff2b5a676f8e783cde79438d7d6985f172f1b317",
+        "project": "webkit-desktop-light",
+        "state": "field-chart-table",
+        "summary": ".artifacts/ux-lab/2026-10-30T18-02-08.421Z/summary.json",
+        "inspected": true,
+        "assessment": "Table columns fit; source labels wrap within cells; dates/values remain readable."
+      },
+      {
+        "path": ".artifacts/phase8/field-evidence-final-visual/webkit-desktop-light-field-sessions-enlarged.png",
+        "sha256": "4006f6274b06e4c55c12bdc6e721af94b5a7fbe821a65b9c902cfa51a4b97e2e",
+        "project": "webkit-desktop-light",
+        "state": "field-sessions-enlarged",
+        "summary": ".artifacts/ux-lab/2026-10-30T18-02-08.421Z/summary.json",
+        "inspected": true,
+        "assessment": "Enlarged source text and fix actions remain within their cards. Long words wrap at compact width; all label text remains present."
+      }
+    ]
+  },
+  "retainedFailures": [
+    {
+      "kind": "First frozen selection interrupted after actionable offline editor failure",
+      "source": {
+        "sha": "4e28c8653dad98ffa8ce596b72b40f938810b719",
+        "fingerprint": "ba187e2d6cd37c0580dd6bb56f2417e3ed2c14f7bcccf68908df1e35519c0138"
+      },
+      "exitCode": 130,
+      "stats": {
+        "startTime": "2026-10-30T06:48:48.736Z",
+        "duration": 271883.42100000003,
+        "expected": 85,
+        "skipped": 328,
+        "unexpected": 1,
+        "flaky": 0
+      },
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-10-30T06-48-36.704Z/summary.json",
+        "sha256": "cb06616507acfa8416c89653ea36c56da87eba6bd5f239e865139a6cd1fb5014"
+      }
+    },
+    {
+      "kind": "Development baseline or failed probe; never final PASS",
+      "path": ".artifacts/phase8/field-evidence-first-d1.log",
+      "sha256": "acc71fcc066382e6a144b81e2ae234c92fa6d6872c2a03d273bccc135b3a39fc"
+    },
+    {
+      "kind": "Development baseline or failed probe; never final PASS",
+      "path": ".artifacts/phase8/field-evidence-staged-upload-baseline.log",
+      "sha256": "09dd984f52ee77a8cbc4a852aa9772a85730a12bfd98d5d7f5031c7c12fdd4db"
+    },
+    {
+      "kind": "Development baseline or failed probe; never final PASS",
+      "path": ".artifacts/phase8/field-evidence-three-engine-corrected.log",
+      "sha256": "7ade0b6e360168dd67459c766f2390cb02ffbfd9321594e15e747d7db1922f56"
+    },
+    {
+      "kind": "Development baseline or failed probe; never final PASS",
+      "path": ".artifacts/phase8/field-evidence-fourth-focused.log",
+      "sha256": "b8f5e990c206fb6bf0b0af7379940f4bd9ee29a089c6e48503519fdc719a9afa"
+    },
+    {
+      "kind": "Development baseline or failed probe; never final PASS",
+      "path": ".artifacts/phase8/field-evidence-offline-barrier-baseline.log",
+      "sha256": "b383d5024fd74a44e36ba683b2f5b3bd862752b87772bdaf5712e55fe0bf43bc"
+    },
+    {
+      "kind": "Development baseline or failed probe; never final PASS",
+      "path": ".artifacts/phase8/field-evidence-table-wrap-baseline.log",
+      "sha256": "5ba2e4d85e5d4b62ee8da81c73f157eafde08c943ef820d42409f9105c09ec7c"
+    },
+    {
+      "kind": "Development baseline or failed probe; never final PASS",
+      "path": ".artifacts/phase8/field-evidence-final-field-matrix.log",
+      "sha256": "cb6d05fab320498ba589c2ea345cb067bcbbda7d8d9efd89b925ef5f24075a68"
+    }
+  ],
+  "inventory": {
+    "blocks": [
+      "fieldsessions",
+      "measurechart"
+    ],
+    "packVersion": 6,
+    "readApi": "POST /api/field-evidence",
+    "mcp": "dashboard_snapshot supports both blocks; no new prompt, tool or provider",
+    "captures": "Versioned planned-photo intent before attachments; immutable original observations; stable retry record/media identities",
+    "corrections": [
+      "N28 capture FileList snapshot",
+      "N29 retained staged bytes wait for metadata",
+      "N30 WebKit capture draft byte fallback",
+      "N31 validated transport fallback avoids transient error barrier",
+      "N32 measurement table long-label wrapping"
+    ],
+    "migrationsAdded": [],
+    "latestMigration": "0035_workspace_settings.sql",
+    "contractVersion": 2,
+    "contractSha256": "fee8510a12a390b85ff7f58c65ada217e1bf7673972586c258d77736f264a5a4",
+    "websiteSha": "1bbc617da62168bbf094a2ad65b0140867f74fa5"
+  },
+  "limitations": [
+    "72 final field cases;342 unaffected cases retained atf83e190 from a validated414-case union of225paused and189resumed cases. No single-head414 claim; full1116-case catalog not executed here",
+    "Full Phase8 canonical certificate and remaining roadmap items pending",
+    "Browser simulations are not physical devices or native Safari",
+    "Human screen reader/native zoom/independent acceptance and genuine approval not claimed",
+    "No production, remote migration, permission activation outside fixtures, real provider or external side effect"
+  ]
+}
