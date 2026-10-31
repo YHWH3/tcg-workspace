@@ -24,16 +24,16 @@ import { readFileSync } from 'node:fs';
 const file = process.argv[2] ?? new URL('../templates/tcg-pack.json', import.meta.url).pathname;
 const tpl = JSON.parse(readFileSync(file, 'utf8'));
 
-const BUILTINS = new Set(['title', 'status', 'assigneeId', 'dueDate', 'priority', 'createdAt', 'createdBy']);
+const BUILTINS = new Set(['title', 'status', 'assigneeId', 'dueDate', 'priority', 'createdAt', 'createdBy', 'archived']);
 const FIELDKEY = /^(p|rel)_(.+)$/;
 const VIEW_TYPES = new Set(['board', 'table', 'list', 'gallery', 'calendar', 'timeline']);
 const FILTER_OPS = new Set([
   'is', 'is_not', 'contains', 'not_contains', 'empty', 'not_empty',
-  'before', 'after', 'on_or_before', 'on_or_after', 'checked', 'unchecked', 'me',
+  'before', 'after', 'on_or_before', 'on_or_after', 'within', 'checked', 'unchecked', 'me',
 ]);
 const BLOCK_TYPES = new Set([
   'text', 'h1', 'h2', 'h3', 'bulleted', 'todo', 'divider', 'callout', 'tasks',
-  'view', 'metric', 'calendar', 'activity', 'mywork', 'embed',
+  'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart', 'eventops', 'embed',
 ]);
 
 const errors = [];
@@ -167,6 +167,38 @@ for (const pg of tpl.pages ?? []) {
         if (b.inline != null) checkConfig(db, b.inline, `${where}.inline`);
         for (const f of b.filters ?? []) checkFieldKey(db, f.key, `${where}.filters`);
         if (b.fieldKey != null) checkFieldKey(db, b.fieldKey, `${where}.fieldKey`);
+        if(['fieldsessions','measurechart'].includes(b.type)){
+          for(const [key,fallback,type]of [['dateKey','p_f_date','date'],['measurementKey','p_f_measurement','number'],['unitKey','p_f_unit','text'],['observationKey','p_f_observation','text'],['photoKey','p_f_photos','url'],['placeKey','rel_f_place','relation'],['experimentKey','rel_f_experiment','relation'],['projectKey','rel_f_project','relation']]){
+            const value=b[key]??fallback;checkFieldKey(db,value,`${where}.${key}`);
+            if(!(db.fields??[]).some(f=>`${type==='relation'?'rel':'p'}_${f.id}`===value&&f.type===type))err(`${where}.${key}: expected ${type} field`);
+          }
+          if(b.limit!=null&&(!Number.isInteger(b.limit)||b.limit<1||b.limit>50))err(`${where}: limit must be1–50`);
+          if(b.unit!=null&&(typeof b.unit!=='string'||b.unit.length>100))err(`${where}: unit must be at most100 characters`);
+        }
+        if(b.type==='eventops'){
+          for(const [key,fallback,type]of [['startKey','p_f_start','date'],['capacityKey','p_f_capacity','number'],['facilitatorsKey','rel_f_facilitators','relation'],['volunteersKey','rel_f_volunteers','relation'],['participantsKey','rel_f_participants','relation']]){
+            const value=b[key]??fallback;checkFieldKey(db,value,`${where}.${key}`);
+            if(!(db.fields??[]).some(field=>`${type==='relation'?'rel':'p'}_${field.id}`===value&&field.type===type))err(`${where}.${key}: expected ${type} field`);
+          }
+          if(b.limit!=null&&(!Number.isInteger(b.limit)||b.limit<1||b.limit>20))err(`${where}: limit must be1–20`);
+        }
+        if(b.type==='budget'){
+          const keys=b.mode==='product'?['priceKey','costKey']:['budgetKey'];
+          for(const key of keys){const fallback={priceKey:'p_f_price',costKey:'p_f_cost',budgetKey:'p_f_budget'}[key],value=b[key]??fallback;checkFieldKey(db,value,`${where}.${key}`);if(!(db.fields??[]).some(f=>`p_${f.id}`===value&&f.type==='number'))err(`${where}.${key}: expected number field`);}
+          if(b.mode!=='product'){
+            const field=(db.fields??[]).find(f=>`rel_${f.id}`===(b.relationKey??'rel_f_transactions')),target=dbs.get(field?.relation?.target);
+            if(!target)err(`${where}: transactions relation target missing`);
+            else for(const [key,fallback,type]of [['amountKey','p_f_amount','number'],['typeKey','p_f_type','select']]){const value=b[key]??fallback;checkFieldKey(target,value,`${where}.${key}`);if(!(target.fields??[]).some(f=>`p_${f.id}`===value&&f.type===type))err(`${where}.${key}: expected ${type} field`);}
+          }
+          if(b.recordId&&b.recordId!=='self'&&!recordIds.has(b.recordId))err(`${where}: recordId not a record or self`);
+        }
+        if(b.type==='projecthealth'){
+          for(const [key,fallback,type]of [['ownerKey','p_f_owner','person'],['startKey','p_f_start','date'],['endKey','p_f_end','date']]){
+            const value=b[key]??fallback;checkFieldKey(db,value,`${where}.${key}`);
+            if(value!==(type==='person'?'assigneeId':'dueDate')&&!(db.fields??[]).some(f=>`p_${f.id}`===value&&f.type===type))err(`${where}.${key}: expected ${type} field`);
+          }
+          if(b.projectId&&b.projectId!=='self'&&!recordIds.has(b.projectId))err(`${where}: projectId '${b.projectId}' not a record or self`);
+        }
         if (b.type === 'calendar') err(`${where}: calendar block uses databaseId, expected sources[]`);
       }
     }

@@ -35,7 +35,7 @@ Reports/traces are local-only and may contain disposable session credentials. Do
 
 The explicit matrix is Chromium/Firefox/WebKit × 390/820/1440px × light/dark: 18 projects. The catalog covers 21 named rendered states: home/page, database index, six record views, task detail and unavailable task, moodboard/form/automation empty states, approvals, Activity, Inbox, Settings, AI library with inference off, Website dashboard and Website inbox.
 
-The complete plan has 36 cases × 18 projects = 648 cases. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
+The current required plan has 62 cases × 18 projects = 1,116 cases; `requiredCases` in `scripts/ux-lab/catalog.mjs` is authoritative. Historical phase counts below keep their original source. Additional cases open filter/sort/property controls, add and remove a filter/sort, test empty-search/focus recovery, inject an approval-network failure and recover, exercise every avatar colour, scroll to the table's rightmost fields, and enlarge text to 200%. Text enlargement is a CSS simulation, not native browser zoom. Compact layouts have touch capability configured; this is not physical-device evidence.
 
 Fast-check generates bounded sequences of stage changes, Unicode/long title edits, offline edits, reloads, breakpoint changes, theme changes and keyboard search. It compares title/stage with a small model and verifies server persistence before reload. Every generated case resets its starting viewport/theme/connectivity; failures retain seed, shrink path, command sequence and a replay command. The default is three generated sequences per project, each with 6–14 commands. This is bounded exploration, not all possible sequences.
 
@@ -101,7 +101,7 @@ a changed filter and a deleted block, previews all additions, applies currency
 formats and a missing view, then reloads and verifies an empty second plan.
 Each project resets only stable pack IDs inside the provenance-verified owned
 local fixture. Private fixture-session metadata never goes into published evidence.
-The 648-cell complete plan is required; these targeted matrices alone are partial.
+The Phase7 648-cell complete plan is required for that phase; these targeted matrices alone are partial.
 
 
 The separate v7 canvas runner uses `scripts/canvas-hit-point.mjs` to choose an
@@ -110,3 +110,41 @@ handles and fully covered items. Three-engine static overlap controls reproduce
 the old comment-button selection before verifying the correction. Actual movement,
 persistence and hit-test semantics remain mandatory; no product events are bypassed
 to make the geometry assertion pass. This change does not alter the UX lab matrix.
+
+Phase8 Project cockpit checks follow signals across databases, guarded offline
+owner/date edits, concurrent-edit refusal, configuration server acknowledgement,
+empty/error/source-change recovery and default/customized record bodies. At200%
+CSS text they measure the full dashboard heading and project title, then reach
+both Refresh and the owner/date action. Root document overflow alone cannot catch
+a title spilling inside a clipped ancestor. The fresh-edit reliability case holds
+a real pending edit, checks for false unknown-age attention, then verifies server
+receipt and queue removal. Full phase acceptance still requires the complete
+current plan; the focused90/378 selections keep their separate source identities.
+
+Phase8 finance adds three named journeys: exact totals and transaction drills with
+offline recovery; filter persistence, mixed-currency refusal, failed-read recovery
+and200% text; Products database economics with zero/missing values and retained
+text Margin. Enlarged checks measure both title text and the transaction button
+against its own card; clipped ancestors cannot turn card overflow into a pass.
+
+Repeated budget summaries for the same Project must have distinct progress IDs
+and the correct accessible name on each bar. The finance journey exercises this
+alongside offline recovery; screenshots also retain Products normal/zero-price
+states for direct visual review.
+
+
+Phase8 Community coverage adds four journeys for role counts and source/fix
+links, deleted People and configuration, failed/offline/enlarged reads, and
+multi-membership plus offline conversation ownership reaching Attention. The
+catalog now has66 cases ×18projects (1188 combinations). At533fe09 the affected
+Community/Attention/pack selection ran144/144 PASS, without skips or retries.
+This is not a full1188-case result. Exact evidence and failed attempts are in
+docs/roadmap/evidence/P8-community-533fe09.json.
+
+Geometry alone missed ordinary action words fragmented by compounded padding.
+The enlarged Event check now counts actual DOM Range line fragments for the
+participants word, alongside card boundaries and whole-page axe. Wide table
+assertions test input values as well as compact cards; intentional field focus
+is scoped to the record editor. Open Person editors are scanned before returning
+to the desk. This exposed selected-value accessible-name and empty-prompt
+contrast defects; the checks remain, with no failed nodes or regions excluded.

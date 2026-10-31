@@ -43,6 +43,7 @@ async function journey(context,platform,token,androidDevice){
   return {url:page.url(),secureContext:true,oauthResource:fixture.base+'/mcp',webSocket:true};
  });
  if(androidDevice){await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration())?.active);await page.goto(page.url(),{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>!!navigator.serviceWorker.controller);if(platform.endsWith('-small'))await androidRotation(context,platform,token,androidDevice,page);await androidInteractions(context,platform,token,androidDevice);diagnosticPage=page;await page.bringToFront();}
+ if(process.argv.includes('--reliability'))await reliabilityUploadJourney(context,platform,token,page);
  await test(platform,'Interrupted required-asset installation retains the complete active shell',async()=>{
   await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration())?.active);await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   const swPath=join(fixture.directory,'client','sw.js'),indexPath=join(fixture.directory,'client','index.html'),sw=readFileSync(swPath,'utf8'),index=readFileSync(indexPath,'utf8');
@@ -96,6 +97,30 @@ async function journey(context,platform,token,androidDevice){
  });
  if(platform!=='mac-chrome')await page.close();
 }
+async function reliabilityUploadJourney(context,platform,token,page){
+ await test(platform,'Device reliability retains a failed upload and explicitly retries original bytes',async()=>{
+  const suffix=platform.replaceAll('-','')+'-'+Date.now(),pageId='qa-rel-'+suffix,blockId='qa-upload-'+suffix;let fileId;
+  const push=changes=>api('/api/sync/push',{token,method:'POST',body:{changes:changes.map(c=>({...c,ts:Date.now()}))}});
+  const seeded=await push([{id:pageId,collection:'pages',patch:{title:'Device upload recovery',order:'a0'}},{id:blockId,collection:'blocks',patch:{pageId,type:'file',order:'a0'}}]);assert.equal(seeded.status,200);assert.equal(seeded.data.rejected,0);
+  try{
+   await page.goto(fixture.base+'/pages/'+pageId,{waitUntil:'domcontentloaded'});await page.getByRole('button',{name:'Add file or PDF',exact:true}).waitFor();
+   await context.route('**/api/files/*/chunks/*',route=>route.fulfill({status:507,contentType:'application/json',body:'{"error":"synthetic_storage_limit"}'}));
+   await page.locator('input[type="file"]').first().setInputFiles({name:'Synthetic retained upload.txt',mimeType:'text/plain',buffer:Buffer.from('Original Android recovery bytes')});
+   await eventually(async()=>{fileId=(await readAccountStore(page,'blocks',{id:blockId}))?.fileId;return fileId&&(await readAccountStore(page,'blobs',{id:fileId}))?.state==='failed';},{timeout:25000});
+   const settings=page.getByRole('link',{name:'Settings',exact:true}).first();if(await settings.isVisible())await settings.click();else{const userName=await page.evaluate(()=>JSON.parse(localStorage.getItem('ws_user')).name);await page.getByRole('button').filter({has:page.getByText(userName,{exact:true})}).click();await page.getByRole('button',{name:'Settings',exact:true}).click();}const panel=page.getByRole('region',{name:'Reliability on this device',exact:true});await panel.scrollIntoViewIfNeeded();
+   await eventually(async()=>await panel.getByText('Failed uploads',{exact:true}).locator('..').locator('dd').innerText()==='1');
+   await page.screenshot({path:join(output,platform+'-reliability-failed.png')});
+   await context.unroute('**/api/files/*/chunks/*');const retry=panel.getByRole('button',{name:'Retry failed uploads',exact:true});await retry.scrollIntoViewIfNeeded();if(platform.startsWith('android-'))await retry.tap();else await retry.click();
+   await eventually(async()=>(await readAccountStore(page,'blobs',{id:fileId}))?.state==='uploaded',{timeout:25000});
+   await eventually(async()=>await panel.getByText('Failed uploads',{exact:true}).locator('..').locator('dd').innerText()==='0');
+   const response=await fetch(fixture.base+'/api/files/'+fileId,{headers:{Authorization:'Bearer '+token}});assert.equal(response.status,200);assert.equal(await response.text(),'Original Android recovery bytes');
+   await page.screenshot({path:join(output,platform+'-reliability-recovered.png')});return {injectedStatus:507,originalBytesRecovered:true,retry:'Explicit browser action',physicalDevice:false};
+  }finally{
+   await context.unroute('**/api/files/*/chunks/*');await push([{id:pageId,collection:'pages',patch:{deleted:true}},{id:blockId,collection:'blocks',patch:{deleted:true}},...(fileId?[{id:fileId,collection:'files',patch:{deleted:true}}]:[])]);
+   await page.goto(fixture.base+'/pages/qa-page',{waitUntil:'domcontentloaded'});await page.getByRole('textbox',{name:"Type '/' for commands",exact:true}).waitFor();
+  }
+ });
+}
 async function androidNativeInfo(device,selector){
  try{return await device.info(selector);}
  catch(error){
@@ -115,6 +140,16 @@ async function stableAndroidControl(device,selector,label){
 }
 async function androidRotation(context,platform,token,device,page){
  await test(platform,'Native Android landscape and background retain a durable unacknowledged edit',async()=>{
+  try{
+   // A CDP-created background tab cannot prove a native software keyboard.
+   // Adopt the visible VIEW-intent tab just as androidInteractions does.
+   const nativeUrl=fixture.base+'/pages/qa-page?rotation='+Date.now();
+   await device.shell('am start -a android.intent.action.VIEW -d '+nativeUrl+' -p com.android.chrome');
+   page=await eventually(async()=>{for(const candidate of context.pages())if(candidate.url().startsWith(nativeUrl)&&await candidate.evaluate(()=>document.visibilityState==='visible').catch(()=>false))return candidate;return false;},{timeout:20000});
+   diagnosticPage=page;
+   const nativeActivity=String(await device.shell('dumpsys activity activities')).split('\n').filter(line=>/topResumedActivity|mResumedActivity/.test(line)).join('\n');
+   assert.ok(nativeActivity.includes('com.android.chrome'),'Chrome must be the native foreground app');
+   writeFileSync(join(output,'android-rotation-native-ready.json'),JSON.stringify({url:page.url(),visibility:await page.evaluate(()=>document.visibilityState),nativeActivity}));
   await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   const editor=page.getByRole('textbox',{name:"Type '/' for commands",exact:true});
   const original=(await pull(token)).find(r=>r.id==='qa-block').data.text;
@@ -126,7 +161,6 @@ async function androidRotation(context,platform,token,device,page){
   assert.ok((await readAccountStore(page,'outbox')).some(r=>r.id==='qa-block'),'The edit must still be pending, not acknowledged');
   assert.notEqual((await pull(token)).find(r=>r.id==='qa-block').data.text,text);
   const screen=async landscape=>{let image;await eventually(async()=>{image=await device.screenshot();return landscape?image.readUInt32BE(16)>image.readUInt32BE(20):image.readUInt32BE(20)>image.readUInt32BE(16)},{timeout:15000});return image;};
-  try{
    await device.shell('wm user-rotation lock 1');
    writeFileSync(join(output,'android-landscape-native.png'),await screen(true));
    writeFileSync(join(output,'android-landscape-display.txt'),String(await device.shell('dumpsys display')));
@@ -146,7 +180,7 @@ async function androidRotation(context,platform,token,device,page){
    await context.setOffline(false);await eventually(async()=>(await pull(token)).find(r=>r.id==='qa-block').data.text===text,{timeout:25000});
    await eventually(async()=>!(await readAccountStore(page,'outbox')).some(r=>r.id==='qa-block'));
    await page.reload({waitUntil:'domcontentloaded'});await editor.waitFor();await eventually(async()=>await editor.innerText()===text);
-   return {nativeLandscape:true,nativePortraitReturn:true,actualIme:true,backgroundForeground:true,localPendingBeforeReconnect:true,serverPersistence:true,outboxAcknowledged:true,text};
+   return {nativeVisibleTab:true,nativeLandscape:true,nativePortraitReturn:true,actualIme:true,backgroundForeground:true,localPendingBeforeReconnect:true,serverPersistence:true,outboxAcknowledged:true,text};
   }finally{await context.setOffline(false);await device.shell('wm user-rotation lock 0');}
  });
 }

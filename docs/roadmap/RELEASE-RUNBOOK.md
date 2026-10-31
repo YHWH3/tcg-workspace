@@ -168,3 +168,28 @@ and resumable execution; dry-run output alone is not approval or application.
 Rollback preserves applied additions and user data. A software rollback does not
 remove fields/items or reverse currency display choices; deliberate edits need
 normal reviewed mutation paths. No real installation was upgraded in certification.
+
+
+## Phase8.7 Community review and later owner rollout
+
+Engineering feature evidence: docs/roadmap/evidence/P8-community-533fe09.json.
+Phase8 is still HOLD; this section performs no deployment or real pack upgrade.
+When a later release is authorized, retain the existing backup/rollback steps
+and preview the additive packv7 update in Template gallery. It adds owner/date
+fields and views to People/Organizations and an Event roles block. Existing
+attention settings, form mappings and deleted items are preserved. No migration
+or secret is added by8.7; the inherited latest migration remains0035.
+
+After reviewing the preview, verify both relationship databases' attention
+person/date keys against their actual fields. Intentionally customized settings
+require normal reviewed edits. Confirm source and role fields in Event block
+Configure, review undated Events and compare the displayed count to accessible
+participant relationships. Capacity is informational; do not use it as an
+enforcement or attendance system. A partial device snapshot is not server proof.
+
+For a new Event registration starter, select the intended active Event in fixed
+relations before enabling or sharing the form. Preserve existing configured or
+intentionally disabled forms. Check-in, attendance proof, capacity enforcement
+and consent records still need owner design. Recovery uses the existing record
+editors, form configuration and explicit refresh; do not resurrect deleted
+People, clear outbox work or alter permissions to make a count look complete.

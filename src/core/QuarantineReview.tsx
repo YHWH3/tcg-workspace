@@ -43,7 +43,7 @@ export function QuarantineReview({ onClose }: { onClose: () => void }) {
     </> : <>
       <p className="text-sm leading-relaxed">{count} operation{count === 1 ? ' is' : 's are'} held on this device after an access change and {count === 1 ? 'is' : 'are'} not syncing. Ask a space owner to review your access. Recovery and export are currently unavailable.</p>
       <ol className="mt-4 max-h-[40dvh] space-y-3 overflow-y-auto text-xs" aria-label="Held operations">
-        {rows.map(row => <li key={row.autoId}><p className="font-medium">{row.kind === 'blob' ? 'File upload' : row.kind === 'draft' ? 'Draft' : collections[row.collection ?? ''] ?? 'Record edit'}</p><p className="mt-0.5 text-neutral-600 dark:text-neutral-300">{reasons[row.reason] ?? 'Access to this operation requires review.'}</p><time className="text-neutral-500" dateTime={new Date(row.quarantinedAt).toISOString()}>{new Date(row.quarantinedAt).toLocaleString()}</time></li>)}
+        {rows.map(row => <li key={row.autoId}><p className="font-medium">{row.kind === 'blob' ? 'File upload' : row.kind === 'draft' ? 'Draft' : collections[row.collection ?? ''] ?? 'Record edit'}</p><p className="mt-0.5 text-neutral-600 dark:text-neutral-300">{reasons[row.reason] ?? 'Access to this operation requires review.'}</p><time className="text-neutral-600 dark:text-neutral-400" dateTime={new Date(row.quarantinedAt).toISOString()}>{new Date(row.quarantinedAt).toLocaleString()}</time></li>)}
       </ol>
       <div className="mt-4 flex flex-wrap gap-2">
         {rows.length === 10 && <Button className="min-h-11" onClick={() => setBefore(rows[rows.length - 1].autoId)}>Older operations</Button>}

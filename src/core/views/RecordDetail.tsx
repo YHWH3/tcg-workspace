@@ -1,3 +1,4 @@
+import {useRequestedFieldFocus} from '../useRequestedFieldFocus';
 import {HistoryButton} from '../History';
 /**
  * RecordDetail — generic record page body for both tasks and records.
@@ -41,7 +42,7 @@ export function RecordDetail({ recordId, board: boardProp, onClose }: { recordId
   const allBoards = useBoards();
   const board = boardProp ?? (rec ? allBoards.find((b) => b.id === taskBoardId(rec)) : undefined);
   if (rec === undefined || board === undefined) return null;
-  if (!rec) return <div className="p-4 text-sm text-neutral-400">Record not found.</div>;
+  if (!rec) return <div className="p-4 text-sm text-neutral-600 dark:text-neutral-400">Record not found.</div>;
   return <RecordDetailInner rec={rec} board={board} onClose={onClose} />;
 }
 
@@ -77,7 +78,8 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
   const cols = stagesOf(board);
   const builtins = showBuiltinsOf(board);
   const noun = recordNoun(board);
-  const fields = fieldsOf(board);
+  const fields = fieldsOf(board),detailRoot=useRef<HTMLDivElement>(null);
+  useRequestedFieldFocus(detailRoot,rec.id,fields);
   const kids = childrenOf(tasks, rec.id);
   const parent = rec.parentId ? tasks.find((t) => t.id === rec.parentId) : undefined;
 
@@ -97,12 +99,12 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
 
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-1 border-b border-neutral-200/70 px-3 py-2 dark:border-neutral-800/70">
-        <button className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={onClose} aria-label="Close">
+    <div ref={detailRoot} className="ws-record-detail flex h-full min-w-0 flex-col">
+      <div className="flex flex-wrap items-center gap-1 border-b border-neutral-200/70 px-3 py-2 dark:border-neutral-800/70">
+        <button className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={onClose} aria-label="Close">
           <X size={16} />
         </button>
-        <span className="text-xs text-neutral-400">
+        <span className="text-xs text-neutral-600 dark:text-neutral-400">
           {String(board.icon ?? '')} {String(board.name ?? '')}
         </span>
         <span className="flex-1" />
@@ -112,7 +114,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
         <Popover
           align="right"
           trigger={
-            <button className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label={`${noun} menu`}>
+            <button className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label={`${noun} menu`}>
               <MoreHorizontal size={16} />
             </button>
           }
@@ -161,7 +163,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
         </div>
       )}
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
         {/* title */}
         <input
           key={rec.id + String(rec.title ?? '')}
@@ -175,23 +177,24 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur();
           }}
+          title={String(rec.title??'')}
           placeholder={`${noun} title`}
           aria-label={`${noun} title`}
           className="w-full bg-transparent text-xl font-semibold tracking-tight outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
         />
 
         {parent && (
-          <button className="flex items-center gap-1 text-xs text-neutral-400 hover:text-neutral-600" onClick={() => navigate(`/boards/${board.id}/tasks/${parent.id}`)}>
+          <button className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400 hover:text-neutral-600" onClick={() => navigate(`/boards/${board.id}/tasks/${parent.id}`)}>
             ↩ under <span className="font-medium">{renderPlain(recordTitle(parent), resolve)}</span>
           </button>
         )}
 
         {/* stage + builtins */}
-        <div className="grid grid-cols-[88px_1fr] items-center gap-y-2 text-sm">
+        <div className="ws-record-properties grid min-w-0 grid-cols-[88px_minmax(0,1fr)] items-center gap-y-2 text-sm">
           {cols.length > 0 && (
             <>
-              <span className="text-xs text-neutral-400">Stage</span>
-              <Select density="compact" value={columnIdFor(rec, board)} onChange={(e) => void mutate('tasks', rec.id, { status: e.target.value })} className="w-48" aria-label="Stage">
+              <span className="text-xs text-neutral-600 dark:text-neutral-400">Stage</span>
+              <Select density="compact" value={columnIdFor(rec, board)} onChange={(e) => void mutate('tasks', rec.id, { status: e.target.value })} className="w-48 max-w-full min-w-0" aria-label="Stage">
                 {cols.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -202,8 +205,8 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           )}
           {builtins.priority && (
             <>
-              <span className="text-xs text-neutral-400">Priority</span>
-              <Select density="compact" value={rec.priority ?? 'none'} onChange={(e) => void mutate('tasks', rec.id, { priority: e.target.value })} className="w-48" aria-label="Priority">
+              <span className="text-xs text-neutral-600 dark:text-neutral-400">Priority</span>
+              <Select density="compact" value={rec.priority ?? 'none'} onChange={(e) => void mutate('tasks', rec.id, { priority: e.target.value })} className="w-48 max-w-full min-w-0" aria-label="Priority">
                 {PRIORITIES.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label}
@@ -214,10 +217,10 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           )}
           {builtins.assignee && (
             <>
-              <span className="flex items-center gap-1 text-xs text-neutral-400">
+              <span className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400">
                 <Users size={11} /> Assignee
               </span>
-              <Select density="compact" value={String(rec.assigneeId ?? '')} onChange={(e) => void mutate('tasks', rec.id, { assigneeId: e.target.value || null })} className="w-48" aria-label="Assignee">
+              <Select density="compact" value={String(rec.assigneeId ?? '')} onChange={(e) => void mutate('tasks', rec.id, { assigneeId: e.target.value || null })} className="w-48 max-w-full min-w-0" aria-label="Assignee">
                 <option value="">Unassigned</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id} disabled={u.disabled} className={u.disabled?'text-neutral-500':undefined}>
@@ -229,33 +232,31 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           )}
           {builtins.due && (
             <>
-              <span className="flex items-center gap-1 text-xs text-neutral-400">
+              <span className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400">
                 <Calendar size={11} /> Due
               </span>
-              <input type="date" value={String(rec.dueDate ?? '')} onChange={(e) => void mutate('tasks', rec.id, { dueDate: e.target.value || null })} className="h-8 w-48 rounded-lg border border-neutral-200 bg-transparent px-2 text-xs dark:border-neutral-700" aria-label="Due date" />
+              <input type="date" value={String(rec.dueDate ?? '')} onChange={(e) => void mutate('tasks', rec.id, { dueDate: e.target.value || null })} className="min-h-11 w-48 max-w-full min-w-0 rounded-lg border border-neutral-200 bg-transparent px-2 text-xs dark:border-neutral-700" aria-label="Due date" />
             </>
           )}
           {/* all fields incl. relation pickers */}
           {fields.map((f) =>
-            isRelationField(f) ? (
-              <RelationRow key={f.id} field={f} rec={rec} />
-            ) : (
-              <FieldRow key={f.id} field={f} task={rec} />
-            ),
+            <div className="contents" data-record-field={`${isRelationField(f)?'rel':'p'}_${f.id}`} key={f.id}>
+              {isRelationField(f)?<RelationRow field={f} rec={rec}/>:<FieldRow field={f} task={rec}/>}
+            </div>,
           )}
         </div>
 
         {/* sub-records */}
         <section>
           <div className="mb-1.5 flex items-center gap-1">
-            <button className="flex h-6 w-6 items-center justify-center rounded text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => setSubOpen((s) => !s)} aria-expanded={subOpen} aria-label="Toggle sub-records">
+            <button className="flex h-6 w-6 items-center justify-center rounded text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => setSubOpen((s) => !s)} aria-expanded={subOpen} aria-label="Toggle sub-records">
               {subOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
             </button>
             <h3 className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">Sub-{noun.toLowerCase()}s</h3>
-            <span className="text-[10px] text-neutral-400">{kids.length || ''}</span>
+            <span className="text-[10px] text-neutral-600 dark:text-neutral-400">{kids.length || ''}</span>
             <span className="flex-1" />
             <button
-              className="flex items-center gap-0.5 rounded-md px-1.5 py-1 text-[11px] text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
+              className="flex items-center gap-0.5 rounded-md px-1.5 py-1 text-[11px] text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
               onClick={async () => {
                 try {
                   const id = await createRecord(board.id, { parentId: rec.id });
@@ -273,7 +274,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
               {kids.map((k) => (
                 <SubRow key={k.id} rec={k} board={board} onOpen={() => navigate(`/boards/${board.id}/tasks/${k.id}`)} onDetach={() => void setParent(k.id, null)} />
               ))}
-              {kids.length === 0 && <p className="px-1 text-xs text-neutral-400">None yet — sub-{noun.toLowerCase()}s nest up to 3 levels.</p>}
+              {kids.length === 0 && <p className="px-1 text-xs text-neutral-600 dark:text-neutral-400">None yet — sub-{noun.toLowerCase()}s nest up to 3 levels.</p>}
             </div>
           )}
         </section>
@@ -289,7 +290,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
             picker={
               <ItemPicker
                 trigger={
-                  <button className="flex items-center gap-0.5 rounded-md px-1.5 py-1 text-[11px] text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800">
+                  <button className="flex items-center gap-0.5 rounded-md px-1.5 py-1 text-[11px] text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800">
                     <Plus size={11} /> Add blocker
                   </button>
                 }
@@ -331,7 +332,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
 function RelationRow({ field, rec }: { field: RelationFieldDef; rec: TaskRow }) {
   return (
     <>
-      <span className="flex items-center gap-1 text-xs text-neutral-400">
+      <span className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400">
         <Link2 size={11} /> {field.name}
       </span>
       <RelationPicker record={rec} field={field} />
@@ -347,14 +348,14 @@ function SubRow({ rec, board, onOpen, onDetach }: { rec: TaskRow; board: BoardRo
   return (
     <div className="group flex items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-neutral-50 dark:hover:bg-neutral-900" style={{ minHeight: 36 }}>
       <button className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm" onClick={onOpen}>
-        <span className={cn('truncate', done && 'text-neutral-400 line-through')}>{renderPlain(recordTitle(rec), resolve)}</span>
+        <span className={cn('truncate', done && 'text-neutral-600 dark:text-neutral-400 line-through')}>{renderPlain(recordTitle(rec), resolve)}</span>
         {stagesOf(board).length > 0 && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: stagesOf(board).find((c) => c.id === columnIdFor(rec, board))?.color }} />}
-        {grandkids.length > 0 && <span className="shrink-0 text-[10px] text-neutral-400">+{grandkids.length}</span>}
+        {grandkids.length > 0 && <span className="shrink-0 text-[10px] text-neutral-600 dark:text-neutral-400">+{grandkids.length}</span>}
       </button>
       <Popover
         align="right"
         trigger={
-          <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-400 opacity-0 hover:bg-neutral-100 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-neutral-800" aria-label="Sub-record menu">
+          <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-600 dark:text-neutral-400 opacity-0 hover:bg-neutral-100 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-neutral-800" aria-label="Sub-record menu">
             ⋯
           </button>
         }
@@ -381,7 +382,7 @@ function DepList({ title, ids, tasks, board, onRemove, picker }: { title: string
     <div>
       <div className="mb-1 flex items-center gap-2">
         <h4 className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">{title}</h4>
-        <span className="text-[10px] text-neutral-400">{ids.length || ''}</span>
+        <span className="text-[10px] text-neutral-600 dark:text-neutral-400">{ids.length || ''}</span>
         {picker}
       </div>
       {ids.length > 0 && (
@@ -398,7 +399,7 @@ function DepList({ title, ids, tasks, board, onRemove, picker }: { title: string
                   {isDone(t, tBoard) && <span className="shrink-0 rounded bg-green-50 px-1 text-[10px] text-green-600 dark:bg-green-950/40">done</span>}
                 </button>
                 {onRemove && (
-                  <button className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-neutral-400 opacity-0 hover:text-red-500 focus:opacity-100 group-hover:opacity-100" onClick={() => onRemove(id)} aria-label="Remove dependency">
+                  <button className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-neutral-600 dark:text-neutral-400 opacity-0 hover:text-red-500 focus:opacity-100 group-hover:opacity-100" onClick={() => onRemove(id)} aria-label="Remove dependency">
                     <X size={11} />
                   </button>
                 )}

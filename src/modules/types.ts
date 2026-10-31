@@ -19,7 +19,10 @@ export interface AppModule {
   /** Extension points other modules can plug into. */
   slots?: {
     taskDetail?: ComponentType<{ taskId: string }>;
+    databaseSummary?:ComponentType<{databaseId:string}>;
     pageFooter?: ComponentType<{ pageId: string }>;
+    /** Existing board-stage approval request, reused by operational desks. */
+    stageApproval?:ComponentType<{taskId:string;boardId:string;stageId:string;onClose:()=>void}>;
     /** Comment badge + thread popover/sheet on a block or mood item. */
     commentBadge?: ComponentType<{ targetType: 'block' | 'mooditem'; targetId: string; overlay?: boolean }>;
   };

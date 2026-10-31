@@ -6,11 +6,27 @@ const pageReads = new WeakMap();
 function readsFor(page) {
   let state = pageReads.get(page);
   if (state) return state;
-  state = { pending: new Set(), changed: new Set() };
+  state = { pending: new Set(), changed: new Set(), retiringReads: null };
   const notify = () => { for (const listener of state.changed) listener(); };
   page.on('request', request => {
+    if (request.isNavigationRequest() && request.resourceType() === 'document' && request.frame() === page.mainFrame()) {
+      // Chromium can retire an old document's read without emitting a terminal
+      // Playwright network event. Retain this exact pre-navigation snapshot;
+      // never discard new-document reads or an unacknowledged write.
+      state.retiringReads = new Set([...state.pending].filter(r => r.method() === 'GET' || new URL(r.url()).pathname === '/api/sync/pull'));
+    }
     if (!new URL(request.url()).pathname.startsWith('/api/')) return;
-    state.pending.add(request); notify();
+    state.pending.add(request);
+    // Old-page visibility/unload handlers may start one final read after the
+    // navigation request but before the new document commits. New-document
+    // application reads begin after framenavigated and are never in this set.
+    if (state.retiringReads && (request.method() === 'GET' || new URL(request.url()).pathname === '/api/sync/pull')) state.retiringReads.add(request);
+    notify();
+  });
+  page.on('framenavigated', frame => {
+    if (frame !== page.mainFrame() || !state.retiringReads) return;
+    for (const request of state.retiringReads) state.pending.delete(request);
+    state.retiringReads = null; notify();
   });
   for (const event of ['requestfinished', 'requestfailed']) page.on(event, request => {
     if (state.pending.delete(request)) notify();

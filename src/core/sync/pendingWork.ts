@@ -12,6 +12,7 @@ import { thumbnailParentId } from '../../../shared/fileOwnership';
 import { ScopeError, scopeParentIds, scopeResolver, type RecordScope, type ScopeRecord } from '../../../shared/recordScope';
 import { stableJson } from '../../../shared/stablejson';
 import type { AccessQuarantineRow, BlobRow, LocalDB, LocalRow, OutboxEntry } from '../db';
+import {storedBlobRow} from '../blobCodec';
 import type { ClientAccessManifest } from './feedState';
 import { rebaseRecord } from './rebase';
 
@@ -206,7 +207,7 @@ export async function applyAccessWork(store: LocalDB, work: AccessWork, quaranti
   }
   await store.outbox.bulkDelete(refused);
   for (const draft of work.drafts) { retain('draft', ((draft.value as { id?: string } | null)?.id) ?? 'unknown', draft.value, draft.reason); await store.meta.delete(draft.key); }
-  for (const { blob, reason } of work.blobs) { retain('blob', blob.id, blob, reason); await store.blobs.delete(blob.id); removedBlobs.push(blob.id); }
+  for (const { blob, reason } of work.blobs) { retain('blob', blob.id, storedBlobRow(blob), reason); await store.blobs.delete(blob.id); removedBlobs.push(blob.id); }
   if (quarantine.length) {
     const keys = await store.accessQuarantine.bulkAdd(quarantine, { allKeys: true });
     await store.accessQuarantineInfo.bulkPut(quarantine.map(({ payload, ...info }, index) => ({ ...info, autoId: keys[index],

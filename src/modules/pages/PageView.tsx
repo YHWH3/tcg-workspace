@@ -1,3 +1,4 @@
+import {ReliabilityChip} from '../../core/ReliabilityPanel';
 import {MoveSpaceButton} from '../../core/MoveSpace';
 import {HistoryButton} from '../../core/History';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -22,7 +23,7 @@ import { AskAiMenu } from '../../core/assistant/AskAiMenu';
 import { useAssistantContext } from '../../core/assistant/store';
 
 /** Block types that make a page a dashboard (Phase 3 dashboard blocks). */
-const DASHBOARD_BLOCKS = new Set(['metric', 'view', 'mywork', 'activity', 'calendar']);
+const DASHBOARD_BLOCKS = new Set(['metric', 'view', 'mywork', 'activity', 'calendar', 'attention', 'projecthealth','budget','fieldsessions','measurechart','eventops']);
 
 export function PagesHome() {
   const pages = usePages();
@@ -98,11 +99,12 @@ export function PageView() {
 
   return (
     <div className="mx-auto h-full max-w-3xl overflow-y-auto px-5 pb-16 pt-8 sm:px-8">
-      <div className="mb-1 flex items-center justify-between">
-        <div className="flex items-center gap-1 text-xs text-neutral-400">
+      {!page.parentId&&<ReliabilityChip/>}
+      <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1 text-xs text-neutral-400">
           <Breadcrumbs page={page} />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="ms-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
           <PresenceStack path={`/pages/${page.id}`} />
           <AskAiMenu
             modules={isDashboard ? ['dashboards', 'pages', 'notes'] : ['pages', 'notes']}

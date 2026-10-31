@@ -177,9 +177,131 @@ Spec: `docs/architecture/unified-ai-mcp.md`.
 - Assistant UI responses are account/token/access-epoch/status bound. Observed access transitions discard retained source-derived memory and abort streams; this is not instantaneous offline revocation. Keep ordinary stream cancellation separate from authority invalidation so provider discovery can finish.
 - Apple Safari testing uses a temporary test-only XCUITest bundle (`scripts/apple-safari.mjs`). It does not create a native production app or certify physical hardware, human VoiceOver or native 400% zoom. Preserve compact input text sizes and keyboard-visible search results.
 
+## Resumable certification (Phase 8.0)
+
+Use `npm run certify:ai -- --keep-awake` on a clean committed checkout. The
+orchestrator detects monotonic heartbeat gaps over 90 seconds, interrupts the
+active gate, and writes a resumable PARTIAL certificate. Resume with
+`npm run certify:ai -- --keep-awake --resume <previous-certificate-dir>` only
+within the same source and mode; eligibility also checks clean trees, exact
+runtime versions, age and sealed SHA-256 artifact hashes. Freshness/security,
+source-integrity, browser and performance-evidence gates always rerun. Never
+edit any worktree while certification is running there, modify an earlier
+certificate, reuse failed/interrupted gates or chain reused evidence. Reports,
+PR text and the progress ledger must label resumed certification explicitly.
+`--keep-awake` uses process-scoped macOS caffeinate; lid closure can still pause
+the host. See `docs/testing/CERTIFICATION.md` for commands and evidence limits.
+
 ## Roadmap release track R1
 
 - `shared/dates.ts` resolves explicit-context `today±N` (0–3650) using UTC-midnight date-only arithmetic; invalid or missing contexts are never guessed. Temporal operands that remain unresolved fail closed.
 - `query_records` supplies UTC today, validates date-like operands and shares `evalFilter` with metrics and automation conditions. Device/workspace timezone unification remains Phase 7.2; do not claim it is fixed by R1.
 - `scripts/prod-copy-rehearsal.mjs` accepts only an owner-exported local SQL file with a registered-prefix migration ledger, uses fresh local D1, validates preservation/backfills/restore, and never verifies KV grants or remote recovery.
-- The UX lab includes populated relative-date filters and automation conditions, with 32 cases across 18 projects.
+- The UX lab includes populated relative-date filters and automation conditions, with named cases across 18 projects.
+
+## Phase 8 attention
+
+`worker/attention.ts` is a bounded derived collector shared by REST and MCP.
+Keep its 12-call budget, current read/authority fences, explicit source caps and
+bound cursors. `src/core/attentionCache.ts` owns snapshot race fencing; snapshots
+bind account/session hash/access version and convey no mutation authority.
+Attention actions re-read local sources and use guarded `mutate()` calls; preserve
+server approval gates. Add dashboard options to both author/compiler and template
+copy whitelists. Pack upgrades add only missing attention settings and retain team
+null/disabled/custom values. Website default additions belong in the existing
+revision-fenced board mutation, never an earlier write that invalidates its fence.
+
+## Phase 8 device reliability
+
+Reliability is device-local, not a server total. `reliabilityData.ts` reads blob
+index keys/counts and bounded current file names; never materialize retained
+attachment bytes or held payloads for a status panel. Push observations commit
+with acknowledged outbox removal, never on rejected/malformed/empty replies.
+Pull observations are separate. Failed-upload retry is explicit, bounded,
+account/access fenced and preserves chunk progress; missing original bytes stay
+failed. Runtime `uploadActivity` is ephemeral and always clears in finally.
+
+
+### Phase 8 local attachment fallback
+
+`src/core/blobCodec.ts` decodes `array-buffer-v1` local blob rows for normal
+Dexie reads. Index/count queries must stay metadata-only. Updates retain the raw
+wire encoding; held-work moves use `storedBlobRow()` to avoid reintroducing a
+Blob that WebKit refused and to keep access reconciliation atomic. Never await
+Blob byte conversion inside the quarantine transaction. Existing account-local
+stores and held bytes must survive rollback/recovery; older clients cannot decode
+fallback rows. No encoded bytes belong in synced collections or published QA.
+
+
+### Phase 8 AI review desk
+
+`/ai?view=review` is the operating Review desk; `?view=library` retains workflow
+prompts and deterministic digest/configuration. Attention uses `aiDeskLink()`.
+Reads use `useAiReviewRead` / `createCurrentRead` and remain in memory, keyed by
+account/session/access and hidden offline. Never cache API review responses in the
+service worker. Proposal, suggestion and undo mutation authority stays in existing
+session-authenticated endpoints; the desk never approves through MCP. Tests using
+`connectFixtureMcp(...,{allowHttps:true,fixtureHuman:false})` intentionally disable
+the legacy automatic fixture-human wrapper and exercise actual browser decisions.
+
+### Phase 8 Website response desk
+
+Response queues and age/digest calculations share `shared/websiteStats.ts`.
+Received dates take precedence; createdAt fallback uses workspace timezone.
+Board responseBands/responseTargetDays require no migration. SQL attention
+candidate defaults must agree with shared normalization before source caps.
+Response actions use guarded mutate calls and existing approval slots; copy-only
+drafts never send or mark replied. First-reply dates require the existing
+auto-wi-first-reply configuration. Protocol3 fixtures configure it explicitly;
+never recreate intentionally deleted/disabled user automations to make a test pass.
+
+### Phase 8 Project review cockpit
+
+`shared/projectHealth.ts` owns transparent health rules. `worker/projectHealth.ts`
+collects bounded, canonically gated sources for HTTP, dashboard MCP and operating
+review. A readable row changing revision is `project_sources_changed`, never an
+empty success; client retries that read once within the current account/access.
+Offline device evidence stays Unknown. Owner/date edits use normal guarded
+mutations. Derived self panels respect saved and deleted body reservations; health
+references must not cause unrelated database copies during template conversion.
+Device reliability reactive reads use observation time, not the periodic refresh
+clock. Fresh queued work is pending; it is not automatically an unknown-age warning.
+
+### Phase 8 funding and finance desk
+
+`shared/finance.ts` owns projectMoney/productEconomics; shared financePage/config
+keep HTTP, MCP and device displays aligned. These are focused summaries, not a
+ledger: signed reversals reduce their own expense/income subtotal; Budget line
+rows are excluded; remaining is budget minus net expenses, with income separate.
+Use effective field/workspace currency and refuse mixed currencies. Missing or
+unsafe amounts/types must remain explicit. Do not overwrite text Margin.
+`worker/finance.ts` reads bounded projected metadata under canonical gates and
+fences root revisions even with permissions disabled. Unavailable source errors
+never become an empty success; only an explicit read conflict gets one current-
+context retry. Device indexes provide explicitly partial snapshots, never server
+completeness. The Products databaseSummary slot opens existing budget content
+without persisting derived rows. Template copies retain live money references;
+only validated self-budget blocks get the existing destination-bound conversion
+exception, under frozen preview/session approval.
+
+
+### Phase 8 field evidence desk
+
+Field evidence summaries share `fieldEvidencePage` across bounded Worker/MCP
+metadata reads and partial indexed device reads. Observation content never enters
+the summary; the Worker projects a Unicode-trimmed presence bit. Photo intent
+(`captureEvidence` v1/photoCount) is recorded before capture file creation and
+is distinct from attachment metadata availability and byte/upload completion.
+Missing historical intent stays unknown, not invalid; capped known intent stays
+explicitly incomplete. Exact units are trimmed/lowercased without conversion.
+Intentional fix links consume one focus request only after the authorized field
+mounts; background sync must not steal focus. Draft media uses `putBlobRow` so
+WebKit's byte fallback is retained. Upload sweeps retain unmatched staged bytes
+and wait for metadata; canonical deterministic thumbnails resolve their owner.
+Never interpret staged bytes as uploaded or delete them as a recovery shortcut.
+
+Transport failure in `prepareOnlineAccess` is rethrown to `syncNow`, which owns
+validated offline fallback. Do not raise a transient error barrier before that
+validation: it unmounts editors and rejects pending flushes. Keep barriers already
+raised for access changes, and fail closed on HTTP denial, stale cache or changed
+session. The engine regression observes intermediate states, not only final status.

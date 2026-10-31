@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import {decodeBlobRow} from './blobCodec';
 import type { Collection } from '../../shared/collections';
 import type { PublicUser } from '../../shared/types';
 
@@ -10,6 +11,7 @@ export interface LocalRow {
 }
 
 export interface OutboxEntry {
+  enqueuedAt?: number;
   ifUnchanged?: import('../../shared/mutationGuard').MutationGuard;
   autoId?: number;
   id: string;
@@ -31,6 +33,7 @@ export type AccessQuarantineInfo = Omit<AccessQuarantineRow, 'payload' | 'autoId
 export type BlobState = 'pending' | 'uploaded' | 'cached' | 'failed';
 
 export interface BlobRow {
+  pendingSince?: number;
   id: string;
   blob: Blob;
   state: BlobState;
@@ -38,6 +41,8 @@ export interface BlobRow {
   mime?: string;
   error?: string;
 }
+/** Fallback wire format for engines refusing Blob/File persistence. Never synced. */
+export type EncodedBlobRow = Omit<BlobRow, 'blob'> & {blobEncoding:'array-buffer-v1';blobBytes:ArrayBuffer};
 
 /** One IndexedDB database per account id (§12.3, review R3): an account
  * switch can never expose or clobber the previous account's store — B gets
@@ -63,7 +68,7 @@ export class LocalDB extends Dexie {
   users!: Table<PublicUser, string>;
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<{ key: string; value: unknown }, string>;
-  blobs!: Table<BlobRow, string>;
+  blobs!: Table<BlobRow, string, BlobRow | EncodedBlobRow>;
   mediaCache!: Table<{id:string;bytes:number;lastUsed:number},string>;
   syncStage!: Table<SyncStageRow, [string, string]>;
   accessQuarantine!: Table<AccessQuarantineRow, number>;
@@ -125,6 +130,10 @@ export class LocalDB extends Dexie {
       let after='',bytes=0;for(;;){const rows=await tx.table('blobs').where(':id').above(after).limit(100).toArray();if(!rows.length)break;for(const r of rows)if(r.state==='cached'){await tx.table('mediaCache').put({id:r.id,bytes:r.blob.size,lastUsed:0});bytes+=r.blob.size;}after=rows[rows.length-1].id;}
       await tx.table('meta').put({key:'download-cache-bytes',value:bytes});
     });
+    // IndexedDB indexes and metadata queries keep the compact stored row.
+    // Dexie's reading hook decodes returned rows, not update/modify callbacks:
+    // https://dexie.org/docs/Table/Table.hook('reading')
+    this.blobs.hook('reading', decodeBlobRow);
   }
 
   collection(name: Collection): Table<LocalRow, string> {

@@ -11,7 +11,7 @@
 | Video trimming and transcoding | Media engineering with low return |
 | Inventory, orders, fulfilment for Common Cupboard | Needs an owner-designed workflow and ledger; fields alone do not imply it |
 | Bank feeds, reconciliation, exchange rates, formal accounting | Separate integrations with legal and financial implications |
-| Event check-in, attendance proof, capacity enforcement, consent records | Need owner-defined rules first (see 8.7) |
+| Event check-in, attendance proof, capacity enforcement, consent records | Needs design: owner-defined rules required first (see 8.7). Current participant relationships do not establish attendance or consent. |
 | Sending email replies from the Website inbox | Separate authorized integration; drafts only today |
 | External publishing (social, CMS, analytics) | Needs destination mappings and receipts |
 | Milestones in project health | Needs an owner definition of a milestone |

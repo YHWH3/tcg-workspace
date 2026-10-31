@@ -114,7 +114,7 @@ export function LinkedPanel({ refType, refId, board }: { refType: 'record' | 'pa
       </Group>
       <ItemPicker
         trigger={
-          <button className="flex items-center gap-1 rounded-lg px-1.5 py-1.5 text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300" style={{ minHeight: 32 }}>
+          <button className="flex items-center gap-1 rounded-lg px-1.5 py-1.5 text-xs text-neutral-600 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-300" style={{ minHeight: 32 }}>
             <Plus size={12} /> Link
           </button>
         }
@@ -131,7 +131,7 @@ function Group({ label, count, children }: { label: string; count: number; child
   if (count === 0) {
     return (
       <div className="flex items-center gap-1 px-1 py-0.5">
-        <span className="text-xs text-neutral-400">{label}</span>
+        <span className="text-xs text-neutral-600 dark:text-neutral-400">{label}</span>
       </div>
     );
   }
@@ -140,7 +140,7 @@ function Group({ label, count, children }: { label: string; count: number; child
       <button className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-xs text-neutral-500 hover:bg-neutral-50 dark:text-neutral-400 dark:hover:bg-neutral-900" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         <span className="font-medium">{label}</span>
-        <span className="text-[10px] text-neutral-400">{count}</span>
+        <span className="text-[10px] text-neutral-600 dark:text-neutral-400">{count}</span>
       </button>
       {open && <div className="space-y-0.5 px-1 py-0.5">{children}</div>}
     </div>

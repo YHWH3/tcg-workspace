@@ -7,6 +7,9 @@ import { CapturePage } from './Capture';
 import { BoardsSection } from './Sidebar';
 import './TasksBlock';
 import './blocks';
+import {GateMoveDialog} from './GateMove';
+import {ProductEconomicsDatabase} from './blocks/BudgetBlock';
+import {ProjectHealthRecordBody} from './blocks/ProjectHealthBlock';
 
 export const boardsModule: AppModule = {
   id: 'boards',
@@ -23,4 +26,5 @@ export const boardsModule: AppModule = {
   ],
   collections: ['tasks', 'boards', 'files'],
   sidebarSection: BoardsSection,
+  slots:{databaseSummary:ProductEconomicsDatabase,taskDetail:ProjectHealthRecordBody,stageApproval:({taskId,boardId,stageId,onClose})=><GateMoveDialog attempt={{taskId,boardId,stageId}} onClose={onClose}/>},
 };

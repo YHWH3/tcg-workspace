@@ -1,0 +1,563 @@
+{
+  "schemaVersion": 1,
+  "item": "8.5 Funding and finance desk",
+  "status": "FOCUSED_ENGINEERING_PASS_PHASE_CERTIFICATION_PENDING",
+  "source": {
+    "sha": "3ebba8240547be4b7dc4c4a38f027233a73599e5",
+    "tree": "2cd9e1714a3f0d7ea877986257dd5c1b612d2468",
+    "fingerprint": "1cb7d3ca2ef82cf6b9bfcec372a75ff081f9b270f65b40b46b31b69dcf4b5166"
+  },
+  "focused": {
+    "tests": 167,
+    "files": 19,
+    "commands": [
+      "npm run typecheck",
+      "npm test -- tests/phase8-project-health.test.ts tests/phase8-project-health-client.test.ts tests/phase8-project-health-read.test.ts tests/phase8-project-health-d1.test.ts tests/phase8-project-health-pack.test.ts tests/phase8-attention-mcp-d1.test.ts tests/assistant-registry.test.ts tests/phase8-attention-pack.test.ts tests/templates.test.ts tests/phase6-previews-d1.test.ts tests/conversion.test.ts tests/phase8-reliability.test.ts tests/phase8-reliability-client.test.ts tests/phase8-reliability-clock.test.ts tests/phase8-finance.test.ts tests/phase8-finance-d1.test.ts tests/phase8-finance-client.test.ts tests/phase8-finance-pack.test.ts tests/phase8-finance-read.test.ts",
+      "node scripts/_validate-tcg-pack.mjs"
+    ],
+    "results": [
+      {
+        "name": "typecheck",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "focused",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "pack",
+        "exit": 0
+      }
+    ],
+    "complete": true,
+    "identity": {
+      "path": ".artifacts/phase8/finance-label-final-focused-source.json",
+      "sha256": "63a1ef8be326a776ed08c4d2c0a6a0e78faf1a6c0e2c7da0de3b427099a913a2"
+    },
+    "logs": [
+      {
+        "path": ".artifacts/phase8/finance-label-final-typecheck.log",
+        "sha256": "c85faad742c8ad117de8ed591ec6999ea99a21fdd2ba557c5fb19bfa2f97cb5e"
+      },
+      {
+        "path": ".artifacts/phase8/finance-label-final-focused.log",
+        "sha256": "b95bf95141a340925b2181ca6ad429426c159ab41b8ef40b83481da5f005db3e"
+      },
+      {
+        "path": ".artifacts/phase8/finance-label-final-pack.log",
+        "sha256": "0c1a632e007d78ce46a431aa6dfd4a9bba0e321395557e2dd4ae7aae0a840aeb"
+      }
+    ]
+  },
+  "browser": {
+    "source": {
+      "sha": "3ebba8240547be4b7dc4c4a38f027233a73599e5",
+      "fingerprint": "1cb7d3ca2ef82cf6b9bfcec372a75ff081f9b270f65b40b46b31b69dcf4b5166"
+    },
+    "selection": [
+      "--grep",
+      "Finance desk:"
+    ],
+    "pass": 54,
+    "fail": 0,
+    "skip": 0,
+    "flaky": 0,
+    "exitCode": 0,
+    "projects": 18,
+    "categories": {
+      "finance": 54
+    },
+    "preservedUnaffected": {
+      "source": {
+        "sha": "a96c7895bacadde93fbe60e54782fff438d65672",
+        "fingerprint": "2d9104aca58b82ab4c14457347a0fd25abd21929eac99e0219b669a32d34d48f"
+      },
+      "pass": 306,
+      "categories": {
+        "projectCockpit": 90,
+        "packUpgrade": 18,
+        "sharedRecordUi": 198
+      },
+      "fromCompletedSelection": 360,
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-10-29T15-41-18.069Z/summary.json",
+        "sha256": "4611542d9d27df7c770103dd09a79de98cc40e677d9fc2bc8cfc1beba5faf21f"
+      },
+      "laterDelta": [
+        "docs/architecture/phase-8-implementation.md",
+        "docs/roadmap/00-baseline.md",
+        "docs/roadmap/PROGRESS.md",
+        "docs/testing/UX-LAB.md",
+        "scripts/ux-lab/finance.spec.mjs",
+        "src/modules/boards/blocks/BudgetBlock.tsx"
+      ],
+      "reason": "Only later application change is unique budget progress IDs; all54 finance cases rerun at final source. No single-head360 claim."
+    },
+    "summary": {
+      "path": ".artifacts/ux-lab/2026-10-29T16-03-40.859Z/summary.json",
+      "sha256": "add9d963e69c6cfa10e4464b29cb46d052609a7aae34c34e7b9f8f3c62166ce5"
+    },
+    "runtimes": [
+      {
+        "project": "chromium-compact-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-compact-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      }
+    ],
+    "scope": "Named finance/Project/pack/shared-record journeys, not the full1044-cell UX plan or a phase certificate.",
+    "fullUxCoverage": {
+      "required": 1044,
+      "executed": 54,
+      "missing": 990,
+      "failed": 0,
+      "complete": false
+    }
+  },
+  "preserved": {
+    "source": {
+      "sha": "3ebba8240547be4b7dc4c4a38f027233a73599e5",
+      "tree": "2cd9e1714a3f0d7ea877986257dd5c1b612d2468",
+      "fingerprint": "1cb7d3ca2ef82cf6b9bfcec372a75ff081f9b270f65b40b46b31b69dcf4b5166"
+    },
+    "complete": true,
+    "identity": {
+      "path": ".artifacts/phase8/finance-preserved/summary.json",
+      "sha256": "959e46d8ef22e2c20859674242c4b0658bc3cd6ace3c789174834296c4243938"
+    },
+    "gates": [
+      {
+        "name": "MCP Phase3",
+        "summary": {
+          "pass": 64,
+          "fail": 0,
+          "notRun": 0,
+          "blocking": 0,
+          "total": 64
+        },
+        "exitCode": 0,
+        "complete": true,
+        "sourceUnchanged": true,
+        "results": {
+          "path": ".artifacts/phase8/finance-preserved/mcp-phase3/results.json",
+          "sha256": "6c2fc8172bddd3e0f49aff98ebab0018180fc41dae6436aefabe3133ae26275a"
+        }
+      },
+      {
+        "name": "Phase6 enabled-permission workflows",
+        "summary": {
+          "pass": 42,
+          "fail": 0,
+          "notRun": 0,
+          "blocking": 0,
+          "total": 42
+        },
+        "exitCode": 0,
+        "complete": true,
+        "sourceUnchanged": true,
+        "results": {
+          "path": ".artifacts/phase8/finance-preserved/phase6/results.json",
+          "sha256": "96f050cbfeb5346848173f787d8dd0dde053dd169f80ec6eca52c6ad314e7aaa"
+        }
+      }
+    ],
+    "approval": "Automated disposable authenticated sessions, not genuine human acceptance.",
+    "providers": "Disabled; no real/paid inference.",
+    "transport": "Owned HTTPS for UX; owned loopback HTTP for legacy preserved suites. No global device trust changes."
+  },
+  "features": [
+    {
+      "area": "Funding actions",
+      "files": [
+        "templates/tcg-pack.json"
+      ],
+      "behavior": "Stable stale next-action view from2000-01-01 through today-1 excludes won/lost, retains dormant, using shared within operator."
+    },
+    {
+      "area": "Shared money",
+      "files": [
+        "shared/finance.ts",
+        "shared/financeConfig.ts",
+        "shared/financePage.ts"
+      ],
+      "behavior": "Decimal half-unit rounding matching displayed money; exact signed expense/income reversals; Budget line excluded; remaining is budget minus net expenses, income separate. Effective field/workspace currency, mixed refusal, explicit missing/unsafe amounts and schema drift. Product Price minus Cost/margin preserves text Margin."
+    },
+    {
+      "area": "Authorized collector and MCP",
+      "files": [
+        "worker/finance.ts",
+        "worker/mcpReadTools.ts"
+      ],
+      "behavior": "Bounded projected metadata with canonical gates, source/authority checks and explicit caps. Both-mode root revision fence and one context-bound read retry. dashboard_snapshot parity including Products database context and combined health/budget budget bounds."
+    },
+    {
+      "area": "Usable budget and recovery",
+      "files": [
+        "src/modules/boards/blocks/BudgetBlock.tsx",
+        "src/core/financeLocal.ts",
+        "src/core/financeRead.ts",
+        "src/core/useFinance.ts"
+      ],
+      "behavior": "Configured summaries, exact transaction drill-downs, partial indexed device state, loading/empty/error/mixed currency and recovery; Products databaseSummary slot."
+    },
+    {
+      "area": "Template and AI prompt",
+      "files": [
+        "shared/bundled.ts",
+        "shared/templates.ts",
+        "worker/mcp.ts",
+        "shared/aiActions.ts"
+      ],
+      "behavior": "Packv5 stable additions with deleted reservations/team edits preserved. Live finance references do not copy unrelated databases; validated self-budget conversion is destination-bound and session-approved. explain_budget is a read-only contextual prompt, not a new tool or inference call."
+    }
+  ],
+  "semantics": {
+    "remaining": "budget minus signed net expenses; income separate",
+    "reversals": "Negative amounts reduce only their original expense/income subtotal; decimal ties round away from zero, equal signed reversals cancel exactly",
+    "budgetLines": "Excluded from actual expense/income",
+    "currency": "Declared field override or workspace default; no conversion",
+    "productMargin": "(Price minus Cost)/Price times100, only positive Price; text Margin unchanged",
+    "device": "Always partial, never claimed as current server completeness",
+    "deletedTransactions": "Excluded from active totals in both permission modes"
+  },
+  "visualReview": {
+    "images": [
+      {
+        "path": ".artifacts/phase8/finance-final-visual/chromium-compact-light-finance-enlarged.png",
+        "sha256": "4696d5400ab38ecdca53f8636efdf3e78662baf040bf3988e25ccd5927751b36"
+      },
+      {
+        "path": ".artifacts/phase8/finance-final-visual/chromium-compact-light-finance-products.png",
+        "sha256": "703bc36a9304e20c1c64d2c4afbb5048303c497278aad78cce4369910162618e"
+      },
+      {
+        "path": ".artifacts/phase8/finance-final-visual/chromium-compact-light-finance-zero-price.png",
+        "sha256": "d8380ebdd9e28d5c3358c800b6ed1fe99bfbd929a155a43d9124b8e239c50df9"
+      },
+      {
+        "path": ".artifacts/phase8/finance-final-visual/firefox-tablet-dark-finance-enlarged.png",
+        "sha256": "69b056d0705ab74b6eff90a978fe8ae87c9d95fc42196fd482349a620a81920c"
+      },
+      {
+        "path": ".artifacts/phase8/finance-final-visual/firefox-tablet-dark-finance-products.png",
+        "sha256": "a7eb9db890d1227ccfd5b433b60f7294264e33603180e99bdc59c79ab0f3aadd"
+      },
+      {
+        "path": ".artifacts/phase8/finance-final-visual/firefox-tablet-dark-finance-zero-price.png",
+        "sha256": "0512b9ecd82329d07a771feb3c79e5c9d617d431e359c1d3ec98dd1522534645"
+      },
+      {
+        "path": ".artifacts/phase8/finance-final-visual/webkit-desktop-light-finance-enlarged.png",
+        "sha256": "89c31a779eb6934cfff203bd7e80f24ef8eed616bedfb51ac3709810d1d68b9a"
+      },
+      {
+        "path": ".artifacts/phase8/finance-final-visual/webkit-desktop-light-finance-products.png",
+        "sha256": "607d327db9c854dab57cf95295b993b49a005e12d317a5afb3b6124dd7f3ebbb"
+      },
+      {
+        "path": ".artifacts/phase8/finance-final-visual/webkit-desktop-light-finance-zero-price.png",
+        "sha256": "10a07e724c55a89f6c480e4f949f5e02f1915c6d21fbbd0e96c16797cbbff250"
+      }
+    ],
+    "observations": [
+      "Reviewed three200% text images: card/button bounds hold; narrow words wrap vertically. This is CSS enlargement, not native zoom.",
+      "Reviewed six Products normal/zero-price images: readable price/cost/margin and missing-value explanations; database rows retain text Margin.",
+      "Injected server changes are followed immediately by screenshot capture; local table can show prior values during its sync interval. These images establish layout, not settled cross-surface sync.",
+      "No human screen-reader or physical-device acceptance is claimed."
+    ],
+    "status": "Agent inspection; no human acceptance",
+    "selection": [
+      "chromium-compact-light",
+      "firefox-tablet-dark",
+      "webkit-desktop-light"
+    ],
+    "state": "200 percent CSS text with card-boundary/title/control assertions; Products panel normal and zero-price states; repeated progress IDs and accessible labels asserted",
+    "qualification": "CSS enlargement and browser touch emulation are not native zoom or physical hardware."
+  },
+  "migrations": {
+    "added": [],
+    "latest": "0035_workspace_settings.sql",
+    "manifest": {
+      "path": "scripts/certification/migrations.json",
+      "sha256": "457ae9320003cc73c2fd137eea4299edf6fc0d5c9bc49dde462549a8a036675a"
+    }
+  },
+  "contract": {
+    "version": 2,
+    "bodyChanged": false,
+    "workspaceDocument": {
+      "path": "docs/integrations/the-common-ground.md",
+      "sha256": "fee8510a12a390b85ff7f58c65ada217e1bf7673972586c258d77736f264a5a4"
+    }
+  },
+  "failedHistory": [
+    {
+      "path": ".artifacts/phase8/finance-repeated-label-baseline.log",
+      "result": "1FAIL: two same-Project summaries shared one progress ID. Per-reader prefix plus item index corrects each accessible label; final54 includes regression."
+    },
+    {
+      "path": ".artifacts/phase8/finance-rounding-baseline.log",
+      "result": "1FAIL14PASS: equal signed1.125 expenses left0.01; decimal rounding now symmetric with exact reversal and0/2/3-decimal regressions."
+    },
+    {
+      "path": ".artifacts/ux-lab/2026-10-29T15-27-52.148Z/summary.json",
+      "result": "8c7ddf7 browser selection deliberately interrupted before rounding correction:88PASS1interrupted271NOTRUN,exit130; retained incomplete."
+    },
+    {
+      "path": ".artifacts/phase8/finance-mcp-first.log",
+      "result": "36PASS1FAIL: stricter deleted-transaction test found differing permission-mode outcomes; corrected to active totals in both modes."
+    },
+    {
+      "path": ".artifacts/phase8/finance-pack-first.log",
+      "result": "Validator rejected existing supported within operator; validator updated, runtime filter tests retained."
+    },
+    {
+      "path": ".artifacts/ux-lab/2026-10-29T15-21-31.198Z/summary.json",
+      "result": "Compact200% button extends311.5px past257px card boundary; width constraint and wrapping caption correct it."
+    },
+    {
+      "path": ".artifacts/phase8/finance-disabled-race-baseline.log",
+      "result": "1FAIL1PASS20SKIPPED targeted baseline: disabled mode returned200 for changed root; independent root revision comparison corrects both modes."
+    }
+  ],
+  "remaining": [
+    "8.6 and later Phase8 items in dependency order",
+    "New canonical full Phase8 certify:ai at final phase source",
+    "Applicable native/physical-device checks, human screen readers/native zoom and independent acceptance",
+    "Owner production backup, release, provider and permission activation gates"
+  ],
+  "postVerificationChanges": [
+    "Sanitized documentation/evidence only; no application source changed after these checks."
+  ],
+  "publicationPolicy": "Publish sanitized summaries only. Raw reports/traces/screenshots/fixtures remain ignored. No deployment, remote migrations/infrastructure, real email/payments/mints or paid inference."
+}

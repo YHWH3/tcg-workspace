@@ -72,10 +72,10 @@ export function FieldRow({ field, task }: { field: FieldDef; task: TaskRow }) {
   useWorkspaceLocale();
   const users = useUsers();
   const raw = task[propKey(field.id)] as unknown;
-  const input = 'w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10';
+  const input = 'min-w-0 w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10';
   return (
     <>
-      <span className="text-xs text-neutral-400">{field.name}</span>
+      <span className="break-words text-xs text-neutral-600 dark:text-neutral-400">{field.name}</span>
       {field.type === 'checkbox' ? (
         <input type="checkbox" checked={raw === true} onChange={(e) => void setProp(task.id, field.id, e.target.checked)} className="h-4 w-4 accent-neutral-900 dark:accent-neutral-200" aria-label={field.name} />
       ) : field.type === 'select' ? (
@@ -99,7 +99,7 @@ export function FieldRow({ field, task }: { field: FieldDef; task: TaskRow }) {
       ) : field.type === 'number' ? (
         <input type="number" value={typeof raw === 'number' ? raw : (raw ?? '') as string | number} onChange={(e) => void setProp(task.id, field.id, e.target.value === '' ? null : Number(e.target.value))} className={input} aria-label={field.name} />
       ) : field.type === 'url' ? (
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
           <input type="url" value={typeof raw === 'string' ? raw : ''} placeholder="https://…" onBlur={(e) => void setProp(task.id, field.id, e.target.value.trim() || null)} defaultValue={typeof raw === 'string' ? raw : ''} key={task.id + field.id} className={input} aria-label={field.name} />
           {typeof raw === 'string' && raw && (
             <a href={raw} target="_blank" rel="noreferrer" className="shrink-0 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200" aria-label="Open link">
@@ -119,8 +119,9 @@ function MultiPicker({ field, task, values }: { field: FieldDef; task: TaskRow; 
   return (
     <Popover
       trigger={
-        <button className="flex min-h-[34px] w-full flex-wrap items-center gap-1 rounded-lg border border-neutral-200 bg-white px-2 py-1 text-left text-sm dark:border-neutral-700 dark:bg-neutral-900" aria-label={field.name}>
-          {values.length === 0 && <span className="text-neutral-400">Select…</span>}
+        <button className="flex min-h-[34px] w-full flex-wrap items-center gap-1 rounded-lg border border-neutral-200 bg-white px-2 py-1 text-left text-sm dark:border-neutral-700 dark:bg-neutral-900">
+          <span className="sr-only">{field.name}: </span>
+          {values.length === 0 && <span className="text-neutral-600 dark:text-neutral-400">Select…</span>}
           {values.map((id) => {
             const o = opts.find((x) => x.id === id);
             if (!o) return null;

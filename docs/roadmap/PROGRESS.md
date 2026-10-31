@@ -1,7 +1,7 @@
 # Next phases progress
 
 Execution started 2026-10-25. Release branch `sol/r1-date-window` is certified at `0888525`; active development
-is `sol/p7-foundations`, stacked on that exact head. The release branch is based
+is `sol/p8-desks`, stacked on Phase 7 documentation head `6586ee1` (draft PR #16). The release branch is based
 on plan-only commit `6d02933` (application unchanged from `528b889`). Original
 integration branches and existing PRs remain unchanged.
 
@@ -31,9 +31,48 @@ integration branches and existing PRs remain unchanged.
 | Phase 7 first certificate | FAIL/incomplete, preserved | 120d528; containing test-correction commit | .artifacts/phase7/final-attempt-1/owner.json; ux/summary.json; interruption-observation.json | Full UX 648/648 PASS, exit 0, no skips/flaky. Canonical unit 1641 PASS / 2 FAIL; D1 731 PASS / 1 FAIL (overlap), only 11 gates recorded, remaining gates incomplete. Provenance metadata wrongly matched an old dangling-ID assertion; new disabled-directory column bypassed an exact-SQL race fixture. Corrected test assumptions retain dangling-reference negative controls and actual concurrent-downgrade rejection; 36/36 focused checks PASS. Process termination cause unconfirmed. A fresh full canonical run plus native harnesses is required; no earlier failure relabelled. |
 | Phase 7 second certificate | FAIL, preserved | 79cc6e5d2e35da990fb780ba33beec14ab5f7ab7 | .artifacts/phase7/final-attempt-2/owner.json; certificate summary | Full canonical exit 1: 32/34 mandatory gates PASS. Unit 1644/1644 (144 files), dedicated D1 732/732 (63 files, overlap), security audit, release UI 21/21 and assistant 27/27 PASS. V7 WebKit drag hit a comment button; release rehearsal stopped at stale 34 count. No incomplete gate relabelled external. Native harnesses did not start after the failed certificate. |
 | N17 / N18 corrections | focused PASS; fresh complete certificate pending | Containing commit | evidence/P7-certificate-corrections.json | Three-engine control-hit regression and migration manifest/count test fail before fix, pass after (10/10). Actual WebKit v7 15/15, then full v7 114/114; actual rehearsal 12/12. Product code and UX lab unchanged. |
-| Phase 7 final engineering | ENGINEERING GO / EXTERNAL BLOCKED | 3a7e17acdb5a9d3e2697dc14d8694348c635f4f5 | evidence/P7-3a7e17a.json | Fresh canonical 34/34 PASS, exit 0; unit 1644/1644, D1 732/732 (overlap), harness 97, migrations 35. Safari 25/25 on five simulator profiles, Android 17/17 on three emulator profiles; owned devices removed. UX 648/648 retained at 120d528 with exact unchanged application/UX-lab proof; not a new-head rerun. Draft PR publication follows; no merge or deploy. |
-| Phase 8.0 addendum | owner ordered first; pending Phase 7 draft PR | Explicit chat instruction 2026-10-26 | /Users/trinity/Desktop/notion mock/docs/roadmap-addenda/8.0-resumable-certification.md | Read. Copy into 08-operating-desks.md as 8.0 on sol/p8-desks, implement tooling before desks, demonstrate pause/resume and label reused evidence. |
-| Phases 8 desks–13 / A | not started | — | README.md dependency order | Keep owner gates and one stacked draft PR per phase. |
+| Phase 7 final engineering | ENGINEERING GO / EXTERNAL BLOCKED | 3a7e17acdb5a9d3e2697dc14d8694348c635f4f5 | evidence/P7-3a7e17a.json | Fresh canonical 34/34 PASS, exit 0; unit 1644/1644, D1 732/732 (overlap), harness 97, migrations 35. Safari 25/25 on five simulator profiles, Android 17/17 on three emulator profiles; owned devices removed. UX 648/648 retained at 120d528 with exact unchanged application/UX-lab proof; not a new-head rerun. Draft PR #16 stacks on sol/r1-date-window; no merge or deploy. |
+| Phase 8.0 addendum | done; owner ordered first | Explicit chat instruction 2026-10-26 | /Users/trinity/Desktop/notion mock/docs/roadmap-addenda/8.0-resumable-certification.md | Read and copied verbatim into 08-operating-desks.md as 8.0 on sol/p8-desks after Phase 7 draft PR #16 opened. Implement tooling before desks, demonstrate pause/resume and label reused evidence. |
+| 8.0 tooling implementation | done; acceptance below | Containing commit | scripts/certification/resume.test.mjs; docs/testing/CERTIFICATION.md; .artifacts/phase8-pause-observer.log | 80 focused core/resume checks and 138 full harness checks PASS. Dirty development observer intentionally PARTIAL with unit INTERRUPTED after typecheck; no engineering certificate claimed. Source freeze and real post-D1 demonstration next. |
+| 8.0 resumed acceptance | PASS; tooling prerequisite complete | 6f8a1c3b18e938f68f718383e4b51aefdb489925 | evidence/P8-8.0-6f8a1c3.json; .artifacts/phase8/8.0-demo-2/owner.json | Fresh unit 1644/1644, D1 732/732 (overlap), harness 138; deliberate post-D1 pause correctly PARTIAL with security INTERRUPTED. Resumed canonical certificate 34/34 PASS, exit 0, 7 verified gates reused, 34.7608 minutes saved. Fresh security, browsers, recomputed performance and source-integrity PASS. Original certificate hash inventory unchanged. Prior user-paused attempt retained. No new physical/device or human-approval evidence; Phase 8 desks remain pending. |
+| Phase 8 working draft | open; attached to chat | 965034ba2e45c48a16e91cac3a11fa2209b435ca | https://github.com/YHWH3/tcg-workspace/pull/17 | Documentation and accepted 8.0 result committed and pushed. Draft stacks on sol/p7-foundations; remaining desks are explicitly pending. |
+| 8.1 paused foundation checkpoint | historical; resumed below | Working tree on 965034b | .artifacts/phase8/PAUSED-2.json; attention-foundation-development-2.log; attention-mcp-development.log | Shared model, canonical board helper extraction, bounded collector, REST/MCP reads, board configuration, AI action and tool selection implemented. Latest focused foundation 49/49 and MCP/registry 10/10 PASS (registry overlaps); typecheck PASS. Private-space and concurrent-authority tests, 550-row cap and 520-completed-prefix regression pass. UI, offline cache, browser/UX coverage, final phase certification and feature commit remain pending. Development fixture failures retained. |
+| 8.1 attention implementation | implemented; focused PASS, browser matrix pending | Containing commit | .artifacts/phase8/attention-final-focused.log; attention-browser-sixth.log | Collector, REST/MCP/assistant read action, guarded client actions, session/access-bound offline snapshots, responsive block/settings, pack v3 additive defaults and legacy Website defaults. Typecheck PASS and 179/179 focused checks PASS across 18 files (including actual D1); compact Chromium three workflows PASS. Complete 18-project matrix and final phase certification remain required. No genuine human approval or device acceptance implied. |
+| 8.1 first frozen attention matrix | FAIL, preserved; corrected rerun pending | 79c931b95be03cd341c211d1ef9fe7278a870180 | .artifacts/ux-lab/2026-10-27T14-17-17.980Z/summary.json | All 54 cases executed. Three-engine matrix exposed a comment badge obscuring Configure on tablet/desktop because Attention was missing from dashboard classification; both editor and page classification corrected. Shared Website triage default made a global-empty fixture assumption invalid; the test now verifies that Website item remains while completed/assigned owned rows clear. No failure was waived or converted to PASS. |
+| 8.1 second frozen matrix | FAIL, preserved; focused corrections PASS | 64e580f484d2bbc8a993c7567ea6a42cab7dc834 | .artifacts/ux-lab/2026-10-27T14-23-21.525Z/summary.json; attention-corrected-tablet.log | 45 PASS / 9 FAIL, all 54 ran. Whole-page offline checks exposed shell status contrast (2.08:1) and a late old-document read during reload. Corrected light/dark status colours and retired only old-document reads started before commit; current reads and unacknowledged writes remain blocking. Focused tablet light/dark six workflows now PASS, including numeric validation and keyboard focus return. Fresh 18-project rerun remains required. |
+| 8.1 third frozen matrix and visual review | automated PASS; extra visual correction requires fresh matrix | 3aff4dba03435246337fb8b51bc9a74078d895d7 | .artifacts/ux-lab/2026-10-27T14-33-07.233Z/summary.json; attention-3aff4db-focused.log; attention-enlarged-toolbar-baseline.log; attention-toolbar-corrected.log | 54/54 browser cases and fresh 179/179 focused checks PASS. Screenshot inspection then found the Page menu only 46% visible at 200% root text size in compact WebKit. Added full-visibility and page-scroll-width assertions, reproduced the failure, wrapped the page toolbar, and passed compact Chromium/WebKit correction checks. Final matrix pending; earlier PASS does not waive this visual finding. |
+| 8.1 fourth frozen matrix | FAIL, preserved; tablet correction PASS | 5e811fb37d718e527c004d0827555bbb381d50b3 | .artifacts/ux-lab/2026-10-27T14-42-42.773Z/summary.json; attention-sidebar-corrected.log | 48 PASS / 6 FAIL. Full Page-menu visibility passes, but the new inner-page reflow assertion exposes enlarged tablet overflow. Cap sidebar at 35vw while retaining its usual 15rem width; compact/tablet/desktop default layouts keep their previous width. Targeted tablet Chromium/WebKit correction checks PASS. Final selection adds the existing inbox/task text-enlargement regression: 72 cases across all 18 projects, pending. |
+| 8.1 final feature verification | focused engineering PASS; phase certificate pending | 870e8a24172ab9af0f756be674f355a3d0707b0e | evidence/P8-attention-870e8a2.json | Final frozen 72/72 browser cases PASS across all 18 projects, exit 0, no skips/flaky; includes attention workflows and existing inbox/task enlargement. Typecheck PASS. 179/179 focused checks retained at 3aff4db with only later layout corrections. Enlarged compact/tablet screenshots inspected. No new physical/human acceptance or full phase certificate claimed. Next item 8.9. |
+| 8.9 reliability implementation | implemented; focused PASS, matrix/device pending | Containing commit | .artifacts/phase8/reliability-foundation-2.log; reliability-browser-third.log | Device-local panel/chips, metadata-only upload names, guarded bounded retry, held review and rejected export. Observed push receipts commit with ACK removal; successful pulls recorded separately. Focused 93/93 PASS across eight files (including attention-client regressions), typecheck PASS; compact Chromium 3/3 workflows PASS after correcting fixture selectors. Android failed-upload path added to owned harness; full matrix and emulator results pending. No server endpoint, migration or collection added. |
+| 8.9 first expanded reliability matrix | FAIL / interrupted, preserved; corrected rerun pending | 8ba62cd | .artifacts/ux-lab/2026-10-27T15-11-17.730Z/summary.json | Whole-page held-work review check exposed its pre-existing dark timestamp contrast (3.78:1). Stopped the owned run after confirming the failure; incomplete cases are not PASS. Timestamp now uses established readable light/dark text tokens. Fresh 108-case attention/reliability matrix required. |
+| 8.9 second expanded matrix | interrupted, preserved; fixture corrected | 3393d6c | .artifacts/ux-lab/2026-10-27T15-14-41.855Z/summary.json | Compact light/dark cases passed, including held-dialog contrast. Tablet reliability fixture timed out looking for the compact-only Settings link. Browser and Android helpers now use the actual account menu at wider layouts, without bypassing SPA navigation or offline state. Fresh matrix required. |
+| 8.9 third expanded matrix and focused remediation | FAIL / interrupted retained; corrections narrowly verified | 1a4bf5e plus subsequent source fingerprints | .artifacts/phase8/reliability-attention-matrix-3.log; reliability-focused-final.log; reliability-enlargement-corrected.log | Actual failures: footer account popover below viewport in Firefox, Settings/notification caption contrast, and compact Settings overflow at 200% text. Popovers now flip/clamp with measured content; notification rows wrap. The offline fixture now waits for its initial authorized cache activation. Final enlargement probes: compact Chromium light and WebKit dark 2/2 PASS; a fresh complete matrix remains required. |
+| 8.9 WebKit attachment persistence | fixed; focused PASS, full matrix pending | Containing commit | .artifacts/phase8/reliability-webkit-blob-diagnostic.log; reliability-webkit-buffer.log; reliability-final-corrections-tests.log | Reproduced UnknownError for original Blob, reconstructed Blob and empty failure marker. Bounded ArrayBuffer fallback retains original bytes in existing account-local store; reading hook restores Blob API, and held-work moves retain encoded bytes atomically. WebKit exact-byte retry PASS; 107/107 focused tests across ten files and typecheck PASS. No D1 migration, index, endpoint or event-contract change. Earlier failed runs retained; older clients cannot decode fallback rows, so retain account stores and use this or newer code for recovery. |
+| 8.9 expanded browser / Android at first correction source | automated PASS; screenshot finding blocks feature acceptance | 15b910ea82fe4045b5c35a0108a8ee28792271f7 | .artifacts/ux-lab/2026-10-27T15-51-40.767Z/summary.json; .artifacts/phase8/reliability-15b910e-android/chrome/results.json | Browser 144/144, all 18 projects, no skips/flaky, exit 0. Android 20/20 across three owned emulator profiles, exit 0 and confirmed device cleanup. Screenshot review found enlarged tablet footer account trigger beyond sidebar (359.6px right vs 287px boundary); new assertion reproduces it. Preserve these exact-source results without accepting the visual defect. |
+| 8.9 sidebar visual correction | fixed; focused PASS, final verification pending | Containing commit | .artifacts/phase8/reliability-sidebar-baseline.log; reliability-sidebar-corrected.log | Constrain popover wrappers/triggers to available inline width and allow account label truncation. New enlarged-text sidebar boundary assertion fails before the correction and passes afterward in Chromium, Firefox and WebKit (3/3). Final matrix and Android runs must use the corrected source. |
+| 8.9 corrected sidebar matrix | browser PASS; affected upload follow-up pending | e2abd61ea25d5061e32d5d34c852d9e9badd5126 | .artifacts/ux-lab/2026-10-27T16-11-23.203Z/summary.json | 144/144 PASS across all 18 projects, no skips/flaky, exit 0; includes explicit sidebar bounds, 200% Settings reflow and reload/byte recovery. Subsequent upload scanner change requires fresh feature workflows; this report is not relabelled as testing the later source. |
+| 8.9 bounded upload materialization | implemented; verification pending | Containing commit | .artifacts/phase8/reliability-memory-baseline.log | New test reproduces both queued fallback payloads being decoded before the first chunk is sent. Uploader now enumerates index keys, rechecks current identity/state and reads one payload per iteration. Run all focused tests, the 54-case reliability matrix and Android at this head. The broader UI/UX sources and assertions are unchanged from the 144-case e2abd61 result. |
+| 8.9 final reliability matrix / native observations | browser PASS; native harness correction pending | ebed3b2f7adbe06061458cd408c79965b0de4e6d | .artifacts/ux-lab/2026-10-27T16-25-38.509Z/summary.json; .artifacts/phase8/reliability-ebed3b2-android-diagnostic/chrome/results.json | 54/54 feature browser cases and 108/108 focused tests PASS. Diagnostic native run 20/20 PASS. Earlier native attempt: 11 PASS / 2 FAIL, incomplete after ADB offline; emulator ColorBuffer error observed, cause unconfirmed, image preserved. Uninstrumented qualification then failed native IME readiness (1 PASS / 1 FAIL; incomplete). Rotation used a CDP tab and injected offline before its cleanup scope; now adopts the actual visible Chrome VIEW-intent tab and always restores offline/rotation, retaining all assertions. New native run required. No application/UX source changes in this harness correction. |
+| 8.9 final feature verification | focused engineering PASS; phase certificate pending | 161619d (native); ebed3b2 (reliability browser); e2abd61 (broader UI) | evidence/P8-reliability-161619d.json | 108 focused tests and typecheck PASS; final54 reliability cases across18 projects PASS; wider144 cases PASS at source stated. Final Android20/20 PASS, visible native Chrome tab, exact-byte recovery, all3 profiles and cleanup confirmed. Source differences and earlier failures retained explicitly. No physical/human/full-phase acceptance implied. Next8.11. |
+| 8.11 AI review desk | implemented; focused PASS, final matrix pending | Containing commit | .artifacts/phase8/ai-review-focused-3.log; ai-review-mcp-harness.log; ai-review-three-engine-probe.log | Review/library navigation, active/expired proposal countdowns, Resume / Review links, pending suggestion edits/accept/reject, recent changes/undo links. Reuses current session approval/execution/undo paths; no new mutation endpoint, schema or collection. Reads discard superseded/account/session/access responses; offline hides review/undo. 34 focused checks, two harness boundaries and typecheck PASS; nine three-engine browser cases PASS. First probes retained: HTTP-only fixture helper rejected HTTPS, then AI surface clipping; helper adds opt-in loopback TLS raw mode and surfaces become scrollable. New full90-case matrix and existing Phase6 workflows pending. |
+| 8.11 frozen layout/theme selection | browser PASS; existing Phase6 workflow gate pending | a0035135e9b959e7e013dfbadbda0719f305e090 | .artifacts/ux-lab/2026-10-28T04-45-56.916Z/summary.json | 90/90 PASS across all18 projects, exit0, no skips/flaky. Fresh67 focused tests across6 files, two fixture-boundary checks and typecheck PASS. The preserved weekly digest now lives in Workflow library; the existing approval-only digest test follows that visible navigation while keeping its original assertions. Only this test navigation and ledger change follow the matrix; no application source changes. Phase6 security/review suite next. |
+| 8.11 final feature verification | focused engineering PASS; phase certificate pending | a003513 (browser); 41852d1 (Phase6) | evidence/P8-ai-review-a003513.json | Full90 browser cases across18 projects PASS, exit0/no skips/flaky; fresh67 focused tests, two harness boundaries and typecheck PASS. Existing Phase6 enabled-permission suite42/42 PASS on three engines with providers disabled. Six screenshots reviewed including200% text. Only test navigation/docs changed between sources. No human/physical/full-phase acceptance claimed. Next8.3. |
+| 8.3 Website response desk | implemented; final verification pending | Containing commit | .artifacts/phase8/website-desk-three-engine-8.log | Nine focused browser cases PASS across Chromium compact/light, Firefox tablet/dark and WebKit compact/light. Queues, owners, follow-up dates, guarded bulk edits/undo, approval dialog, copy-only draft, deterministic age bands/digest and owner/triager attention. N09 reproduced before correction. Screenshot review exposed compact200% caption clipping (179px needed / 120px available); measured regression now passes after reducing nested padding. Invalid stored target also reproduced in both permission modes; corrected SQL matches dashboard defaults before capping. Earlier failures retained, including missing first-reply configuration in the disposable protocol3 fixture; fixture now configures the existing rule and verifies its resulting date. Interrupted focused run remains INTERRUPTED. Fresh focused,198 browser selection, existing Website UI and Phase6 gates still required. No migration, ingest-body change, email or paid inference. |
+| 8.3 frozen regression correction | first matrix interrupted after a known assertion mismatch; rerun required | d0bff8d (application); containing commit (fixture assertion) | .artifacts/ux-lab/2026-10-28T19-49-30.855Z/summary.json | Fresh64 focused tests/8 files and typecheck PASS on the byte-identical precommit d0bff8d tree. First198 selection stopped after59 PASS,6 FAIL,1 interrupted,132 NOT RUN: all six completed failures assumed one title match for the existing applicant. The new Website-aging reason and existing unassigned reason intentionally produce separate labelled rows. Assertion now requires both distinct reasons; fixture receives an explicit8-day-old event instead of a wall-clock-dependent fixed date. Application sources unchanged. Full198, Website UI and Phase6 still pending. |
+| 8.3 full browser selection | PASS; preserved workflow gates pending | c38f87b | .artifacts/ux-lab/2026-10-28T19-54-34.631Z/summary.json | 198/198 PASS across all18 projects, exit0, zero skips/flaky. Covers response actions and full answers, attention, Website/inbox surfaces, enlarged text and shared table controls. Application sources unchanged from d0bff8d. A subsequent D1 assertion verifies Website bands inside the combined weekly digest and its binding budget, in both permission modes. Existing9-case Website UI and42-case Phase6 gates remain pending. |
+| 8.3 final feature verification | focused engineering PASS; phase certificate pending | c38f87b (198 browser); 8f8aea0 (preserved gates) | evidence/P8-website-desk-c38f87b.json | 198/198 across18 projects, zero skips/flaky;64 focused tests/8 files and typecheck PASS at d0bff8d tree; additional9-test D1 group includes combined weekly digest parity/budget in both modes (overlapping, not additive). Existing Website UI9/9 and Phase6 enabled-permission42/42 PASS, providers disabled. Application unchanged across stated sources; only fixture/test/docs differences retained. Three final200% screenshots reviewed. Earlier failures/interruption retained. Native8.3, physical/human and full-phase acceptance remain incomplete. Next8.4. |
+| 8.4 Project review cockpit | implemented; final verification pending | Containing commit | .artifacts/phase8/project-health-focused-final.log; project-health-three-engine-2.log | Shared rules, bounded gated HTTP/MCP collector, offline local reader, configured block, guarded owner/date edits, exact source drills, derived self panel and pack-v4 Project Review block. 100 focused tests/ten files and typecheck PASS; pack validator PASS. Schema drift reproduced (3 FAIL), corrected to Unknown. First browser probe 9 PASS/6 FAIL: Firefox comment overlay obscured Configure; empty-body placeholder contrast. Corrected three-engine probe15/15 PASS with unchanged accessibility and pointer assertions. Frozen conversion, labelled disposable approval and execution/replay checks PASS. Final source/workflow/phase certification pending; no migration/event-body change or native/human acceptance. |
+| 8.4 full selection / contrast correction | initial matrix FAIL/INTERRUPTED; correction probe PASS | 0e6b68f (initial matrix); containing commit (correction) | .artifacts/ux-lab/2026-10-29T06-49-58.499Z/summary.json; .artifacts/phase8/project-health-contrast-corrected.log | Clean focused100/typecheck/pack PASS at0e6b68f. Initial306 selection stopped after83 PASS,3 FAIL,1 INTERRUPTED,219 NOT RUN. Empty Linked labels/Link control and faded Block options failed contrast on light tablet/desktop. Corrected readable light/dark colors and persistent32px Block options control; unchanged failing journeys12/12 PASS across all3 engines at tablet/desktop light. Full306 and preserved workflows must rerun at the corrected commit. No completed phase certificate claimed. |
+| 8.4 full matrix / source-read race | initial completed matrix FAIL; deterministic correction/probe PASS | 008225a (306); containing commit (race correction) | .artifacts/ux-lab/2026-10-29T06-57-54.065Z/summary.json; .artifacts/phase8/project-health-revision-race-baseline.log; project-health-race-three-engine.log | Full306 completed305 PASS/1 FAIL, zero skips/flaky. Firefox desktop offline-save refresh returned an empty list after a concurrent revision update. Actual-D1 reproduction fails before correction with that same false-empty result. Collector now emits explicit409 for changed readable rows; browser retries one read only within current account/access.24 focused checks and15-case3-engine probe PASS, including original concurrent-edit assertions and injected409 recovery. No write retry or authorization bypass. Clean107/90-case final feature and preserved MCP Phase3/Phase6 checks pending. Retain216 unchanged shared UI cases at008225a separately; do not claim a single-head306 PASS. |
+| 8.4 final feature verification | focused engineering PASS; full phase certificate pending | 1b4aceede75018050b3bfa95e47a253dcc2b1eb0 (final cockpit);3348780 (broader/preserved) | evidence/P8-project-cockpit-1b4acee.json | Clean120 focused tests/14 files, typecheck/pack and final90 cockpit cases PASS at1b4acee,18 projects, zero skips/flaky. Broader378 PASS at3348780; retain288 unaffected reliability/pack/shared UI cases at that source. Preserved MCP64/64 and Phase6 42/42 PASS at3348780. Only application difference is Project link wrapping; final90 includes its title-level geometry. Six corrected enlarged screenshots reviewed; failures retained. No single-head378 or phase/native/physical/human acceptance claimed. Next8.5. |
+| 8.5 Funding and finance desk | implemented; focused PASS, final verification pending | Containing commit | .artifacts/phase8/finance-focused-third.log; finance-three-engine-corrected.log | Shared signed totals/effective currency, explicit missing/mixed/partial states, bounded gated collector, budget/product block, Products database slot, MCP parity and explain_budget prompt. Packv5 adds stable stale next-actions and finance summaries, preserving text Margin and deleted reservations.73 focused tests/9 files PASS; corrected9-case3-engine probe PASS. Real button spill and disabled-mode revision race reproduced/corrected; earlier failures retained. Final clean-source checks, affected browser matrix and preserved workflows required. No migration/provider/email/accounting integration. |
+| 8.5 rounding follow-up | correction verified narrowly; final verification pending | Containing commit | .artifacts/phase8/finance-rounding-baseline.log; finance-rounding-corrected.log; .artifacts/ux-lab/2026-10-29T15-27-52.148Z/summary.json | Paired ±1.125 expenses left0.01 under old rounding. Decimal half-unit rounding now matches displayed money and reversals cancel;38/38 calculation/D1 tests PASS. Earlier clean8c7ddf7 focused165/typecheck/pack PASS;360 selection deliberately interrupted before correction:88 PASS,1 interrupted,271 NOT RUN, exit130. Preserve all evidence; new source freeze and full affected checks required. Not pushed. |
+| 8.5 repeated-budget accessibility | reproduced and corrected; final affected checks pending | Containing commit (labels);a96c789 (broader) | .artifacts/phase8/finance-repeated-label-baseline.log; .artifacts/ux-lab/2026-10-29T15-41-18.069Z/summary.json | Clean167 focused/typecheck/pack and360/360 browser cases PASS at a96c789. New repeated-block check then reproduces duplicate progress IDs. Per-mounted-reader prefix and item index correct label association; new regression requires unique IDs and correct names. Final54 finance,167 focused,64/42 preserved and visual review pending. Retain306 unaffected cases at a96c789; no single-head360 claim. |
+| 8.5 final feature verification | focused engineering PASS; full phase certificate pending | 3ebba8240547be4b7dc4c4a38f027233a73599e5 (final finance);a96c789 (broader) | evidence/P8-finance-3ebba82.json | Clean167 focused tests/19 files,typecheck/pack,54/54 final finance across18 projects and preserved MCP64/64 plus Phase6 42/42 PASS. Broader360 PASS at a96c789; retain306 unchanged Project/pack/shared UI cases there. Only later application change is unique progress label IDs, with explicit regression. Nine final images inspected; native/physical/human acceptance and full1044-cell/final Phase8 certificate remain incomplete. Earlier failures/interruption retained. Next8.6. |
+| 8.6 final feature verification | focused engineering PASS; phase certificate pending | 579dec6aab59e17b21b3cf73cde9cc6b7adee54e (final field); f83e190 (broader) | evidence/P8-field-evidence-579dec6.json | Clean293 focused/29 files, typecheck/pack,72/72 final field cases on18 projects, MCP64/64, Operating Pack140 automated assertions and Phase6 42/42 PASS. Pack report retains3 external physical/AT checks NOT RUN. Six final images inspected. Retain342 unaffected cases atf83e190 from exact414-case union (225 paused plus189 resumed); original exit130 unchanged. N28–N32 corrected, prior failures and empty command selection retained. No single-head414/full1116 or full phase certificate claimed. Next8.7. |
+| 8.7 Community and Event desk | implemented; final verification pending | Containing commit | .artifacts/phase8/community-expanded-focused.log; community-browser-second.log | Packv7 ownership/date/attention/views; bounded authorized role and participant summaries with source links, device/failure recovery. 38 focused tests and four compact Chromium development journeys PASS; first fixture failures retained. Final source freeze, focused/matrix/preserved/visual evidence and publication required. Overall Phase8 HOLD. |
+| 8.7 final feature verification | focused engineering PASS; phase certificate pending | 533fe09ef217a91628be296b5da1897c61691dd0 | evidence/P8-community-533fe09.json | Clean377 regression tests/36 files,typecheck/pack,144/144 browser cases across18projects (Community72,Attention54,pack18), preserved MCP64/64,Operating Pack140 automated assertions and Phase6 42/42 PASS. Three physical/AT checks remain external NOT RUN. Six final Event desk images inspected. N33–N36 corrected; all earlier failures/interrupted runs retained. No full1188-case or phase certificate claim. Next8.8. |
+| Phases 8 desks–13 / A | 8.0, 8.1, 8.9, 8.11, 8.3, 8.4, 8.5,8.6 and8.7 feature evidence recorded; next8.8 | — | README.md dependency order | Keep owner gates and one stacked draft PR per phase. |
 
 Each implementation commit updates this file. “Containing commit” is bound by
 Git history: a commit cannot contain its own full SHA. Source remains frozen
@@ -45,3 +84,147 @@ only when their source fingerprint, exit and mandatory completion all agree.
 External gates remain physical hardware, human screen readers/native zoom,
 genuine human acceptance, owner production backup/staging/provider/legal and
 release decisions. Automated approvals are labelled disposable fixtures.
+
+Paused at owner request on2026-10-29 at local `575a7f0`. Clean107 focused checks,
+90 cockpit browser cases,64 MCP Phase3 and42 Phase6 workflows PASS at that source.
+Visual acceptance remains pending: enlarged screenshots show a device-work warning.
+A3-case metadata diagnostic completed but its queue attachments are not inspected.
+The clock hypothesis did not reproduce; no reliability application fix is claimed.
+Uncommitted diagnostic test change is preserved. Publication/evidence packaging and
+remaining roadmap work are pending. Resume checkpoint:
+`.artifacts/phase8/PAUSE-2026-10-29-project-health.md`. No active task test runner.
+
+Resumed on2026-10-29. The diagnostic queue contains only fresh pending changes,
+no held/rejected work. A controlled hook/Dexie test now reproduces the stale-clock
+warning (1 FAIL before correction,9/9 related checks after). Each reactive read
+uses observation time; genuinely old pending work still alerts. A real-edit
+browser probe and server-acknowledged configuration recovery pass6/6 on three
+engines. Screenshot inspection then found the shared heading reduced to R… at
+200% text. Geometry reproduced compact/tablet clipping; the first three-case
+probe also exposed WebKit capture positioning. Heading now wraps without a second
+flex spacer. Corrected screenshot/action probe3/3 PASS on Chromium compact/light,
+Firefox tablet/dark and WebKit desktop/light. A prior wrong-heading capture probe
+was intentionally interrupted and retained. Final committed-source focused and
+combined UI/reliability matrix are pending; earlier575a7f0 results remain tied to
+that source. Source commit: containing commit. No publication or phase certificate
+is claimed by this checkpoint.
+
+At3348780 the full selected378 cases and preserved MCP64/64 plus Phase6 42/42
+passed, source unchanged. Final screenshot review then found a Firefox200%
+project-title spill beyond its card. Page-level root overflow did not catch
+ancestor clipping. A title-level assertion reproduces442px text in a201px link.
+Project health links now use wrapping text flow instead of an anonymous flex
+text item; corrected Chromium compact/light, Firefox tablet/dark and WebKit
+desktop/light probe3/3 PASS. This is the only application change after3348780.
+The required-case catalog also adds the already executed fresh reactive edit.
+Fresh committed-source120 focused and90 affected cockpit checks are required.
+Retain the broader288 unaffected cases and64/42 workflows at3348780 with explicit
+source identity; do not relabel them as a new-head378 pass. Source: containing
+commit.8.4 visual acceptance/publication and later roadmap remain pending.
+
+8.4 feature verification completed with final title-level geometry at1b4acee.
+The full Phase8 decision remains HOLD: nine roadmap items, applicable native
+checks and the final canonical certificate are incomplete. Missing engineering
+evidence is not relabelled external. Failed/interrupted attempts and the first
+unreproduced clock probe remain preserved. No production operation occurred.
+
+
+8.6 Field evidence implementation checkpoint (2026-10-30): shared normalized
+visits, exact-unit measurements, accessible SVG/table/source links, intentional
+field focus, bounded canonical HTTP/MCP reads and partial device snapshots.
+Packv6 adds stable Field evidence/Field Visit blocks. No migration/contract change.
+N28–N30 cover real capture file-selection, unmatched-staged upload and WebKit
+draft byte-storage failures. All failed/interrupted development reports remain
+in .artifacts/phase8 and .artifacts/ux-lab. Corrected three-engine probe11/12 and
+subsequent corrected WebKit capture1/1 are separate working-tree evidence.
+Historical absent/null capture intent and capped planned media are now distinct;
+focused/source-frozen final checks remain required. Full Phase8 remains HOLD.
+Next: freeze/commit8.6, focused/typecheck/pack,414 affected browser cases, preserved
+MCP/Phase6 workflows, image review, sanitized evidence and draftPR17 update; then
+8.7. No physical/native AT, production or genuine-human acceptance is claimed.
+
+
+8.6 first frozen source4e28c8653dad98ffa8ce596b72b40f938810b719:265 focused
+tests/28 files,typecheck/pack PASS, unchanged source. The414 browser selection
+was stopped after85 PASS/1 FAIL/328 skipped or incomplete (exit130), retained at
+.artifacts/ux-lab/2026-10-30T06-48-36.704Z. N31 is a real transient access barrier
+on transport fallback, not an accepted test flake. Deterministic engine baseline
+1 FAIL; corrected44 engine/media checks,typecheck and6 original three-engine
+editor/capture journeys PASS. Containing correction commit must get fresh frozen
+focused and414 browser checks before8.6 publication. Full Phase8 remains HOLD.
+
+
+8.6 resumed verification at f83e190: 293 focused tests across 29 files, typecheck
+and pack validation PASS. The owner-paused browser run retained 225 completed
+cases; the exact remaining189 all PASS. Validated union covers all414 cases
+without gaps or duplicates, with separate run exits130 and0 retained.
+
+Screenshot review then exposed N32 compact measurement-table overflow. Baseline
+geometry FAIL (324px in290px); corrected three-engine probe3/3 PASS. The only
+application change since f83e190 wraps long table labels and units. Containing
+commit needs fresh293 focused and72 field cases. Retain342 unaffected cases at
+f83e190; never claim a single-head414 PASS. Preserved MCP/V8/Phase6, final image
+review, evidence packaging and publication are pending. Phase8 remains HOLD.
+
+
+8.6 feature verification is complete at579dec6aab59e17b21b3cf73cde9cc6b7adee54e.
+Final clean-source293 focused/typecheck/pack,72 field cases across18 projects,
+preserved MCP64, Operating Pack140 automated assertions and Phase6 42 PASS.
+Source stayed unchanged throughout. The three external physical-device/AT
+checks remain NOT RUN. Six final screenshots were inspected; long table source
+labels now wrap within compact cells, and enlarged fix actions remain in cards.
+The empty anchored-filter command failed before executing tests and is retained;
+the corrected selection executed all72 cases.
+
+The broader414-case result atf83e190 is an exact union of225 completed cases from
+the owner-paused run and189 resumed cases, with no duplicates or gaps. Keep both
+run exits130 and0. After the table-only correction, retain342 unaffected cases
+there and use final72 field cases at579dec6; no single-head414 claim. Exact SHA,
+tree, fingerprint, commands, hashes, platform matrix and earlier failures are in
+evidence/P8-field-evidence-579dec6.json. Only sanitized evidence/docs follow this
+verification. Next8.7; remaining Phase8 items, applicable native checks and the
+full canonical certificate keep the overall decision HOLD.
+
+
+8.7 source789eab6:377 focused tests/36 files,typecheck/pack PASS unchanged.
+Post-run screenshot review found N34 fragmented action words at200% text.
+Rendered-word baseline1 FAIL; corrected representative three-engine checks3/3
+PASS with images inspected. Final source freeze, focused/matrix/preserved checks,
+visual review and evidence publication remain pending. Phase8 remains HOLD.
+
+
+The first144-case matrix atc0286a4 was stopped with25 PASS/5 FAIL/1 interrupted/
+113 NOT RUN, exit130. Wide table controls exposed N35, a real selected-value
+accessible-name mismatch, plus two test selectors that assumed compact cards.
+Table/detail multi-select names now come from their rendered values plus hidden
+field labels. An initial reconstructed label still failed two12-case diagnostics;
+the automatic-content correction passes12/12 across Chromium tablet/light,
+Firefox tablet/dark and WebKit desktop/light. Detail field selectors are scoped
+to the record editor; membership assertions support both input and card titles.
+Whole-page axe remains enforced. New frozen-source verification is required.
+
+
+The frozen b3847d2 source again passed377 focused tests,typecheck/pack.
+Adding whole-page axe on the open Person editor found N36: empty multi-select
+prompts at2.58:1 on white. Its matrix was stopped21 PASS/1 FAIL/1 interrupted/
+121 NOT RUN, exit130, retained. Light prompts now use neutral600, retaining
+neutral400 in dark mode. Three-engine full membership/editor workflows3/3 PASS.
+The editor-state accessibility assertion remains mandatory. This class-only
+correction receives a new source freeze and final feature verification.
+
+
+8.7 final verification is complete at533fe09ef217a91628be296b5da1897c61691dd0,
+tree6fcae611e72e36fb7e4e33d0db51d8dda6de4e6a, fingerprint
+d68de24fe0d14bc1957f0c6d3f53d3bc9afd82464513cad64b56d93a88f503c4.
+377 focused tests/36files,typecheck/pack,144/144 affected browser cases across
+18projects, preserved MCP64,Operating Pack140 automated assertions and Phase6
+42 PASS; source unchanged throughout. Six final Event desk images inspected.
+Three physical-device/AT checks remain explicitly external NOT RUN. The new
+66-case/18-project catalog totals1188 combinations; it was not fully run here.
+N33 starter setup,N34 enlarged words,N35 accessible names andN36 empty-prompt
+contrast are corrected. Failed probes and both interrupted matrices remain
+retained with their original exits/counts. Exact commands, identities, platform
+matrix and limits: evidence/P8-community-533fe09.json. Documentation/evidence
+publication follows this tested source; no application changes follow it.
+Next8.8 Editorial and knowledge desk. Remaining Phase8 implementation, full
+canonical/native qualification and independent acceptance keep Phase8 HOLD.

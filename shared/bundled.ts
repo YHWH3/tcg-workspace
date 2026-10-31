@@ -12,6 +12,7 @@
  * - String block lines still work: plain text → text block, `Embed: db_x` →
  *   embedded `tasks` block. Object blocks cover every stored block config. */
 
+import {validateAttentionConfig,type AttentionConfig,type AttentionKind} from './attention';
 import { linkId } from './linkid';
 import type { FieldDef } from './fields';
 import type { Filter } from './views';
@@ -72,6 +73,7 @@ export interface AuthorDb {
   defaultViewId?: string;
   views?: AuthorView[];
   records?: AuthorRecord[];
+  attention?: AttentionConfig;
 }
 
 /** Object-form block inside `pages[].blocks` (string lines also accepted). */
@@ -79,15 +81,48 @@ export interface AuthorBlock {
   key?: string;
   type:
     | 'text' | 'h1' | 'h2' | 'h3' | 'bulleted' | 'todo' | 'divider' | 'callout' | 'tasks'
-    | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'embed';
+    | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'attention' | 'projecthealth' | 'budget' | 'fieldsessions' | 'measurechart' | 'eventops' | 'embed';
   text?: string;
   checked?: boolean;
   url?: string;
   // dashboard block config (Phase 3 §3) — databaseId/sources ids are authored
   databaseId?: string;
+  projectId?: string;
+  recordId?: string;
+  mode?: 'project' | 'product';
+  dateKey?: string;
+  eventId?: string;
+  capacityKey?: string;
+  facilitatorsKey?: string;
+  volunteersKey?: string;
+  participantsKey?: string;
+  upcomingOnly?: boolean;
+  measurementKey?: string;
+  unitKey?: string;
+  observationKey?: string;
+  photoKey?: string;
+  placeKey?: string;
+  experimentKey?: string;
+  projectKey?: string;
+  experimentId?: string;
+  placeId?: string;
+  unit?: string;
+  missingOnly?: boolean;
+  budgetKey?: string;
+  amountKey?: string;
+  typeKey?: string;
+  relationKey?: string;
+  priceKey?: string;
+  costKey?: string;
+  ownerKey?: string;
+  startKey?: string;
+  endKey?: string;
+  staleDays?: number;
   viewId?: string;
   limit?: number;
   heading?: string;
+  kinds?: AttentionKind[];
+  compact?: boolean;
   filters?: Filter[];
   agg?: string;
   fieldKey?: string;
@@ -153,8 +188,8 @@ function toStoredBlock(b: AuthorBlock, pageId: string, order: string): Record<st
     return out;
   }
   for (const k of [
-    'databaseId', 'viewId', 'inline', 'limit', 'heading', 'filters',
-    'agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url',
+    'databaseId', 'viewId', 'inline', 'limit', 'heading', 'filters', 'kinds', 'compact',
+    'agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url', 'projectId','recordId','eventId','capacityKey','facilitatorsKey','volunteersKey','participantsKey','upcomingOnly','mode','measurementKey','unitKey','observationKey','photoKey','placeKey','experimentKey','projectKey','experimentId','placeId','unit','missingOnly','dateKey','budgetKey','amountKey','typeKey','relationKey','priceKey','costKey','ownerKey','startKey','endKey','staleDays',
   ] as const) {
     const v = b[k as keyof AuthorBlock];
     if (v !== undefined) out[k] = v;
@@ -208,6 +243,7 @@ export function toBundled(key: string, t: AuthorTemplate): BundledTemplate {
       showBuiltins: d.showBuiltins,
       columns: d.columns,
       fields: d.fields,
+      ...(d.attention===undefined?{}:{attention:validateAttentionConfig(d.attention,d as unknown as Record<string,unknown>)}),
       // `key` rides the snapshot so the planner can stamp `templateDbKey` and
       // previews/findReusableBoards can match on it.
       key: d.key,
@@ -467,7 +503,15 @@ export function planPackUpgrade(bundle:BundledTemplate,existing:PackRecord[],opt
     field.options=opts;
    }
   }
-  if(reasons.length)writes.push({collection:'boards',id,patch:{fields},before:{fields:old.data.fields??null},reason:reasons.join('; ')});
+  const additions:Record<string,unknown>={},before:Record<string,unknown>={};
+  if(reasons.length){additions.fields=fields;before.fields=old.data.fields??null;}
+  // Missing configuration is additive. Explicit null/disabled/custom settings
+  // belong to the team and survive every later pack upgrade.
+  if(old.data.attention===undefined&&patch.attention!==undefined){
+   try{additions.attention=validateAttentionConfig(patch.attention,{...old.data,fields});before.attention=null;reasons.push('Configure attention');}
+   catch{warnings.push(`Attention fields changed on ${String(old.data.name??id)}; configure attention manually`);}
+  }
+  if(reasons.length)writes.push({collection:'boards',id,patch:additions,before,reason:reasons.join('; ')});
  }
  // An unresolved item prevents marking the bundle version complete. Partial
  // additive work can be reviewed, but never silently declare a held plan done.

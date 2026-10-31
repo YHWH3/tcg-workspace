@@ -88,3 +88,78 @@ describe('Phase 5 interrupted media and late response guards', () => {
     expect(localStorage.getItem('ws_token')).toBe('account-B-fixture-token');
   });
 });
+
+it('Phase 8 runtime uploading state clears after completion',async()=>{
+ const {db}=await import('../src/core/db'),media=await import('../src/core/files'),{uploadActivity}=await import('../src/core/uploadState');
+ await db.blobs.put({id:'file',blob:new Blob(['upload']),state:'pending',uploadedChunks:0});
+ const observed:string[][]=[];const stop=uploadActivity.subscribe(()=>observed.push([...uploadActivity.get().ids]));
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response('{}',{status:200,headers:{'Content-Type':'application/json'}})));
+ try{await media.uploadPendingBlobs();expect(observed).toContainEqual(['file']);expect(uploadActivity.get().ids).toEqual([]);expect((await db.blobs.get('file'))?.state).toBe('uploaded');}finally{stop();}
+});
+
+it('retains and uploads original bytes when the engine refuses every Blob/File write', async () => {
+  const refuseBlobs = (_key: unknown, row: {blob?:unknown}) => {if(row.blob instanceof Blob)throw new DOMException('Error preparing Blob/File data to be stored in object store','UnknownError');};
+  db.blobs.hook('creating',refuseBlobs);
+  try {
+    const id=await media.addFile(new Blob(['fallback original bytes'],{type:'text/plain'}),{id:'buffer-file',parentType:'block',parentId:'record',name:'Synthetic fallback.txt'});
+    expect((await db.blobs.get(id))?.blob.size).toBe(23);
+    expect(await (await db.blobs.get(id))?.blob.text()).toBe('fallback original bytes');
+    db.close();await db.open();
+    expect(await (await db.blobs.get(id))?.blob.text()).toBe('fallback original bytes');
+    await db.blobs.update(id,{state:'failed',uploadedChunks:0});
+    const {retryFailedUploads}=await import('../src/core/reliabilityData');
+    expect(await retryFailedUploads(db,state.userId,()=>{})).toMatchObject({retried:1});
+    const chunks:string[]=[];
+    vi.stubGlobal('fetch',vi.fn(async(path:string,init?:RequestInit)=>{if(path.includes('/chunks/'))chunks.push(await new Response(init!.body).text());return new Response('{}',{status:200});}));
+    await media.uploadPendingBlobs();expect(chunks).toEqual(['fallback original bytes']);expect((await db.blobs.get(id))?.state).toBe('uploaded');
+    const {applyAccessWork}=await import('../src/core/sync/pendingWork');
+    const blob=(await db.blobs.get(id))!;
+    const refuseHeldBlob=(_key:unknown,row:{payload:unknown})=>{if((row.payload as {blob?:unknown}|null)?.blob instanceof Blob)throw new DOMException('Blob storage refused','UnknownError');};
+    db.accessQuarantine.hook('creating',refuseHeldBlob);
+    try {
+      await db.transaction('rw',db.outbox,db.blobs,db.meta,db.accessQuarantine,db.accessQuarantineInfo,()=>applyAccessWork(db,{denied:new Map(),entries:new Map(),drafts:[],blobs:[{blob,reason:'file_access_revoked'}],rows:new Map()},1));
+      expect(await db.blobs.get(id)).toBeUndefined();
+      const held=(await db.accessQuarantine.toArray())[0].payload as {blobBytes:ArrayBuffer;blob?:Blob};
+      expect(held.blob).toBeUndefined();expect(new TextDecoder().decode(held.blobBytes)).toBe('fallback original bytes');
+      expect((await db.accessQuarantineInfo.toArray())[0]).not.toHaveProperty('payload');
+    } finally {db.accessQuarantine.hook('creating').unsubscribe(refuseHeldBlob);}
+  } finally {db.blobs.hook('creating').unsubscribe(refuseBlobs);}
+});
+
+it('reads only one pending byte payload before its upload rather than materializing the queue', async () => {
+  for(const id of ['buffer-a','buffer-b']){
+    await db.files.put({id,_ts:{},parentId:'record'});
+    await db.blobs.put({id,state:'pending',uploadedChunks:0,mime:'text/plain',blobEncoding:'array-buffer-v1',blobBytes:new TextEncoder().encode('Synthetic queued bytes').buffer});
+  }
+  const reads:string[]=[];
+  const observe=(row:import('../src/core/db').BlobRow|undefined)=>{if(row?.id.startsWith('buffer-'))reads.push(row.id);return row;};
+  db.blobs.hook('reading',observe);
+  vi.stubGlobal('fetch',vi.fn(async(path:string)=>{
+    if(path.includes('/chunks/'))expect(reads).toEqual(path.includes('/buffer-a/')?['buffer-a']:['buffer-a','buffer-b']);
+    return new Response('{}',{status:200});
+  }));
+  try {await media.uploadPendingBlobs();}
+  finally {db.blobs.hook('reading').unsubscribe(observe);}
+  expect((await db.blobs.get('buffer-a'))?.state).toBe('uploaded');expect((await db.blobs.get('buffer-b'))?.state).toBe('uploaded');
+});
+
+it('retains staged bytes without attempting upload until file metadata exists',async()=>{
+ await db.blobs.put({id:'staged',blob:new Blob(['Recoverable staged bytes']),state:'pending',uploadedChunks:0});
+ const calls:string[]=[];vi.stubGlobal('fetch',vi.fn(async(path:string)=>{calls.push(path);return new Response('{}',{status:200});}));
+ await media.uploadPendingBlobs();expect(calls).toEqual([]);expect((await db.blobs.get('staged'))?.state).toBe('pending');
+ await db.files.put({id:'staged',_ts:{},parentId:'record'});await media.uploadPendingBlobs();expect(calls).toEqual(['/api/files/staged/chunks/0','/api/files/staged/complete']);expect((await db.blobs.get('staged'))?.state).toBe('uploaded');
+});
+it('uploads a canonical thumbnail through its owner while holding unclaimed thumbnail bytes',async()=>{
+ await db.files.update('file',{thumbId:'filet'});for(const id of ['filet','othert'])await db.blobs.put({id,blob:new Blob(['thumbnail']),state:'pending',uploadedChunks:0});
+ const calls:string[]=[];vi.stubGlobal('fetch',vi.fn(async(path:string)=>{calls.push(path);return new Response('{}',{status:200});}));
+ await media.uploadPendingBlobs();expect(calls).toEqual(['/api/files/filet/chunks/0','/api/files/filet/complete']);expect((await db.blobs.get('filet'))?.state).toBe('uploaded');expect((await db.blobs.get('othert'))?.state).toBe('pending');
+});
+
+it('stages cached capture bytes through the existing fallback when the engine refuses Blob storage',async()=>{
+ const refuseBlobs=(_key:unknown,row:{blob?:unknown})=>{if(row.blob instanceof Blob)throw new DOMException('Synthetic Blob refusal','UnknownError');};db.blobs.hook('creating',refuseBlobs);
+ try{
+  expect(await media.putBlobRow({id:'capdraft_photo',blob:new Blob(['Original capture photo']),state:'cached',uploadedChunks:0})).toBe(true);
+  db.close();await db.open();expect(await (await db.blobs.get('capdraft_photo'))?.blob.text()).toBe('Original capture photo');expect((await db.blobs.get('capdraft_photo'))?.state).toBe('cached');
+  const network=vi.fn();vi.stubGlobal('fetch',network);await media.uploadPendingBlobs();expect(network).not.toHaveBeenCalled();
+ }finally{db.blobs.hook('creating').unsubscribe(refuseBlobs);}
+});
