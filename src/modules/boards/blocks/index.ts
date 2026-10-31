@@ -11,3 +11,4 @@ import './ProjectHealthBlock';
 import './BudgetBlock';
 
 import './FieldEvidenceBlock';
+import './EventOpsBlock';

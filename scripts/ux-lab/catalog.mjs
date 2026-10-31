@@ -25,6 +25,10 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'Community desk: role coverage, participant sources and intentional field correction',
+  'Community desk: deleted People, selected Events and configuration recovery',
+  'Community desk: failed reads, device snapshot and enlarged controls recover',
+  'Community desk: membership views and offline conversation ownership reach Attention',
   'Field evidence: visit gaps, intentional field focus and guarded source edits',
   'Field evidence: keyboard chart, data table, exact source links and unit refusal',
   'Field evidence: offline and failed reads recover with enlarged session controls',

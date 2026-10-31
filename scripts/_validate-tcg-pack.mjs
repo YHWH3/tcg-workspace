@@ -33,7 +33,7 @@ const FILTER_OPS = new Set([
 ]);
 const BLOCK_TYPES = new Set([
   'text', 'h1', 'h2', 'h3', 'bulleted', 'todo', 'divider', 'callout', 'tasks',
-  'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart', 'embed',
+  'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart', 'eventops', 'embed',
 ]);
 
 const errors = [];
@@ -174,6 +174,13 @@ for (const pg of tpl.pages ?? []) {
           }
           if(b.limit!=null&&(!Number.isInteger(b.limit)||b.limit<1||b.limit>50))err(`${where}: limit must be1–50`);
           if(b.unit!=null&&(typeof b.unit!=='string'||b.unit.length>100))err(`${where}: unit must be at most100 characters`);
+        }
+        if(b.type==='eventops'){
+          for(const [key,fallback,type]of [['startKey','p_f_start','date'],['capacityKey','p_f_capacity','number'],['facilitatorsKey','rel_f_facilitators','relation'],['volunteersKey','rel_f_volunteers','relation'],['participantsKey','rel_f_participants','relation']]){
+            const value=b[key]??fallback;checkFieldKey(db,value,`${where}.${key}`);
+            if(!(db.fields??[]).some(field=>`${type==='relation'?'rel':'p'}_${field.id}`===value&&field.type===type))err(`${where}.${key}: expected ${type} field`);
+          }
+          if(b.limit!=null&&(!Number.isInteger(b.limit)||b.limit<1||b.limit>20))err(`${where}: limit must be1–20`);
         }
         if(b.type==='budget'){
           const keys=b.mode==='product'?['priceKey','costKey']:['budgetKey'];

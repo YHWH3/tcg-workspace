@@ -19,6 +19,8 @@ import {defaultProjectHealthBlock} from '../shared/projectHealth';
 import {collectFinance,financeForOrigin} from './finance';
 import {financeConfigSchema,type FinanceConfig} from '../shared/financeConfig';
 import {collectFieldEvidence,fieldEvidenceForOrigin} from './fieldEvidence';
+import {collectEventOps,eventOpsForOrigin} from './eventOps';
+import {eventOpsConfigSchema,type EventOpsConfig} from '../shared/eventOpsConfig';
 import {fieldEvidenceConfigSchema,type FieldEvidenceConfig} from '../shared/fieldEvidenceConfig';
 interface Context {env:Env;userId:string;origin:string}
 const txt=(value:unknown)=>({content:[{type:'text' as const,text:JSON.stringify(value)}]});
@@ -72,10 +74,10 @@ export function registerReadTools(server:McpServer,c:Context) {
   }
   return txt({nodes:[...nodes.values()].map(r=>({id:r.id,type:r.collection,title:title(r),rev:r.rev,trust})),edges:[...edges.values()],truncated,nextCursor:null});
  });
- server.registerTool('dashboard_snapshot',{description:'Evaluate dashboard metric/view/calendar/mywork/projecthealth/budget/fieldsessions/measurechart blocks using the same shared engines as the browser. At most 50 blocks; record, link and processing caps are explicit. Project health includes source-linked signals and participant-visible approvals, never a risk score.',inputSchema:z.object({pageId:z.string()}),annotations:{readOnlyHint:true}},async a=>{
+ server.registerTool('dashboard_snapshot',{description:'Evaluate dashboard metric/view/calendar/mywork/projecthealth/budget/fieldsessions/measurechart/eventops blocks using the same shared engines as the browser. At most 50 blocks; record, link and processing caps are explicit. Project health includes source-linked signals and participant-visible approvals, never a risk score.',inputSchema:z.object({pageId:z.string()}),annotations:{readOnlyHint:true}},async a=>{
   const page=await getRec(c.env,a.pageId);if(!page||!(['pages','tasks'].includes(page.collection)||page.collection==='boards'&&page.data.templateDbKey==='products'))return fail('not_found');
   const blocks=await bounded(c,'blocks',"json_extract(data,'$.pageId')=?",[a.pageId],50);
-  const supported=blocks.rows.filter(b=>['metric','view','calendar','mywork','activity','attention','projecthealth','budget','fieldsessions','measurechart'].includes(String(b.data.type)));
+  const supported=blocks.rows.filter(b=>['metric','view','calendar','mywork','activity','attention','projecthealth','budget','fieldsessions','measurechart','eventops'].includes(String(b.data.type)));
   if(page.collection==='boards'&&page.data.templateDbKey==='products')supported.push({...page,id:'budget:'+page.id,collection:'blocks',data:{type:'budget',databaseId:page.id,mode:'product',limit:10,derived:true}});
   if(page.collection==='tasks'){
    const board=await getRec(c.env,String(page.data.boardId??'board-default'));
@@ -87,7 +89,7 @@ export function registerReadTools(server:McpServer,c:Context) {
    }
   }
   const attention=supported.some(b=>b.data.type==='attention')?await collectAttention(c.env,c.userId):null;
-  const dbIds=[...new Set(supported.filter(b=>!['projecthealth','budget','fieldsessions','measurechart'].includes(String(b.data.type))).flatMap(b=>[b.data.databaseId,...(Array.isArray(b.data.sources)?b.data.sources.slice(0,50).map((s:{databaseId?:string})=>s.databaseId):[])]).filter((id):id is string=>typeof id==='string'))];
+  const dbIds=[...new Set(supported.filter(b=>!['projecthealth','budget','fieldsessions','measurechart','eventops'].includes(String(b.data.type))).flatMap(b=>[b.data.databaseId,...(Array.isArray(b.data.sources)?b.data.sources.slice(0,50).map((s:{databaseId?:string})=>s.databaseId):[])]).filter((id):id is string=>typeof id==='string'))];
   const boards=await getRecs(c.env,dbIds.slice(0,50));
   const mywork=supported.some(b=>b.data.type==='mywork');
   const tasks=await bounded(c,'tasks',"(COALESCE(json_extract(data,'$.boardId'),'board-default') IN(SELECT value FROM json_each(?)) OR (?=1 AND json_extract(data,'$.assigneeId')=?))",[JSON.stringify([...boards.keys()]),mywork?1:0,c.userId],2000);
@@ -136,10 +138,23 @@ export function registerReadTools(server:McpServer,c:Context) {
     const summaries=await collectFieldEvidence(c.env,c.userId,fieldConfigs.map(f=>f.config));fieldConfigs.forEach((f,i)=>fieldRows.set(f.id,{...fieldEvidenceForOrigin(summaries[i]!,c.origin)}));
    }else for(const f of fieldConfigs)fieldRows.set(f.id,{status:'partial',partial:true,partialSources:['processing_budget'],records:[],sessions:[]});
   }
+  const eventRows=new Map<string,Record<string,unknown>>(),eventConfigs:{id:string;config:EventOpsConfig}[]=[];
+  for(const block of supported.filter(block=>block.data.type==='eventops')){
+   const parsed=eventOpsConfigSchema.safeParse(block.data);
+   if(!parsed.success)eventRows.set(block.id,{status:'configuration_required',partial:true,partialSources:['configuration'],events:[],records:[]});
+   else if(eventConfigs.length>=20)eventRows.set(block.id,{status:'partial',partial:true,partialSources:['block_limit'],events:[],records:[]});
+   else eventConfigs.push({id:block.id,config:parsed.data});
+  }
+  if(eventConfigs.length){
+   if(hasD1Budget(c.env.DB,18)){
+    const summaries=await collectEventOps(c.env,c.userId,eventConfigs.map(item=>item.config));eventConfigs.forEach((item,index)=>eventRows.set(item.id,{...eventOpsForOrigin(summaries[index]!,c.origin)}));
+   }else for(const item of eventConfigs)eventRows.set(item.id,{status:'partial',partial:true,partialSources:['processing_budget'],events:[],records:[]});
+  }
   const contextFor=(board:typeof page)=>({meId:c.userId,today:dateContext.today,timeZone:dateContext.timeZone,fieldsById:new Map(fieldsOf(board.data).map(f=>[f.id,f])),columnsById:(board.data.columns as {id:string}[]|undefined)?.map(s=>s.id),relationTitles:(id:string,fid:string)=>relationLinks.rows.filter(l=>l.data.fromId===id&&l.data.fieldId===fid&&relationTargets.has(String(l.data.toId))).map(l=>title(relationTargets.get(String(l.data.toId))!))});
   const brief=(r:{id?:unknown;title?:unknown;status?:unknown;dueDate?:unknown;boardId?:unknown})=>({id:r.id,title:String(r.title??'').slice(0,300),status:r.status,dueDate:r.dueDate,url:c.origin+recordHref(String(r.boardId??'board-default'),undefined,String(r.id)),trust});
   const output=supported.map(block=>{
    const data=block.data,board=boards.get(String(data.databaseId));
+   if(data.type==='eventops')return {id:block.id,type:data.type,...eventRows.get(block.id)};
    if(['fieldsessions','measurechart'].includes(String(data.type)))return {id:block.id,type:data.type,...fieldRows.get(block.id)};
    if(data.type==='budget')return {id:block.id,type:data.type,...financeRows.get(block.id)};
    if(data.type==='projecthealth')return {id:block.id,type:data.type,...healthRows.get(block.id)};
@@ -174,6 +189,6 @@ export function registerReadTools(server:McpServer,c:Context) {
    const evaluated=applyView(rows,{...config,...(data.type==='mywork'?{mine:true}:{} )},context).rows;
    return {id:block.id,type:data.type,records:evaluated.slice(0,100).map(brief),truncated:tasks.truncated||relationLinks.truncated||evaluated.length>100};
   });
-  return txt({pageId:a.pageId,blocks:output,truncated:blocks.truncated||tasks.truncated||[...healthRows.values(),...financeRows.values(),...fieldRows.values()].some(h=>h.partial===true),trust});
+  return txt({pageId:a.pageId,blocks:output,truncated:blocks.truncated||tasks.truncated||[...healthRows.values(),...financeRows.values(),...fieldRows.values(),...eventRows.values()].some(h=>h.partial===true),trust});
  });
 }

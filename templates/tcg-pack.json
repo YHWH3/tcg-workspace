@@ -1589,6 +1589,45 @@
             "timelineScale": "month"
           },
           "key": "v_events_timeline"
+        },
+        {
+          "id": "v_events_upcoming",
+          "key": "v_events_upcoming",
+          "name": "Upcoming events",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_start",
+                "op": "on_or_after",
+                "value": "today"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "done"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "reviewed"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "p_f_start",
+                "dir": "asc"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_start",
+              "rel_f_facilitators",
+              "rel_f_volunteers",
+              "rel_f_participants",
+              "p_f_capacity"
+            ]
+          }
         }
       ]
     },
@@ -3067,6 +3106,16 @@
             "pairedFieldId": "f_credits",
             "primary": false
           }
+        },
+        {
+          "id": "f_relationship_owner",
+          "name": "Relationship owner",
+          "type": "person"
+        },
+        {
+          "id": "f_next_conversation",
+          "name": "Next conversation",
+          "type": "date"
         }
       ],
       "views": [
@@ -3128,8 +3177,188 @@
             ]
           },
           "key": "v_people_team"
+        },
+        {
+          "id": "v_people_relationship_member",
+          "key": "v_people_relationship_member",
+          "name": "Member relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "member"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_volunteer",
+          "key": "v_people_relationship_volunteer",
+          "name": "Volunteer relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "volunteer"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_partner",
+          "key": "v_people_relationship_partner",
+          "name": "Partner relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "partner"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_participant",
+          "key": "v_people_relationship_participant",
+          "name": "Participant relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "participant"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_donor",
+          "key": "v_people_relationship_donor",
+          "name": "Donor relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "donor"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_facilitator",
+          "key": "v_people_relationship_facilitator",
+          "name": "Facilitator relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "facilitator"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_team",
+          "key": "v_people_relationship_team",
+          "name": "Team relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "team"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_next_conversations",
+          "key": "v_people_next_conversations",
+          "name": "Next conversations",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_next_conversation",
+                "op": "not_empty"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "p_f_next_conversation",
+                "dir": "asc"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
         }
-      ]
+      ],
+      "attention": {
+        "enabled": true,
+        "personKey": "p_f_relationship_owner",
+        "dateKey": "p_f_next_conversation",
+        "soonDays": 3,
+        "triage": false
+      }
     },
     {
       "id": "db_orgs",
@@ -3325,6 +3554,16 @@
           "id": "f_onotes",
           "name": "Notes",
           "type": "text"
+        },
+        {
+          "id": "f_relationship_owner",
+          "name": "Relationship owner",
+          "type": "person"
+        },
+        {
+          "id": "f_next_conversation",
+          "name": "Next conversation",
+          "type": "date"
         }
       ],
       "views": [
@@ -3364,8 +3603,56 @@
             ]
           },
           "key": "v_orgs_partners"
+        },
+        {
+          "id": "v_orgs_relationships",
+          "key": "v_orgs_relationships",
+          "name": "By partnership status",
+          "type": "board",
+          "config": {
+            "groupBy": "p_f_partnership",
+            "visible": [
+              "title",
+              "p_f_partnership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_orgs_next_conversations",
+          "key": "v_orgs_next_conversations",
+          "name": "Next conversations",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_next_conversation",
+                "op": "not_empty"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "p_f_next_conversation",
+                "dir": "asc"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_partnership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
         }
-      ]
+      ],
+      "attention": {
+        "enabled": true,
+        "personKey": "p_f_relationship_owner",
+        "dateKey": "p_f_next_conversation",
+        "soonDays": 3,
+        "triage": false
+      }
     }
   ],
   "pages": [
@@ -3912,6 +4199,43 @@
           "viewId": "v_orgs_table",
           "heading": "Organizations",
           "key": "tpl_1a"
+        },
+        {
+          "type": "callout",
+          "key": "community_relationship_setup",
+          "text": "Review People through their named membership views and Organizations by partnership status. A person can appear in several membership views. Assign a Relationship owner and Next conversation date to include the conversation in that owner’s Attention queue."
+        },
+        {
+          "type": "view",
+          "key": "community_members",
+          "databaseId": "db_people",
+          "viewId": "v_people_relationship_member",
+          "heading": "Member relationships",
+          "limit": 10
+        },
+        {
+          "type": "view",
+          "key": "community_partnerships",
+          "databaseId": "db_orgs",
+          "viewId": "v_orgs_relationships",
+          "heading": "Partnership relationships",
+          "limit": 10
+        },
+        {
+          "type": "view",
+          "key": "community_people_conversations",
+          "databaseId": "db_people",
+          "viewId": "v_people_next_conversations",
+          "heading": "People: next conversations",
+          "limit": 10
+        },
+        {
+          "type": "view",
+          "key": "community_org_conversations",
+          "databaseId": "db_orgs",
+          "viewId": "v_orgs_next_conversations",
+          "heading": "Organizations: next conversations",
+          "limit": 10
         }
       ],
       "key": "pg_community"
@@ -4116,6 +4440,27 @@
           "viewId": "v_courses_board",
           "heading": "Courses",
           "key": "tpl_1n"
+        },
+        {
+          "type": "view",
+          "key": "events_upcoming",
+          "databaseId": "db_events",
+          "viewId": "v_events_upcoming",
+          "heading": "Upcoming events",
+          "limit": 10
+        },
+        {
+          "type": "callout",
+          "key": "events_registration_setup",
+          "text": "Before sharing an Event registration form, select its Event in the form’s fixed relations and enable the form. The bundled starter is a setup draft. Participant links may come from a form or the team; they are not submission receipts or attendance proof."
+        },
+        {
+          "type": "eventops",
+          "key": "events_role_coverage",
+          "databaseId": "db_events",
+          "heading": "Event roles and participants",
+          "limit": 10,
+          "upcomingOnly": true
         }
       ],
       "key": "pg_events"
@@ -6256,8 +6601,8 @@
       "id": "form_event_registration",
       "databaseId": "db_people",
       "title": "Event registration",
-      "description": "Register to attend an event.",
-      "enabled": true,
+      "description": "Choose an Event in fixed relations before enabling and sharing this registration form.",
+      "enabled": false,
       "submitLabel": "Register",
       "successMessage": "You are registered — see you there.",
       "peopleMatch": {
@@ -6435,5 +6780,5 @@
       ]
     }
   ],
-  "version": 6
+  "version": 7
 }

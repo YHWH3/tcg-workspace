@@ -4018,7 +4018,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   );
 
   /** Block types that pull a database embed — never copied into a record body. */
-  const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart']);
+  const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart', 'eventops']);
 
   const convertCore = async (a: { recordId: string; toDatabaseId: string; templateId?: string; linkKind?: string; sourceStage?: string; title?: string; expectedRev?: number }): Promise<ToolResult> => {
     const src = await rec(ctx.env, 'tasks', a.recordId);

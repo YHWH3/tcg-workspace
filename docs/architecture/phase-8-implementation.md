@@ -679,3 +679,45 @@ identical; no migration, secret, remote infrastructure or provider change.
 Remaining Phase8 implementation and full canonical/native qualification stay
 pending; physical devices, native zoom, human AT and independent acceptance are
 not inferred from Playwright or agent screenshot review.
+
+
+## 8.7: Community and Event relationships
+
+Pack v7 adds Relationship owner (person) and Next conversation (date) to People
+and Organizations. Attention uses those fields without enabling unassigned
+triage. Named Membership filters support people with several memberships; the
+global first-value grouping behavior is unchanged. Organizations group by
+Partnership status, and both databases have dated-conversation views. Existing
+team attention settings, enabled forms, mappings, and deleted reservations are
+preserved by the additive upgrade. Upcoming Events use the workspace date.
+
+The eventops block shares eventOpsPage/roleCoverage across the HTTP endpoint,
+MCP dashboard_snapshot and indexed account-local device reads. It counts distinct
+accessible People separately in each configured role, normalizes reverse
+relations and displays capacity without enforcing it. Recent participant links
+are explicitly current relationships, not submission receipts or attendance.
+There is no receipt collector, inferred form attribution or attendance write.
+Source and repair links open existing editors; form setup is linked only when
+the configured participant database is accessible. New Event registration
+starters remain disabled until an Event is selected. The configured form's
+canonical reverse-to-primary relation planner is covered by regression tests.
+
+Worker reads project bounded metadata only: 200 candidate Events, 1000 relation/
+People candidates plus cap sentinels, and 100 board candidates. Caps, field
+drift, missing dates and unavailable identities are explicit. Private sources
+are gated, root revisions and current authority are fenced, and an explicit
+source conflict permits one current-context retry. No answers, biographies,
+attachment bytes or receipt payloads enter summaries. Device state is always
+partial; it does not claim current server completeness. No new migration,
+collection, provider, permission activation or website event-contract change.
+
+Development evidence: 38 focused tests across five files PASS, covering both
+permission modes, HTTP/MCP parity, bounded D1 calls, private People, deleted/
+restored identities, access revocation, source races, pack preservation and
+local-cache/retry behavior. The first browser fixture failed four cases before
+application navigation because it assumed People had a stage column; the pack
+uses no columns there. Preserve that failed report. Corrected compact Chromium
+diagnostic passed all four journeys. Final frozen-source focused, 18-project
+browser matrix, preserved workflows and visual review remain required. The UX
+catalog now contains 66 cases across 18 projects (1188 combinations); adding
+those cases does not mean the full catalog has been executed. Phase8 stays HOLD.

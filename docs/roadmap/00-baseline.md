@@ -114,6 +114,7 @@ planned work, L = inconsistency.
 | N31 | M | A transport failure briefly raised an error access barrier before validating the same cache offline, unmounting an editor with pending text. | Frozen414 selection stopped85 PASS/1 FAIL/328 skipped or incomplete; deterministic real-engine regression1 FAIL. | Let the existing sync owner validate transport fallback before publishing error; HTTP denials and stale-cache barriers stay enforced. Final293 focused checks,72 field cases and preserved64/140/42 assertions PASS at579dec6. |
 
 | N32 | M | Long Observation labels forced the compact measurement table sideways despite its three-column layout. | Screenshot review and new geometry assertion: 324px table in a 290px region, 1 FAIL. | Wrap labels and units with overflow-wrap:anywhere. Final72 field cases PASS at579dec6, including the compact width assertion; six final images inspected. |
+| N33 | M | Event registration starter was enabled with no fixed Event target, so it could not validate as a usable public form. | Pure baseline failed the disabled-starter assertion; parseFormConfig rejects the unconfigured target. | New pack installs keep the starter disabled with setup instructions. Existing configured/enabled forms remain unchanged. Canonical participant mapping and additive preservation regressions PASS in development; final source evidence pending. |
 
 Add new findings as N33+ with the same columns.
 

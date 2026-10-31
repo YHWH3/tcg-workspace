@@ -436,7 +436,7 @@ function BlockItem(props: BlockItemProps) {
   // Registered media blocks (image, video, audio, file, tasks…) render via the registry.
   const Media = blockRenderer(type);
   if (Media) {
-    const dashboard=['metric','view','calendar','mywork','activity','attention','projecthealth','budget','fieldsessions','measurechart'].includes(type);
+    const dashboard=['metric','view','calendar','mywork','activity','attention','projecthealth','budget','fieldsessions','measurechart','eventops'].includes(type);
     return (
       <div
         className={cn('group relative flex items-start gap-0.5 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-blue-300', props.dragOver && 'border-t-2 border-blue-400')}
