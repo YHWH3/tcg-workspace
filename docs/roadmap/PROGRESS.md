@@ -71,7 +71,8 @@ integration branches and existing PRs remain unchanged.
 | 8.5 final feature verification | focused engineering PASS; full phase certificate pending | 3ebba8240547be4b7dc4c4a38f027233a73599e5 (final finance);a96c789 (broader) | evidence/P8-finance-3ebba82.json | Clean167 focused tests/19 files,typecheck/pack,54/54 final finance across18 projects and preserved MCP64/64 plus Phase6 42/42 PASS. Broader360 PASS at a96c789; retain306 unchanged Project/pack/shared UI cases there. Only later application change is unique progress label IDs, with explicit regression. Nine final images inspected; native/physical/human acceptance and full1044-cell/final Phase8 certificate remain incomplete. Earlier failures/interruption retained. Next8.6. |
 | 8.6 final feature verification | focused engineering PASS; phase certificate pending | 579dec6aab59e17b21b3cf73cde9cc6b7adee54e (final field); f83e190 (broader) | evidence/P8-field-evidence-579dec6.json | Clean293 focused/29 files, typecheck/pack,72/72 final field cases on18 projects, MCP64/64, Operating Pack140 automated assertions and Phase6 42/42 PASS. Pack report retains3 external physical/AT checks NOT RUN. Six final images inspected. Retain342 unaffected cases atf83e190 from exact414-case union (225 paused plus189 resumed); original exit130 unchanged. N28–N32 corrected, prior failures and empty command selection retained. No single-head414/full1116 or full phase certificate claimed. Next8.7. |
 | 8.7 Community and Event desk | implemented; final verification pending | Containing commit | .artifacts/phase8/community-expanded-focused.log; community-browser-second.log | Packv7 ownership/date/attention/views; bounded authorized role and participant summaries with source links, device/failure recovery. 38 focused tests and four compact Chromium development journeys PASS; first fixture failures retained. Final source freeze, focused/matrix/preserved/visual evidence and publication required. Overall Phase8 HOLD. |
-| Phases 8 desks–13 / A | 8.0, 8.1, 8.9, 8.11, 8.3, 8.4, 8.5 and8.6 feature evidence recorded; next8.7 | — | README.md dependency order | Keep owner gates and one stacked draft PR per phase. |
+| 8.7 final feature verification | focused engineering PASS; phase certificate pending | 533fe09ef217a91628be296b5da1897c61691dd0 | evidence/P8-community-533fe09.json | Clean377 regression tests/36 files,typecheck/pack,144/144 browser cases across18projects (Community72,Attention54,pack18), preserved MCP64/64,Operating Pack140 automated assertions and Phase6 42/42 PASS. Three physical/AT checks remain external NOT RUN. Six final Event desk images inspected. N33–N36 corrected; all earlier failures/interrupted runs retained. No full1188-case or phase certificate claim. Next8.8. |
+| Phases 8 desks–13 / A | 8.0, 8.1, 8.9, 8.11, 8.3, 8.4, 8.5,8.6 and8.7 feature evidence recorded; next8.8 | — | README.md dependency order | Keep owner gates and one stacked draft PR per phase. |
 
 Each implementation commit updates this file. “Containing commit” is bound by
 Git history: a commit cannot contain its own full SHA. Source remains frozen
@@ -210,3 +211,20 @@ prompts at2.58:1 on white. Its matrix was stopped21 PASS/1 FAIL/1 interrupted/
 neutral400 in dark mode. Three-engine full membership/editor workflows3/3 PASS.
 The editor-state accessibility assertion remains mandatory. This class-only
 correction receives a new source freeze and final feature verification.
+
+
+8.7 final verification is complete at533fe09ef217a91628be296b5da1897c61691dd0,
+tree6fcae611e72e36fb7e4e33d0db51d8dda6de4e6a, fingerprint
+d68de24fe0d14bc1957f0c6d3f53d3bc9afd82464513cad64b56d93a88f503c4.
+377 focused tests/36files,typecheck/pack,144/144 affected browser cases across
+18projects, preserved MCP64,Operating Pack140 automated assertions and Phase6
+42 PASS; source unchanged throughout. Six final Event desk images inspected.
+Three physical-device/AT checks remain explicitly external NOT RUN. The new
+66-case/18-project catalog totals1188 combinations; it was not fully run here.
+N33 starter setup,N34 enlarged words,N35 accessible names andN36 empty-prompt
+contrast are corrected. Failed probes and both interrupted matrices remain
+retained with their original exits/counts. Exact commands, identities, platform
+matrix and limits: evidence/P8-community-533fe09.json. Documentation/evidence
+publication follows this tested source; no application changes follow it.
+Next8.8 Editorial and knowledge desk. Remaining Phase8 implementation, full
+canonical/native qualification and independent acceptance keep Phase8 HOLD.

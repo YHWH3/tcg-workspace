@@ -751,3 +751,25 @@ prompts at2.58:1 on white. Its matrix was stopped21 PASS/1 FAIL/1 interrupted/
 neutral400 in dark mode. Three-engine full membership/editor workflows3/3 PASS.
 The editor-state accessibility assertion remains mandatory. This class-only
 correction receives a new source freeze and final feature verification.
+
+
+8.7 final feature evidence is bound to533fe09ef217a91628be296b5da1897c61691dd0
+(tree6fcae611e72e36fb7e4e33d0db51d8dda6de4e6a; fingerprint
+d68de24fe0d14bc1957f0c6d3f53d3bc9afd82464513cad64b56d93a88f503c4).
+377 regression tests/36files,typecheck/pack,144 browser cases on18projects
+(72 Community,54 Attention,18 pack upgrade), preserved MCP64,Operating Pack140
+automated assertions and Phase6 42 PASS. All source-end checks stayed unchanged.
+Six final Event desk screenshots were inspected. Physical iOS,physical Android
+and human AT remain the pack report's three external NOT RUN checks. Native
+qualification and full Phase8 certification remain incomplete; this selected
+144-case run is not the full1188-case catalog. N33–N36 and all retained failed/
+interrupted attempts are indexed in docs/roadmap/evidence/P8-community-533fe09.json.
+
+For review, use the existing Template gallery upgrade preview to add packv7.
+Existing attention/form settings and deleted reservations stay under normal
+guarded mutation paths. People and Organizations with a Relationship owner
+and dated Next conversation feed that owner's Attention queue. The Events desk
+opens original Event/Person records and fixed-field repair links. Configure the
+registration starter's Event before enabling/sharing it; links do not establish
+attendance, consent or enforced capacity. No real installation was upgraded.
+Next is8.8; overall Phase8 stays HOLD.

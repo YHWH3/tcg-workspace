@@ -101,7 +101,7 @@ a changed filter and a deleted block, previews all additions, applies currency
 formats and a missing view, then reloads and verifies an empty second plan.
 Each project resets only stable pack IDs inside the provenance-verified owned
 local fixture. Private fixture-session metadata never goes into published evidence.
-The 648-cell complete plan is required; these targeted matrices alone are partial.
+The Phase7 648-cell complete plan is required for that phase; these targeted matrices alone are partial.
 
 
 The separate v7 canvas runner uses `scripts/canvas-hit-point.mjs` to choose an
@@ -131,3 +131,20 @@ Repeated budget summaries for the same Project must have distinct progress IDs
 and the correct accessible name on each bar. The finance journey exercises this
 alongside offline recovery; screenshots also retain Products normal/zero-price
 states for direct visual review.
+
+
+Phase8 Community coverage adds four journeys for role counts and source/fix
+links, deleted People and configuration, failed/offline/enlarged reads, and
+multi-membership plus offline conversation ownership reaching Attention. The
+catalog now has66 cases ×18projects (1188 combinations). At533fe09 the affected
+Community/Attention/pack selection ran144/144 PASS, without skips or retries.
+This is not a full1188-case result. Exact evidence and failed attempts are in
+docs/roadmap/evidence/P8-community-533fe09.json.
+
+Geometry alone missed ordinary action words fragmented by compounded padding.
+The enlarged Event check now counts actual DOM Range line fragments for the
+participants word, alongside card boundaries and whole-page axe. Wide table
+assertions test input values as well as compact cards; intentional field focus
+is scoped to the record editor. Open Person editors are scanned before returning
+to the desk. This exposed selected-value accessible-name and empty-prompt
+contrast defects; the checks remain, with no failed nodes or regions excluded.

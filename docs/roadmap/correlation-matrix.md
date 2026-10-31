@@ -21,7 +21,7 @@ implementation.
 | 8.4 | Project cockpit | new `shared/projectHealth.ts`, block `projecthealth`, pack Project Review | none | `dashboard_snapshot`, `operating_review_context`; action `summarize_project_health` | unit, parity | 8.1 | — |
 | 8.5 | Funding and finance | new `shared/finance.ts`, block `budget`, pack Opportunities/Projects/Products | none | `dashboard_snapshot`; action `explain_budget` | unit, parity | 7.2 | — |
 | 8.6 | Field evidence | new `shared/fieldSessions.ts`, `shared/measurements.ts`, blocks `fieldsessions`, `measurechart` | none | `dashboard_snapshot` | unit, a11y | 7.2 | — |
-| 8.7 | Community and events | new `shared/eventOps.ts`, pack People/Orgs fields | none | — | unit, browser | 8.1, 7.4 | — |
+| 8.7 | Community and events | `shared/eventOps.ts`, configuration, authorized Worker/API, indexed local reads, eventops block, packv7 fields/views/attention; shared multi-select accessibility | none | `dashboard_snapshot` eventops summaries | `phase8-community-*`,144 affected browser cases, preserved MCP/pack/approval workflows; evidence/P8-community-533fe09.json | 8.1, 7.4 | — |
 | 8.8 | Editorial desk | pack Media page | none | — | browser | 8.1, 7.4 | — |
 | 8.9 | Reliability view | `src/core/sync/engine.ts` (sync times; verify), `QuarantineReview.tsx`, settings Local data, Home chip | Dexie `meta` keys | — | unit, offline browser, Android | — | — |
 | 8.10 | Automation health | `worker/automations.ts` (new route), Automations module tab | optional **M2** `scheduler_runs` | **new R** `automation_health` (admin) | D1 | — | — |
