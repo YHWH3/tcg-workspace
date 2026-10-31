@@ -190,3 +190,14 @@ Post-run screenshot review found N34 fragmented action words at200% text.
 Rendered-word baseline1 FAIL; corrected representative three-engine checks3/3
 PASS with images inspected. Final source freeze, focused/matrix/preserved checks,
 visual review and evidence publication remain pending. Phase8 remains HOLD.
+
+
+The first144-case matrix atc0286a4 was stopped with25 PASS/5 FAIL/1 interrupted/
+113 NOT RUN, exit130. Wide table controls exposed N35, a real selected-value
+accessible-name mismatch, plus two test selectors that assumed compact cards.
+Table/detail multi-select names now come from their rendered values plus hidden
+field labels. An initial reconstructed label still failed two12-case diagnostics;
+the automatic-content correction passes12/12 across Chromium tablet/light,
+Firefox tablet/dark and WebKit desktop/light. Detail field selectors are scoped
+to the record editor; membership assertions support both input and card titles.
+Whole-page axe remains enforced. New frozen-source verification is required.

@@ -256,7 +256,8 @@ function PropCell({ field, rec }: { field: FieldDef; rec: TaskRow }) {
       return (
         <Popover
           trigger={
-            <button className="flex min-h-[28px] w-full flex-wrap items-center gap-0.5 rounded-md px-1 text-left text-[13px]" aria-label={field.name}>
+            <button className="flex min-h-[28px] w-full flex-wrap items-center gap-0.5 rounded-md px-1 text-left text-[13px]">
+              <span className="sr-only">{field.name}: </span>
               {values.length === 0 ? <span className="text-neutral-400">—</span> : <PropValue field={field} raw={values} />}
             </button>
           }

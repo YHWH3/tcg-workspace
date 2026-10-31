@@ -119,7 +119,8 @@ function MultiPicker({ field, task, values }: { field: FieldDef; task: TaskRow; 
   return (
     <Popover
       trigger={
-        <button className="flex min-h-[34px] w-full flex-wrap items-center gap-1 rounded-lg border border-neutral-200 bg-white px-2 py-1 text-left text-sm dark:border-neutral-700 dark:bg-neutral-900" aria-label={field.name}>
+        <button className="flex min-h-[34px] w-full flex-wrap items-center gap-1 rounded-lg border border-neutral-200 bg-white px-2 py-1 text-left text-sm dark:border-neutral-700 dark:bg-neutral-900">
+          <span className="sr-only">{field.name}: </span>
           {values.length === 0 && <span className="text-neutral-400">Select…</span>}
           {values.map((id) => {
             const o = opts.find((x) => x.id === id);
