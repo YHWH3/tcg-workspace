@@ -721,3 +721,13 @@ diagnostic passed all four journeys. Final frozen-source focused, 18-project
 browser matrix, preserved workflows and visual review remain required. The UX
 catalog now contains 66 cases across 18 projects (1188 combinations); adding
 those cases does not mean the full catalog has been executed. Phase8 stays HOLD.
+
+
+The first clean8.7 source789eab6 passed377 regression tests/36 files,
+typecheck and pack validation. Screenshot review then found N34: nested rem
+padding broke ordinary action words at200% text although overflow checks passed.
+A real DOM Range assertion reproduces the two-line word failure. Keeping this
+block's horizontal padding at its ordinary12px preserves text enlargement and
+readable words; three representative engine/layout checks PASS and their images
+were inspected. Earlier ineffective canvas and wrong-text-node probes remain
+retained. This correction requires a new frozen source and affected checks.

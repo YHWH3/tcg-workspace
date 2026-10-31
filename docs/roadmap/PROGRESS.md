@@ -183,3 +183,10 @@ tree, fingerprint, commands, hashes, platform matrix and earlier failures are in
 evidence/P8-field-evidence-579dec6.json. Only sanitized evidence/docs follow this
 verification. Next8.7; remaining Phase8 items, applicable native checks and the
 full canonical certificate keep the overall decision HOLD.
+
+
+8.7 source789eab6:377 focused tests/36 files,typecheck/pack PASS unchanged.
+Post-run screenshot review found N34 fragmented action words at200% text.
+Rendered-word baseline1 FAIL; corrected representative three-engine checks3/3
+PASS with images inspected. Final source freeze, focused/matrix/preserved checks,
+visual review and evidence publication remain pending. Phase8 remains HOLD.

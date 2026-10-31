@@ -115,6 +115,7 @@ planned work, L = inconsistency.
 
 | N32 | M | Long Observation labels forced the compact measurement table sideways despite its three-column layout. | Screenshot review and new geometry assertion: 324px table in a 290px region, 1 FAIL. | Wrap labels and units with overflow-wrap:anywhere. Final72 field cases PASS at579dec6, including the compact width assertion; six final images inspected. |
 | N33 | M | Event registration starter was enabled with no fixed Event target, so it could not validate as a usable public form. | Pure baseline failed the disabled-starter assertion; parseFormConfig rejects the unconfigured target. | New pack installs keep the starter disabled with setup instructions. Existing configured/enabled forms remain unchanged. Canonical participant mapping and additive preservation regressions PASS in development; final source evidence pending. |
+| N34 | M | At 200% text, compounded rem padding fragmented ordinary Event action words even though no-overflow checks passed. | Agent screenshot review; rendered participants word spans two line fragments, baseline1 FAIL. Initial canvas metric was ineffective and a first Range fixture addressed the wrong React text node; both diagnostics retained. | Keep the Event block/card/action horizontal padding at its ordinary12px while text enlarges. New actual-line regression plus corrected Chromium compact/light, Firefox tablet/dark and WebKit desktop/light checks3/3 PASS. Frozen final verification pending. |
 
 Add new findings as N33+ with the same columns.
 
