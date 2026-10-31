@@ -258,7 +258,7 @@ function PropCell({ field, rec }: { field: FieldDef; rec: TaskRow }) {
           trigger={
             <button className="flex min-h-[28px] w-full flex-wrap items-center gap-0.5 rounded-md px-1 text-left text-[13px]">
               <span className="sr-only">{field.name}: </span>
-              {values.length === 0 ? <span className="text-neutral-400">—</span> : <PropValue field={field} raw={values} />}
+              {values.length === 0 ? <span className="text-neutral-600 dark:text-neutral-400">—</span> : <PropValue field={field} raw={values} />}
             </button>
           }
         >

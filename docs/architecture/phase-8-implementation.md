@@ -742,3 +742,12 @@ the automatic-content correction passes12/12 across Chromium tablet/light,
 Firefox tablet/dark and WebKit desktop/light. Detail field selectors are scoped
 to the record editor; membership assertions support both input and card titles.
 Whole-page axe remains enforced. New frozen-source verification is required.
+
+
+The frozen b3847d2 source again passed377 focused tests,typecheck/pack.
+Adding whole-page axe on the open Person editor found N36: empty multi-select
+prompts at2.58:1 on white. Its matrix was stopped21 PASS/1 FAIL/1 interrupted/
+121 NOT RUN, exit130, retained. Light prompts now use neutral600, retaining
+neutral400 in dark mode. Three-engine full membership/editor workflows3/3 PASS.
+The editor-state accessibility assertion remains mandatory. This class-only
+correction receives a new source freeze and final feature verification.
