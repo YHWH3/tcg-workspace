@@ -1,3 +1,4 @@
+import {DASHBOARD_BLOCK_TYPES} from '../../../shared/templates';
 import {ReliabilityChip} from '../../core/ReliabilityPanel';
 import {MoveSpaceButton} from '../../core/MoveSpace';
 import {HistoryButton} from '../../core/History';
@@ -21,9 +22,6 @@ import { BlockEditor } from './BlockEditor';
 import { SelectionAskAi } from './SelectionAskAi';
 import { AskAiMenu } from '../../core/assistant/AskAiMenu';
 import { useAssistantContext } from '../../core/assistant/store';
-
-/** Block types that make a page a dashboard (Phase 3 dashboard blocks). */
-const DASHBOARD_BLOCKS = new Set(['metric', 'view', 'mywork', 'activity', 'calendar', 'attention', 'projecthealth','budget','fieldsessions','measurechart','eventops']);
 
 export function PagesHome() {
   const pages = usePages();
@@ -76,7 +74,7 @@ export function PageView() {
   const debouncedRename = useRef(debounce((id: string, t: string) => void renamePage(id, t), 400));
   const editorRef = useRef<HTMLDivElement>(null);
   const isDashboard = useLiveQuery(
-    async () => (pageId ? (await db.blocks.where('pageId').equals(pageId).filter((b) => !b.deleted && DASHBOARD_BLOCKS.has(String(b.type))).count()) > 0 : false),
+    async () => (pageId ? (await db.blocks.where('pageId').equals(pageId).filter((b) => !b.deleted && DASHBOARD_BLOCK_TYPES.has(String(b.type))).count()) > 0 : false),
     [pageId],
     false,
   );

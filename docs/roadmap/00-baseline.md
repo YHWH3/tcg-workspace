@@ -138,7 +138,9 @@ planned work, L = inconsistency.
 
 | N48 | M | At200% text, rem page margins doubled and split the ordinary title word Meetings into a final-letter line. | Original screenshot review, then a failing live measurement:315px word in310px available width. The broad run stopped55PASS/1INTERRUPTED/430selectedNOTRUN. | Keep the ordinary20px/32px inline margins while text enlarges; compact three-engine diagnostic3/3 PASS. Regression measures actual styled word width and captures both title and relevant enlarged content. Final clean-source verification pending. |
 
-Add new findings as N49+ with the same columns.
+| N49 | M | A page containing only a Meetings commitments block was not classified as a dashboard for contextual AI actions. | New browser baseline1FAIL: Dashboard actions group absent; prior matrix stopped186PASS/1INTERRUPTED/299selectedNOTRUN after source review. | PageView now uses the shared dashboard-type set too. Three-engine compact/tablet/desktop diagnostic3/3 PASS with open-menu whole-page axe and Escape focus restoration; no inference. Final verification pending. |
+
+Add new findings as N50+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

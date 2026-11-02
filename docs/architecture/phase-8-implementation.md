@@ -896,3 +896,9 @@ The font still enlarges, while the content keeps enough width for ordinary title
 words. A live styled-width regression reproduces N48 at315px required/310px
 available, and the corrected compact journey passes all three engines. Title
 and relevant enlarged commitment content are captured separately.
+
+PageView also uses the shared dashboard classification so a commitments-only
+page retains its contextual Dashboard actions. The new browser baseline fails
+on the absent action group; corrected compact/tablet/desktop journeys pass in
+three engines, including whole-page open-menu axe and Escape focus restoration.
+Opening this menu checks provider availability only; it does not run inference.

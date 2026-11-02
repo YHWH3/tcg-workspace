@@ -405,3 +405,14 @@ without reducing text. The test captures the enlarged title, then deliberately
 scrolls to the relevant commitment links for content inspection. New source
 freeze reruns focused checks and the full486-cell affected selection. Phase8
 HOLD; no Meetings publication or final certificate yet.
+
+8.13 source review found one remaining duplicated dashboard classification in
+PageView: a page with only commitments omitted contextual Dashboard actions
+(N49). The b3f832f matrix stopped186PASS/1INTERRUPTED/299selectedNOTRUN. A new
+browser baseline fails because Dashboard actions is absent. PageView now shares
+the same classification as templates and BlockEditor; a repository-wide search
+found no remaining duplicated UI dashboard classification. The three-engine
+diagnostic passes3/3 with open-menu whole-page axe and Escape focus restoration.
+Only provider availability metadata is read; no inference is invoked. Original
+reports remain unchanged. A fresh source freeze reruns focused checks and all
+486 affected cells before Meetings publication. OverallPhase8 HOLD.
