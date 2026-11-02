@@ -394,3 +394,14 @@ The next freeze supersedes the earlier split-source continuation plan: rerun
 all486 selected cells on one clean source, plus focused, preserved and visual
 checks. This is still a selection from1404 catalog cells, not full Phase8
 certification. Meetings publication remains pending; Phase8 HOLD.
+
+8.13 visual review at8ef6d38 found N48 despite passing geometry/axe:200% text
+doubled page margins and split the ordinary title word Meetings into a lone
+final-letter line. The matrix was stopped55PASS/1INTERRUPTED/430selectedNOTRUN;
+its original report remains unchanged. A new styled DOM word-width baseline
+fails315px required versus310px available. Preserving ordinary20px/32px inline
+margins passes the enlarged compact journey3/3 across Chromium/Firefox/WebKit,
+without reducing text. The test captures the enlarged title, then deliberately
+scrolls to the relevant commitment links for content inspection. New source
+freeze reruns focused checks and the full486-cell affected selection. Phase8
+HOLD; no Meetings publication or final certificate yet.

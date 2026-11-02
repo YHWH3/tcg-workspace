@@ -136,7 +136,9 @@ planned work, L = inconsistency.
 
 | N47 | M | Meetings Configure could be covered by a floating comment control because the new block was absent from a duplicated dashboard list. | Clean 22805e5 continuation stops at33PASS/3FAIL/405NOTRUN; Chromium tablet/light shows overlapping hit targets. | Block rendering and MCP template handling now share the existing dashboard-type set. Three-engine diagnostic12/12 PASS; final clean-source verification pending. |
 
-Add new findings as N48+ with the same columns.
+| N48 | M | At200% text, rem page margins doubled and split the ordinary title word Meetings into a final-letter line. | Original screenshot review, then a failing live measurement:315px word in310px available width. The broad run stopped55PASS/1INTERRUPTED/430selectedNOTRUN. | Keep the ordinary20px/32px inline margins while text enlarges; compact three-engine diagnostic3/3 PASS. Regression measures actual styled word width and captures both title and relevant enlarged content. Final clean-source verification pending. |
+
+Add new findings as N49+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

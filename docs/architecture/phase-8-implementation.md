@@ -890,3 +890,9 @@ record-body skip classification as well as template references. This prevents
 new dashboard blocks from receiving a media-style floating comment button over
 their own configuration controls. N47 reproduced on tablet; the three-project
 diagnostic passes12/12. Final source-bound verification remains pending.
+
+Page inline margins retain their ordinary20px/32px sizes under text enlargement.
+The font still enlarges, while the content keeps enough width for ordinary title
+words. A live styled-width regression reproduces N48 at315px required/310px
+available, and the corrected compact journey passes all three engines. Title
+and relevant enlarged commitment content are captured separately.
