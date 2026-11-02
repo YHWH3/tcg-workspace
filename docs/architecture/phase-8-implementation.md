@@ -773,3 +773,43 @@ opens original Event/Person records and fixed-field repair links. Configure the
 registration starter's Event before enabling/sharing it; links do not establish
 attendance, consent or enforced capacity. No real installation was upgraded.
 Next is8.8; overall Phase8 stays HOLD.
+
+
+## 8.8: Editorial and knowledge desk (verification in progress)
+
+Operating Pack v8 adds an Editorial child page under Media. New stable views
+show the production stages, review stage, missing owner and missing publish
+date separately. The existing Media page, defaults and team-edited views remain
+unchanged. The publishing calendar uses the Media publish-date field. Additive
+upgrades preserve edited rows and deleted reservations.
+
+The approval block uses `approvalDatabaseId` with only `approval_pending`.
+HTTP and MCP filter the approval source before its cap, bind cursors to the
+scope and recheck the active readable database. It shows the caller's pending
+requests, never every approver's queue. Other attention kinds keep their existing
+meaning. Scoped caches include account, session hash, access epoch and database;
+responses with foreign databases, restricted rows or other kinds are refused.
+Unavailable scopes produce an explicit incomplete result, never a global queue.
+MCP dashboard variants deduplicate identical scopes and report processing-budget
+limits explicitly. Approval decisions still use the existing session path.
+
+The evidence checklist uses the existing Media reverse Experiments relation
+and Field Log primary Experiment relation. It identifies source records needing
+an available association when preparing research notes/case studies. It does not
+assess free-text Sources/Evidence sections or evidence quality. Reverse values
+must match the declared target database: several pack relations reuse f_media.
+Dashboard snapshots now read incoming and outgoing canonical links, gate exact
+peers, ignore unavailable targets and expose relation caps without evaluating
+an incomplete relational result. Client view contexts and relation pickers use
+the same database/availability constraints. No retained links are deleted.
+
+Whole-page browser checks cover the desk, original record and open source
+picker. They exposed calendar empty-state contrast, relation-trigger name and
+contrast defects, and picker ARIA/option contrast defects. Fixes retain keyboard
+selection, unique list/option IDs and existing mutation authority. Prior failed
+runs remain retained. Current focused/browser results are development evidence;
+clean-source final verification and publication are still required.
+
+No migration, synced collection, provider call, website contract change or
+external publishing integration is added. Phase8 remains HOLD until the remaining
+items and mandatory certification are complete.

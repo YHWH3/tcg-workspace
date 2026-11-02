@@ -193,3 +193,19 @@ intentionally disabled forms. Check-in, attendance proof, capacity enforcement
 and consent records still need owner design. Recovery uses the existing record
 editors, form configuration and explicit refresh; do not resurrect deleted
 People, clear outbox work or alter permissions to make a count look complete.
+
+
+## Phase8.8 Editorial review and later owner rollout
+
+Review the additive Operating Packv8 update before applying it. It adds a child
+Editorial page and stable views; it must preserve Media defaults, team edits and
+deleted reservations. Review requests remain personal and scoped to Media.
+Existing approval controls decide them; automation fixtures are not human consent.
+
+Missing owner/date lists are independent. Evidence lists show source-record
+associations only; review Research Note/Case Study Sources/Evidence text and
+source quality separately. Hidden, deleted, archived or wrong-database peers do
+not establish an available source. No external publishing occurs. No new secret,
+migration or service is needed; inherited latest migration remains0035. Production
+rollout, permissions, native/AT acceptance and final phase certification remain
+separate gates.

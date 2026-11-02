@@ -861,6 +861,32 @@
             "dateKey": "p_f_date"
           },
           "key": "v_fieldlog_calendar"
+        },
+        {
+          "id": "v_fieldlog_unlinked_experiments",
+          "key": "v_fieldlog_unlinked_experiments",
+          "name": "Observations without a linked Experiment",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "p_f_date",
+              "p_f_observation",
+              "rel_f_experiment"
+            ],
+            "filters": [
+              {
+                "key": "rel_f_experiment",
+                "op": "empty"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "p_f_date",
+                "dir": "desc"
+              }
+            ]
+          }
         }
       ]
     },
@@ -2309,6 +2335,122 @@
             "dateKey": "p_f_publish_date"
           },
           "key": "v_media_calendar"
+        },
+        {
+          "id": "v_media_editorial_pipeline",
+          "key": "v_media_editorial_pipeline",
+          "name": "Editorial pipeline",
+          "type": "board",
+          "config": {
+            "groupBy": "status",
+            "filters": [
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "archived"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_media_review",
+          "key": "v_media_review",
+          "name": "Ready for review",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "p_f_publish_date",
+              "rel_f_experiments"
+            ],
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "review"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_media_missing_owner",
+          "key": "v_media_missing_owner",
+          "name": "Missing owner",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "p_f_publish_date",
+              "rel_f_experiments"
+            ],
+            "filters": [
+              {
+                "key": "p_f_owner",
+                "op": "empty"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "archived"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_media_missing_date",
+          "key": "v_media_missing_date",
+          "name": "Missing publish date",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "p_f_publish_date",
+              "rel_f_experiments"
+            ],
+            "filters": [
+              {
+                "key": "p_f_publish_date",
+                "op": "empty"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "archived"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_media_evidence_gaps",
+          "key": "v_media_evidence_gaps",
+          "name": "Media without a linked Experiment",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "p_f_publish_date",
+              "rel_f_experiments"
+            ],
+            "filters": [
+              {
+                "key": "rel_f_experiments",
+                "op": "empty"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "archived"
+              }
+            ]
+          }
         }
       ],
       "attention": {
@@ -4504,6 +4646,113 @@
         }
       ],
       "key": "pg_media"
+    },
+    {
+      "id": "pg_editorial",
+      "key": "pg_editorial",
+      "parentId": "pg_media",
+      "title": "Editorial desk",
+      "icon": "✍️",
+      "order": "a0",
+      "blocks": [
+        {
+          "type": "callout",
+          "key": "editorial_intro",
+          "text": "Plan Media, review work and check source relationships before preparing case studies or research notes. Open a source record to make a change."
+        },
+        {
+          "type": "view",
+          "key": "editorial_pipeline",
+          "databaseId": "db_media",
+          "viewId": "v_media_editorial_pipeline",
+          "heading": "Media by stage",
+          "limit": 20
+        },
+        {
+          "type": "calendar",
+          "key": "editorial_calendar",
+          "heading": "Publishing calendar",
+          "sources": [
+            {
+              "databaseId": "db_media",
+              "dateKey": "p_f_publish_date",
+              "color": "#ec4899",
+              "filters": [
+                {
+                  "key": "status",
+                  "op": "is_not",
+                  "value": "archived"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "view",
+          "key": "editorial_review",
+          "databaseId": "db_media",
+          "viewId": "v_media_review",
+          "heading": "Media ready for review",
+          "limit": 20
+        },
+        {
+          "type": "attention",
+          "key": "editorial_approvals",
+          "heading": "My pending Media approvals",
+          "approvalDatabaseId": "db_media",
+          "kinds": [
+            "approval_pending"
+          ],
+          "limit": 10
+        },
+        {
+          "type": "callout",
+          "key": "editorial_gaps_context",
+          "text": "The next two lists show missing owners and missing publish dates separately. An item can appear in both. Archived Media is excluded."
+        },
+        {
+          "type": "view",
+          "key": "editorial_missing_owner",
+          "databaseId": "db_media",
+          "viewId": "v_media_missing_owner",
+          "heading": "Media needing an owner",
+          "limit": 20
+        },
+        {
+          "type": "view",
+          "key": "editorial_missing_date",
+          "databaseId": "db_media",
+          "viewId": "v_media_missing_date",
+          "heading": "Media needing a publish date",
+          "limit": 20
+        },
+        {
+          "type": "h2",
+          "key": "editorial_evidence_heading",
+          "text": "Evidence checklist"
+        },
+        {
+          "type": "callout",
+          "key": "editorial_evidence_context",
+          "text": "These lists show Media and Field Log records without an available linked Experiment. Review and link the source records when preparing a case study or research note. They do not assess evidence quality or the free-text Sources and Evidence sections inside page templates; review those sections separately."
+        },
+        {
+          "type": "view",
+          "key": "editorial_media_sources",
+          "databaseId": "db_media",
+          "viewId": "v_media_evidence_gaps",
+          "heading": "Media without a linked Experiment",
+          "limit": 20
+        },
+        {
+          "type": "view",
+          "key": "editorial_fieldlog_sources",
+          "databaseId": "db_fieldlog",
+          "viewId": "v_fieldlog_unlinked_experiments",
+          "heading": "Observations without a linked Experiment",
+          "limit": 20
+        }
+      ]
     },
     {
       "id": "pg_meetings",
@@ -6780,5 +7029,5 @@
       ]
     }
   ],
-  "version": 7
+  "version": 8
 }

@@ -449,6 +449,7 @@ export function planTemplateInstantiation(
       if (b.heading !== undefined) patch.heading = substituteVars(b.heading, vars);
       if (b.label !== undefined) patch.label = substituteVars(b.label, vars);
       if (b.databaseId !== undefined) patch.databaseId = boardMap.get(String(b.databaseId)) ?? b.databaseId;
+      if (b.approvalDatabaseId !== undefined) patch.approvalDatabaseId = boardMap.get(String(b.approvalDatabaseId)) ?? b.approvalDatabaseId;
       if (b.projectId !== undefined) patch.projectId = taskMap.get(String(b.projectId)) ?? b.projectId;
       if (b.recordId !== undefined) patch.recordId = taskMap.get(String(b.recordId)) ?? b.recordId;
       for(const key of ['experimentId','placeId','eventId'] as const)if(b[key]!==undefined)patch[key]=taskMap.get(String(b[key]))??b[key];

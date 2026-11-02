@@ -158,6 +158,10 @@ for (const pg of tpl.pages ?? []) {
     if (!b || typeof b !== 'object') { err(`page ${pg.id} block ${i}: bad block`); continue; }
     if (!BLOCK_TYPES.has(b.type)) err(`page ${pg.id} block ${i}: unknown type '${b.type}'`);
     const where = `page ${pg.id} block ${i} (${b.type})`;
+    if(b.approvalDatabaseId!=null){
+      if(b.type!=='attention'||!dbs.has(b.approvalDatabaseId))err(`${where}: approvalDatabaseId must name a database on an Attention block`);
+      if(!Array.isArray(b.kinds)||b.kinds.length!==1||b.kinds[0]!=='approval_pending')err(`${where}: approval database requires approval_pending as its only kind`);
+    }
     if (b.databaseId != null) {
       const db = dbs.get(b.databaseId);
       if (!db) err(`${where}: databaseId '${b.databaseId}' not a database`);

@@ -261,7 +261,12 @@ export function viewCtx(board: BoardRow | undefined | null, tasks: readonly Task
     relationTitles: (recordId, fieldId) => {
       const f = fieldsById[fieldId];
       if (!f || !isRelationField(f)) return [];
-      return relationValues(links, recordId, f).map((id) => String(tasks.find((x) => x.id === id)?.title ?? 'Untitled'));
+      const values=relationValues(links, recordId, f);
+      if(f.relation.target==='pages')return values.map(()=>'Untitled');
+      return values.flatMap((id) => {
+        const target=tasks.find((row)=>row.id===id&&!row.deleted&&!row.archived&&(!f.relation.target||taskBoardId(row)===f.relation.target));
+        return target?[String(target.title??'Untitled')]:[];
+      });
     },
   };
 }

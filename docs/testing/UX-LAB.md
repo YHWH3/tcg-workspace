@@ -148,3 +148,12 @@ assertions test input values as well as compact cards; intentional field focus
 is scoped to the record editor. Open Person editors are scanned before returning
 to the desk. This exposed selected-value accessible-name and empty-prompt
 contrast defects; the checks remain, with no failed nodes or regions excluded.
+
+
+Editorial adds four named journeys: independent owner/date gaps and offline
+source edits; reverse source associations and the open relation picker; scoped
+personal approvals with configuration/outage/offline recovery; enlarged text and
+unavailable database recovery. The catalog is now70 cases ×18projects=1260.
+This inventory is not a claim that all1260 passed. Keep complete-source feature
+verification separate from diagnostics and the full phase certificate. Open
+pickers and record editors receive whole-page axe; no regions are excluded.

@@ -87,6 +87,7 @@ export interface AuthorBlock {
   url?: string;
   // dashboard block config (Phase 3 §3) — databaseId/sources ids are authored
   databaseId?: string;
+  approvalDatabaseId?: string;
   projectId?: string;
   recordId?: string;
   mode?: 'project' | 'product';
@@ -188,7 +189,7 @@ function toStoredBlock(b: AuthorBlock, pageId: string, order: string): Record<st
     return out;
   }
   for (const k of [
-    'databaseId', 'viewId', 'inline', 'limit', 'heading', 'filters', 'kinds', 'compact',
+    'databaseId', 'approvalDatabaseId', 'viewId', 'inline', 'limit', 'heading', 'filters', 'kinds', 'compact',
     'agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url', 'projectId','recordId','eventId','capacityKey','facilitatorsKey','volunteersKey','participantsKey','upcomingOnly','mode','measurementKey','unitKey','observationKey','photoKey','placeKey','experimentKey','projectKey','experimentId','placeId','unit','missingOnly','dateKey','budgetKey','amountKey','typeKey','relationKey','priceKey','costKey','ownerKey','startKey','endKey','staleDays',
   ] as const) {
     const v = b[k as keyof AuthorBlock];

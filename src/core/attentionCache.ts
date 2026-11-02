@@ -13,6 +13,8 @@ export interface AttentionCacheDeps {
  read:(userId:string)=>Promise<unknown>;
  save:(userId:string,snapshot:Snapshot)=>Promise<unknown>;
  hash:(token:string)=>Promise<string>;
+ /** Called only after the response has been shaped at this owning boundary. */
+ acceptPage?:(page:AttentionPage)=>boolean;
 }
 const initial=():AttentionState=>({page:null,loading:false,stale:true,offline:false,error:null,cacheError:false});
 /** Bound both cached and network data before rendering; reject unsafe navigation. */
@@ -44,12 +46,12 @@ export function createAttentionCache(deps:AttentionCacheDeps){
    // from replacing a newly returned server snapshot.
    const cached=deps.read(ctx.userId).then(raw=>{
     if(!current())return;const s=raw as Snapshot|undefined;
-    if(s?.version!==1||s.userId!==ctx.userId||s.sessionHash!==sessionHash||s.access!==ctx.access||!validAttentionPage(s.page))return;
+    if(s?.version!==1||s.userId!==ctx.userId||s.sessionHash!==sessionHash||s.access!==ctx.access||!validAttentionPage(s.page)||deps.acceptPage&&!deps.acceptPage(s.page))return;
     if(!store.get().page)store.set(state=>({...state,page:s.page,stale:true,offline:!deps.online()}));
    }).catch(()=>{});
    if(!deps.online()){await cached;if(current())store.set(s=>({...s,loading:false,offline:true}));return;}
    try{
-    const result=await deps.request();if(!current())return;if(!validAttentionPage(result))throw new Error('Invalid attention response');
+    const result=await deps.request();if(!current())return;if(!validAttentionPage(result)||deps.acceptPage&&!deps.acceptPage(result))throw new Error('Invalid attention response');
     const before=store.get().page;if(before&&before.asOf>result.asOf)return;
     store.set({page:result,loading:false,stale:false,offline:!deps.online(),error:null,cacheError:false});
     if(current())try{await deps.save(ctx.userId,{version:1,userId:ctx.userId,sessionHash,access:ctx.access,page:result});}catch{if(current())store.set(s=>({...s,cacheError:true}));}

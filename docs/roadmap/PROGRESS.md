@@ -228,3 +228,25 @@ matrix and limits: evidence/P8-community-533fe09.json. Documentation/evidence
 publication follows this tested source; no application changes follow it.
 Next8.8 Editorial and knowledge desk. Remaining Phase8 implementation, full
 canonical/native qualification and independent acceptance keep Phase8 HOLD.
+
+
+8.8 resumed on2026-11-02 from uncommitted work at3c5ef56. Editorial packv8,
+scoped personal approvals, offline cache and source-association checklist are
+implemented but not yet finally verified/published. Intermediate dirty-source
+137 focused checks,typecheck/pack PASS. Approval-scope and canonical reverse-link
+baseline failures are retained. Browser diagnostics exposed shared calendar and
+relation-picker accessibility plus wrong-target relation presentation; corrections
+are under test with whole-page axe retained. Latest prior diagnostic9 PASS/3 FAIL
+at2026-10-31T07-25-23.222Z; open-picker probe on2026-11-01 failed3/3 on missing
+ARIA and contrast. No final phase certificate or engineering GO is claimed.
+
+
+8.8 corrected development probe completed12/12 compact/light cases across
+Chromium/Firefox/WebKit, exit0, no skips/flaky, at
+.artifacts/ux-lab/2026-11-01T20-18-04.219Z/summary.json. The24-test combined
+D1/cache/pack/view run also passed, including all authored desk data blocks,
+multiple approval scopes and capped relations. These are dirty-source checks.
+User pause retained all work without commit/push; now resumed for source freeze,
+full affected18-project selection and preserved gates. N37–N39 require final
+source-bound evidence. The earlier picker-second run also failed source integrity
+because development documentation changed; it is never final verification.

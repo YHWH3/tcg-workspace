@@ -12,10 +12,11 @@ import {levelSql} from './capability';
 import {d1BudgetRemaining} from './d1budget';
 import {argsHash} from '../shared/stablejson';
 import {recordHref} from '../shared/recordRoutes';
+import {getRec} from './records';
 import {toDateOnlyInZone} from '../shared/dates';
 import {attentionConfig,attentionDoneStage,attentionAge,compareAttention,attentionRankKey,datedAttentionKind,isAttentionKind,isAttentionTriager,openAttentionRecord,rankAttention,type AttentionItem,type AttentionKind,type AttentionPage} from '../shared/attention';
 
-interface Query {limit?:number;cursor?:string;kinds?:AttentionKind[]}
+interface Query {limit?:number;cursor?:string;kinds?:AttentionKind[];approvalDatabaseId?:string}
 interface SourceRow {
  id:string;target_id:string|null;target_collection:string|null;target_data:string;target_rev:number|null;
  board_id:string|null;board_data:string;board_rev:number|null;created_at?:number;event_date?:string;person_value?:unknown;
@@ -47,21 +48,31 @@ function empty(today:string,now:number,source:string):AttentionPage{return {item
 
 export async function collectAttention(env:Env,userId:string,query:Query={},now=Date.now()):Promise<AttentionPage> {
  const limit=query.limit??50;
- if(!Number.isInteger(limit)||limit<1||limit>50||query.cursor!==undefined&&(typeof query.cursor!=='string'||query.cursor.length>2048)||query.kinds!==undefined&&(!Array.isArray(query.kinds)||query.kinds.length>10||query.kinds.some(k=>!isAttentionKind(k))))throw new Error('invalid_attention_query');
+ if(!Number.isInteger(limit)||limit<1||limit>50||query.cursor!==undefined&&(typeof query.cursor!=='string'||query.cursor.length>2048)||query.kinds!==undefined&&(!Array.isArray(query.kinds)||query.kinds.length>10||query.kinds.some(k=>!isAttentionKind(k)))||query.approvalDatabaseId!==undefined&&(typeof query.approvalDatabaseId!=='string'||!query.approvalDatabaseId.length||query.approvalDatabaseId.length>64))throw new Error('invalid_attention_query');
+ env=withReadGate(env,userId);
  const kinds=[...new Set(query.kinds??[])].sort(),settings=await serverDateContext(env,now),initial=await loadAccessContext(env.DB,userId,[],undefined,env.CONNECTOR);
  if(!initial.principal||initial.principal.disabledAt!==null||env.CONNECTOR&&initial.connector?.version!==env.CONNECTOR.version)throw new Error('unauthenticated');
  const admin=['owner','admin'].includes(initial.principal.workspaceRole),enabled=initial.enabled||!!env.CONNECTOR;
- const fingerprint=await argsHash({userId,connector:env.CONNECTOR??null,today:settings.today,settingsVersion:settings.version,kinds,enabled});
+ const fingerprint=await argsHash({userId,connector:env.CONNECTOR??null,today:settings.today,settingsVersion:settings.version,kinds,enabled,...(query.approvalDatabaseId?{approvalDatabaseId:query.approvalDatabaseId}:{})});
  let after:AttentionItem|null=null;
  if(query.cursor){const c=decodeCursor(query.cursor);if(c.f!==fingerprint||![0,1,2,3].includes(Number(c.severity))||typeof c.severity!=='number'||typeof c.date!=='string'||!/^(\d{4}-\d{2}-\d{2}|9999-99-99)$/.test(c.date)||typeof c.ageDays!=='number'||!Number.isSafeInteger(c.ageDays)||c.ageDays<0||typeof c.key!=='string'||!c.key||c.key.length>256)throw new Error('invalid_cursor');after={...c} as unknown as AttentionItem;}
  // No content has been loaded yet. A saturated caller gets an explicitly
  // incomplete empty queue, never an authorization shortcut or a false total.
  if(d1BudgetRemaining(env.DB)<8)return empty(settings.today,now,'processing_budget');
+ // Scope only approvals. Other attention sources retain their existing meaning.
+ // Authorize the exact database before its id influences a source window.
+ const approvalBoard=query.approvalDatabaseId?await getRec(env,query.approvalDatabaseId):null;
+ if(query.approvalDatabaseId&&(!approvalBoard||approvalBoard.collection!=='boards'||approvalBoard.data.deleted||approvalBoard.data.archived)){
+  const current=await loadAccessContext(env.DB,userId,[],undefined,env.CONNECTOR);
+  if(!current.principal||current.principal.disabledAt!==null)throw new Error('unauthenticated');
+  if(current.enabled!==initial.enabled||env.CONNECTOR&&current.connector?.version!==env.CONNECTOR.version)throw new Error('access_reset_required');
+  return empty(settings.today,now,'approval_database_unavailable');
+ }
  const scoped=scopeSql(env,enabled),scopeBinds=env.CONNECTOR?[env.CONNECTOR.id,env.CONNECTOR.version,now]:[];
- const prepare=(sql:string,bind:(string|number)[]=[],scopedRead=false)=>env.DB.prepare(`WITH caller AS(SELECT ? uid) ${sql}`).bind(userId,...bind,...(scopedRead?scopeBinds:[]));
+ const prepare=(sql:string,bind:(string|number|null)[]=[],scopedRead=false)=>env.DB.prepare(`WITH caller AS(SELECT ? uid) ${sql}`).bind(userId,...bind,...(scopedRead?scopeBinds:[]));
  const windowDays=`MIN(30,MAX(0,COALESCE(json_extract(b.data,'$.attention.soonDays'),3)))`;
  const results=await env.DB.batch([
-  prepare(`SELECT a.id,a.created_at,${projection} FROM approvals a LEFT JOIN records r ON r.id=a.target_id ${boardJoin} WHERE a.approver_id=(SELECT uid FROM caller) AND a.status='pending' ORDER BY a.created_at,a.id LIMIT ${caps.approval_pending+1}`),
+  prepare(`SELECT a.id,a.created_at,${projection} FROM approvals a LEFT JOIN records r ON r.id=a.target_id ${boardJoin} WHERE a.approver_id=(SELECT uid FROM caller) AND a.status='pending' AND (? IS NULL OR b.id=?) ORDER BY a.created_at,a.id LIMIT ${caps.approval_pending+1}`,[query.approvalDatabaseId??null,query.approvalDatabaseId??null]),
   prepare(`SELECT id,created_at FROM ai_previews WHERE user_id=(SELECT uid FROM caller) AND status='pending' AND expires_at>? ORDER BY created_at,id LIMIT ${caps.ai_preview_pending+1}`,[now]),
   prepare(`SELECT s.id,s.created_at,${projection} FROM ai_suggestions s LEFT JOIN records r ON r.id=s.target_id ${boardJoin} WHERE s.user_id=(SELECT uid FROM caller) AND s.status='pending' ORDER BY s.created_at,s.id LIMIT ${caps.suggestion_pending+1}`),
   prepare(`SELECT r.id,d.date event_date,${personValue} person_value,${projection} FROM date_index d JOIN records r ON r.id=d.record_id AND r.collection='tasks' ${boardJoin} WHERE b.id IS NOT NULL AND ${live('r')} AND ${live('b')} AND (${openRecord}) AND ${configured} AND d.field_key=${configuredDate} AND d.date<=date(?,'+'||${windowDays}||' days') AND ${personValue}=(SELECT uid FROM caller)${scoped} ORDER BY d.date,r.id LIMIT ${caps.dated+1}`,[settings.today],true),
@@ -77,7 +88,9 @@ export async function collectAttention(env:Env,userId:string,query:Query={},now=
  const sources=Object.keys(caps) as (keyof typeof caps)[],partialSources=sources.filter((key,i)=>results[i].results.length>caps[key]);
  const buckets=sources.map((key,i)=>(results[i].results as unknown as SourceRow[]).slice(0,caps[key]));
  const nodes=new Map<string,{data:Record<string,unknown>;rev:number}>();
+ if(approvalBoard)nodes.set(approvalBoard.id,{data:approvalBoard.data,rev:approvalBoard.rev});
  for(const row of buckets.flat()){if(row.target_id&&row.target_rev!==null)nodes.set(row.target_id,{data:JSON.parse(row.target_data),rev:row.target_rev});if(row.board_id&&row.board_rev!==null)nodes.set(row.board_id,{data:JSON.parse(row.board_data),rev:row.board_rev});}
+ if(approvalBoard&&nodes.get(approvalBoard.id)?.rev!==approvalBoard.rev)throw new Error('access_reset_required');
  const gate=withReadGate(env,userId).READ_GATE!;let decision:ReadDecision;
  try{decision=await gate.decide([...nodes.keys()]);}catch(error){if((error as {code?:string}).code==='scope_graph_budget')return empty(settings.today,now,'authorization_budget');throw error;}
  const spaces=[...new Set([...decision.scopes.values()].flatMap(s=>[...s.readSpaceIds]))];
@@ -87,6 +100,7 @@ export async function collectAttention(env:Env,userId:string,query:Query={},now=
  const currentAdmin=['owner','admin'].includes(current.principal.workspaceRole);
  const readable=(id:string|null)=>!!id&&nodes.has(id)&&nodes.get(id)!.data.deleted!==true&&nodes.get(id)!.data.archived!==true&&(!decision.enabled||(decision.readable.has(id)&&decision.revs.get(id)===nodes.get(id)!.rev&&decision.scopes.get(id)!.readSpaceIds.every(s=>canRead(spaceAccess(current,s)))));
  const editable=(id:string)=>readable(id)&&(!decision.enabled||canEdit(spaceAccess(current,decision.scopes.get(id)!.spaceId)));
+ if(approvalBoard&&!readable(approvalBoard.id))throw new Error('access_reset_required');
  const title=(data:Record<string,unknown>)=>String(data.title??data.name??'Untitled').slice(0,300);
  const items:AttentionItem[]=[];
  const recordItem=(row:SourceRow,kind:AttentionKind,severity:AttentionItem['severity'],actions:AttentionItem['actions']):AttentionItem=>{
@@ -95,6 +109,7 @@ export async function collectAttention(env:Env,userId:string,query:Query={},now=
  };
  for(const row of buckets[0]){
   const visible=readable(row.target_id),base=recordItem(row,'approval_pending',3,['decide']);
+  if(query.approvalDatabaseId&&(!visible||!readable(row.board_id)))continue;
   items.push({...base,targetType:'approval',targetId:row.id,title:visible?base.title:'',url:visible?'/approvals':null,...(!visible?{restricted:true as const}:{}),...(visible?{}:{databaseId:undefined,databaseName:undefined})});
  }
  for(const row of buckets[1])items.push({key:`ai_preview_pending:${row.id}`,kind:'ai_preview_pending',targetType:'preview',targetId:row.id,title:'Review proposed changes',url:aiDeskLink('preview',row.id),severity:3,actions:['review']});
@@ -131,6 +146,6 @@ export async function collectAttention(env:Env,userId:string,query:Query={},now=
 export const attentionApi=new Hono<{Bindings:Env;Variables:{user:AuthUser}}>();
 attentionApi.use('*',requireAuth);
 attentionApi.get('/',async c=>{
- try{return c.json(await collectAttention(c.env,c.get('user').id,{...(c.req.query('limit')===undefined?{}:{limit:Number(c.req.query('limit'))}),...(c.req.query('cursor')===undefined?{}:{cursor:c.req.query('cursor')}),...(c.req.query('kinds')===undefined?{}:{kinds:c.req.query('kinds')!.split(',') as AttentionKind[]})}));}
+ try{return c.json(await collectAttention(c.env,c.get('user').id,{...(c.req.query('limit')===undefined?{}:{limit:Number(c.req.query('limit'))}),...(c.req.query('cursor')===undefined?{}:{cursor:c.req.query('cursor')}),...(c.req.query('kinds')===undefined?{}:{kinds:c.req.query('kinds')!.split(',') as AttentionKind[]}),...(c.req.query('approvalDatabaseId')===undefined?{}:{approvalDatabaseId:c.req.query('approvalDatabaseId')})}));}
  catch(error){const message=error instanceof Error?error.message:'attention_unavailable';if(['invalid_cursor','invalid_attention_query'].includes(message))return c.json({error:message},400);if(message==='unauthenticated')return c.json({error:message},401);if(message==='access_reset_required')return c.json({error:message,retryable:true},409);throw error;}
 });
