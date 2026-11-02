@@ -434,3 +434,23 @@ and artifact hashes: evidence/P8-meetings-acef300.json. Publication adds
 only documentation and evidence. Next: 8.14 Forms operations, 8.10 Automation
 health and 8.2 Home. Final clean-source Phase 8 certification and remaining
 acceptance are still pending. Overall Phase 8: HOLD.
+
+
+8.14 Forms operations is implemented locally; final feature verification is pending.
+The authenticated per-form/overall metadata collector uses two bounded projections
+in one D1 batch, then the existing canonical graph and current read/edit authority.
+Worst-case six binding calls includes session renewal and the final credential
+fence; SQL-statement work is recorded separately. Counts/failures/follow-ups exclude
+payloads, plans, receipts, publish tokens and arbitrary error details. The new
+0036 form/state/time index is required; original migrations remain unchanged.
+An initial compound-query failure and a form-count cross-form index scan are
+retained as development baselines. The corrected 15-case real-D1 run passes,
+including 1,000 journal rows, caps, guest/private scope and mid-read revocation.
+Earlier broader run: 82 PASS / 1 fixture error (wrong guest-column name), corrected
+in the narrow run. Three-engine diagnostic: 12/12 browser journeys PASS after two
+new harness defects were corrected; original 2PASS/2FAIL report is retained.
+The UI has per-form and overall Operations views, separate Website intake,
+explicit partial/empty/failure/offline states, and preserves builder routes.
+The Website list reports records added to Workspace, not relay delivery receipts.
+Final committed-source focused, affected matrix, preserved workflows, visual
+review and publication remain required. Overall Phase8 HOLD.

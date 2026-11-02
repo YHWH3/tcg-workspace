@@ -237,3 +237,20 @@ Rollback is an owner-reviewed source rollback plus explicit review of additive
 pack records; never mass-delete or overwrite team data.
 Source-bound feature evidence:P8-meetings-acef300.json. Full Phase8 certification,
 8.14/8.10/8.2 and native/physical/human acceptance remain open; no deployment.
+
+## Phase 8.14 Forms operations prerequisite
+
+Owner-only rollout requires `0036_form_operations_index.sql` after 0035, in the
+manifest's pinned order. It adds only the form/state/created-time index; existing
+migration contents, journals and account permissions are preserved. Rehearse it
+on the disposable/restored copy before any separately authorized staging or
+production migration. No new secret, binding, collection, cron or feature flag.
+
+The read-only Operations views show rolling counts and bounded safe metadata.
+A partial candidate window is not an empty-work guarantee. Website records are
+listed separately by their Workspace creation time; this is not relay receipt
+or provider delivery proof. Access remains canonical and current; administrators
+have no private-space override. Monitor endpoint failures, source-change conflicts
+and query work without logging answers or arbitrary stored error text. A rollback
+may retain the additive index; do not delete submission history or rewrite prior
+migrations. Local feature evidence does not authorize deployment or permissions.

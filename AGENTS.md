@@ -311,3 +311,19 @@ validated offline fallback. Do not raise a transient error barrier before that
 validation: it unmounts editors and rejects pending flushes. Keep barriers already
 raised for access changes, and fail closed on HTTP denial, stale cache or changed
 session. The engine regression observes intermediate states, not only final status.
+
+
+### Phase 8 Forms operations
+
+`worker/formOperations.ts` is re-exported by `worker/forms.ts` for later delivery
+health. Project only safe operational metadata; never submission payload/plan/
+receipt, publish tokens or arbitrary error text. `ReadGate.decideEditable` reuses
+the canonical scope and current authority batch, with content/graph revisions.
+The six-binding-call route budget includes optional session renewal and the final
+GET credential fence; it is not a six-SQL-statement claim. Keep per-form lookups
+on migration0036's form/state/time index and test the actual query plan. Candidate
+caps precede active/readable record filtering, so capped deleted references must
+still produce an explicit partial window. Operations responses remain in memory,
+keyed by account/session/access and hidden offline. Website intake is separately
+labelled metadata about records added to Workspace, not public-form receipts or
+proof of relay delivery. Never introduce an admin bypass of private destinations.

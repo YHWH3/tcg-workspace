@@ -25,6 +25,10 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'Forms operations: exact state counts, safe failures and source-linked follow-ups',
+  'Forms operations: loading, failed reads and offline privacy recover',
+  'Forms operations: list and builder tabs preserve editing and expose overall intake',
+  'Forms operations: enlarged multilingual text, partial windows and unavailable form stay explicit',
   'Meetings desk: linked action bands, unresolved decisions and exact source navigation',
   'Meetings desk: guarded owner and due-date edits with source-linked action lists',
   'Meetings desk: loading, failed reads, offline snapshot and selected historical meeting recover',

@@ -678,13 +678,25 @@ what to do if not.
 - **Endpoint:**
   - `GET /api/forms/:id/operations` (and `/api/forms/operations` for all forms
     the caller can edit). Members see the forms whose destination database they
-    can edit; admins see all.
+    can edit; admins see all authorized destinations. Workspace administration
+    never overrides private-space access.
   - It returns: counts by state for 7 and 30 days; recent
     `retryable_failure` / `rejected` rows with the error class (never the
     submitted payload); and accepted submissions whose record is still in the
     first stage after N days ("unresolved follow-ups", via records read through
     the gate).
-  - At most 6 D1 calls, batched.
+  - At most 6 D1 calls, batched. Includes optional session renewal and the final
+    credential fence. Two projection statements share one transactional batch;
+    graph and current authority are read afterward. Migration 0036 adds the
+    form/state/created-time index. Binding-call accounting does not replace SQL
+    statement, execution-time or row-billing limits.
+  - Windows are rolling 7/30 times 24 hours; follow-up age defaults to 3 times
+    24 hours and is configurable. This is not an invented first-reply SLA.
+    Inventory is bounded to 40 forms, 10 failures per form, 5 follow-ups per form
+    overall (120 in a per-form read), and 150 Website records. Candidate caps
+    remain explicit even when deleted/completed candidates consume the window.
+    Open a specific form/database to narrow the read. Website timestamps describe
+    records added to Workspace, not the relay's provider/delivery journal.
 - **UI:** the Forms module gets an "Operations" tab per form and overall.
   Website relay submissions are shown separately (they arrive through
   `worker/websiteIngest.ts`, not public forms) with a label "Website", so the

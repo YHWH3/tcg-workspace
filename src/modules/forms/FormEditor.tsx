@@ -153,6 +153,7 @@ export function FormEditor() {
         </Button>
       </header>
 
+      <nav aria-label="Forms views" className="flex flex-wrap gap-2 border-b border-neutral-200 px-4 py-2 dark:border-neutral-700"><span aria-current="page" className="inline-flex min-h-11 items-center rounded-lg bg-neutral-100 px-3 dark:bg-neutral-800">Builder</span><Link to={`/forms/${boardId}/${formId}/operations`} className="inline-flex min-h-11 items-center rounded-lg px-3 underline">Operations</Link></nav>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
         {/* editor column */}
         <div className="min-w-0 flex-1 space-y-6 p-4 md:overflow-y-auto">
