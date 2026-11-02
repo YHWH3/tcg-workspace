@@ -380,3 +380,17 @@ selection will be explicitly split-source, never a single-head certificate.
 Current catalog is78 named cases across18 projects (1404cells), not yet run in
 full. Final focused, continuation, preserved workflows and publication remain
 pending. Phase8 HOLD; PR17 still at b90407b while this correction is local.
+
+8.13 continuation at22805e5 passed518/51 focused tests, five harness checks,
+typecheck and pack validation, but the browser continuation stopped at33PASS,
+3FAIL and405NOTRUN. N47 is a real UI obstruction: a floating comment button
+covered Configure on tablet because commitments was missing from a duplicated
+dashboard classification. Rendering and MCP template handling now use the
+existing shared dashboard set. Corrected three-project diagnostic12/12 PASS;
+its first attempt also exposed an ambiguous test locator, now scoped to the
+record detail. Both original reports are retained.
+
+The next freeze supersedes the earlier split-source continuation plan: rerun
+all486 selected cells on one clean source, plus focused, preserved and visual
+checks. This is still a selection from1404 catalog cells, not full Phase8
+certification. Meetings publication remains pending; Phase8 HOLD.

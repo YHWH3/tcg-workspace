@@ -106,7 +106,7 @@ function subtreeIds(pages: RecSnapshot['pages'], rootId: string): string[] {
   return out;
 }
 
-const DASHBOARD_BLOCK_TYPES = new Set(['view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart', 'eventops', 'commitments']);
+export const DASHBOARD_BLOCK_TYPES:ReadonlySet<string> = new Set(['view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart', 'eventops', 'commitments']);
 
 /** Database ids a block pulls into a copy: a `tasks` embed's board, or the
  * database(s) a dashboard block reads. Shared with the server's targeted

@@ -134,7 +134,9 @@ planned work, L = inconsistency.
 
 | N46 | M | Opening the action editor rendered it after the entire meeting list, outside the viewport; automated fill could mask the missing visible feedback. | New pre-fill viewport assertion fails with ratio0 at a0d911d; first broad run stopped53PASS/1INTERRUPTED/432NOTRUN for investigation. | Editor now opens inline, focuses/centers its owner control and returns focus to the source meeting on save/cancel. Strict full-visibility diagnostic first2PASS/1FAIL exposed WebKit edge clipping; corrected three-engine journey3/3 PASS. Final source verification pending. |
 
-Add new findings as N47+ with the same columns.
+| N47 | M | Meetings Configure could be covered by a floating comment control because the new block was absent from a duplicated dashboard list. | Clean 22805e5 continuation stops at33PASS/3FAIL/405NOTRUN; Chromium tablet/light shows overlapping hit targets. | Block rendering and MCP template handling now share the existing dashboard-type set. Three-engine diagnostic12/12 PASS; final clean-source verification pending. |
+
+Add new findings as N48+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

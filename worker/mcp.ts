@@ -30,7 +30,7 @@ import type { AuthUser } from './auth';
 import { importFileFromUrl, RemoteFileError } from './remotefile';
 import { cmpOrder, orderBetween, uuid } from '../shared/order';
 import { blocksToMarkdown, markdownToBlocks, renderMentionText, resolveMentionText, markdownBlockPatch } from '../shared/markdown';
-import { planTemplateInstantiation } from '../shared/templates';
+import { DASHBOARD_BLOCK_TYPES, planTemplateInstantiation } from '../shared/templates';
 import { loadTemplateSnapshot } from './templateSnapshot';
 import { pageClosure, tasksByBlockIds } from './closure';
 import { coerceFieldValue, fieldsOf, formatFieldValue, isSelectType, optionByName, propKey, type FieldDef } from '../shared/fields';
@@ -4000,7 +4000,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   );
 
   /** Block types that pull a database embed — never copied into a record body. */
-  const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart', 'eventops', 'commitments']);
+  const RECORD_BODY_SKIP_TYPES = new Set(['tasks',...DASHBOARD_BLOCK_TYPES]);
 
   const convertCore = async (a: { recordId: string; toDatabaseId: string; templateId?: string; linkKind?: string; sourceStage?: string; sourceRelationFieldId?: string; title?: string; expectedRev?: number }): Promise<ToolResult> => {
     const src = await rec(ctx.env, 'tasks', a.recordId);

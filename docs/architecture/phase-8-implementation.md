@@ -884,3 +884,9 @@ a competing native focus scroll, and returns focus to the stable source-meeting
 link after save/cancel. Pre-fill full-viewport and focus assertions protect the
 manual keyboard/touch experience from being masked by automated form scrolling.
 N46 baseline and diagnostic failures remain retained; final verification pending.
+
+Shared `DASHBOARD_BLOCK_TYPES` now drives dashboard comment placement and MCP
+record-body skip classification as well as template references. This prevents
+new dashboard blocks from receiving a media-style floating comment button over
+their own configuration controls. N47 reproduced on tablet; the three-project
+diagnostic passes12/12. Final source-bound verification remains pending.

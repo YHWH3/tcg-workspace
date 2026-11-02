@@ -1,3 +1,4 @@
+import {DASHBOARD_BLOCK_TYPES} from '../../../shared/templates';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowDown, ArrowUp, GripVertical, MessageSquare, Trash2 } from 'lucide-react';
@@ -436,7 +437,7 @@ function BlockItem(props: BlockItemProps) {
   // Registered media blocks (image, video, audio, file, tasks…) render via the registry.
   const Media = blockRenderer(type);
   if (Media) {
-    const dashboard=['metric','view','calendar','mywork','activity','attention','projecthealth','budget','fieldsessions','measurechart','eventops'].includes(type);
+    const dashboard=DASHBOARD_BLOCK_TYPES.has(type);
     return (
       <div
         className={cn('group relative flex items-start gap-0.5 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-blue-300', props.dragOver && 'border-t-2 border-blue-400')}
