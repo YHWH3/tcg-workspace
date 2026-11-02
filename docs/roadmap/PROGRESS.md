@@ -250,3 +250,25 @@ User pause retained all work without commit/push; now resumed for source freeze,
 full affected18-project selection and preserved gates. N37–N39 require final
 source-bound evidence. The earlier picker-second run also failed source integrity
 because development documentation changed; it is never final verification.
+
+
+The166a2f3 clean source passed472 focused tests/43files,typecheck/pack.
+Its288-case affected matrix was stopped after two logged tablet-dark Attention
+failures: completed Editorial fixtures left their pending approvals behind when
+soft-deleting records. The24 restricted requests filled the20-item Attention
+block before the new dated work. This is fixture contamination, not a bypass or
+queue-ranking correction. Each Editorial fixture now cancels exactly its own
+created requests through authenticated requester cancellation before deleting
+its records, and asserts cancelled status. The original run is retained at
+.artifacts/ux-lab/2026-11-02T11-31-03.022Z/summary.json, exit1. It lacks a sealed
+Playwright JSON report (stats null,0 inventoried rows); do not synthesize48 PASS
+or reuse unsealed cases. Logs show51 cases started and at least2 failures.
+New final-source verification is required. No source push or PR edit yet.
+
+
+Corrected fixture isolation14/14 PASS, compact-light then tablet-dark Attention
+and Editorial workflows, exit0, no skips/flaky:
+.artifacts/ux-lab/2026-11-02T11-35-30.835Z/summary.json. Cleanup asserts both
+owned approvals cancelled through the existing authenticated API. This was the
+only post166a2f3 test change; runtime code is unchanged. New clean-source focused,
+288-case browser and preserved workflows now follow this source freeze.
