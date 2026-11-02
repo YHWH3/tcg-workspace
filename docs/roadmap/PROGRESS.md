@@ -300,3 +300,15 @@ and platform limits: evidence/P8-editorial-f81451a.json. This is the288-case
 selection from the1260-combination catalog, not a full catalog or Phase8
 certificate. Only documentation/evidence publication follows this tested source.
 Next8.12 Ideas review/conversion, then8.13,8.14,8.10 and8.2. OverallPhase8 HOLD.
+
+8.12 resumed at published962519b on2026-11-02. Canonical Ideas conversion
+relation missing in frozen plans reproduced in both permission modes (2FAIL,
+retained local ideas-canonical-baseline.log). Implementing packv9 review queues,
+explicit creation-age parked filtering, Creator attention without a date and
+canonical-only bidirectional handoffs. The previously absent browser conversion
+action proposes a deterministic frozen plan through existing applyChanges planning
+and session approval/execution, never inference or direct privileged writes.
+Initial focused endpoint/preview checks41PASS; expanded permission/fixture and
+cross-browser development checks remain in progress. First compact browser run
+6PASS/6FAIL from an editable-heading selector; retained as failed, not acceptance.
+No final8.12 evidence or new certificate yet. Phase8 HOLD; PR17 remains at962519b.

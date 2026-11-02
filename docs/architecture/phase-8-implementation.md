@@ -828,3 +828,21 @@ fresh small probe or the fresh full run. No runtime correction or proven cause
 is claimed; N40 remains for final certification investigation. The full1260-case
 catalog and final phase certificate have not run at this head. Next8.12;
 overallPhase8 HOLD. Documentation/evidence-only publication followsf81451a.
+
+## 8.12 Ideas review and conversion (implementation in progress)
+
+Packv9 adds review, parked creation-age and approved-without-project lists to
+Ideas. Creation age is labelled explicitly because records have no filterable
+updatedAt field. Creator attention has no date and upgrades remain additive.
+Canonical `f_converted_project` relations, scoped to their configured active
+Ideas/Projects databases and visible records, drive both handoff banners.
+Missing historical relations are never inferred from convertedFrom alone.
+
+Browser conversion proposes through `/api/ideas/:id/conversion`: schema-validated
+source timestamps, retained request identity and canonical applyChanges planning
+feed the existing frozen preview/session approval/resumable execution. The shared
+read-only planning environment was moved without changing its behavior. Source
+and database revisions fence the proposal. Offline/pending edits, denial and
+failure remain explicit; cancelled/expired proposals require an intentional new
+review. No migration, collection, provider or website contract change. Development
+verification is in progress; this section is not acceptance evidence.

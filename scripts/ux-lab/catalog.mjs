@@ -25,6 +25,10 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'Ideas desk: review, creation-age parked and approved relationship queues',
+  'Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways',
+  'Ideas desk: offline conversion refusal and failed proposal recovery',
+  'Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship',
   'Community desk: role coverage, participant sources and intentional field correction',
   'Community desk: deleted People, selected Events and configuration recovery',
   'Community desk: failed reads, device snapshot and enlarged controls recover',

@@ -1094,8 +1094,85 @@
             "showSubrecords": true
           },
           "key": "v_ideas_table"
+        },
+        {
+          "id": "v_ideas_review",
+          "key": "v_ideas_review",
+          "name": "Waiting for review",
+          "type": "list",
+          "config": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "review"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_creator"
+            ]
+          }
+        },
+        {
+          "id": "v_ideas_parked_old",
+          "key": "v_ideas_parked_old",
+          "name": "Parked, created over 30 days ago",
+          "type": "list",
+          "config": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "parked"
+              },
+              {
+                "key": "createdAt",
+                "op": "within",
+                "value": {
+                  "from": "2000-01-01",
+                  "to": "today-30"
+                }
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_creator"
+            ]
+          }
+        },
+        {
+          "id": "v_ideas_approved",
+          "key": "v_ideas_approved",
+          "name": "Approved, not converted",
+          "type": "list",
+          "config": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "approved"
+              },
+              {
+                "key": "rel_f_converted_project",
+                "op": "empty"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_creator"
+            ]
+          }
         }
-      ]
+      ],
+      "attention": {
+        "enabled": true,
+        "personKey": "p_f_creator",
+        "triage": false
+      }
     },
     {
       "id": "db_decisions",
@@ -4818,6 +4895,40 @@
           "viewId": "v_ideas_table",
           "heading": "All ideas",
           "key": "tpl_1y"
+        },
+        {
+          "type": "h2",
+          "text": "Ideas review desk",
+          "key": "ideas_review_heading"
+        },
+        {
+          "type": "callout",
+          "text": "The parked list uses creation age, not time spent parked. Open an idea to review conversion into a project; the review creates no project until you approve and execute it. Existing conversions without a Converted to project relationship do not show a handoff banner.",
+          "key": "ideas_review_note"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_ideas",
+          "viewId": "v_ideas_review",
+          "heading": "Waiting for review",
+          "key": "ideas_review_desk",
+          "limit": 20
+        },
+        {
+          "type": "view",
+          "databaseId": "db_ideas",
+          "viewId": "v_ideas_parked_old",
+          "heading": "Parked, created over 30 days ago",
+          "key": "ideas_parked_old_desk",
+          "limit": 20
+        },
+        {
+          "type": "view",
+          "databaseId": "db_ideas",
+          "viewId": "v_ideas_approved",
+          "heading": "Approved, not converted",
+          "key": "ideas_approved_desk",
+          "limit": 20
         }
       ],
       "key": "pg_ideas"
@@ -7029,5 +7140,5 @@
       ]
     }
   ],
-  "version": 8
+  "version": 9
 }

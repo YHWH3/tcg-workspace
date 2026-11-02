@@ -1,3 +1,4 @@
+import {IdeaHandoff} from './IdeaHandoff';
 import {useRequestedFieldFocus} from '../useRequestedFieldFocus';
 import {HistoryButton} from '../History';
 /**
@@ -58,6 +59,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
   useAssistantContext({ kind: 'record', id: rec.id });
   const navigate = useNavigate();
   const tasks = useTasks();
+  const allBoards = useBoards();
   const links = useLinks();
   const users = useUsers();
   const resolve = useTokenResolver();
@@ -188,6 +190,8 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
             ↩ under <span className="font-medium">{renderPlain(recordTitle(parent), resolve)}</span>
           </button>
         )}
+
+        <IdeaHandoff key={rec.id} record={rec} boards={allBoards} records={tasks} links={links}/>
 
         {/* stage + builtins */}
         <div className="ws-record-properties grid min-w-0 grid-cols-[88px_minmax(0,1fr)] items-center gap-y-2 text-sm">

@@ -30,6 +30,8 @@ export interface ConversionInput {
   linkKind?: string;
   /** Source record is patched to this column id (validated against srcBoard columns). */
   sourceStage?: string;
+  /** Canonical primary source relation, in addition to the related backlink. */
+  sourceRelationFieldId?: string;
   /** Override dest title (defaults to the source title). */
   title?: string;
   /** Optional actor stamped as createdBy. */
@@ -83,6 +85,13 @@ export function planConversion(input: ConversionInput, deps: { id: () => string;
     const cols = columnsOf(srcBoard);
     if (!cols.some((c) => c.id === input.sourceStage)) {
       return { error: `unknown stage '${input.sourceStage}' for source board` };
+    }
+  }
+
+  if (input.sourceRelationFieldId !== undefined) {
+    const field = srcFields.get(input.sourceRelationFieldId);
+    if (field?.type !== 'relation' || field.relation?.primary !== true || field.relation.target !== destBoardId) {
+      return { error: 'conversion relation is unavailable or targets another database' };
     }
   }
 
@@ -144,6 +153,12 @@ export function planConversion(input: ConversionInput, deps: { id: () => string;
   ];
   if (input.sourceStage !== undefined) {
     ops.push({ collection: 'tasks', id: srcId, patch: { status: input.sourceStage } });
+  }
+  if (input.sourceRelationFieldId !== undefined) {
+    ops.push({collection:'links',id:linkId('relation',input.sourceRelationFieldId,srcId,destId),patch:{
+      kind:'relation',fieldId:input.sourceRelationFieldId,fromType:'record',fromId:srcId,toType:'record',toId:destId,
+      createdBy:input.actorId??null,createdAt:deps.now,
+    }});
   }
   return { ops, destId, warnings };
 }

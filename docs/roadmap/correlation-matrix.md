@@ -25,7 +25,7 @@ implementation.
 | 8.8 | Editorial desk | packv8 child page, attention scope/cache/UI, view context/picker, MCP reads | none | attention_queue approvalDatabaseId; scoped dashboard_snapshot + reverse relations | 472 focused/43files +288 affected browser cases/18projects; preserved64/140/42; evidence/P8-editorial-f81451a.json | 8.1, 7.4 | none |
 | 8.9 | Reliability view | `src/core/sync/engine.ts` (sync times; verify), `QuarantineReview.tsx`, settings Local data, Home chip | Dexie `meta` keys | — | unit, offline browser, Android | — | — |
 | 8.10 | Automation health | `worker/automations.ts` (new route), Automations module tab | optional **M2** `scheduler_runs` | **new R** `automation_health` (admin) | D1 | — | — |
-| 8.12 | Ideas review and conversion handoff | pack Ideas page, `shared/conversion.ts` banner helper | none | `convert_idea_to_project` unchanged | browser, unit | 7.1, 7.4 | — |
+| 8.12 | Ideas review and conversion handoff (in progress) | packv9, shared/conversion + ideaHandoff, canonical read-only planning + session review, RecordDetail | none | convert_idea_to_project canonical relation; browser conversion proposal | phase8-ideas unit/actual-D1 and browser checks in progress; no final evidence | 7.1, 7.4 | — |
 | 8.13 | Meetings commitment review | new `shared/commitments.ts`, block `commitments`, pack Meetings pages | none | `dashboard_snapshot` | unit, parity, browser | 8.1, 7.4 | — |
 | 8.14 | Forms operations view | `worker/forms.ts` (new routes), Forms module tab | none (`form_submissions` exists) | — | D1 | — | — |
 | 8.11 | AI review desk | `src/core/AiWorkspace.tsx` | none | links to existing H tools | browser | — | — |

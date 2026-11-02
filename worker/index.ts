@@ -1,3 +1,4 @@
+import {ideaConversionApi} from './ideaConversion';
 import {aiConfigApi} from './aiConfig';
 import {aiSuggestionsApi} from './aiSuggestions';
 import {aiDigestApi} from './aiDigest';
@@ -79,6 +80,7 @@ app.get('/api/live', async (c) => {
 app.route('/api/assistant',assistantApi);
 app.route('/api/ai/config',aiConfigApi);
 app.route('/api/ai/previews',aiPreviewApi);
+app.route('/api/ideas',ideaConversionApi);
 app.route('/api/ai/suggestions',aiSuggestionsApi);
 app.route('/api/ai/digest',aiDigestApi);
 app.route('/api/auth', auth);
