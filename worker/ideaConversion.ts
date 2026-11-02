@@ -34,7 +34,7 @@ ideaConversionApi.post('/:id/conversion',async c=>{
  if(!target||target.collection!=='boards'||target.data.deleted||target.data.archived||target.data.templateDbKey!=='projects')throw new PreviewError('project_database_unavailable',404);
  // Exact source marker lookup, never a scan of every Project. Older conversions
  // keep their existing record; missing historical canonical links are not guessed.
- const prior=(await listBy(env,'tasks','convertedFrom',ideaId)).find(row=>row.data.boardId===target.id&&!row.data.archived);
+ const prior=(await listBy(env,'tasks','convertedFrom',ideaId)).find(row=>row.data.boardId===target.id);
  if(prior)return c.json({alreadyConverted:true,databaseId:target.id,recordId:prior.id});
  if(src.data.status==='converted')throw new PreviewError('converted_idea_requires_relationship_review');
  const plan=planConversion({src:{id:src.id,data:src.data},srcBoard:{id:source.id,data:source.data},destBoard:{id:target.id,data:target.data},sourceStage:'converted',sourceRelationFieldId:field.id,actorId:userId},{id:()=>crypto.randomUUID(),now:Date.now()});

@@ -168,3 +168,10 @@ owned requests. Twelve images reviewed; supplemental enlarged panel/configuratio
 captures wait finite animations before steady-state contrast checks. Exact
 source-bound evidence: docs/roadmap/evidence/P8-editorial-f81451a.json. No full
 1260-case or phase/native/physical/human acceptance claim.
+
+Multi-project runs use a fresh disposable local D1/HTTPS fixture per browser,
+layout and theme project. This keeps real per-account quotas unchanged. Child
+reports and progress remain under `projects/<project>/`; the aggregate fails
+on an incomplete project list, a failed/missing child or source drift. A single
+project still owns one fixture. Retained results from another source must be
+labelled with that source; they cannot certify the current head.

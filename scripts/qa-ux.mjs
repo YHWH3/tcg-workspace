@@ -8,7 +8,8 @@ import {fileURLToPath} from 'node:url';
 import {createHmac} from 'node:crypto';
 import {startFixture,fixtureEnvironment} from './phase4-fixture.mjs';
 import {freePort,fingerprint} from './certification/core.mjs';
-import {surfaces,notCovered} from './ux-lab/catalog.mjs';
+import {surfaces,notCovered,requiredProjects} from './ux-lab/catalog.mjs';
+import {partitionProjects,runIsolatedProjects} from './ux-lab/project-isolation.mjs';
 import {coverage} from './ux-lab/coverage.mjs';
 import {ensureLabTls} from './ux-lab/tls.mjs';
 const root=resolve(import.meta.dirname,'..'),output=resolve(process.env.UX_OUTPUT??join(root,'.artifacts/ux-lab',new Date().toISOString().replaceAll(':','-')));
@@ -25,6 +26,11 @@ if(process.env.NODE_EXTRA_CA_CERTS!==tls.cert||tlsRenewed){
   process.exit(child.status??1);
 }
 const source={sha:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),fingerprint:fingerprint(root)};
+const projectPlan=partitionProjects(args,requiredProjects);
+if(projectPlan.projects.length>1){
+  process.exitCode=await runIsolatedProjects({root,output,source,plan:projectPlan,record,skipBuild,originalArgs:args});
+  process.exit(process.exitCode);
+}
 let owned,child,exitCode=1;
 const cleanup=()=>{child?.kill('SIGTERM');void owned?.stop();};process.once('SIGINT',cleanup);process.once('SIGTERM',cleanup);
 try{

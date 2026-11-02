@@ -90,3 +90,10 @@ it('refuses a new conversion of an already converted idea with no surviving dest
  const result=await browserRequest('/browser-idea/conversion',{expectedFields,requestId:'already-converted'});expect(result.status).toBe(409);expect(result.data).toEqual({error:'converted_idea_requires_relationship_review'});
  expect(await fixture.db.prepare('SELECT COUNT(*) n FROM ai_previews').first<number>('n')).toBe(0);
 });
+it('returns the archived original Project without proposing a replacement',async()=>{
+ const expectedFields=await seedBrowser(false);
+ await applyChanges(fixture.env,'alice',[{id:'archived-project',collection:'tasks',patch:{boardId:'db_projects',title:'Archived original',convertedFrom:'browser-idea',archived:true},ts:Date.now()}],{serverTs:true});
+ const result=await browserRequest('/browser-idea/conversion',{expectedFields,requestId:'archived-original'});expect(result.data).toMatchObject({alreadyConverted:true,recordId:'archived-project'});
+ expect(await fixture.db.prepare('SELECT COUNT(*) n FROM ai_previews').first<number>('n')).toBe(0);
+ expect((await getRec(fixture.env,'archived-project'))!.data.archived).toBe(true);
+});

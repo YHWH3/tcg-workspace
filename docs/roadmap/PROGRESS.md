@@ -312,3 +312,16 @@ Initial focused endpoint/preview checks41PASS; expanded permission/fixture and
 cross-browser development checks remain in progress. First compact browser run
 6PASS/6FAIL from an editable-heading selector; retained as failed, not acceptance.
 No final8.12 evidence or new certificate yet. Phase8 HOLD; PR17 remains at962519b.
+
+8.12 continuation, 2026-11-03: the first clean-source485-test run passed,
+but the414-case browser selection stopped at327PASS,2FAIL,1INTERRUPTED and
+84NOTRUN. Shared test-account preview quota was exhausted; the product limit
+remains unchanged. Each multi-project UX run now owns a fresh disposable D1/HTTPS
+fixture per project. Five harness regressions and a two-project conversion
+diagnostic pass, including distinct fixture identities. A separate actual-D1
+regression reproduced an archived original Project being ignored by browser
+conversion (9PASS/1FAIL); corrected deduplication returns that original without
+unarchiving it or proposing another (10PASS). Final verification follows a new
+source freeze: all72 Ideas cases plus71 incomplete non-Ideas cases;271 unaffected
+passing cells remain bound to9af2f76. This is split-source feature evidence,
+never a single-head414-case or full1332-case certificate. Publication pending.
