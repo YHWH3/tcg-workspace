@@ -132,7 +132,9 @@ planned work, L = inconsistency.
 | N44 | H | Multiple relation chips in a record expose undersized navigation/remove targets with insufficient spacing. | First Meetings compact journey fails whole-page target-size: roughly146×16px labels and10×14px remove controls, spacing below24px. | Shared chip navigation and removal targets now have44px height; compact journeys12/12 PASS. Final affected-source verification pending. |
 | N45 | M | The new Meetings summary could keep the previous owner/date after the source edit reached the server. | First compact journey confirms server edit but still shows Overdue actions (1) after15seconds. | Reader refreshes on sync completion as well as explicit refresh; corrected compact journeys12/12 PASS. Final source verification pending. |
 
-Add new findings as N46+ with the same columns.
+| N46 | M | Opening the action editor rendered it after the entire meeting list, outside the viewport; automated fill could mask the missing visible feedback. | New pre-fill viewport assertion fails with ratio0 at a0d911d; first broad run stopped53PASS/1INTERRUPTED/432NOTRUN for investigation. | Editor now opens inline, focuses/centers its owner control and returns focus to the source meeting on save/cancel. Strict full-visibility diagnostic first2PASS/1FAIL exposed WebKit edge clipping; corrected three-engine journey3/3 PASS. Final source verification pending. |
+
+Add new findings as N47+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

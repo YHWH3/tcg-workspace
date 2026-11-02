@@ -877,3 +877,10 @@ Frozen conversion copies only validated self config into a Meetings destination
 and retains existing session approval/execution. Shared relation-chip targets
 now satisfy dense-row target sizing. Development evidence is retained; this
 section is not final acceptance or a new Phase 8 certificate.
+
+The action editor mounts beside its selected source action, rather than below
+the complete meeting list. It focuses and centers the owner control without
+a competing native focus scroll, and returns focus to the stable source-meeting
+link after save/cancel. Pre-fill full-viewport and focus assertions protect the
+manual keyboard/touch experience from being masked by automated form scrolling.
+N46 baseline and diagnostic failures remain retained; final verification pending.

@@ -364,3 +364,19 @@ initial device fixture lacked the owner field after explicit completeness was
 added (51PASS/1FAIL); its corrected metadata passes52/52. No final acceptance
 is claimed by these dirty-source checks. Final verification includes the shared
 relation-chip regression as well as all new Meetings workflows.
+
+8.13 first freeze a0d911d passed518 focused tests/51files, five harness self-tests,
+typecheck and pack validation. Its broad browser run stopped at53PASS,
+1INTERRUPTED and432 selected NOTRUN after source review identified an editor
+visibility risk. A new pre-fill assertion reproduced the offscreen control
+(viewport ratio0). The editor now opens inline, receives focus and returns to
+the source meeting after save/cancel. A strict full-visibility diagnostic first
+passed2/3 and exposed WebKit edge clipping; centering the control passes3/3
+without relaxing the assertion. Original artifacts remain retained.
+
+Next source freeze reruns all72 Meetings cases plus369 incomplete other cases;
+45 unaffected passing cells remain bound to a0d911d. The resulting486-cell
+selection will be explicitly split-source, never a single-head certificate.
+Current catalog is78 named cases across18 projects (1404cells), not yet run in
+full. Final focused, continuation, preserved workflows and publication remain
+pending. Phase8 HOLD; PR17 still at b90407b while this correction is local.
