@@ -177,14 +177,14 @@ export function LinkedChips({ ids, kind, boards, onRemove }: { ids: string[]; ki
         const board = t.boardId ? boards.find((b) => b.id === t.boardId) : undefined;
         const href = kind === 'page' ? `/pages/${t.id}` : `/boards/${t.boardId}/tasks/${t.id}`;
         return (
-          <span key={t.id} className="inline-flex max-w-44 items-center gap-1 rounded-full bg-neutral-100 py-0.5 pl-2 pr-1 text-[11px] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300" title={t.title}>
-            <button className="min-w-0 truncate hover:underline" onClick={() => navigate(href)}>
+          <span key={t.id} className="inline-flex max-w-44 items-center gap-1 rounded-full bg-neutral-100 py-0.5 pl-2 pr-1 text-[0.6875rem] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300" title={t.title}>
+            <button className="min-h-11 min-w-11 flex-1 truncate text-left hover:underline" onClick={() => navigate(href)}>
               {kind === 'page' ? <FileText size={10} className="mr-0.5 inline" /> : null}
               {renderPlain(t.title || 'Untitled', resolve)}
             </button>
             {board && <span className="text-neutral-400">{String(board.icon ?? '')}</span>}
             {onRemove && (
-              <button aria-label={`Unlink ${t.title}`} className="flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 hover:opacity-100" onClick={() => onRemove(t.id)}>
+              <button aria-label={`Unlink ${t.title}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-60 hover:opacity-100" onClick={() => onRemove(t.id)}>
                 <X size={10} />
               </button>
             )}

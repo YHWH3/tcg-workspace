@@ -26,7 +26,7 @@ implementation.
 | 8.9 | Reliability view | `src/core/sync/engine.ts` (sync times; verify), `QuarantineReview.tsx`, settings Local data, Home chip | Dexie `meta` keys | — | unit, offline browser, Android | — | — |
 | 8.10 | Automation health | `worker/automations.ts` (new route), Automations module tab | optional **M2** `scheduler_runs` | **new R** `automation_health` (admin) | D1 | — | — |
 | 8.12 | Ideas review and conversion handoff | packv9, shared/conversion + ideaHandoff, canonical read-only planning + session review, RecordDetail | none | convert_idea_to_project canonical relation; browser conversion proposal | 486 focused/46files,5 harness;72 Ideas+71 resumed browser cells at36437be,271 unaffected at9af; preserved64/140/42; evidence/P8-ideas-36437be.json | 7.1, 7.4 | — |
-| 8.13 | Meetings commitment review | new `shared/commitments.ts`, block `commitments`, pack Meetings pages | none | `dashboard_snapshot` | unit, parity, browser | 8.1, 7.4 | — |
+| 8.13 | Meetings commitment review (in progress) | shared commitments/config/actions, bounded Worker, current device/server readers, commitments block, packv10, shared chip targets | none | dashboard_snapshot parity; reviewed self-template conversion | Actual-D1 authority/cap/approval regressions and compact12/12 development journeys; final evidence pending | 8.1, 7.4 | — |
 | 8.14 | Forms operations view | `worker/forms.ts` (new routes), Forms module tab | none (`form_submissions` exists) | — | D1 | — | — |
 | 8.11 | AI review desk | `src/core/AiWorkspace.tsx` | none | links to existing H tools | browser | — | — |
 | 9.1 | CSV export | new `shared/csv.ts`, `src/core/records.ts` | none | — | unit, browser | 7.2 | — |

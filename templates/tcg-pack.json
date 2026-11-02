@@ -4867,6 +4867,14 @@
           "viewId": "v_decisions_table",
           "heading": "Decisions",
           "key": "tpl_1v"
+        },
+        {
+          "key": "meetings_commitment_review",
+          "type": "commitments",
+          "databaseId": "db_meetings",
+          "days": 30,
+          "limit": 10,
+          "heading": "Meeting commitment review"
         }
       ],
       "key": "pg_meetings"
@@ -5656,6 +5664,19 @@
           "type": "text",
           "text": "",
           "key": "tpl_4d"
+        },
+        {
+          "key": "meeting_linked_commitments",
+          "type": "commitments",
+          "databaseId": "db_meetings",
+          "meetingId": "self",
+          "limit": 1,
+          "heading": "This meeting’s linked commitments"
+        },
+        {
+          "key": "meeting_commitment_scope_note",
+          "type": "text",
+          "text": "Use linked commitments to review this meeting. The Open decisions and Actions lists also include work from other meetings."
         },
         {
           "type": "h2",
@@ -7140,5 +7161,5 @@
       ]
     }
   ],
-  "version": 9
+  "version": 10
 }

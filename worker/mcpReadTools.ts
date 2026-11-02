@@ -1,3 +1,5 @@
+import {collectCommitments,commitmentsForOrigin} from './commitments';
+import {commitmentsConfigSchema,type CommitmentsConfig} from '../shared/commitmentsConfig';
 /** Bounded AI read tools. Content remains untrusted data, never executable authority. */
 import type {McpServer} from '@modelcontextprotocol/server';
 import {z} from 'zod';
@@ -74,10 +76,10 @@ export function registerReadTools(server:McpServer,c:Context) {
   }
   return txt({nodes:[...nodes.values()].map(r=>({id:r.id,type:r.collection,title:title(r),rev:r.rev,trust})),edges:[...edges.values()],truncated,nextCursor:null});
  });
- server.registerTool('dashboard_snapshot',{description:'Evaluate dashboard metric/view/calendar/mywork/attention/projecthealth/budget/fieldsessions/measurechart/eventops blocks using the same shared engines as the browser. At most 50 blocks; record, link and processing caps are explicit. Project health includes source-linked signals and participant-visible approvals, never a risk score.',inputSchema:z.object({pageId:z.string()}),annotations:{readOnlyHint:true}},async a=>{
+ server.registerTool('dashboard_snapshot',{description:'Evaluate dashboard metric/view/calendar/mywork/attention/projecthealth/budget/fieldsessions/measurechart/eventops/commitments blocks using the same shared engines as the browser. At most 50 blocks; record, link and processing caps are explicit. Project health includes source-linked signals and participant-visible approvals, never a risk score.',inputSchema:z.object({pageId:z.string()}),annotations:{readOnlyHint:true}},async a=>{
   const page=await getRec(c.env,a.pageId);if(!page||!(['pages','tasks'].includes(page.collection)||page.collection==='boards'&&page.data.templateDbKey==='products'))return fail('not_found');
   const blocks=await bounded(c,'blocks',"json_extract(data,'$.pageId')=?",[a.pageId],50);
-  const supported=blocks.rows.filter(b=>['metric','view','calendar','mywork','activity','attention','projecthealth','budget','fieldsessions','measurechart','eventops'].includes(String(b.data.type)));
+  const supported=blocks.rows.filter(b=>['metric','view','calendar','mywork','activity','attention','projecthealth','budget','fieldsessions','measurechart','eventops','commitments'].includes(String(b.data.type)));
   if(page.collection==='boards'&&page.data.templateDbKey==='products')supported.push({...page,id:'budget:'+page.id,collection:'blocks',data:{type:'budget',databaseId:page.id,mode:'product',limit:10,derived:true}});
   if(page.collection==='tasks'){
    const board=await getRec(c.env,String(page.data.boardId??'board-default'));
@@ -97,7 +99,7 @@ export function registerReadTools(server:McpServer,c:Context) {
    if(!attentionScopes.has(key)&&attentionScopes.size>=20){attentionRows.set(block.id,partialAttention('block_limit'));continue;}
    attentionScopes.set(key,scoped?{approvalDatabaseId:id as string}:{});attentionKeys.set(block.id,key);
   }
-  const dbIds=[...new Set(supported.filter(b=>!['projecthealth','budget','fieldsessions','measurechart','eventops'].includes(String(b.data.type))).flatMap(b=>[b.data.databaseId,...(Array.isArray(b.data.sources)?b.data.sources.slice(0,50).map((s:{databaseId?:string})=>s.databaseId):[])]).filter((id):id is string=>typeof id==='string'))];
+  const dbIds=[...new Set(supported.filter(b=>!['projecthealth','budget','fieldsessions','measurechart','eventops','commitments'].includes(String(b.data.type))).flatMap(b=>[b.data.databaseId,...(Array.isArray(b.data.sources)?b.data.sources.slice(0,50).map((s:{databaseId?:string})=>s.databaseId):[])]).filter((id):id is string=>typeof id==='string'))];
   const boards=await getRecs(c.env,dbIds.slice(0,50));
   const mywork=supported.some(b=>b.data.type==='mywork');
   const tasks=await bounded(c,'tasks',"(COALESCE(json_extract(data,'$.boardId'),'board-default') IN(SELECT value FROM json_each(?)) OR (?=1 AND json_extract(data,'$.assigneeId')=?))",[JSON.stringify([...boards.keys()]),mywork?1:0,c.userId],2000);
@@ -161,6 +163,18 @@ export function registerReadTools(server:McpServer,c:Context) {
     const summaries=await collectEventOps(c.env,c.userId,eventConfigs.map(item=>item.config));eventConfigs.forEach((item,index)=>eventRows.set(item.id,{...eventOpsForOrigin(summaries[index]!,c.origin)}));
    }else for(const item of eventConfigs)eventRows.set(item.id,{status:'partial',partial:true,partialSources:['processing_budget'],events:[],records:[]});
   }
+  const commitmentRows=new Map<string,Record<string,unknown>>(),commitmentConfigs:{id:string;config:CommitmentsConfig}[]=[];
+  for(const block of supported.filter(block=>block.data.type==='commitments')){
+   const self=block.data.meetingId==='self',parsed=commitmentsConfigSchema.safeParse({...block.data,...(self&&page.collection==='tasks'?{databaseId:page.data.boardId,meetingId:page.id}:{})});
+   if(!parsed.success||self&&page.collection!=='tasks')commitmentRows.set(block.id,{status:'configuration_required',partial:true,partialSources:['configuration'],meetings:[]});
+   else if(commitmentConfigs.length>=20)commitmentRows.set(block.id,{status:'partial',partial:true,partialSources:['block_limit'],meetings:[]});
+   else commitmentConfigs.push({id:block.id,config:parsed.data});
+  }
+  if(commitmentConfigs.length){
+   if(hasD1Budget(c.env.DB,18)){
+    const summaries=await collectCommitments(c.env,c.userId,commitmentConfigs.map(item=>item.config));commitmentConfigs.forEach((item,index)=>commitmentRows.set(item.id,{...commitmentsForOrigin(summaries[index]!,c.origin)}));
+   }else for(const item of commitmentConfigs)commitmentRows.set(item.id,{status:'partial',partial:true,partialSources:['processing_budget'],meetings:[]});
+  }
   const attentionPages=new Map<string,AttentionPage>();
   for(const [key,scope]of attentionScopes)attentionPages.set(key,hasD1Budget(c.env.DB,18)?await collectAttention(c.env,c.userId,{...scope,...(scope.approvalDatabaseId?{kinds:['approval_pending']}: {})}):partialAttention('processing_budget'));
   for(const [id,key]of attentionKeys)attentionRows.set(id,attentionPages.get(key)!);
@@ -178,6 +192,7 @@ export function registerReadTools(server:McpServer,c:Context) {
   const brief=(r:{id?:unknown;title?:unknown;status?:unknown;dueDate?:unknown;boardId?:unknown})=>({id:r.id,title:String(r.title??'').slice(0,300),status:r.status,dueDate:r.dueDate,url:c.origin+recordHref(String(r.boardId??'board-default'),undefined,String(r.id)),trust});
   const output=supported.map(block=>{
    const data=block.data,board=boards.get(String(data.databaseId));
+   if(data.type==='commitments')return {id:block.id,type:data.type,...commitmentRows.get(block.id)};
    if(data.type==='eventops')return {id:block.id,type:data.type,...eventRows.get(block.id)};
    if(['fieldsessions','measurechart'].includes(String(data.type)))return {id:block.id,type:data.type,...fieldRows.get(block.id)};
    if(data.type==='budget')return {id:block.id,type:data.type,...financeRows.get(block.id)};

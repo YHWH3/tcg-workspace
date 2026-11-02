@@ -129,7 +129,10 @@ planned work, L = inconsistency.
 | N42 | M | Browser conversion ignored an archived original Project and could propose a replacement after resetting the Idea stage. | Actual-D1 baseline9PASS/1FAIL. | Exact convertedFrom deduplication returns the archived original without resurrecting it or creating a preview; narrow10PASS, final486 focused and72 Ideas cases PASS at36437be; original stays archived. |
 | N43 | M (test harness) | Cross-project browser fixtures shared the real per-user100-preview daily quota. | Interrupted414 selection327PASS/2FAIL/1INTERRUPTED/84NOTRUN; preview_daily_limit refusal. | Fresh disposable D1/HTTPS per project, with incomplete/source/misattribution guards; five self-tests and two-project diagnostic PASS. Product quota unchanged;143 fresh selected cases PASS across18 distinct fixtures at36437be,271 unaffected retained at9af. No single-head414 claim. |
 
-Add new findings as N44+ with the same columns.
+| N44 | H | Multiple relation chips in a record expose undersized navigation/remove targets with insufficient spacing. | First Meetings compact journey fails whole-page target-size: roughly146×16px labels and10×14px remove controls, spacing below24px. | Shared chip navigation and removal targets now have44px height; compact journeys12/12 PASS. Final affected-source verification pending. |
+| N45 | M | The new Meetings summary could keep the previous owner/date after the source edit reached the server. | First compact journey confirms server edit but still shows Overdue actions (1) after15seconds. | Reader refreshes on sync completion as well as explicit refresh; corrected compact journeys12/12 PASS. Final source verification pending. |
+
+Add new findings as N46+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

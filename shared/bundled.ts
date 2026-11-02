@@ -81,7 +81,7 @@ export interface AuthorBlock {
   key?: string;
   type:
     | 'text' | 'h1' | 'h2' | 'h3' | 'bulleted' | 'todo' | 'divider' | 'callout' | 'tasks'
-    | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'attention' | 'projecthealth' | 'budget' | 'fieldsessions' | 'measurechart' | 'eventops' | 'embed';
+    | 'view' | 'metric' | 'calendar' | 'activity' | 'mywork' | 'attention' | 'projecthealth' | 'budget' | 'fieldsessions' | 'measurechart' | 'eventops' | 'commitments' | 'embed';
   text?: string;
   checked?: boolean;
   url?: string;
@@ -93,6 +93,11 @@ export interface AuthorBlock {
   mode?: 'project' | 'product';
   dateKey?: string;
   eventId?: string;
+  meetingId?: string;
+  days?: number;
+  actionsKey?: string;
+  decisionsKey?: string;
+  decisionOwnerKey?: string;
   capacityKey?: string;
   facilitatorsKey?: string;
   volunteersKey?: string;
@@ -190,7 +195,7 @@ function toStoredBlock(b: AuthorBlock, pageId: string, order: string): Record<st
   }
   for (const k of [
     'databaseId', 'approvalDatabaseId', 'viewId', 'inline', 'limit', 'heading', 'filters', 'kinds', 'compact',
-    'agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url', 'projectId','recordId','eventId','capacityKey','facilitatorsKey','volunteersKey','participantsKey','upcomingOnly','mode','measurementKey','unitKey','observationKey','photoKey','placeKey','experimentKey','projectKey','experimentId','placeId','unit','missingOnly','dateKey','budgetKey','amountKey','typeKey','relationKey','priceKey','costKey','ownerKey','startKey','endKey','staleDays',
+    'meetingId','days','actionsKey','decisionsKey','decisionOwnerKey','agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url', 'projectId','recordId','eventId','capacityKey','facilitatorsKey','volunteersKey','participantsKey','upcomingOnly','mode','measurementKey','unitKey','observationKey','photoKey','placeKey','experimentKey','projectKey','experimentId','placeId','unit','missingOnly','dateKey','budgetKey','amountKey','typeKey','relationKey','priceKey','costKey','ownerKey','startKey','endKey','staleDays',
   ] as const) {
     const v = b[k as keyof AuthorBlock];
     if (v !== undefined) out[k] = v;

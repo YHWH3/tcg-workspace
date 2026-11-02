@@ -342,3 +342,25 @@ certification. Exact source/tree/fingerprint, commands, artifact hashes and
 coverage provenance: evidence/P8-ideas-36437be.json. Documentation/evidence-only
 publication follows the tested source. Next 8.13 Meetings,8.14 Forms,8.10 Automation
 health and8.2 Home, then full clean-source certification. OverallPhase 8 HOLD.
+
+8.13 Meetings implementation started from published b90407b on 2026-11-03.
+Pack v10 adds recent-meeting and self-record commitment blocks while preserving
+existing Meeting template views and explaining their wider scope. The shared
+calculation groups overdue, upcoming and undated actions plus unresolved
+decisions by their meeting; missing owners/dates are never inferred from notes.
+Bounded canonical reads feed HTTP and MCP; device snapshots remain explicitly
+partial. Owner/date edits use guarded mutate calls and current account checks.
+Development compact journeys pass 12/12 across three engines. Their first run
+exposed undersized shared relation-chip controls and a stale summary after an
+acknowledged own edit; target sizes and post-sync refresh are corrected with
+regressions. Original failed/interrupted reports remain retained. Final focused,
+affected browser matrix, preserved workflows and publication are still pending.
+Phase 8 remains HOLD.
+
+8.13 expanded development checks:52/52 across seven files and typecheck PASS,
+including actual-D1 mid-read disablement, capped source inventory and a frozen
+self-template conversion that requires authenticated session approval. The
+initial device fixture lacked the owner field after explicit completeness was
+added (51PASS/1FAIL); its corrected metadata passes52/52. No final acceptance
+is claimed by these dirty-source checks. Final verification includes the shared
+relation-chip regression as well as all new Meetings workflows.

@@ -858,3 +858,22 @@ without unarchiving it or proposing a replacement. Multi-project QA owns fresh
 D1/HTTPS data per project, preserving the real 100-preview quota. Failed and
 interrupted reports remain retained; no full 1332-cell or final Phase 8 certificate
 is claimed. Next 8.13; overallPhase 8 HOLD.
+
+## 8.13 Meetings commitment review (in progress)
+
+`meetingCommitments` and `commitmentsPage` preserve canonical meeting/action/
+decision relationships, database stage semantics, explicit missing ownership and
+date-only recent windows. Shared configuration supports recent meetings, a named
+meeting or a self-record block. HTTP and dashboard snapshots use bounded gated
+metadata reads with current authority/source fences; notes and answer bodies
+never enter the summary. Source and display caps are explicit, including the
+remaining action/decision totals. Device reads use indexes and remain partial.
+
+The registered commitments block offers source links, action-list drill-downs and
+guarded owner/date edits. Successful sync refreshes the server summary; local
+mutation alone does not establish server completion. Pack v10 adds the operating
+page block and a self-meeting template block without replacing global views.
+Frozen conversion copies only validated self config into a Meetings destination
+and retains existing session approval/execution. Shared relation-chip targets
+now satisfy dense-row target sizing. Development evidence is retained; this
+section is not final acceptance or a new Phase 8 certificate.

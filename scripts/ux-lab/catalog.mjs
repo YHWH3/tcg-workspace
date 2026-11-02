@@ -25,6 +25,10 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'Meetings desk: linked action bands, unresolved decisions and exact source navigation',
+  'Meetings desk: guarded owner and due-date edits with source-linked action lists',
+  'Meetings desk: loading, failed reads, offline snapshot and selected historical meeting recover',
+  'Meetings desk: enlarged multilingual links, missing dates and unavailable source states',
   'Ideas desk: review, creation-age parked and approved relationship queues',
   'Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways',
   'Ideas desk: offline conversion refusal and failed proposal recovery',

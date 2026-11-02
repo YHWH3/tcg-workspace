@@ -1,3 +1,4 @@
+import {commitmentsConfigSchema} from '../shared/commitmentsConfig';
 import {planningEnv} from './planningEnv';
 import {validCurrency} from '../shared/workspaceSettings';
 import {validateAttentionConfig} from '../shared/attention';
@@ -3999,7 +4000,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   );
 
   /** Block types that pull a database embed — never copied into a record body. */
-  const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart', 'eventops']);
+  const RECORD_BODY_SKIP_TYPES = new Set(['tasks', 'view', 'metric', 'calendar', 'activity', 'mywork', 'attention', 'projecthealth', 'budget', 'fieldsessions', 'measurechart', 'eventops', 'commitments']);
 
   const convertCore = async (a: { recordId: string; toDatabaseId: string; templateId?: string; linkKind?: string; sourceStage?: string; sourceRelationFieldId?: string; title?: string; expectedRev?: number }): Promise<ToolResult> => {
     const src = await rec(ctx.env, 'tasks', a.recordId);
@@ -4045,7 +4046,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         const type = String(b.data.type ?? 'p');
         const health=type==='projecthealth'&&b.data.projectId==='self'?projectHealthConfigSchema.safeParse({...b.data,databaseId:a.toDatabaseId}):null;
         const budget=type==='budget'&&b.data.recordId==='self'?financeConfigSchema.safeParse({...b.data,databaseId:a.toDatabaseId}):null;
-        if (RECORD_BODY_SKIP_TYPES.has(type)&&!health?.success&&!budget?.success) { skipped.add(type); continue; }
+        const commitments=type==='commitments'&&b.data.meetingId==='self'&&destBoard.data.templateDbKey==='meetings'?commitmentsConfigSchema.safeParse({...b.data,databaseId:a.toDatabaseId}):null;
+        if (RECORD_BODY_SKIP_TYPES.has(type)&&!health?.success&&!budget?.success&&!commitments?.success) { skipped.add(type); continue; }
         copied++;
         ops.push({
           collection: 'blocks',
@@ -4060,6 +4062,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
             ...(b.data.url !== undefined ? { url: b.data.url } : {}),
             ...(health?.success?{...health.data,heading:b.data.heading??'Project health'}:{}),
             ...(budget?.success?{...budget.data,heading:b.data.heading??'Project budget'}:{}),
+            ...(commitments?.success?{...commitments.data,heading:b.data.heading??'Meeting commitments'}:{}),
           },
         });
       }

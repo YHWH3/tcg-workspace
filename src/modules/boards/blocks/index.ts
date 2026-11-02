@@ -12,3 +12,5 @@ import './BudgetBlock';
 
 import './FieldEvidenceBlock';
 import './EventOpsBlock';
+
+import './CommitmentsBlock';
