@@ -72,7 +72,8 @@ integration branches and existing PRs remain unchanged.
 | 8.6 final feature verification | focused engineering PASS; phase certificate pending | 579dec6aab59e17b21b3cf73cde9cc6b7adee54e (final field); f83e190 (broader) | evidence/P8-field-evidence-579dec6.json | Clean293 focused/29 files, typecheck/pack,72/72 final field cases on18 projects, MCP64/64, Operating Pack140 automated assertions and Phase6 42/42 PASS. Pack report retains3 external physical/AT checks NOT RUN. Six final images inspected. Retain342 unaffected cases atf83e190 from exact414-case union (225 paused plus189 resumed); original exit130 unchanged. N28–N32 corrected, prior failures and empty command selection retained. No single-head414/full1116 or full phase certificate claimed. Next8.7. |
 | 8.7 Community and Event desk | implemented; final verification pending | Containing commit | .artifacts/phase8/community-expanded-focused.log; community-browser-second.log | Packv7 ownership/date/attention/views; bounded authorized role and participant summaries with source links, device/failure recovery. 38 focused tests and four compact Chromium development journeys PASS; first fixture failures retained. Final source freeze, focused/matrix/preserved/visual evidence and publication required. Overall Phase8 HOLD. |
 | 8.7 final feature verification | focused engineering PASS; phase certificate pending | 533fe09ef217a91628be296b5da1897c61691dd0 | evidence/P8-community-533fe09.json | Clean377 regression tests/36 files,typecheck/pack,144/144 browser cases across18projects (Community72,Attention54,pack18), preserved MCP64/64,Operating Pack140 automated assertions and Phase6 42/42 PASS. Three physical/AT checks remain external NOT RUN. Six final Event desk images inspected. N33–N36 corrected; all earlier failures/interrupted runs retained. No full1188-case or phase certificate claim. Next8.8. |
-| Phases 8 desks–13 / A | 8.0, 8.1, 8.9, 8.11, 8.3, 8.4, 8.5,8.6 and8.7 feature evidence recorded; next8.8 | — | README.md dependency order | Keep owner gates and one stacked draft PR per phase. |
+| 8.8 Editorial final feature verification | feature checks PASS; phase HOLD | f81451aad44ce5118dddb1dc24d9de5e8253e4a4 | evidence/P8-editorial-f81451a.json | Clean472 tests/43files,typecheck/pack;288/288 affected browser cases/18projects,no skips/flaky; fresh preserved MCP64,V8 140 automated +3external NOT RUN,Phase6 42 PASS.12screens inspected including enlarged panels/configurations. First fixture-contaminated matrix and preserved Chromium startup failures retained; latter cause unproven, carry into final certification. Next8.12. |
+| Phases 8 desks–13 / A | 8.0, 8.1, 8.9, 8.11, 8.3, 8.4, 8.5,8.6,8.7 and8.8 feature evidence recorded; next8.12 | — | README.md dependency order | Keep owner gates and one stacked draft PR per phase. |
 
 Each implementation commit updates this file. “Containing commit” is bound by
 Git history: a commit cannot contain its own full SHA. Source remains frozen
@@ -272,3 +273,30 @@ and Editorial workflows, exit0, no skips/flaky:
 owned approvals cancelled through the existing authenticated API. This was the
 only post166a2f3 test change; runtime code is unchanged. New clean-source focused,
 288-case browser and preserved workflows now follow this source freeze.
+
+
+8.8 final feature evidence is bound to f81451aad44ce5118dddb1dc24d9de5e8253e4a4,
+tree987e09a6cd16b7390a85117de5502dfcf0beabf8, fingerprint
+e3bc6099e6ab11ce8718cb41373b4beb4cdcb26687f633fd17f7859b035cb9a5.
+472 focused tests/43files,typecheck/pack,288/288 affected browser cases across
+18projects PASS unchanged. MCP64/64, fresh Operating Pack140 automated assertions
+and Phase6 42/42 PASS. Three physical-device/AT checks remain external NOT RUN.
+Twelve images inspected; supplemental 200%text captures show panels and open
+configurations after finite animations settle, rather than only page headers.
+
+The first preserved attempt failed: V8 81PASS/38FAIL/8NOTRUN and Phase6
+31PASS/11FAIL. Chromium did not complete startup/access reconciliation, while
+later engines worked. A small fresh Chromium probe and a fresh complete
+same-source rerun succeeded without a runtime change. Root cause is unproven;
+N40 remains an investigation item for final certification, not an external gate
+or a claimed code correction. All failed reports remain retained separately.
+The isolated visual probe first used an HTTP-only bootstrap against HTTPS, then
+sampled transient opening-animation contrast; both probes remain local. The
+corrected visual probe waits finite animations and checks whole-page axe and
+geometry at steady state. It does not change the passing matrix or app source.
+
+Exact commands, source identities,42 verified artifact hashes, prior failures
+and platform limits: evidence/P8-editorial-f81451a.json. This is the288-case
+selection from the1260-combination catalog, not a full catalog or Phase8
+certificate. Only documentation/evidence publication follows this tested source.
+Next8.12 Ideas review/conversion, then8.13,8.14,8.10 and8.2. OverallPhase8 HOLD.

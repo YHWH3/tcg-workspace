@@ -157,3 +157,14 @@ unavailable database recovery. The catalog is now70 cases ×18projects=1260.
 This inventory is not a claim that all1260 passed. Keep complete-source feature
 verification separate from diagnostics and the full phase certificate. Open
 pickers and record editors receive whole-page axe; no regions are excluded.
+
+
+Atf81451a the affected16-case selection ran288/288 across18projects, exit0,
+no skips/flaky, with source unchanged. Fresh preserved64MCP/140V8/42AI checks
+PASS separately; first Chromium startup failures remain retained, cause unproven.
+The first288attempt was stopped on fixture approval contamination; its missing
+Playwright JSON is not a reusable result inventory. Cleanup now cancels exactly
+owned requests. Twelve images reviewed; supplemental enlarged panel/configuration
+captures wait finite animations before steady-state contrast checks. Exact
+source-bound evidence: docs/roadmap/evidence/P8-editorial-f81451a.json. No full
+1260-case or phase/native/physical/human acceptance claim.

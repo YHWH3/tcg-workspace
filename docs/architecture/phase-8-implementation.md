@@ -775,7 +775,7 @@ attendance, consent or enforced capacity. No real installation was upgraded.
 Next is8.8; overall Phase8 stays HOLD.
 
 
-## 8.8: Editorial and knowledge desk (verification in progress)
+## 8.8: Editorial and knowledge desk (feature evidence recorded)
 
 Operating Pack v8 adds an Editorial child page under Media. New stable views
 show the production stages, review stage, missing owner and missing publish
@@ -813,3 +813,18 @@ clean-source final verification and publication are still required.
 No migration, synced collection, provider call, website contract change or
 external publishing integration is added. Phase8 remains HOLD until the remaining
 items and mandatory certification are complete.
+
+
+8.8 verification atf81451a:472 focused tests/43files,typecheck/pack and288/288
+browser cases PASS across18projects with no skips/flaky. Preserved MCP64,
+Operating Pack140 automated and Phase6 42 PASS in a fresh unchanged-source run;
+3physical-device/AT checks remain explicitly external NOT RUN. Twelve screenshots
+were inspected, including supplemental panel/configuration200%text states after
+finite animations settle. Exact source tree/fingerprint,commands,hashes and
+failed runs: ../roadmap/evidence/P8-editorial-f81451a.json.
+
+The first preserved Chromium startup/access failure was not reproduced by a
+fresh small probe or the fresh full run. No runtime correction or proven cause
+is claimed; N40 remains for final certification investigation. The full1260-case
+catalog and final phase certificate have not run at this head. Next8.12;
+overallPhase8 HOLD. Documentation/evidence-only publication followsf81451a.
