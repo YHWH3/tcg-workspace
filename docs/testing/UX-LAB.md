@@ -175,3 +175,9 @@ reports and progress remain under `projects/<project>/`; the aggregate fails
 on an incomplete project list, a failed/missing child or source drift. A single
 project still owns one fixture. Retained results from another source must be
 labelled with that source; they cannot certify the current head.
+
+Ideas verification: [source-bound evidence](../roadmap/evidence/P8-ideas-36437be.json)
+records143 fresh cells, including72 Ideas cases across 18projects at 36437be, plus
+271 retained unaffected cells at 9af2f76. This is an exact split-source414-cell
+selection, not a full 1332-cell run or a single-head certificate. The original
+quota-exhausted327PASS/2FAIL/1INTERRUPTED/84NOTRUN report remains unchanged.

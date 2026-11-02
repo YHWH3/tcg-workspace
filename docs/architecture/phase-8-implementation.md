@@ -829,7 +829,7 @@ is claimed; N40 remains for final certification investigation. The full1260-case
 catalog and final phase certificate have not run at this head. Next8.12;
 overallPhase8 HOLD. Documentation/evidence-only publication followsf81451a.
 
-## 8.12 Ideas review and conversion (implementation in progress)
+## 8.12 Ideas review and conversion
 
 Packv9 adds review, parked creation-age and approved-without-project lists to
 Ideas. Creation age is labelled explicitly because records have no filterable
@@ -846,3 +846,15 @@ and database revisions fence the proposal. Offline/pending edits, denial and
 failure remain explicit; cancelled/expired proposals require an intentional new
 review. No migration, collection, provider or website contract change. Development
 verification is in progress; this section is not acceptance evidence.
+
+8.12 verification at 36437be:486 focused tests/46 files, five harness self-tests,
+typecheck/pack and143 fresh browser cases PASS. All72 Ideas cases run at this
+source;271 unaffected successful cases remain at 9af2f76. Exact414-cell union is
+explicitly split-source. Fresh preserved MCP 64/64, Operating Pack 140 automated
+assertions and Phase 6 42/42 PASS; three device/AT checks remain NOT RUN. Nine
+original screenshots were inspected. Evidence: ../roadmap/evidence/P8-ideas-36437be.json.
+The browser endpoint now deduplicates an archived original Project as MCP does,
+without unarchiving it or proposing a replacement. Multi-project QA owns fresh
+D1/HTTPS data per project, preserving the real 100-preview quota. Failed and
+interrupted reports remain retained; no full 1332-cell or final Phase 8 certificate
+is claimed. Next 8.13; overallPhase 8 HOLD.

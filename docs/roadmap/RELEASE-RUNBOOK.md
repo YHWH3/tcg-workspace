@@ -209,3 +209,19 @@ not establish an available source. No external publishing occurs. No new secret,
 migration or service is needed; inherited latest migration remains0035. Production
 rollout, permissions, native/AT acceptance and final phase certification remain
 separate gates.
+
+## Phase 8.12 Ideas review readiness
+
+Pack v9 adds the Ideas queues and canonical conversion relation. Upgrades remain
+additive: team content, configuration and deleted reservations survive. No new
+migration, secret, provider, cron or website event-contract version is needed.
+The conversion action prepares a deterministic frozen proposal; current session
+approval and resumable execution remain required. Historical conversions without
+a canonical relation do not gain a guessed banner. An archived original is not
+replaced or resurrected. Follow existing undo/restore paths if reviewing it.
+
+Feature evidence at 36437be includes486 focused tests,143 fresh browser cells
+and271 unaffected retained cells at 9af2f76, with fresh preserved64/140/42 checks.
+See evidence/P8-ideas-36437be.json for source-specific proof and retained failures.
+This does not authorize deployment or establish final Phase 8 certification.
+Remaining 8.13,8.14,8.10,8.2 and native/physical/human acceptance still gate release.

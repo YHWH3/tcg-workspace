@@ -325,3 +325,20 @@ unarchiving it or proposing another (10PASS). Final verification follows a new
 source freeze: all72 Ideas cases plus71 incomplete non-Ideas cases;271 unaffected
 passing cells remain bound to9af2f76. This is split-source feature evidence,
 never a single-head414-case or full1332-case certificate. Publication pending.
+
+8.12 feature verification complete at 36437beb400af66d33d4e1b049bab1f6c14a72d1:
+486/486 focused tests across 46 files, five harness self-tests, typecheck and pack
+validation PASS on clean unchanged source.143/143 fresh browser cases PASS across
+18projects, including all 72 Ideas cases;271 successful unaffected cells remain
+bound to 9af2f76. The exact union covers the414 selected cells across two sources;
+it is not a single-head414 or full 1332-cell certificate. Each project used a
+distinct disposable fixture. Fresh preserved MCP 64/64, Operating Pack 140 automated
+assertions and Phase 6 42/42 PASS. Three physical-device/AT checks stay external
+NOT RUN. Nine original final screenshots were inspected. Earlier product baseline,
+fixture, selector, empty-selection and interrupted quota reports remain intact.
+N41/N42 are corrected with regressions; N43's fixture isolation is verified.
+N40's earlier startup/access cause remains unproven, carried into full phase
+certification. Exact source/tree/fingerprint, commands, artifact hashes and
+coverage provenance: evidence/P8-ideas-36437be.json. Documentation/evidence-only
+publication follows the tested source. Next 8.13 Meetings,8.14 Forms,8.10 Automation
+health and8.2 Home, then full clean-source certification. OverallPhase 8 HOLD.

@@ -1,0 +1,1127 @@
+{
+  "schemaVersion": 2,
+  "item": "8.12 Ideas review queues and conversion handoffs",
+  "status": "FOCUSED_ENGINEERING_PASS_PHASE_CERTIFICATION_PENDING",
+  "phaseDecision": "HOLD",
+  "packVersion": 9,
+  "source": {
+    "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+    "tree": "2ec40d6d0b25bbf946411a793c11a979b9e6ebbe",
+    "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+  },
+  "sourceDiscovery": {
+    "at": "2026-11-02T19:22:00.447Z",
+    "heads": "b6c3c4a4105fc3f6ebdba557e86f638426fa7a97\trefs/heads/feature/unified-ai-mcp\nec14454b464d9accac9a5016272579d58319ff46\trefs/heads/main\n6586ee173c676e33af7f8aae25ceeccd929ee98e\trefs/heads/sol/p7-foundations\n962519bd3bf19ee145a8d10df27d86ee1e402309\trefs/heads/sol/p8-desks",
+    "websiteSha": "1bbc617da62168bbf094a2ad65b0140867f74fa5",
+    "websiteClean": true,
+    "contractCopiesIdentical": true,
+    "contractVersion": 2,
+    "migrations": "0001 through 0035_workspace_settings.sql; no Ideas migration"
+  },
+  "featureInventory": [
+    "Additive Ideas review, parked creation-age and approved-without-project queues; existing edits and deleted reservations preserved",
+    "Creator attention with no invented date",
+    "Canonical handoff links in both directions, authorized live peer/database only; historical missing links are not guessed",
+    "Configured Projects destination and canonical relation in frozen conversion plans, exact deduplication including archived original",
+    "Browser conversion prepares deterministic reviewed preview using read-only applyChanges planning; existing session approval and resumable execution",
+    "Reload/lost-response request identity and explicit new review after cancellation; source/database/session revision fences; no paid inference",
+    "Fresh disposable fixture per browser project, real account quota unchanged and fail-closed aggregate evidence"
+  ],
+  "focused": {
+    "tests": 486,
+    "files": 46,
+    "harnessSelfTests": 5,
+    "identity": {
+      "path": ".artifacts/phase8/ideas-corrected-final-focused-source.json",
+      "sha256": "fc00cd5c432a8d7ad6236c40ae63e83749860ed960ec6f8ae105559a9c57f77a"
+    },
+    "results": [
+      {
+        "name": "harness",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "typecheck",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "focused",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "pack",
+        "exit": 0
+      }
+    ],
+    "logs": [
+      {
+        "path": ".artifacts/phase8/ideas-corrected-final-harness.log",
+        "sha256": "d5356c056630b77127de18fb6abdf8f09748262d42e997d8dbb134f90e9895d1"
+      },
+      {
+        "path": ".artifacts/phase8/ideas-corrected-final-typecheck.log",
+        "sha256": "c85faad742c8ad117de8ed591ec6999ea99a21fdd2ba557c5fb19bfa2f97cb5e"
+      },
+      {
+        "path": ".artifacts/phase8/ideas-corrected-final-focused.log",
+        "sha256": "7d9f73de1e9bdc8942d7951bf9007a2b65c142bc29d959bde25412c7ab6b1409"
+      },
+      {
+        "path": ".artifacts/phase8/ideas-corrected-final-pack.log",
+        "sha256": "e075a4940ba66d266698f45235343046bf64e4872bec4e56d0efa31cb697e9d5"
+      }
+    ],
+    "runner": {
+      "path": ".artifacts/phase8/run-ideas-corrected-focused.mjs",
+      "sha256": "40d107ed6bee1259eb016d778cb057963da05831c37edb6b2dc19c09e92c7330"
+    },
+    "sourceUnchanged": true,
+    "complete": true
+  },
+  "browser": {
+    "kind": "EXPLICIT_SPLIT_SOURCE_FEATURE_EVIDENCE",
+    "singleHeadCertification": false,
+    "coveredUniqueCells": 414,
+    "projects": 18,
+    "retained": {
+      "source": {
+        "sha": "9af2f761e035dfee14f91595c36bd6be6fd8b133",
+        "fingerprint": "5cc58c934d7dae6426806ea04e4c8f742544bee1ea05270a1bfdf511ec3b78cb"
+      },
+      "cells": 271,
+      "eligibility": "Successful non-Ideas cases only. Runtime application difference is the Ideas conversion endpoint; all Ideas cases rerun. Harness and documentation changes are disclosed.",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-02T14-43-21.055Z/summary.json",
+        "sha256": "f7df73cb1abab5fec9f8449104f2b40f7d6279bbd4e45d7c36692d5351266ec6"
+      },
+      "rawReport": {
+        "path": ".artifacts/ux-lab/2026-11-02T14-43-21.055Z/playwright.json",
+        "sha256": "1ebc4121571a7a3401a5491cd8b0fc14248828152ad1cfb95a2c14231001c737"
+      }
+    },
+    "fresh": {
+      "source": {
+        "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+        "tree": "2ec40d6d0b25bbf946411a793c11a979b9e6ebbe",
+        "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+      },
+      "cells": 143,
+      "ideasCells": 72,
+      "summary": {
+        "path": ".artifacts/phase8/ideas-corrected-browser-final/summary.json",
+        "sha256": "acc5b27f453c297c445ea5b37725761248490f94db47b37a0b325cae616790af"
+      },
+      "runner": {
+        "path": ".artifacts/phase8/run-ideas-remaining.mjs",
+        "sha256": "27fca34081b79433e1a90eaa1667b1eb5c928b4eafcacef51394bb1cba4dd8b7"
+      },
+      "projects": [
+        {
+          "project": "webkit-tablet-light",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=webkit-tablet-light",
+            "--grep=(?:AI review desk: stale sources, rejection, cancellation and expiry stay non-authoritative|AI review desk: loading, failed reads, offline hiding and library recovery|Community desk: deleted People, selected Events and configuration recovery|Community desk: failed reads, device snapshot and enlarged controls recover|Community desk: membership views and offline conversation ownership reach Attention|Editorial desk: independent owner and date gaps, review and offline correction|Editorial desk: source associations respect reverse targets and recover through the original record|Editorial desk: scoped approvals, configuration, outage and scoped offline snapshot|Editorial desk: enlarged text, keyboard configuration and unavailable scope recovery|Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship|pack upgrade: preview, preserve edits and apply|surface: records-calendar|opened view controls: filters, sorting and properties|table: horizontal recovery exposes complete controls|text enlargement: 200 percent in inbox and task detail)$",
+            "--record"
+          ],
+          "tests": 18,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-tablet-light/summary.json",
+            "sha256": "21fcc3f2749dca7586ad0987025f826795dfd6212f34b366e77c0ea8a1e04373"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-tablet-light/playwright.json",
+            "sha256": "a9494aaac0611f3c7d2c8b427cdf03b3bcad3a6ee85f88634a650cc960eaf7f5"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-tablet-light/command.log",
+            "sha256": "07559f46b98a5cba6c49b0a9fe1698c8468e1ccd6d67e7f254c44e202a376084"
+          },
+          "runtimes": [
+            {
+              "project": "webkit-tablet-light",
+              "engine": "webkit",
+              "version": "26.6",
+              "viewport": {
+                "width": 820,
+                "height": 1180
+              },
+              "colorScheme": "light",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "webkit-tablet-dark",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=webkit-tablet-dark",
+            "--grep=(?:AI review desk: fixture approval, resume, edited suggestion and revision-safe undo|AI review desk: stale sources, rejection, cancellation and expiry stay non-authoritative|AI review desk: loading, failed reads, offline hiding and library recovery|attention: ranked block, keyboard completion, offline assignment and reconnect|attention: configuration, source filters, 200 percent text and recovery|attention: completion opens the existing approval request flow|Community desk: role coverage, participant sources and intentional field correction|Community desk: deleted People, selected Events and configuration recovery|Community desk: failed reads, device snapshot and enlarged controls recover|Community desk: membership views and offline conversation ownership reach Attention|Editorial desk: independent owner and date gaps, review and offline correction|Editorial desk: source associations respect reverse targets and recover through the original record|Editorial desk: scoped approvals, configuration, outage and scoped offline snapshot|Editorial desk: enlarged text, keyboard configuration and unavailable scope recovery|Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship|pack upgrade: preview, preserve edits and apply|surface: records-calendar|opened view controls: filters, sorting and properties|table: horizontal recovery exposes complete controls|text enlargement: 200 percent in inbox and task detail)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 23,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-tablet-dark/summary.json",
+            "sha256": "b37b6af6b279e61efdd241b5f4bf9f1fb490baafa250e1074574e6890a850e5a"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-tablet-dark/playwright.json",
+            "sha256": "f5c1b78ea195c7c24141f2f89748071753e8ed8d35e02fcf44326016c02a6311"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-tablet-dark/command.log",
+            "sha256": "efd3cb398f1e029d761ad5e00f7ef19429098d8200d260dd6c6f94426bfcb0c1"
+          },
+          "runtimes": [
+            {
+              "project": "webkit-tablet-dark",
+              "engine": "webkit",
+              "version": "26.6",
+              "viewport": {
+                "width": 820,
+                "height": 1180
+              },
+              "colorScheme": "dark",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "webkit-desktop-light",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=webkit-desktop-light",
+            "--grep=(?:AI review desk: fixture approval, resume, edited suggestion and revision-safe undo|AI review desk: stale sources, rejection, cancellation and expiry stay non-authoritative|AI review desk: loading, failed reads, offline hiding and library recovery|attention: ranked block, keyboard completion, offline assignment and reconnect|attention: configuration, source filters, 200 percent text and recovery|attention: completion opens the existing approval request flow|Community desk: role coverage, participant sources and intentional field correction|Community desk: deleted People, selected Events and configuration recovery|Community desk: failed reads, device snapshot and enlarged controls recover|Community desk: membership views and offline conversation ownership reach Attention|Editorial desk: independent owner and date gaps, review and offline correction|Editorial desk: source associations respect reverse targets and recover through the original record|Editorial desk: scoped approvals, configuration, outage and scoped offline snapshot|Editorial desk: enlarged text, keyboard configuration and unavailable scope recovery|Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship|pack upgrade: preview, preserve edits and apply|surface: records-calendar|opened view controls: filters, sorting and properties|table: horizontal recovery exposes complete controls|text enlargement: 200 percent in inbox and task detail)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 23,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-desktop-light/summary.json",
+            "sha256": "835f030fa11c98b3e861c7f637c56fd6c57fafdc227471e6fa99cd72aff3422b"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-desktop-light/playwright.json",
+            "sha256": "82b2105035b2a9142e4f899b26075dd0b0e738345e6dd9c054e39db4b4c459b4"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-desktop-light/command.log",
+            "sha256": "c9a1b83e92d4fe4cb870f649109be0d45adb99b03f408d8672a7e8c8ed7ceacf"
+          },
+          "runtimes": [
+            {
+              "project": "webkit-desktop-light",
+              "engine": "webkit",
+              "version": "26.6",
+              "viewport": {
+                "width": 1440,
+                "height": 900
+              },
+              "colorScheme": "light",
+              "deviceScaleFactor": 1,
+              "hasTouch": false,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "webkit-desktop-dark",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=webkit-desktop-dark",
+            "--grep=(?:AI review desk: fixture approval, resume, edited suggestion and revision-safe undo|AI review desk: stale sources, rejection, cancellation and expiry stay non-authoritative|AI review desk: loading, failed reads, offline hiding and library recovery|attention: ranked block, keyboard completion, offline assignment and reconnect|attention: configuration, source filters, 200 percent text and recovery|attention: completion opens the existing approval request flow|Community desk: role coverage, participant sources and intentional field correction|Community desk: deleted People, selected Events and configuration recovery|Community desk: failed reads, device snapshot and enlarged controls recover|Community desk: membership views and offline conversation ownership reach Attention|Editorial desk: independent owner and date gaps, review and offline correction|Editorial desk: source associations respect reverse targets and recover through the original record|Editorial desk: scoped approvals, configuration, outage and scoped offline snapshot|Editorial desk: enlarged text, keyboard configuration and unavailable scope recovery|Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship|pack upgrade: preview, preserve edits and apply|surface: records-calendar|opened view controls: filters, sorting and properties|table: horizontal recovery exposes complete controls|text enlargement: 200 percent in inbox and task detail)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 23,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-desktop-dark/summary.json",
+            "sha256": "76e083ac9941d21aa91b27255e8508ae54f41445ab8afc540c78a71bd3e386dc"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-desktop-dark/playwright.json",
+            "sha256": "d0c55b811cd562e9bf311fbbc754558abe978d8dc64eb4393aaea320fface15c"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-desktop-dark/command.log",
+            "sha256": "97253dcf27fefdef472e5b5faa2a0ab0f2df27f6782426fcf089af254bbf613d"
+          },
+          "runtimes": [
+            {
+              "project": "webkit-desktop-dark",
+              "engine": "webkit",
+              "version": "26.6",
+              "viewport": {
+                "width": 1440,
+                "height": 900
+              },
+              "colorScheme": "dark",
+              "deviceScaleFactor": 1,
+              "hasTouch": false,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "chromium-compact-light",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=chromium-compact-light",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-compact-light/summary.json",
+            "sha256": "579b57edbf65fff853714ed7f4a32083b4bbe36889afc703463287649b8cc63c"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-compact-light/playwright.json",
+            "sha256": "76f5a3d6a76c1e0a185e86855b994ddacbcf7709ba977992a701171c2ee518fc"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-compact-light/command.log",
+            "sha256": "b069a7b2cf333b48980cc0ecbf27ee07853697e0b1d4700430e5a79ecf4d9d3a"
+          },
+          "runtimes": [
+            {
+              "project": "chromium-compact-light",
+              "engine": "chromium",
+              "version": "153.0.8010.12",
+              "viewport": {
+                "width": 390,
+                "height": 844
+              },
+              "colorScheme": "light",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "chromium-compact-dark",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=chromium-compact-dark",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-compact-dark/summary.json",
+            "sha256": "2f2970bde85b54275dc982fc921f76fb3c44c36fbdb0d5855c81751b21e4c5fb"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-compact-dark/playwright.json",
+            "sha256": "e9e29a9c37d62f213cfa4330be0608e2e52cf09d139c103f8497a2bdcb29d925"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-compact-dark/command.log",
+            "sha256": "d5dbf4d93050000677e90bf8737d882e5692f1aefa3bcf9796b3e6f1a6fc87dc"
+          },
+          "runtimes": [
+            {
+              "project": "chromium-compact-dark",
+              "engine": "chromium",
+              "version": "153.0.8010.12",
+              "viewport": {
+                "width": 390,
+                "height": 844
+              },
+              "colorScheme": "dark",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "chromium-tablet-light",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=chromium-tablet-light",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-tablet-light/summary.json",
+            "sha256": "4b9ed69e41c36e7831b6e6b3e7ec055f63dc5ce654205284831fd47a67d2b6a1"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-tablet-light/playwright.json",
+            "sha256": "9bf0e75753cc7209fce8ef6da292b57ce5697d71982fd0634f4c5bc19416dd04"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-tablet-light/command.log",
+            "sha256": "2e22e1e1aa21cdb4953b18ff0b9ab1ba53a997a2f931a437e04de91c65d7edef"
+          },
+          "runtimes": [
+            {
+              "project": "chromium-tablet-light",
+              "engine": "chromium",
+              "version": "153.0.8010.12",
+              "viewport": {
+                "width": 820,
+                "height": 1180
+              },
+              "colorScheme": "light",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "chromium-tablet-dark",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=chromium-tablet-dark",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-tablet-dark/summary.json",
+            "sha256": "9a20448aa1e65432c7934b2d257ad239b4786fe8a32e5c63df8599101c97262f"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-tablet-dark/playwright.json",
+            "sha256": "bf4a6e398ab81530feb4d4014d7182780d276d4898b7a62a5fbef1baff711ef2"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-tablet-dark/command.log",
+            "sha256": "6cd394c7180fec750f744a709562d6ade2bbe88e6ac82972cccec61705ac24b9"
+          },
+          "runtimes": [
+            {
+              "project": "chromium-tablet-dark",
+              "engine": "chromium",
+              "version": "153.0.8010.12",
+              "viewport": {
+                "width": 820,
+                "height": 1180
+              },
+              "colorScheme": "dark",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "chromium-desktop-light",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=chromium-desktop-light",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-desktop-light/summary.json",
+            "sha256": "a0cc9028de1c165b9fb293766938c557e3d2c848e5cb825ce2a140f896dc963d"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-desktop-light/playwright.json",
+            "sha256": "7f08b6316703cc7efd0859d2ddfe76d75932985c783eee19e36b499fafb27235"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-desktop-light/command.log",
+            "sha256": "9c1469688054e4cd05686cb3888fc2baf999ff477eaffca189f7c02908d0566d"
+          },
+          "runtimes": [
+            {
+              "project": "chromium-desktop-light",
+              "engine": "chromium",
+              "version": "153.0.8010.12",
+              "viewport": {
+                "width": 1440,
+                "height": 900
+              },
+              "colorScheme": "light",
+              "deviceScaleFactor": 1,
+              "hasTouch": false,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "chromium-desktop-dark",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=chromium-desktop-dark",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-desktop-dark/summary.json",
+            "sha256": "d202dcdd203c9efc6506fe15f804fee8d4c1781ba0a5f10100760c2062969a10"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-desktop-dark/playwright.json",
+            "sha256": "c6cb015097e80b25c7c985724407682bb577a6437886a514e4e3a825eb8c15a8"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-desktop-dark/command.log",
+            "sha256": "61b740b4f3d9d0fd7c6859f0d24174e2314473739c70940bca80ee035b3c4807"
+          },
+          "runtimes": [
+            {
+              "project": "chromium-desktop-dark",
+              "engine": "chromium",
+              "version": "153.0.8010.12",
+              "viewport": {
+                "width": 1440,
+                "height": 900
+              },
+              "colorScheme": "dark",
+              "deviceScaleFactor": 1,
+              "hasTouch": false,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "firefox-compact-light",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=firefox-compact-light",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-compact-light/summary.json",
+            "sha256": "dfc7751f46685775dd51b3a42d17489cd7f926e68d5a3d28f033b05798df491b"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-compact-light/playwright.json",
+            "sha256": "bc83709d5a1e4229951c9af9d95c98142885f09783a6e8844fb0800f120df5bf"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-compact-light/command.log",
+            "sha256": "36ee0f74424aa6ef1619698d8539044f16e9b383b6a83e0a8edaecb13694b68a"
+          },
+          "runtimes": [
+            {
+              "project": "firefox-compact-light",
+              "engine": "firefox",
+              "version": "155.0",
+              "viewport": {
+                "width": 390,
+                "height": 844
+              },
+              "colorScheme": "light",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "firefox-compact-dark",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=firefox-compact-dark",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-compact-dark/summary.json",
+            "sha256": "ffebf06fd972653e596ff9cd0f170105864c639cbbb4037d36085129babb84ca"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-compact-dark/playwright.json",
+            "sha256": "326409c6ed44aed368f088c68f1f4d6201d9d2a315c7df7f79a87e90d6627307"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-compact-dark/command.log",
+            "sha256": "9eef52bca0359bbf3b67a11231fa6f5f429a16dc9fa6fce1a938ba355bd82d2f"
+          },
+          "runtimes": [
+            {
+              "project": "firefox-compact-dark",
+              "engine": "firefox",
+              "version": "155.0",
+              "viewport": {
+                "width": 390,
+                "height": 844
+              },
+              "colorScheme": "dark",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "firefox-tablet-light",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=firefox-tablet-light",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-tablet-light/summary.json",
+            "sha256": "26b507f247ec4ada054e763cc2e321d7f522dbae7681fbe7396eb70c26473f97"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-tablet-light/playwright.json",
+            "sha256": "aa43bbc6e3144e582860c2f54cedd41ed3d99c44c57dfb9411b2a9349e5af782"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-tablet-light/command.log",
+            "sha256": "61ff95d2d1f27157e3751bae029eae83fa2bc9bba5136c88b98a97b326e84a5f"
+          },
+          "runtimes": [
+            {
+              "project": "firefox-tablet-light",
+              "engine": "firefox",
+              "version": "155.0",
+              "viewport": {
+                "width": 820,
+                "height": 1180
+              },
+              "colorScheme": "light",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "firefox-tablet-dark",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=firefox-tablet-dark",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-tablet-dark/summary.json",
+            "sha256": "a6276a6f16bddaa9fce746159902ac13c66a3fe6927ef3ee847752a0a62926d2"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-tablet-dark/playwright.json",
+            "sha256": "e8fd8e72019ac395c07bc68ab89e253a8dc974ee264d95445c09466d956ab52c"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-tablet-dark/command.log",
+            "sha256": "22c43f1f9f14a85893d5d83cca8864f9d6c36a41b59a40bab5a9f7a704b3b535"
+          },
+          "runtimes": [
+            {
+              "project": "firefox-tablet-dark",
+              "engine": "firefox",
+              "version": "155.0",
+              "viewport": {
+                "width": 820,
+                "height": 1180
+              },
+              "colorScheme": "dark",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "firefox-desktop-light",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=firefox-desktop-light",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-desktop-light/summary.json",
+            "sha256": "45299175fdf576883dbdd46df9047d6a55f1401939863f49ca746f4f0667fa35"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-desktop-light/playwright.json",
+            "sha256": "27bb304e8ba2a52eb2576f63296fb37fb180b504469b3d37e76863c3aa2150fd"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-desktop-light/command.log",
+            "sha256": "cd4ed84f4f8f6fa48116cf7a65727a06a7108a1054560b0139613bde85a91e6b"
+          },
+          "runtimes": [
+            {
+              "project": "firefox-desktop-light",
+              "engine": "firefox",
+              "version": "155.0",
+              "viewport": {
+                "width": 1440,
+                "height": 900
+              },
+              "colorScheme": "light",
+              "deviceScaleFactor": 1,
+              "hasTouch": false,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "firefox-desktop-dark",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=firefox-desktop-dark",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-desktop-dark/summary.json",
+            "sha256": "9d972366bb8631d369937906fe8b29585df0c36ceb61696f4997fdc8838b1444"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-desktop-dark/playwright.json",
+            "sha256": "abfe07389740c029f55da2c242c9d87fa1cf6ada7e75da9198d1be0805f4c383"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-desktop-dark/command.log",
+            "sha256": "0bf79e5d29bf55d81b32d748954af5a77e65e59ed80dc25729c5413e49321ba9"
+          },
+          "runtimes": [
+            {
+              "project": "firefox-desktop-dark",
+              "engine": "firefox",
+              "version": "155.0",
+              "viewport": {
+                "width": 1440,
+                "height": 900
+              },
+              "colorScheme": "dark",
+              "deviceScaleFactor": 1,
+              "hasTouch": false,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "webkit-compact-light",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=webkit-compact-light",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-compact-light/summary.json",
+            "sha256": "34cfcbc530584f7a3d639c45b0860702bc91700cc619e12679158682db7607d3"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-compact-light/playwright.json",
+            "sha256": "861d5ab352fbcd81e1d6b9bf628d7e6e7bf9edc06f849e0a442ba683b9c67554"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-compact-light/command.log",
+            "sha256": "4a4ea81ad398eadba112d60926ed853b25e65aee5648ef609dd4f19b339c4763"
+          },
+          "runtimes": [
+            {
+              "project": "webkit-compact-light",
+              "engine": "webkit",
+              "version": "26.6",
+              "viewport": {
+                "width": 390,
+                "height": 844
+              },
+              "colorScheme": "light",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        },
+        {
+          "project": "webkit-compact-dark",
+          "command": [
+            "/Users/trinity/.hermes/node/bin/node",
+            "scripts/qa-ux.mjs",
+            "--project=webkit-compact-dark",
+            "--grep=(?:Ideas desk: review, creation-age parked and approved relationship queues|Ideas desk: labelled fixture approval, reload-safe proposal and canonical handoff both ways|Ideas desk: offline conversion refusal and failed proposal recovery|Ideas desk: enlarged handoff labels, keyboard links and missing historical relationship)$",
+            "--record",
+            "--skip-build"
+          ],
+          "tests": 4,
+          "summary": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-compact-dark/summary.json",
+            "sha256": "dffb77991a2b0aff22ba7ed544312098f671017edd253d8ec6701c992f2040ed"
+          },
+          "rawReport": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-compact-dark/playwright.json",
+            "sha256": "338ff57ebf34e0ca6e41473aeb0460289d2027a77d87d9ab36c415d4c9a17168"
+          },
+          "log": {
+            "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-compact-dark/command.log",
+            "sha256": "3c2ee75eeb038cd318d5e0d28e27986f58f3d8d7297428b213442c780ab40e95"
+          },
+          "runtimes": [
+            {
+              "project": "webkit-compact-dark",
+              "engine": "webkit",
+              "version": "26.6",
+              "viewport": {
+                "width": 390,
+                "height": 844
+              },
+              "colorScheme": "dark",
+              "deviceScaleFactor": 1,
+              "hasTouch": true,
+              "physicalDevice": false
+            }
+          ]
+        }
+      ]
+    },
+    "sourceDiffPaths": [
+      "docs/roadmap/00-baseline.md",
+      "docs/roadmap/PROGRESS.md",
+      "docs/testing/UX-LAB.md",
+      "scripts/certification/ux-project-isolation.test.mjs",
+      "scripts/qa-ux.mjs",
+      "scripts/ux-lab/project-isolation.mjs",
+      "tests/phase8-ideas-d1.test.ts",
+      "worker/ideaConversion.ts"
+    ],
+    "fullCatalog": {
+      "cases": 74,
+      "projects": 18,
+      "cells": 1332,
+      "complete": false
+    }
+  },
+  "preserved": {
+    "summary": {
+      "path": ".artifacts/phase8/ideas-preserved/summary.json",
+      "sha256": "af92aaf704e5db0a6030ad880397e888ccac6930ea2e96c23dcffd8d5b02d62a"
+    },
+    "sourceUnchanged": true,
+    "complete": true,
+    "gates": [
+      {
+        "exitCode": 0,
+        "signal": null,
+        "complete": true,
+        "externalNotRun": [],
+        "summary": {
+          "pass": 64,
+          "fail": 0,
+          "notRun": 0,
+          "blocking": 0,
+          "total": 64
+        },
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "tree": "2ec40d6d0b25bbf946411a793c11a979b9e6ebbe",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "sourceUnchanged": true,
+        "path": {
+          "path": ".artifacts/phase8/ideas-preserved/mcp-phase3/results.json",
+          "sha256": "798731204b7b71503ac0a5f930319cb3aa91d22201693df650dfdf22e4af2bab"
+        }
+      },
+      {
+        "exitCode": 0,
+        "signal": null,
+        "complete": true,
+        "externalNotRun": [
+          "physical iOS Safari device run",
+          "physical Android device run",
+          "assistive technology (VoiceOver/TalkBack) audit"
+        ],
+        "summary": {
+          "pass": 140,
+          "fail": 0,
+          "notRun": 3,
+          "blocking": 0,
+          "total": 143
+        },
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "tree": "2ec40d6d0b25bbf946411a793c11a979b9e6ebbe",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "sourceUnchanged": true,
+        "path": {
+          "path": ".artifacts/phase8/ideas-preserved/v8/results.json",
+          "sha256": "dfc6bbe4d5fcdf8ba27ff22b104eeab86b4cbc5feb7238c76d1a558a60bdfadf"
+        }
+      },
+      {
+        "exitCode": 0,
+        "signal": null,
+        "complete": true,
+        "externalNotRun": [],
+        "summary": {
+          "pass": 42,
+          "fail": 0,
+          "notRun": 0,
+          "blocking": 0,
+          "total": 42
+        },
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "tree": "2ec40d6d0b25bbf946411a793c11a979b9e6ebbe",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "sourceUnchanged": true,
+        "path": {
+          "path": ".artifacts/phase8/ideas-preserved/phase6/results.json",
+          "sha256": "1a3a98d4f063cb4cd4e9d8336e49aa13d41c7783b008c39b5d2adcb60b7f4988"
+        }
+      }
+    ]
+  },
+  "visual": {
+    "manifest": {
+      "path": ".artifacts/phase8/ideas-corrected-visual-review.json",
+      "sha256": "06be4d86eedb6022b8780bf6e9b74597e1d5433bb1f07f01840ff50271d0a870"
+    },
+    "images": [
+      {
+        "project": "webkit-tablet-light",
+        "name": "ideas-queues",
+        "path": ".artifacts/phase8/ideas-corrected-visual/webkit-tablet-light-ideas-queues.png",
+        "sha256": "be496e3a9b677d26c7d6035949ec67f211d7e0a9648a83c8714cd546955271f6",
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-tablet-light/playwright.json",
+        "review": "Agent inspected original PNG: handoff labels wrap within the panel, queue/control layout remains readable; viewport scrolling is expected. No genuine human approval claimed."
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "name": "ideas-converted",
+        "path": ".artifacts/phase8/ideas-corrected-visual/webkit-desktop-dark-ideas-converted.png",
+        "sha256": "251d8187b8943233efce6104829dacd5e0b18b828b8e9426ae802fe5b09c6467",
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-desktop-dark/playwright.json",
+        "review": "Agent inspected original PNG: handoff labels wrap within the panel, queue/control layout remains readable; viewport scrolling is expected. No genuine human approval claimed."
+      },
+      {
+        "project": "chromium-compact-light",
+        "name": "ideas-queues",
+        "path": ".artifacts/phase8/ideas-corrected-visual/chromium-compact-light-ideas-queues.png",
+        "sha256": "787a7d86847fae3f704a335e8ee082511b90eea6439066e09a4f81c7f847d173",
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-compact-light/playwright.json",
+        "review": "Agent inspected original PNG: handoff labels wrap within the panel, queue/control layout remains readable; viewport scrolling is expected. No genuine human approval claimed."
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "name": "ideas-converted",
+        "path": ".artifacts/phase8/ideas-corrected-visual/chromium-tablet-dark-ideas-converted.png",
+        "sha256": "59c337004b7527e5cd72d6f155b3750424a8c068f62f541034b92b0d045e28b1",
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-tablet-dark/playwright.json",
+        "review": "Agent inspected original PNG: handoff labels wrap within the panel, queue/control layout remains readable; viewport scrolling is expected. No genuine human approval claimed."
+      },
+      {
+        "project": "chromium-desktop-light",
+        "name": "ideas-enlarged-handoff",
+        "path": ".artifacts/phase8/ideas-corrected-visual/chromium-desktop-light-ideas-enlarged-handoff.png",
+        "sha256": "8360fc8a9cc7a1255cb5e1125219957563e1f249c8ca8c874979b310e64b6595",
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/chromium-desktop-light/playwright.json",
+        "review": "Agent inspected original PNG: handoff labels wrap within the panel, queue/control layout remains readable; viewport scrolling is expected. No genuine human approval claimed."
+      },
+      {
+        "project": "firefox-compact-light",
+        "name": "ideas-converted",
+        "path": ".artifacts/phase8/ideas-corrected-visual/firefox-compact-light-ideas-converted.png",
+        "sha256": "c666caa220784059bc8ef2f4e28196a9914e9b11778a84d9fe67ab0f7f1d2f1e",
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-compact-light/playwright.json",
+        "review": "Agent inspected original PNG: handoff labels wrap within the panel, queue/control layout remains readable; viewport scrolling is expected. No genuine human approval claimed."
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "name": "ideas-enlarged-handoff",
+        "path": ".artifacts/phase8/ideas-corrected-visual/firefox-tablet-dark-ideas-enlarged-handoff.png",
+        "sha256": "364dca057520472af110083af66e9bd5bff04b91431b92d3e158e0731ba23b84",
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-tablet-dark/playwright.json",
+        "review": "Agent inspected original PNG: handoff labels wrap within the panel, queue/control layout remains readable; viewport scrolling is expected. No genuine human approval claimed."
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "name": "ideas-queues",
+        "path": ".artifacts/phase8/ideas-corrected-visual/firefox-desktop-dark-ideas-queues.png",
+        "sha256": "8ce0e44bd533137c748e13659aa81bead4876240ab1b731cddb66483c88472c6",
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/firefox-desktop-dark/playwright.json",
+        "review": "Agent inspected original PNG: handoff labels wrap within the panel, queue/control layout remains readable; viewport scrolling is expected. No genuine human approval claimed."
+      },
+      {
+        "project": "webkit-compact-light",
+        "name": "ideas-enlarged-handoff",
+        "path": ".artifacts/phase8/ideas-corrected-visual/webkit-compact-light-ideas-enlarged-handoff.png",
+        "sha256": "ba3e4900a2418b4721d5995b562354409755cd3639b7fd33317e85599e941b4d",
+        "source": {
+          "sha": "36437beb400af66d33d4e1b049bab1f6c14a72d1",
+          "fingerprint": "89f4d5f21c06ac020b04dd9c2359f31ab88d5a7a48c27dadbbe0ea9756f6e172"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/ideas-corrected-browser-final/webkit-compact-light/playwright.json",
+        "review": "Agent inspected original PNG: handoff labels wrap within the panel, queue/control layout remains readable; viewport scrolling is expected. No genuine human approval claimed."
+      }
+    ],
+    "scope": "Agent visual inspection of nine original corrected-source viewport screenshots across all three engines, compact/tablet/desktop and light/dark. New handoff labels wrap and remain readable; queue controls do not overlap. Long editable record titles remain single-line fields. This is not physical-device, human screen-reader, native-zoom or overall design acceptance."
+  },
+  "finalFixtureIsolation": {
+    "path": ".artifacts/phase8/ideas-final-fixture-isolation.json",
+    "sha256": "e178db7e4aa98dd9fa113106ca2e23d273751d8dbbc119d300c127dfc66ac62e"
+  },
+  "fixtureIsolationDiagnostic": {
+    "identity": {
+      "path": ".artifacts/phase8/ideas-isolation-diagnostic-check.json",
+      "sha256": "0939091f312759f956ca02531c172f594514cc365dc7e1f83a070ea0cd19c20e"
+    },
+    "scope": "Two-project dirty-development diagnostic only; final source independently verified above"
+  },
+  "retainedRuns": [
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/ideas-corrected-browser/summary.json",
+        "sha256": "c9dd569d1e98f933876f25451589ed893e0bde7c9180450c9abe43eaf7d369da"
+      },
+      "meaning": "0 executed: short-case regex anchored to full Playwright title; ignored runner corrected without source change"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/ideas-canonical-baseline.log",
+        "sha256": "ef40883420cfcbbf5b01e8f8324f633f571916af4b9b46c8faf740c7bd00f48c"
+      },
+      "meaning": "2FAIL: product baseline, missing canonical relation in both permission modes"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/ideas-archived-baseline.log",
+        "sha256": "d4c082905071e96f5f498975da36517dcd95cfb3d3e26da50d5cda5a57d05a88"
+      },
+      "meaning": "9PASS/1FAIL: product baseline, archived original ignored"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/ideas-archived-corrected.log",
+        "sha256": "16d6ec60aa554590a43fb8ea20c1423fdf76ce0d0b4d0c88cab2bbe5b1809e11"
+      },
+      "meaning": "10PASS: archived original returned unchanged, no duplicate preview"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/ideas-focused-development2.log",
+        "sha256": "d28dabd0419eb255e0679fd0d678ccb3151885f5b6f8ee8a46a28c06fe782d70"
+      },
+      "meaning": "42PASS/1FAIL: private-space fixture patched ordinary field rather than canonical space_id; fixture corrected"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/ux-lab/2026-11-02T14-33-02.551Z/summary.json",
+        "sha256": "b01e819272ecc798b144074ac5ae5dc69ed1a2deb3342f542f54f1e6b7a109bf"
+      },
+      "meaning": "6PASS/6FAIL: selector incorrectly expected an editable title to be a semantic heading"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/ux-lab/2026-11-02T14-38-29.017Z/summary.json",
+        "sha256": "11f2b1dc9d85f69205299483b85b2ff712a71b07236a9de43ab728380e1e751a"
+      },
+      "meaning": "12PASS corrected compact development diagnostic, not final acceptance"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/ux-lab/2026-11-02T14-43-21.055Z/summary.json",
+        "sha256": "f7df73cb1abab5fec9f8449104f2b40f7d6279bbd4e45d7c36692d5351266ec6"
+      },
+      "meaning": "327PASS/2FAIL/1INTERRUPTED/84NOTRUN: shared test-account preview quota exhausted; original retained unchanged"
+    }
+  ],
+  "knownUnresolved": [
+    "N40: prior Editorial preserved Chromium startup/access failures have unproven cause. Same-source fresh runs passed without runtime changes. Carry into full phase certification; not an external gate."
+  ],
+  "limits": [
+    "Automated approvals use labelled disposable session fixtures, not genuine human decisions",
+    "Browser engines and viewport emulation only; physical devices, human assistive technology and native zoom remain incomplete",
+    "Full1332-cell catalog and final Phase8 canonical certificate not run",
+    "No production deploy, remote migration/infrastructure, real email/payment/push/token mint, paid inference or permissions outside disposable fixtures"
+  ],
+  "next": [
+    "8.13 Meetings",
+    "8.14 Forms",
+    "8.10 Automation health",
+    "8.2 Daily command center",
+    "Full clean-source Phase8 certification and remaining acceptance"
+  ]
+}
