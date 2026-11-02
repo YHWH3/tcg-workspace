@@ -107,6 +107,12 @@ In `createWorkspaceServer` (`worker/mcp.ts`): `server.registerTool(name, { descr
 2. `registerBlockType('mytype', 'Slash menu label', Renderer)` — see `src/modules/pages/blocks/registry.ts`; `pages/blocks/media.tsx` registers `image`/`video`/`audio`/`file`, boards registers `tasks`.
 3. Add the block's fields to the block type in `shared/types.ts` if new (e.g. `fileId`, `caption`, `boardId`).
 
+Dashboard block classification is shared in `shared/templates.ts` as
+`DASHBOARD_BLOCK_TYPES`. Use it for page contextual actions, comment placement
+and template handling. Extend `dashboard_snapshot` with its shared evaluator
+and cover a page containing only the new type, including configuration, open
+AI action menu and enlarged-text states.
+
 ## Add a module
 
 1. Create `src/modules/<name>/` with an `AppModule` object: `id`, `label`, `icon`, `navItem`, `routes`, `collections`, optional `sidebarSection` / `navBadge` / `slots`.

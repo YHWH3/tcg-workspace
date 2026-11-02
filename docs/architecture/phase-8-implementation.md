@@ -859,7 +859,7 @@ D1/HTTPS data per project, preserving the real 100-preview quota. Failed and
 interrupted reports remain retained; no full 1332-cell or final Phase 8 certificate
 is claimed. Next 8.13; overallPhase 8 HOLD.
 
-## 8.13 Meetings commitment review (in progress)
+## 8.13 Meetings commitment review
 
 `meetingCommitments` and `commitmentsPage` preserve canonical meeting/action/
 decision relationships, database stage semantics, explicit missing ownership and
@@ -902,3 +902,12 @@ page retains its contextual Dashboard actions. The new browser baseline fails
 on the absent action group; corrected compact/tablet/desktop journeys pass in
 three engines, including whole-page open-menu axe and Escape focus restoration.
 Opening this menu checks provider availability only; it does not run inference.
+
+8.13 feature evidence atacef300:518 focused tests/51files, five harness checks,
+typecheck/pack validation and486/486 fresh affected browser cells PASS across
+18 projects. All72 Meetings cells are included. Preserved MCP64/64, Operating
+Pack140 automated assertions and Phase642/42 PASS;3 external device/AT checks
+remain NOT RUN. Fifteen original captures inspected. N44–N49 baselines and
+interrupted reports remain retained. Exact evidence:
+../roadmap/evidence/P8-meetings-acef300.json. No full1404-cell or Phase8
+certificate, physical-device, human approval or native-zoom claim.

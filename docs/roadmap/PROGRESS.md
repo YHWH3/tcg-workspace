@@ -416,3 +416,21 @@ diagnostic passes3/3 with open-menu whole-page axe and Escape focus restoration.
 Only provider availability metadata is read; no inference is invoked. Original
 reports remain unchanged. A fresh source freeze reruns focused checks and all
 486 affected cells before Meetings publication. OverallPhase8 HOLD.
+
+8.13 feature verification complete at `acef300d2e4534bb2ab0d8aac754da75b1779861`:
+518/518 focused tests across 51 files, five harness self-tests, typecheck and
+pack validation PASS. All 486 affected browser cases PASS freshly at this source
+across 18 distinct engine/layout/theme fixtures, including 72 Meetings cases.
+No skips or flaky results; this is a selection from 1,404 catalog cases, not full
+Phase 8 certification. Fresh preserved MCP 64/64, Operating Pack 140 automated
+assertions and Phase 6 42/42 PASS. Three explicitly external physical-device/AT
+checks remain NOT RUN. Fifteen original screenshots inspected: 12 matrix captures
+including enlarged titles/content and three supplemental editor-open captures.
+N44 through N49 are corrected with retained baselines and final regressions.
+Earlier failed and interrupted runs preserve their original counts/exits.
+N40's earlier startup/access cause remains unproven and is carried into full
+phase certification. Exact source/tree/fingerprint, commands, platform versions
+and artifact hashes: evidence/P8-meetings-acef300.json. Publication adds
+only documentation and evidence. Next: 8.14 Forms operations, 8.10 Automation
+health and 8.2 Home. Final clean-source Phase 8 certification and remaining
+acceptance are still pending. Overall Phase 8: HOLD.

@@ -1,0 +1,985 @@
+{
+  "schemaVersion": 2,
+  "item": "8.13 Meetings commitment review",
+  "status": "FOCUSED_ENGINEERING_PASS_PHASE_CERTIFICATION_PENDING",
+  "phaseDecision": "HOLD",
+  "packVersion": 10,
+  "source": {
+    "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+    "tree": "6b9d30c2b2907834ac17d10db22bc42d0eb78ac6",
+    "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+  },
+  "sourceDiscovery": {
+    "at": "2026-11-02T21:21:59.498Z",
+    "heads": "b6c3c4a4105fc3f6ebdba557e86f638426fa7a97\trefs/heads/feature/unified-ai-mcp\nec14454b464d9accac9a5016272579d58319ff46\trefs/heads/main\n6586ee173c676e33af7f8aae25ceeccd929ee98e\trefs/heads/sol/p7-foundations\nacef300d2e4534bb2ab0d8aac754da75b1779861\trefs/heads/sol/p8-desks",
+    "websiteSha": "1bbc617da62168bbf094a2ad65b0140867f74fa5",
+    "websiteClean": true,
+    "contractCopiesIdentical": true,
+    "contractSha256": "fee8510a12a390b85ff7f58c65ada217e1bf7673972586c258d77736f264a5a4",
+    "contractVersion": 2,
+    "migrations": "0001 through 0035_workspace_settings.sql; no Meetings migration",
+    "websiteTree": "3eac9ec0a203205638d1abf024d639ad4b3c7ffa",
+    "websiteFingerprint": "ae38941626d2995d0c32d7459ed7aed99f39904214d5a857c01948e265877259",
+    "host": {
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v26.7.0",
+      "macOS": "27.0.1",
+      "osBuild": "26A434",
+      "playwright": "1.63.0",
+      "axePlaywright": "4.14.0",
+      "physicalDeviceClaim": false
+    }
+  },
+  "featureInventory": [
+    "Meeting-linked open actions by overdue/upcoming/undated bands and unresolved decisions; canonical bidirectional relations, current stages and authorized declared databases only",
+    "Recent, named historical and self-record configurations; missing dates/owners and incomplete sources remain explicit, no notes inference",
+    "Bounded metadata-only Worker/MCP read parity, current actor/connector/source fences and indexed partial device fallback",
+    "Guarded owner/date mutate edits, current account checks, refresh after acknowledged sync; inline focused editor and source-focus restoration",
+    "Additive packv10 operating page and self template, ordinary global views preserved; self config copy through frozen preview/session approval/resumable execution",
+    "Shared relation navigation/unlink44px targets and common dashboard classification preventing comment overlay obstruction and restoring contextual Dashboard actions; page inline padding preserves ordinary title words at200% text"
+  ],
+  "focused": {
+    "commands": [
+      "node --test scripts/certification/ux-project-isolation.test.mjs",
+      "npm run typecheck",
+      "npm test -- tests/phase8-project-health.test.ts tests/phase8-project-health-client.test.ts tests/phase8-project-health-read.test.ts tests/phase8-project-health-d1.test.ts tests/phase8-project-health-pack.test.ts tests/phase8-attention-mcp-d1.test.ts tests/assistant-registry.test.ts tests/phase8-attention-pack.test.ts tests/templates.test.ts tests/phase6-previews-d1.test.ts tests/conversion.test.ts tests/phase8-reliability.test.ts tests/phase8-reliability-client.test.ts tests/phase8-reliability-clock.test.ts tests/phase8-finance.test.ts tests/phase8-finance-d1.test.ts tests/phase8-finance-client.test.ts tests/phase8-finance-pack.test.ts tests/phase8-finance-read.test.ts tests/phase8-field-evidence.test.ts tests/phase8-field-evidence-d1.test.ts tests/phase8-field-evidence-client.test.ts tests/phase8-field-evidence-pack.test.ts tests/phase8-field-evidence-read.test.ts tests/fieldMode.test.ts tests/phase5-media.test.ts tests/phase5-engine.test.ts tests/phase4-file-chunks-d1.test.ts tests/phase5-files-d1.test.ts tests/phase8-community.test.ts tests/phase8-community-d1.test.ts tests/phase8-community-client.test.ts tests/phase8-community-pack.test.ts tests/phase8-community-read.test.ts tests/phase8-attention-d1.test.ts tests/forms.test.ts tests/phase8-editorial-d1.test.ts tests/phase8-editorial-pack.test.ts tests/phase8-editorial-views.test.ts tests/phase8-editorial-cache.test.ts tests/phase8-attention-client.test.ts tests/views.test.ts tests/bundled.test.ts tests/phase8-ideas.test.ts tests/phase8-ideas-d1.test.ts tests/phase8-ideas-pack.test.ts tests/phase8-commitments.test.ts tests/phase8-commitments-d1.test.ts tests/phase8-commitments-client.test.ts tests/phase8-commitments-pack.test.ts tests/phase8-commitments-read.test.ts",
+      "node scripts/_validate-tcg-pack.mjs"
+    ],
+    "tests": 518,
+    "files": 51,
+    "harnessSelfTests": 5,
+    "identity": {
+      "path": ".artifacts/phase8/meetings-actions-final-focused-source.json",
+      "sha256": "bf9f7491d6f96dd6d2a874ce9aabb5d6c4839bf545a1c950c16933b1069cb914"
+    },
+    "results": [
+      {
+        "name": "harness",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "typecheck",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "focused",
+        "exit": 0,
+        "signal": null
+      },
+      {
+        "name": "pack",
+        "exit": 0
+      }
+    ],
+    "logs": [
+      {
+        "path": ".artifacts/phase8/meetings-actions-final-harness.log",
+        "sha256": "367e5ee55f1f299d1f550832d9c63e157822afc841b01e9a88816fa886c617a6"
+      },
+      {
+        "path": ".artifacts/phase8/meetings-actions-final-typecheck.log",
+        "sha256": "c85faad742c8ad117de8ed591ec6999ea99a21fdd2ba557c5fb19bfa2f97cb5e"
+      },
+      {
+        "path": ".artifacts/phase8/meetings-actions-final-focused.log",
+        "sha256": "76b5c1f9f2f9ce624c54e136666efc23be29fc78af46dbdcfca2763abd05ae0a"
+      },
+      {
+        "path": ".artifacts/phase8/meetings-actions-final-pack.log",
+        "sha256": "9157ca852f95a4c0f9e4936e64b0f558ad9b9da5a78b65231120d95bc04853b9"
+      }
+    ],
+    "runner": {
+      "path": ".artifacts/phase8/run-meetings-actions-final-focused.mjs",
+      "sha256": "f76c1d91df6a5b392d34939f814a2e3ed2a1a56eff280df35df732565034a9c0"
+    },
+    "sourceUnchanged": true,
+    "complete": true
+  },
+  "browser": {
+    "kind": "SINGLE_SOURCE_AFFECTED_SELECTION",
+    "singleHeadPhaseCertification": false,
+    "coveredUniqueCells": 486,
+    "meetingCells": 72,
+    "projects": 18,
+    "summary": {
+      "path": ".artifacts/phase8/meetings-actions-final-browser/summary.json",
+      "sha256": "466fc2e3c2f64bcaca64d41af34608572006106d2ae580666c23462db2e0f06a"
+    },
+    "rawReport": {
+      "path": ".artifacts/phase8/meetings-actions-final-browser/playwright.json",
+      "sha256": "66c34bde3399629d332324b534b59f116be27dba019dcc8031fc03a84c903058"
+    },
+    "command": "UX_OUTPUT=.artifacts/phase8/meetings-actions-final-browser caffeinate -dims node scripts/qa-ux.mjs --grep='Meetings desk:|Ideas desk:|Editorial desk:|AI review desk:|Community desk:|attention:|pack upgrade:|surface: records-calendar|opened view controls:|table:|text enlargement:' --record",
+    "runtimes": [
+      {
+        "project": "chromium-compact-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-compact-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      }
+    ],
+    "projectReports": [
+      {
+        "project": "chromium-compact-light",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-compact-light/summary.json",
+          "sha256": "a4d69e3809f4d3f92e5736fcde7059a047964d027b7f6465b0b6453b9095ba7d"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-compact-light/playwright.json",
+          "sha256": "43e72a1363e69843d58d175ae915538e6501e1e4e05a6b2942866d7f6c714c60"
+        }
+      },
+      {
+        "project": "chromium-compact-dark",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-compact-dark/summary.json",
+          "sha256": "751919e52c1abc246ac11eada84756223aad805ede17690e866d201c66e0267d"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-compact-dark/playwright.json",
+          "sha256": "7b255d23ac178d0097da020b8279b5d233c8dfcab77f24d14a8539746b7a4c2e"
+        }
+      },
+      {
+        "project": "chromium-tablet-light",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-tablet-light/summary.json",
+          "sha256": "6bdc64a18ab568afed799556fd78574c4b657a7ccadd66fb5e44a46b0609314c"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-tablet-light/playwright.json",
+          "sha256": "c494f99849ce6c4d253a7584e4f14a0568e7f0f5ff212cb894a42d12cb5820df"
+        }
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-tablet-dark/summary.json",
+          "sha256": "21d89a0dcab06723ccd53116afeb81c5980f126fd25c24b59370070379d3f7c4"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-tablet-dark/playwright.json",
+          "sha256": "f38a9b7ed84472f1253fd7db5a43967e2b3b9d632d477516ae58f80a16ea0a79"
+        }
+      },
+      {
+        "project": "chromium-desktop-light",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-desktop-light/summary.json",
+          "sha256": "07120a398f009c0ae89659c0231811e7d77f53a146cb9df3f7b3893db97304b0"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-desktop-light/playwright.json",
+          "sha256": "305e28be40ae2a97755ea3bfda905b2363552ac8edcfe1574a082b67cb1ab75e"
+        }
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-desktop-dark/summary.json",
+          "sha256": "bbc07fa270fcdfbb09ada0757c3f2a2cf854c5c5b9fdaae12af9e5bd6ad25dab"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-desktop-dark/playwright.json",
+          "sha256": "5d5f229bc4e4011a609c209cce9031fa205e06f36604ec5728875755ce6a58c2"
+        }
+      },
+      {
+        "project": "firefox-compact-light",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-compact-light/summary.json",
+          "sha256": "866068c9465be64dbd53c0d1ab21af7900398f184acf32211e2e13d197805182"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-compact-light/playwright.json",
+          "sha256": "8fb6364c3b79fc6ef5ab346a59171edee2dd2c524ca92986400c535156f006a2"
+        }
+      },
+      {
+        "project": "firefox-compact-dark",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-compact-dark/summary.json",
+          "sha256": "82d3ebe613af7d6f0560ec684bc1842aaa1a03935ba7843d5138258276739088"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-compact-dark/playwright.json",
+          "sha256": "085d13366f16b4bfa3431d5e4438c32ad6cad2ed2978d7112a056d77b4531ba7"
+        }
+      },
+      {
+        "project": "firefox-tablet-light",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-tablet-light/summary.json",
+          "sha256": "47c28331af74073f06e279d04f05e8013e769732ad5f03a85ecee954b279b6bc"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-tablet-light/playwright.json",
+          "sha256": "d93abfc39a52ee6de8353e82c07b0eb5e1efd12d0f45c91746cc435d6f61c798"
+        }
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-tablet-dark/summary.json",
+          "sha256": "765620c1601f2db7b2f4a389fccde48a6af7acf4ef85774e5a2b133795c0ec78"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-tablet-dark/playwright.json",
+          "sha256": "279173f23fd1e4aa163d11e40125eab0b8d941a93dadd89fd879b49cd46c4170"
+        }
+      },
+      {
+        "project": "firefox-desktop-light",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-desktop-light/summary.json",
+          "sha256": "1da97549f74557d6f5df82fb4333302468d561295202e11466a591eb73d3b4ba"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-desktop-light/playwright.json",
+          "sha256": "f3110ede8428657cfe22005b6f1386d6c1e40c5a7c8c2b268bef8fe13516d96f"
+        }
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-desktop-dark/summary.json",
+          "sha256": "480f86fb03927e2d7ee8cabd0a3149fad2ac8662cab4822bcf477569ffd2eb57"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-desktop-dark/playwright.json",
+          "sha256": "9f4ee1cbd07e7cc10da0c7a7762c39956a54cbc6530cc471d96f5c4534087d14"
+        }
+      },
+      {
+        "project": "webkit-compact-light",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-compact-light/summary.json",
+          "sha256": "550cfdbb3cfc8896ea8be0ff98765a7d7ca683992ab9e065848be4c56960d888"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-compact-light/playwright.json",
+          "sha256": "71c6fb1f7db39e4439d1d87a5422ea241d651ba8015383ec96a463309c1ab240"
+        }
+      },
+      {
+        "project": "webkit-compact-dark",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-compact-dark/summary.json",
+          "sha256": "c9ad98b5c97c4c46e9aa85acc7c8c979b8e354c36128c154d98e903191f6e330"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-compact-dark/playwright.json",
+          "sha256": "08e07323dc4c3b551096bdab113944659c9bef1dfa598c77849be7b1daed86df"
+        }
+      },
+      {
+        "project": "webkit-tablet-light",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-tablet-light/summary.json",
+          "sha256": "b1dc3e6bf8ec45f16954677ebe509e494b6c59053370b8bd159251472f7bf8c0"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-tablet-light/playwright.json",
+          "sha256": "ece4833ac5d9b82711407b2f69333cbc76b104d40537aa3edf30e3662eec7a9c"
+        }
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-tablet-dark/summary.json",
+          "sha256": "788c8ba39026448092ed849c1247d692f134e6b864f57ebbdff5e97938fcfa0f"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-tablet-dark/playwright.json",
+          "sha256": "1f8d91a5a360c6d6848fe8626e4a78a942fc6e793d68345376e81dff8a8051fa"
+        }
+      },
+      {
+        "project": "webkit-desktop-light",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-desktop-light/summary.json",
+          "sha256": "959786ef450c09ec479b8a749c052116c0f126c1502008ca37ca5ce376344ebd"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-desktop-light/playwright.json",
+          "sha256": "c2d11acadbb8013f02690d23dafd9a2bc882869b0f78508b19e27dc64e1f07f8"
+        }
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "summary": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-desktop-dark/summary.json",
+          "sha256": "961c05525372994f47c518e6b6d6b6d8423d177d22d054e43cb77e8114bf73bf"
+        },
+        "rawReport": {
+          "path": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-desktop-dark/playwright.json",
+          "sha256": "a5f2a31a81a1684e29e80ef5f5d0b8d1491e5d32c9ba1a22a15231f2b06924d8"
+        }
+      }
+    ],
+    "fullCatalog": {
+      "cases": 78,
+      "projects": 18,
+      "cells": 1404,
+      "complete": false
+    }
+  },
+  "fixtureIsolation": {
+    "path": ".artifacts/phase8/meetings-final-fixture-isolation.json",
+    "sha256": "fc117844e45aa23cd92debbef0c58f08c3d2709c51671d92f9cb8a0741f296cd"
+  },
+  "preserved": {
+    "summary": {
+      "path": ".artifacts/phase8/meetings-preserved/summary.json",
+      "sha256": "a45b51e91d227b1feb866b8d8125001999019e34362f8d70716fc979fdb1233b"
+    },
+    "runner": {
+      "path": ".artifacts/phase8/run-meetings-preserved.mjs",
+      "sha256": "5ea2b58307de5bf02b5de47ef1282a8358f6252eddb94a491a791e358962a537"
+    },
+    "sourceUnchanged": true,
+    "complete": true,
+    "gates": [
+      {
+        "exitCode": 0,
+        "signal": null,
+        "complete": true,
+        "externalNotRun": [],
+        "summary": {
+          "pass": 64,
+          "fail": 0,
+          "notRun": 0,
+          "blocking": 0,
+          "total": 64
+        },
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "tree": "6b9d30c2b2907834ac17d10db22bc42d0eb78ac6",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "sourceUnchanged": true,
+        "path": {
+          "path": ".artifacts/phase8/meetings-preserved/mcp-phase3/results.json",
+          "sha256": "45af1092d351d9bf7fcbe9bb8911b56df432f267151be6584e631b5119fb1c0c"
+        }
+      },
+      {
+        "exitCode": 0,
+        "signal": null,
+        "complete": true,
+        "externalNotRun": [
+          "physical iOS Safari device run",
+          "physical Android device run",
+          "assistive technology (VoiceOver/TalkBack) audit"
+        ],
+        "summary": {
+          "pass": 140,
+          "fail": 0,
+          "notRun": 3,
+          "blocking": 0,
+          "total": 143
+        },
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "tree": "6b9d30c2b2907834ac17d10db22bc42d0eb78ac6",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "sourceUnchanged": true,
+        "path": {
+          "path": ".artifacts/phase8/meetings-preserved/v8/results.json",
+          "sha256": "04944f144457a19738d47f0343366b28b377fc2c5ed37753ef6263703180da74"
+        }
+      },
+      {
+        "exitCode": 0,
+        "signal": null,
+        "complete": true,
+        "externalNotRun": [],
+        "summary": {
+          "pass": 42,
+          "fail": 0,
+          "notRun": 0,
+          "blocking": 0,
+          "total": 42
+        },
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "tree": "6b9d30c2b2907834ac17d10db22bc42d0eb78ac6",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "sourceUnchanged": true,
+        "path": {
+          "path": ".artifacts/phase8/meetings-preserved/phase6/results.json",
+          "sha256": "e81409036cb135196896484efb3336243afa60321f744fec6814b1dde13cadcd"
+        }
+      }
+    ]
+  },
+  "visual": {
+    "manifest": {
+      "path": ".artifacts/phase8/meetings-actions-final-visual-review.json",
+      "sha256": "8e8b9fced6ad0487516b989837ef27d140417a127ad9a6aba8c8990f7fcb8fcb"
+    },
+    "editorManifest": {
+      "path": ".artifacts/phase8/meetings-editor-visual/summary.json",
+      "sha256": "ebdb9386a53bf36dc4df42606252aca20735e883d28a37be85e74c6247c3ebb9"
+    },
+    "images": [
+      {
+        "project": "chromium-compact-light",
+        "name": "meeting-queues",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/chromium-compact-light-meeting-queues.png",
+        "sha256": "8c92f7162c135c5d0f1d43dcebc8fb37318ab67a650426a463e4d4eb3891415e",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-compact-light/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "chromium-compact-light",
+        "name": "meeting-enlarged-title",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/chromium-compact-light-meeting-enlarged-title.png",
+        "sha256": "baf151d2dacc582fb7b575b84e98689934baf3da16a5425cda8df72fbe81487e",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-compact-light/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "name": "meeting-edited",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/chromium-tablet-dark-meeting-edited.png",
+        "sha256": "eb8d7d3002a0793a245237026b9bd436ba3cbf7bb3e9edf16cc990755e838af9",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-tablet-dark/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "chromium-desktop-light",
+        "name": "meeting-enlarged",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/chromium-desktop-light-meeting-enlarged.png",
+        "sha256": "9d3888571a138707dae765cf7e3fef3aa02915b1a3e4f637a7f1947ac7e59254",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/chromium-desktop-light/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "firefox-compact-light",
+        "name": "meeting-edited",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/firefox-compact-light-meeting-edited.png",
+        "sha256": "6662681c121fd13180b77b25dbb24c3f9d6723f8cf62a36e344d7d56b98aa19a",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-compact-light/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "firefox-compact-dark",
+        "name": "meeting-enlarged-title",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/firefox-compact-dark-meeting-enlarged-title.png",
+        "sha256": "caa2d87bf2739af8370fe2146dc5ab7156bca6a5275d63eaad159a03aa37f458",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-compact-dark/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "name": "meeting-enlarged",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/firefox-tablet-dark-meeting-enlarged.png",
+        "sha256": "d4eb53b517b3166b95c342557d688c8b516bead4fc6dad8f68535def556b0a07",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-tablet-dark/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "name": "meeting-queues",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/firefox-desktop-dark-meeting-queues.png",
+        "sha256": "9f823bec4cb8d81e9aa3b2cefe9d1bc7ecde65487df1dabd23646345c339a07a",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/firefox-desktop-dark/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "webkit-compact-light",
+        "name": "meeting-enlarged-title",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/webkit-compact-light-meeting-enlarged-title.png",
+        "sha256": "a73d241bcf556c57dea5653e4a2bd897d6a6be3098e3d72bd051e0c019525fec",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-compact-light/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "webkit-compact-light",
+        "name": "meeting-enlarged",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/webkit-compact-light-meeting-enlarged.png",
+        "sha256": "8917975eb53a415183a7eeac4117c3d2a1e15a84fde91a16d5179194f98d61fe",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-compact-light/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "webkit-tablet-light",
+        "name": "meeting-queues",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/webkit-tablet-light-meeting-queues.png",
+        "sha256": "ccb741bd01e561482216dd1ad90d1ea3bc50ef5ee4a05342c24c56cf6ee587d5",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-tablet-light/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "name": "meeting-edited",
+        "path": ".artifacts/phase8/meetings-actions-final-visual/webkit-desktop-dark-meeting-edited.png",
+        "sha256": "6bb2c1a4a71819cf93bf59662e3ca1630f5e9095cabbe46a5e14a0aede8effdd",
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "report": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/phase8/meetings-actions-final-browser/projects/webkit-desktop-dark/playwright.json",
+        "agentInspected": true
+      },
+      {
+        "project": "chromium-390-light",
+        "path": ".artifacts/phase8/meetings-editor-visual/chromium-390-light.png",
+        "sha256": "fbaa0f18215f0981437b1d70303db377514b86d2814b09b0138fe6db65b8461e",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "checks": [
+          "owner fully in viewport before filling",
+          "owner focused",
+          "whole-page WCAG tags",
+          "control geometry"
+        ],
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "agentInspected": true
+      },
+      {
+        "project": "firefox-820-dark",
+        "path": ".artifacts/phase8/meetings-editor-visual/firefox-820-dark.png",
+        "sha256": "483d4a13027ffda46f0c82448a86e9ebe248b5a20cbdb986071a5806ccad5511",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "checks": [
+          "owner fully in viewport before filling",
+          "owner focused",
+          "whole-page WCAG tags",
+          "control geometry"
+        ],
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "agentInspected": true
+      },
+      {
+        "project": "webkit-1440-light",
+        "path": ".artifacts/phase8/meetings-editor-visual/webkit-1440-light.png",
+        "sha256": "2879ebee51a71eeabb9f9e617945cf1976fd231825ed7a578691dd1167afc3e0",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "checks": [
+          "owner fully in viewport before filling",
+          "owner focused",
+          "whole-page WCAG tags",
+          "control geometry"
+        ],
+        "source": {
+          "sha": "acef300d2e4534bb2ab0d8aac754da75b1779861",
+          "fingerprint": "c60f412e5c87069ce6474fa438aabbf211731bb4c3049898c05ee100fe8076c1"
+        },
+        "agentInspected": true
+      }
+    ],
+    "scope": "Agent inspection of15 original screenshots from local disposable HTTPS. Not independent human acceptance, physical devices, assistive technology or native zoom."
+  },
+  "retainedRuns": [
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-padding-final-browser/summary.json",
+        "sha256": "6d0afde5587aa05d7c3a063fcb4b4efab76604ac06760db2f0ea146bd4acdeb0"
+      },
+      "meaning": "186PASS/1INTERRUPTED/299selectedNOTRUN: stopped when source inspection found N49 missing Dashboard actions"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-dashboard-actions-baseline/summary.json",
+        "sha256": "db9cab3d6b9c3ffa1dfdbe3be420f5f0692c7b688dbb30f9a4d7f43c2b7a9e55"
+      },
+      "meaning": "1FAIL: Meetings-only page omits the Dashboard actions group"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-registry-final-browser/summary.json",
+        "sha256": "fb25692627a6bfa7af8fe5908f3fd06105b47a38fdc337600fdb70bf5676b0a7"
+      },
+      "meaning": "55PASS/1INTERRUPTED/430selectedNOTRUN: stopped after visual review identified N48 title fragmentation"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-title-padding-baseline/summary.json",
+        "sha256": "67b33674782785f8a0b17d9f46019f115cc4b34861e503d1a8eb5e3ef980e385"
+      },
+      "meaning": "1FAIL: enlarged ordinary title requires315px, rem padding leaves310px"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-first-d1.log",
+        "sha256": "780578292c913be6609b758c46d3c166d2c9649851e1901abd64f0519fe938f3"
+      },
+      "meaning": "15PASS/2FAIL: fixture stages out of step with effective database-stage semantics; corrected fixture retained"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-focused-development2.log",
+        "sha256": "1baeda2e2efdaf9270157b4aa58600ba80ff1178406c610a3d26a39d99f82fd8"
+      },
+      "meaning": "51PASS/1FAIL: missing decision owner field in fixture after completeness metadata added"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/ux-lab/2026-11-02T19-49-55.544Z/summary.json",
+        "sha256": "b90159022740d18828cd189e1907e0df7c92f7ec4d148d1fafe1b36d54441eb8"
+      },
+      "meaning": "2FAIL/1INTERRUPTED/1NOTRUN: N44 shared relation target size and N45 stale own-edit summary"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-final-browser/summary.json",
+        "sha256": "410d7475e8ef3cd4c598e99d2bf881186a21cc79715ef5eb96badb4fb82a6f17"
+      },
+      "meaning": "53PASS/1INTERRUPTED/432NOTRUN: stopped for N46 pre-fill editor visibility investigation"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-editor-visibility-baseline/summary.json",
+        "sha256": "716691983729cc1a957895a6b2eb81e807432d449ae550d791ec42365aeadbec"
+      },
+      "meaning": "1FAIL: N46 owner control viewport ratio0 before automatic form scrolling"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-editor-focus-final-diagnostic/summary.json",
+        "sha256": "26d2596334438bf293b5657b04a0a9d41cf6a47900941a78b4144178f9415d42"
+      },
+      "meaning": "2PASS/1FAIL: strict visibility assertion exposes WebKit border clipping"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-corrected-browser/summary.json",
+        "sha256": "c44a535d2dcdb6b602872553094e4cc9ce5f658ea7ebd048dec74b403102086d"
+      },
+      "meaning": "33PASS/3FAIL/405NOTRUN: N47 comment overlay covers Configure on tablet"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-dashboard-classification-corrected/summary.json",
+        "sha256": "7c915e46b9d828c53225db83f5e3bff056ad15d112b1a8b2cd47d91a4855e6c2"
+      },
+      "meaning": "3PASS/1FAIL: obstruction fixed, dense-chip test locator ambiguous between background table and open detail"
+    },
+    {
+      "artifact": {
+        "path": ".artifacts/phase8/meetings-dashboard-classification-corrected2/summary.json",
+        "sha256": "182da185610fafc2a705e0bf5b52bd9d4ddab53531ee729129cb0cde57642669"
+      },
+      "meaning": "12PASS: scoped detail locator and dashboard classification diagnostic, dirty-source development only"
+    }
+  ],
+  "knownUnresolved": [
+    "N40 prior Editorial Chromium startup/access cause unproven; retain failures and carry into full-phase certification."
+  ],
+  "limits": [
+    "Labelled automated session approval fixtures, never genuine human decisions",
+    "Engine/viewport emulation; physical devices, human assistive technology and native zoom remain incomplete",
+    "Full1404 catalog and final Phase8 canonical certificate not run",
+    "No deployment, remote migration/infrastructure, real email/payment/push/mint or paid inference; permissions only disposable fixtures"
+  ],
+  "next": [
+    "8.14 Forms operations",
+    "8.10 Automation health",
+    "8.2 Daily command center",
+    "Full clean-source Phase8 certification and remaining acceptance"
+  ]
+}

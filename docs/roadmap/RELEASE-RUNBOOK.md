@@ -225,3 +225,15 @@ and271 unaffected retained cells at 9af2f76, with fresh preserved64/140/42 check
 See evidence/P8-ideas-36437be.json for source-specific proof and retained failures.
 This does not authorize deployment or establish final Phase 8 certification.
 Remaining 8.13,8.14,8.10,8.2 and native/physical/human acceptance still gate release.
+
+Meetings desk (8.13) review checkpoint:acef300; packv10. No new migration,
+secret, provider, collection or Website event-contract version. Existing
+migrations0001–0035 remain prerequisites. Review/apply the additive pack upgrade
+through its normal approved flow; team edits and intentionally deleted blocks
+stay reserved. Recent-meeting and self-record blocks preserve source links.
+Owner/date edits use normal guarded writes; local device snapshots are partial.
+Meeting-to-actions remains proposals only, and no owner/deadline is invented.
+Rollback is an owner-reviewed source rollback plus explicit review of additive
+pack records; never mass-delete or overwrite team data.
+Source-bound feature evidence:P8-meetings-acef300.json. Full Phase8 certification,
+8.14/8.10/8.2 and native/physical/human acceptance remain open; no deployment.
