@@ -1,0 +1,189 @@
+{
+  "item": "8.10 Automation and delivery health",
+  "decision": "INCREMENTAL_FEATURE_CHECKS_PASS; Phase8 HOLD",
+  "source": {
+    "sha": "c9384565873b73af577d06e2d4cba72da223b021",
+    "tree": "2549eb6f1cd3dca08ebbb9e61010d4aeef91ca2b",
+    "fingerprint": "7b8262c956fd82de403e102723423711ae8687cb28be6f3079b55b808a5d0813"
+  },
+  "checks": [
+    {
+      "name": "typecheck",
+      "args": [
+        "run",
+        "typecheck"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 1291
+    },
+    {
+      "name": "focused",
+      "args": [
+        "test",
+        "--",
+        "tests/phase8-automation-health-d1.test.ts",
+        "tests/phase8-form-operations-d1.test.ts",
+        "tests/assistant-registry.test.ts",
+        "tests/phase5-reads-d1.test.ts",
+        "tests/automations.test.ts"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 36558
+    },
+    {
+      "name": "build",
+      "args": [
+        "run",
+        "build"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 2955
+    }
+  ],
+  "focused": {
+    "pass": 81,
+    "files": 5,
+    "healthActualD1": 14,
+    "healthMcpParityCases": 2,
+    "healthRestWorstBindingCalls": 7,
+    "maxAllowedBindingCalls": 8
+  },
+  "browser": {
+    "command": "UX_OUTPUT=.artifacts/phase8/health-final-browser caffeinate -dims node scripts/qa-ux.mjs --skip-build --grep='Automation health:'",
+    "pass": 72,
+    "fail": 0,
+    "skips": 0,
+    "flaky": 0,
+    "projects": 18,
+    "distinctDisposableFixtures": 18,
+    "sourceUnchanged": true,
+    "executionMs": 287636.302,
+    "versions": [
+      [
+        "chromium",
+        "153.0.8010.12"
+      ],
+      [
+        "firefox",
+        "155.0"
+      ],
+      [
+        "webkit",
+        "26.6"
+      ]
+    ],
+    "projectNames": [
+      "chromium-compact-light",
+      "chromium-compact-dark",
+      "chromium-tablet-light",
+      "chromium-tablet-dark",
+      "chromium-desktop-light",
+      "chromium-desktop-dark",
+      "firefox-compact-light",
+      "firefox-compact-dark",
+      "firefox-tablet-light",
+      "firefox-tablet-dark",
+      "firefox-desktop-light",
+      "firefox-desktop-dark",
+      "webkit-compact-light",
+      "webkit-compact-dark",
+      "webkit-tablet-light",
+      "webkit-tablet-dark",
+      "webkit-desktop-light",
+      "webkit-desktop-dark"
+    ],
+    "physicalDevice": false
+  },
+  "visual": {
+    "source": {
+      "sha": "c9384565873b73af577d06e2d4cba72da223b021",
+      "tree": "2549eb6f1cd3dca08ebbb9e61010d4aeef91ca2b",
+      "fingerprint": "7b8262c956fd82de403e102723423711ae8687cb28be6f3079b55b808a5d0813"
+    },
+    "images": [
+      {
+        "project": "chromium-compact-light",
+        "name": "automation-health-summary",
+        "path": ".artifacts/phase8/health-final-visual/chromium-compact-light-automation-health-summary.png",
+        "sha256": "df59db9ea0115886aeca3c4e1e1b248e366514c4c2634e1b53facb6689b9acb1"
+      },
+      {
+        "project": "chromium-compact-light",
+        "name": "automation-run-history-enlarged",
+        "path": ".artifacts/phase8/health-final-visual/chromium-compact-light-automation-run-history-enlarged.png",
+        "sha256": "311de1defb18682ea8fe09dd95f427d4f7259667840cb063f7b6c5d571b02c36"
+      },
+      {
+        "project": "chromium-compact-light",
+        "name": "automation-health-enlarged",
+        "path": ".artifacts/phase8/health-final-visual/chromium-compact-light-automation-health-enlarged.png",
+        "sha256": "b18cbb82bc787a2284ec5a30b0d39306ab995018c098b4f02573a2b32e7b2c7e"
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "name": "automation-health-enlarged",
+        "path": ".artifacts/phase8/health-final-visual/firefox-tablet-dark-automation-health-enlarged.png",
+        "sha256": "8f91bb652c34725fbe6b93333c0b7ed425d8f3d1f477a696fa14c6f3a931f360"
+      },
+      {
+        "project": "webkit-desktop-light",
+        "name": "automation-health-enlarged",
+        "path": ".artifacts/phase8/health-final-visual/webkit-desktop-light-automation-health-enlarged.png",
+        "sha256": "6c6a27b4b752c4d800a95aca01bd8eb8fc12d5eb89341d09d84c8be6982077ff"
+      }
+    ],
+    "review": "Five original PNGs inspected by the coding agent: compact normal/enlarged health and enlarged run-history heading/actions, Firefox tablet dark enlarged and WebKit desktop light enlarged. Source names/actions remain readable and inside their containers. Human acceptance is separate.",
+    "inspected": true
+  },
+  "scope": "Only Health, shared Forms projection, canonical read gate, rule logic and MCP classification were selected; unrelated577/630/preserved suites were not repeated. Full phase mandatory manifest remains required.",
+  "limits": [
+    "Scheduler phase history optional and not recorded; its unavailability is explicit.",
+    "No migration beyond0036, newbinding, provider call or recoveryengine change.",
+    "New summary withholds arbitrary exception text and journal/approval payloads; existing runs endpoint access/shape remains unchanged, newreadonlypage shows error classes.",
+    "Forms requires editable destinations. Other sources require current canonical reads; approvals remain participant-only.",
+    "Full1548-cell catalog and mandatory Phase8 certificate not yet run.",
+    "Physical/nativeAT/human acceptance remain unavailable; N40 earlier startup/access cause unproven."
+  ],
+  "retainedFailure": {
+    "path": ".artifacts/phase8/health-first-focused.log",
+    "meaning": "Initial9Health test setup failures: malformed JSON payload violated an existing SQLite expression index; corrected fixture. Forms15/registry6 passed."
+  },
+  "artifacts": [
+    {
+      "path": ".artifacts/phase8/health-final-checks.json",
+      "sha256": "35eb7e41f90c73ddb93e8a15ffc1c098fd0eb5cbceb0d71307343c5195d4c4a5"
+    },
+    {
+      "path": ".artifacts/phase8/health-final-focused.log",
+      "sha256": "35261c112be496afd08d2e48bfaa81e026c513c1a90919acb73595321826a28c"
+    },
+    {
+      "path": ".artifacts/phase8/health-final-browser/summary.json",
+      "sha256": "8bc01ed39813705746d5081dc1b0a32c79d56244a36d4f0364e8f3a97f9f787a"
+    },
+    {
+      "path": ".artifacts/phase8/health-final-visual/summary.json",
+      "sha256": "8861ae4b3a2ee6fdd43de93c4ed8427831ebc575b6e3328b36e86a9d3a0d568f"
+    },
+    {
+      "path": ".artifacts/phase8/health-first-focused.log",
+      "sha256": "ec31bf6d59f58111cdacfd8584a4c735c6e43503a2f4b5149e31d4abfcd5d6ea"
+    },
+    {
+      "path": ".artifacts/phase8/health-first-browser/summary.json",
+      "sha256": "8d24f42a6c0e2ffc7610ef353ed3e9f8ddc5bff63269dd8498b295503d19fff0"
+    },
+    {
+      "path": ".artifacts/phase8/health-refined-browser/summary.json",
+      "sha256": "adc6b0f8deed570a1334635a1de904bf11150f36d4835c5dd12c44c6acd5f85a"
+    }
+  ],
+  "remaining": [
+    "8.2 Home command center",
+    "Full mandatory Phase8 certification and required matrix",
+    "Applicable native/physical/human acceptance and owner launch gates"
+  ]
+}

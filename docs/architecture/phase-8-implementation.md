@@ -946,3 +946,9 @@ The new run-history page classifies stored errors rather than rendering their
 arbitrary text. Existing editor and undo behavior is preserved. Optional scheduler
 phase history remains unimplemented and visibly unavailable; recovery rotation,
 budgets and leases are untouched. No scheduler table or new migration is added.
+
+
+8.10 source-bound incremental evidence: ../roadmap/evidence/P8-health-c938456.json.
+Atc938456,81focusedtests/5files,typecheck/build and72freshHealthbrowsercells
+across18projects PASS;five original captures inspected. No full1548-cell/current
+mandatory phase certificate is claimed. Next8.2 andtheunchanged finalphasegates.
