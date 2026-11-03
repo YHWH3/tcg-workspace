@@ -643,3 +643,42 @@ preserve equivalence between the old Home range and the new within condition.
 No production filters or Home content change. The failed certificate remains
 unchanged; the next D1 gate was stopped to avoid source-obsolete work.
 Development pack checks now include shared views and Phase7 dates.
+
+### Final certificate at23f6ffd and browser-harness correction checkpoint
+
+The awake resumed run finished at2026-11-03T17:13:17Z:30/34mandatory gates
+PASS,4FAIL,0NOTRUN, no host pauses. Unit1148/1148 across119files and actual
+D1921/921 across75files PASS. Operating Pack140, Phase3 workflows75,
+permission sync33, Phase5 workflows36/MCP15, Phase6 workflows42, release
+preflight14/rehearsal12, assistant27 and performance evidence71 PASS.
+Four sealed prefix gates were reused; all other evidence retains its actual
+execution/source identity. This is a failed certificate, not engineering GO.
+
+The failures were a registry timeout and three old harness assumptions:
+`verify-v6` used a removed relation-button attribute and network-idle waits;
+`verify-v7` checked October fixture dates in the current calendar/timeline
+period; release UI expected library controls on the new default Review page.
+The corrections use semantic relation locators, an exact new-record relationship
+check, foreground-read fences with DOM/surface readiness, explicit fixture-period
+navigation, and the normal Workflow library link. Existing mandatory assertions
+remain. No application/schema/contract/provider change or timeout relaxation.
+
+The first diagnostic found a missing post-navigation surface wait. A second
+failed136/18 because request routing disabled the browser HTTP cache; routing
+was removed rather than weakening offline recovery. Original reports remain.
+The corrected v6 then completed150PASS/0FAIL/0NOTRUN across all six engine/layout
+pairs at17:27:33Z, on the recorded dirty correction fingerprint. It is precommit
+engineering evidence, not a clean23f6ffd certificate. The wrapper later detected
+a227650ms host gap during v7 and stopped. Retain the completed v6 result; v7 is
+interrupted and release UI was not executed. Availability was requested again
+because the Mac slept despite its process-scoped guard. No global settings changed.
+
+Evidence: `docs/roadmap/evidence/P8-certification-23f6ffd-harness-checkpoint.json`.
+Next: finish only the incomplete affected preflights, publish the correction
+checkpoint, then run the full1602-cell catalog before the expensive final
+mandatory certificate. Native/physical/human gates remain separately named.
+Phase8 remains HOLD. All earlier failed/interrupted artifacts stay unchanged.
+
+Correction checkpoint checks:39/39 certification core/failure-injection tests
+PASS, all four changed scripts parse, evidence JSON parses and whitespace passes.
+The corrected v7/release UI browser checks remain incomplete; no PASS inferred.

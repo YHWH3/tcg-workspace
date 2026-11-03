@@ -89,3 +89,25 @@ added. This was a gap in the initial affected-test selection: pack metric edits
 need shared views/date tests as well as the new page's tests. Those regressions
 now assert exact authored identities and actual old/new range equivalence;
 production Home remains untouched. The original1146PASS/2FAIL is retained.
+
+## Final mandatory-browser harness assumptions
+
+The complete awake run at23f6ffd finished30PASS/4FAIL/0NOTRUN. Besides the
+registry transport failure, old harness assumptions caused relation-picker,
+calendar/timeline-period and AI-library-entry failures. These navigational
+contracts were missing from the earlier affected feature selection. Future
+changes to a default route, accessible control name or date anchor should include
+its existing release-harness journey in the narrow preflight.
+
+Fixing the network-idle wait also exposed a post-navigation rendering race.
+A diagnostic attempt to block dummy external iframe requests used Playwright
+routing, which disables HTTP caching and broke Firefox offline reload. That
+failed136/18 diagnostic remains preserved. The final correction removes routing,
+retains foreground-read fences and waits for DOM readiness plus the actual target
+surface. Corrected v6 completes150/150 across three engines and two layouts.
+A later host pause interrupted v7; that does not invalidate v6 completed before
+it and does not justify repeating it during the same-fingerprint preflight.
+The interrupted whole diagnostic never becomes PASS. Final clean-source
+certification and the complete catalog remain required.
+
+Reference: [Playwright BrowserContext routing](https://playwright.dev/docs/api/class-browsercontext#browser-context-route).

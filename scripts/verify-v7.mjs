@@ -1061,6 +1061,27 @@ async function publicShareSuite(browser, E, V) {
 }
 
 /* ==================== VIEWS ==================== */
+// The records intentionally use October 2026. Navigate the actual controls to
+// that month instead of relying on the machine still being in the fixture month.
+async function showFixtureMonth(page, kind) {
+  const calendar = kind === 'calendar';
+  const previous = calendar ? 'Previous month' : 'Previous period';
+  const next = calendar ? 'Next month' : 'Next period';
+  const label = page.getByRole('button', { name: previous, exact: true }).locator('..').locator('span').first();
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const target = 2026 * 12 + 9;
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const text = (await label.innerText()).trim();
+    const [monthName, year] = text.split(' ');
+    const current = calendar ? Number(year) * 12 + months.indexOf(monthName)
+      : Number(text.slice(0, 4)) * 12 + Number(text.slice(5, 7)) - 1;
+    if (!Number.isFinite(current) || (calendar && !months.includes(monthName))) throw new Error(`Unexpected ${kind} period: ${text}`);
+    if (current === target) return;
+    await page.getByRole('button', { name: current > target ? previous : next, exact: true }).click();
+  }
+  throw new Error(`${kind} did not reach the October 2026 fixture period`);
+}
+
 async function viewsSuite(page, E, V, uid, compact = false) {
   const N = (check, status) => note(E, V, check, status);
   await page.goto(`${BASE}/boards/${DB}`, { waitUntil: 'domcontentloaded' });
@@ -1078,6 +1099,7 @@ async function viewsSuite(page, E, V, uid, compact = false) {
     if (await monthTab.count()) await monthTab.click();
     await sleep(600);
   }
+  await showFixtureMonth(page, 'calendar');
   const grid = await page.locator('.grid-cols-7').count();
   N('calendar: month grid renders', grid > 0 ? 'PASS' : 'FAIL');
 
@@ -1126,6 +1148,7 @@ async function viewsSuite(page, E, V, uid, compact = false) {
   const tlTab = page.locator('[role="tab"]:has-text("Timeline"), button:has-text("Timeline")').first();
   if (await tlTab.count()) await tlTab.click();
   await sleep(800);
+  await showFixtureMonth(page, 'timeline');
   const bars = compact
     ? await page.locator('input[aria-label="Start date"]').count()
     : await page.locator('button[title*="→"], button[title*="–"], button.absolute').count();

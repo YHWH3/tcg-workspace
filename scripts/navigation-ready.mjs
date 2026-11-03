@@ -52,5 +52,5 @@ export async function waitForApiReads(page) {
   });
 }
 
-export async function navigateReady(page,url){await waitForApiReads(page);return page.goto(url);}
-export async function reloadReady(page){await waitForApiReads(page);return page.reload();}
+export async function navigateReady(page,url,options){await waitForApiReads(page);return page.goto(url,options);}
+export async function reloadReady(page,options){await waitForApiReads(page);return page.reload(options);}

@@ -9,6 +9,7 @@
 // Usage: node scripts/verify-v6.mjs            — full run (servers managed)
 //        node scripts/verify-v6.mjs --no-spawn — reuse servers already up
 import { readAccountStore } from './certification/browser-db.mjs';
+import { navigateReady, reloadReady } from './navigation-ready.mjs';
 import { captureBrowserArtifacts, localOrigin, redactCertification } from './certification-report.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, existsSync, writeFileSync } from 'node:fs';
@@ -353,7 +354,7 @@ async function runSuite(engineName, engine, viewportName, vp) {
   const C = (n, cond) => note(engineName, viewportName, n, cond === true ? 'PASS' : cond === 'SKIP' ? 'NOT RUN' : 'FAIL');
   try {
     /* --- view switching --- */
-    await page.goto(`${BASE}/boards/${DB_A}/views/${V_TABLE}`, { waitUntil: 'networkidle' });
+    await navigateReady(page, `${BASE}/boards/${DB_A}/views/${V_TABLE}`, { waitUntil: 'domcontentloaded' });
     if (viewportName === 'compact') {
       // spec: compact list presentation — no grid on narrow viewport
       await page.waitForSelector('text=Ada Lovelace', { timeout: 15000 });
@@ -399,20 +400,18 @@ async function runSuite(engineName, engine, viewportName, vp) {
     C('custom property p_f_role persists', String(recRow2?.p_f_role ?? '') === 'Mathematician');
 
     /* --- relation chip (sheet's picker is the LAST 'Link Works at' in DOM) --- */
-    const relTrigger = page.locator('button[aria-label="Link Works at"]').last();
-    await relTrigger.click().catch(() => {});
-    await sleep(400);
-    const relPicker = page.locator('[role="combobox"]').last();
-    if (await relPicker.count()) {
-      await relPicker.fill('Acme');
-      await sleep(500);
-      await page.locator('[role="option"]').filter({ hasText: 'Acme Corp' }).first().click().catch(async () => {
-        await page.locator('text=Acme Corp').first().click();
-      });
-      await sleep(600);
+    await page.getByRole('button', { name: 'Link Works at', exact: true }).last().click();
+    await page.getByRole('combobox', { name: 'Search orgs…', exact: true }).fill('Acme');
+    await page.getByRole('listbox', { name: 'Search orgs…', exact: true })
+      .getByRole('option').filter({ hasText: 'Acme Corp' }).click();
+    let links = [];
+    for (let attempt = 0; attempt < 40; attempt++) {
+      links = await readAccountStore(page, 'links', { userId: admin.user.id,
+        filter: l => !l.deleted && l.kind === 'relation' && l.fieldId === 'f_rel' && l.fromId === recId && l.toId === O1 });
+      if (links.length) break;
+      await sleep(100);
     }
-    const links = await readAccountStore(page, 'links', { userId: admin.user.id, filter: l => l.kind === 'relation' && l.fieldId === 'f_rel' });
-    C('relation link row written', links.length >= 1);
+    C('relation link row written', links.length === 1);
     C('relation chip renders', (await page.locator('text=Acme Corp').count()) >= 1);
 
     /* --- sub-record --- */
@@ -438,7 +437,8 @@ async function runSuite(engineName, engine, viewportName, vp) {
     } else C('dependency link written (blocks)', 'SKIP');
 
     /* --- page body edit + @[rec:] token --- */
-    await page.goto(`${BASE}/pages/${PG}`, { waitUntil: 'networkidle' });
+    await navigateReady(page, `${BASE}/pages/${PG}`, { waitUntil: 'domcontentloaded' });
+    await page.getByPlaceholder('Untitled', { exact: true }).waitFor();
     let editor = page.locator('[role="textbox"]').first();
     if (!(await editor.count())) {
       // empty page → click the placeholder area to create the first block
@@ -454,14 +454,15 @@ async function runSuite(engineName, engine, viewportName, vp) {
       C('body block written to Dexie', blocks.some((b) => String(b.text ?? '').includes('E2E body line')));
       // inject a @[rec:] token + verify rendered title
       await push(T, [{ id: 'v6_tokblk', collection: 'blocks', patch: { pageId: PG, type: 'p', text: `See @[rec:${R1}]`, order: 'zz' } }]);
-      await page.reload({ waitUntil: 'networkidle' });
+      await reloadReady(page, { waitUntil: 'domcontentloaded' });
       await sleep(1200);
       const chip = await page.locator('.mention[data-mk="rec"][data-mid="v6_r_ada"]').textContent().catch(() => '');
       C('@[rec:] token renders record title', (chip ?? '').includes('Ada Lovelace'));
     } else C('body block written to Dexie', 'SKIP');
 
     /* --- Add Drive link + embed block --- */
-    await page.goto(`${BASE}/boards/${DB_A}/views/${V_TABLE}/records/${R1}`, { waitUntil: 'networkidle' });
+    await navigateReady(page, `${BASE}/boards/${DB_A}/views/${V_TABLE}/records/${R1}`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('textbox', { name: 'Person title', exact: true }).last().waitFor();
     const linkBtn = page.getByRole('button', { name: /drive link|add link/i });
     if (await linkBtn.count()) {
       await linkBtn.first().click();
@@ -478,7 +479,8 @@ async function runSuite(engineName, engine, viewportName, vp) {
       { id: 'v6_seedp', collection: 'blocks', patch: { pageId: PG, type: 'p', text: 'Seed paragraph', order: 'zz0' } },
       { id: 'v6_embed1', collection: 'blocks', patch: { pageId: PG, type: 'embed', url: 'https://drive.google.com/file/d/1AbCdEf/view', provider: 'gdrive', order: 'zz9' } },
     ]);
-    await page.goto(`${BASE}/pages/${PG}`, { waitUntil: 'networkidle' });
+    await navigateReady(page, `${BASE}/pages/${PG}`, { waitUntil: 'domcontentloaded' });
+    await page.getByPlaceholder('Untitled', { exact: true }).waitFor();
     await sleep(1500);
     const iframeCount = await page.locator('iframe[sandbox]').count();
     C('embed block renders sandboxed iframe (desktop) / card (compact)', viewportName === 'compact' ? (await page.locator('text=Drive').count()) >= 1 || iframeCount >= 0 : iframeCount >= 1);
@@ -537,7 +539,7 @@ async function runSuite(engineName, engine, viewportName, vp) {
     C('offline record synced to server', synced);
 
     /* --- navigation --- */
-    await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await navigateReady(page, `${BASE}/`, { waitUntil: 'domcontentloaded' });
     await sleep(1200);
     if (viewportName === 'compact') {
       await page.getByRole('button', { name: 'Menu', exact: true }).click();
@@ -558,8 +560,8 @@ async function runSuite(engineName, engine, viewportName, vp) {
     } else C('⌘K record hit navigates to record', 'SKIP');
 
     /* --- dialogs --- */
-    await page.goto(recUrl, { waitUntil: 'networkidle' });
-    await sleep(800);
+    await navigateReady(page, recUrl, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('textbox', { name: 'Person title', exact: true }).last().waitFor();
     const detailSheet = page.locator('[role="dialog"], aside, [class*="sheet" i]').filter({ has: page.locator('input[aria-label="Person title"]') }).first();
     C(`record detail renders ${viewportName === 'compact' ? 'as adaptive sheet' : 'as dialog/side panel'}`, (await detailSheet.count()) >= 1 || (await page.locator('input[aria-label="Person title"]').count()) >= 1);
     const menuBtn = page.locator('button[aria-label="Person menu"]').last();
