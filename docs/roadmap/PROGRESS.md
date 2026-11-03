@@ -454,3 +454,24 @@ explicit partial/empty/failure/offline states, and preserves builder routes.
 The Website list reports records added to Workspace, not relay delivery receipts.
 Final committed-source focused, affected matrix, preserved workflows, visual
 review and publication remain required. Overall Phase8 HOLD.
+
+
+8.14 first freeze f8ad32b passed577 focused tests/56files, five harness checks,
+typecheck and pack validation; source was clean/unchanged and pushed to PR17.
+Original screenshot review found N50: at200% compact text the fixed count-table
+headers overlap and state words split. A rendered-range baseline reproduces both
+captions on2lines spilling their cells (1FAIL). The630-cell run stopped with
+35reportedPASS and595selected cells without passing evidence; exit130 is retained.
+Count presentation now uses adaptive semantic cards with independent7/30-day
+labels. This is a real UI correction, not a harness-only failure. Fresh diagnostic,
+committed-source focused/matrix/preserved/visual checks remain required. Phase8HOLD.
+
+The owner's2026-11-03 test-overuse question triggered a scope audit:
+TESTING-SCOPE-AUDIT.md. The proposed630 browser cases include558 non-Forms cases;
+repeating those and577 tests after a one-component count-layout correction is
+excessive. N50's corrected diagnostic passes12/12 with caption-range assertions;
+compact normal/enlarged captures were inspected before further expansion. Next:
+typecheck/build and72 Forms cells across18projects, retain source-bound unaffected
+577 checks at f8ad32b after explicit dependency comparison. Do not rerun unrelated
+preserved suites for this presentation change. The final mandatory Phase8 suite
+and complete required matrix remain unchanged and pending. Phase8HOLD.

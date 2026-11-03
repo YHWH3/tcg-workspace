@@ -140,7 +140,9 @@ planned work, L = inconsistency.
 
 | N49 | M | A page containing only a Meetings commitments block was not classified as a dashboard for contextual AI actions. | New browser baseline1FAIL: Dashboard actions group absent; prior matrix stopped186PASS/1INTERRUPTED/299selectedNOTRUN after source review. | PageView now uses the shared dashboard-type set too. Three-engine compact/tablet/desktop diagnostic3/3 PASS with open-menu whole-page axe and Escape focus restoration; no inference. Final 518 focused tests and 486 affected browser cases PASS at acef300. |
 
-Add new findings as N50+ with the same columns.
+| N50 | M | Forms processing table at200% compact text crowded the7/30-day headers together and split ordinary state words. | Original frozen f8ad32b capture shows overlapping captions despite passing axe/root geometry. New rendered-caption baseline1FAIL: both headers occupy2lines and spill outside their cells. Matrix stopped at35reportedPASS;595selected cells lack passing evidence after interruption. | Adaptive semantic count cards replace the fixed-width three-column table, retaining separate window labels and values. New caption-range regression passes12/12 three-engine Forms diagnostic cases, with compact normal/enlarged original captures inspected. Fresh72-cell Forms verification pending. |
+
+Add new findings as N51+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 
