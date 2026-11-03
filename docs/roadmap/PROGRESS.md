@@ -611,3 +611,22 @@ further broad checks; the certificate remains FAIL. No old result is rewritten.
 The release contracts now explicitly expect36, retaining ordered names/hash
 checks and refusal of additional unreviewed migrations. Focused harness checks
 precede a new mandatory run. No SQL, manifest entry or application code changes.
+
+
+### Mandatory attempt2 retained; duplicate test execution corrected
+
+At11c909c, harness146/146 passes, but full unit hits the1,200-second outer
+limit before a complete report. The next D1 gate was intentionally stopped
+while diagnosing repetition. Original certificate remains FAIL. Actual plan
+scheduled194files in unit plus75of the same files in D1. The runner now uses
+disjoint119/75selections, preserving the complete194-file union and all34
+mandatory gates. Exact selections are sealed, and the versioned selection
+contract fences resume. Performance/cost assertions are validated from D1
+once; explicit extended stress repeats remain. No application/SQL changes.
+
+The production-copy rehearsal succeeded but its old expectation32 was stale
+against33pending migrations. Baseline fails reproducibly; the exact pending
+name assertion now passes on actual disposable D1.83focused selector/resume/
+reporter harness checks and the corrected rehearsal pass. See the updated
+TESTING-SCOPE-AUDIT.md. New clean-source certification is required; no prior
+failed/incomplete gate becomes PASS. Phase8 remains HOLD.

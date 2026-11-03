@@ -57,3 +57,27 @@ No failure becomes PASS through this adjustment. Original failures, interruption
 source identities and missing engineering/physical/human evidence remain visible.
 Full Phase8 certification is incomplete. This is an incremental test selection,
 not a new release certificate or owner acceptance.
+
+
+## Mandatory-run duplication found at the Phase8 boundary
+
+At clean11c909c the unit gate timed out at1,200seconds without a complete
+report. It scheduled all194test files; the following dedicated D1 gate then
+scheduled75of those files again. The planned inventory was269file executions
+for194unique files. This duplicates the same selected actual-D1 assertions,
+not complementary browser or permission coverage. The original FAIL is retained.
+
+The runner now discovers tests recursively and partitions that inventory into
+the existing75-file D1 selection and its119-file complement. A harness check
+proves disjointness, exact union and the continued inclusion of all cost
+producers and legacy Website tests. Both exact selection lists are sealed with
+their gate reports. The34mandatory gates and all assertions remain. Cost and
+plan evidence is validated from its one D1 execution; deliberate extended
+stress repeats remain. No per-test timeout, D1 binding budget or freshness rule
+is weakened. This removes75duplicate file executions; no unmeasured timing
+saving or passing final certificate is claimed.
+
+The same run found a stale production-copy rehearsal assertion expecting32
+pending migrations from a three-migration input. The rehearsal itself passed
+and applied the correct33pending migrations. The regression now asserts their
+exact registered names instead of an obsolete count. Baseline failure retained.

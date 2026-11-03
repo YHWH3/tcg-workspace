@@ -10,7 +10,7 @@ let chromium, firefox, webkit;
 import { startFixture, bootstrap } from './phase4-fixture.mjs';
 import { assessSecurityAudit } from './certification/security.mjs';
 import {gateEligibility,createPauseMonitor,certificateHeading,hashArtifactPaths,verifyArtifactHashes,copyVerifiedArtifacts,gateArtifactPaths} from './certification/resume.mjs';
-import { d1TestFiles } from './certification/test-files.mjs';
+import { partitionTestFiles } from './certification/test-files.mjs';
 import { json, fingerprint, preventIdleSleep, configureCertificationNetwork, localOrigin, freePort, runCommand, validateReport, validateVitest, validateSmoke, migrationsManifest, decision, validatePerformanceEvidence } from './certification/core.mjs';
 
 const cwd=fileURLToPath(new URL('../',import.meta.url));
@@ -33,7 +33,7 @@ const keepAwake=process.argv.includes('--keep-awake');
 const resumeIndex=process.argv.indexOf('--resume');
 const resumeFrom=resumeIndex<0?null:process.argv[resumeIndex+1];
 const testPauseAfter=process.argv.find(a=>a.startsWith('--test-pause-after='))?.split('=')[1];
-const configuration={assistant,phase6,mode,flags:{ai:process.argv.includes('--ai'),phase6:process.argv.includes('--phase6'),quick:process.argv.includes('--quick'),extended:process.argv.includes('--extended')},permissionMode:'runtime DISABLED; actual-D1 and Phase5/6/assistant disposable ENABLED and DISABLED contracts'};
+const configuration={assistant,phase6,mode,testPartition:'disjoint-d1-v1',flags:{ai:process.argv.includes('--ai'),phase6:process.argv.includes('--phase6'),quick:process.argv.includes('--quick'),extended:process.argv.includes('--extended')},permissionMode:'runtime DISABLED; actual-D1 and Phase5/6/assistant disposable ENABLED and DISABLED contracts'};
 const sleepGuard=preventIdleSleep({keepAwake});
 let versions=null,resumeSummary=null,resumeRows=[],resumeDirectory=null;
 const resumed=resumeFrom?{from:resolve(resumeFrom),reusedGates:[],reusedArtifactHashes:{}}:null;
@@ -178,10 +178,14 @@ try {
   await internal('migrations',()=>{const manifest=migrationsManifest(cwd);const files=readdirSync(join(cwd,'migrations')).filter(f=>f.endsWith('.sql')).sort();if(files.length!==manifest.length)throw new Error('Register new migrations in certification/migrations.json');json(join(directory,'migrations.json'),{manifest,validation:'Hashes + actual-D1 migration tests + per-fixture SQLite schema'});return {pass:manifest.length,fail:0,notRun:0,allMandatoryAssertionsExecuted:true};});
   await stage('harness',['node','--test','--test-reporter=tap',...readdirSync(join(cwd,'scripts/certification')).filter(f=>f.endsWith('.test.mjs')).map(f=>'scripts/certification/'+f)],{adapter:output=>{const number=key=>Number(output.match(new RegExp(`^# ${key} (\\d+)$`,'m'))?.[1]??NaN);const total=number('tests'),pass=number('pass'),fail=number('fail'),notRun=number('cancelled')+number('skipped');if(!total||!Number.isFinite(pass)||total!==pass+fail+notRun)throw new Error('Incomplete harness TAP report');return {pass,fail,notRun,allMandatoryAssertionsExecuted:notRun===0};}});
   await stage('typecheck',['npm','run','typecheck']);
-  const unitPath=join(directory,'vitest.json'),testFiles=readdirSync(join(cwd,'tests')).filter(f=>f.endsWith('.test.ts')).map(f=>'tests/'+f);
-  await stage('unit',['npm','test','--','--reporter=default','--reporter=json',`--outputFile=${unitPath}`],{adapter:()=>validateVitest(readJson(unitPath),testFiles)});
+  const unitPath=join(directory,'vitest.json'),testFiles=readdirSync(join(cwd,'tests'),{recursive:true}).filter(f=>f.endsWith('.test.ts')).map(f=>'tests/'+f);
+  const {unit:unitFiles,d1:d1Files}=partitionTestFiles(testFiles);
+  if(!unitFiles.length||!d1Files.length)throw new Error('Certification requires nonempty unit and D1 selections');
+  json(join(directory,'unit-selection.json'),{contract:configuration.testPartition,sourceSha:startingSha,files:unitFiles});
+  json(join(directory,'d1-selection.json'),{contract:configuration.testPartition,sourceSha:startingSha,files:d1Files});
+  await stage('unit',['npm','test','--',...unitFiles,'--reporter=default','--reporter=json',`--outputFile=${unitPath}`],{adapter:()=>validateVitest(readJson(unitPath),unitFiles)});
   buildOkay=(await stage('build',['npm','run','build'])).status==='PASS';
-  const d1Files=d1TestFiles(testFiles),d1Path=join(directory,'d1-results.json');
+  const d1Path=join(directory,'d1-results.json');
   await stage('d1',['npm','test','--',...d1Files,'--reporter=default','--reporter=json',`--outputFile=${d1Path}`],{adapter:()=>validateVitest(readJson(d1Path),d1Files)});
   await stage('security',['npm','audit','--json'],{adapter:(output,result)=>{const report=JSON.parse(output);json(join(directory,'security-audit.json'),report);const assessment=assessSecurityAudit(report,{auditExitCode:result.exitCode,project:cwd});json(join(directory,'security-decisions.json'),assessment);return {pass:assessment.verdict==='PASS'?1:0,fail:assessment.verdict==='FAIL'?1:0,notRun:0,allMandatoryAssertionsExecuted:true,...(assessment.verdict==='PASS'?{acceptedExitCode:result.exitCode}:{}),securityAssessment:assessment};}});
   if(mode!=='quick') {
@@ -208,16 +212,16 @@ try {
   if(mode==='extended')for(let i=1;i<=2;i++){const path=join(directory,`d1-stress-${i}.json`);await stage(`d1-stress-${i}`,['npm','test','--',...d1Files,'--reporter=default','--reporter=json',`--outputFile=${path}`],{adapter:()=>validateVitest(readJson(path),d1Files)});}
   await internal('performance-evidence',()=>{
     const measurements=[];
-    for(const id of ['unit','d1',...(mode==='extended'?['d1-stress-1','d1-stress-2']:[])]){
+    for(const id of ['d1',...(mode==='extended'?['d1-stress-1','d1-stress-2']:[])]){
       const metricPath=join(directory,id+'-artifacts/performance/d1-performance.json');
       const report=validatePerformanceEvidence(readJson(metricPath));
       cpSync(metricPath,join(directory,id+'-performance.json'));
       measurements.push({suite:id,...report});
     }
-    const phase6Measurements=phase6?['unit','d1'].map(id=>{const evidence=readJson(join(directory,id+'-artifacts/phase6-cost.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!=='ENABLED'||evidence.records!==1000||!Array.isArray(evidence.measurements)||evidence.measurements.length<3||evidence.measurements.some(m=>!Number.isFinite(m.metrics?.bindings)||m.metrics.bindings>45||!Number.isFinite(m.metrics.rowsRead)||!Number.isFinite(m.metrics.rowsWritten)))throw new Error('Missing Phase 6 actual-D1 cost evidence: '+id);return {suite:id,...evidence};}):[];
-    const phase5Measurements=['unit','d1'].map(id=>{const evidence=readJson(join(directory,id+'-artifacts/performance/phase5-capabilities-cost.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!=='ENABLED'||evidence.records!==1000||!Array.isArray(evidence.measurements)||evidence.measurements.length<4||evidence.measurements.some(v=>!Number.isFinite(v.metrics?.bindings)||v.metrics.bindings>45))throw new Error('Incomplete Phase 5 resource evidence: '+id);return {suite:id,...evidence};});
-    const reviewMeasurements=['unit','d1'].map(id=>{const evidence=readJson(join(directory,id+'-artifacts/review-summary-cost.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!=='ENABLED'||evidence.journalItems<10001||!Number.isFinite(evidence.bindingCalls)||evidence.bindingCalls<1||evidence.bindingCalls>10||evidence.metrics?.bindings!==evidence.bindingCalls||!Number.isFinite(evidence.metrics?.statements)||!Number.isFinite(evidence.metrics?.rowsWritten)||!Number.isFinite(evidence.metrics?.rowsRead)||!Number.isFinite(evidence.durationMs))throw new Error('Missing review authorization resource evidence: '+id);return {suite:id,...evidence};});
-    const reviewMoodboardMeasurements=['unit','d1'].flatMap(id=>['enabled','disabled'].map(mode=>{const evidence=readJson(join(directory,id+'-artifacts/review-moodboard-cost-'+mode+'.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!==mode.toUpperCase()||evidence.cards!==100||!Number.isFinite(evidence.metrics?.bindings)||evidence.metrics.bindings>=30||!Number.isFinite(evidence.metrics?.rowsRead))throw new Error('Missing batched moodboard authorization resource evidence: '+id+'/'+mode);return {suite:id,...evidence};}));
+    const phase6Measurements=phase6?['d1'].map(id=>{const evidence=readJson(join(directory,id+'-artifacts/phase6-cost.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!=='ENABLED'||evidence.records!==1000||!Array.isArray(evidence.measurements)||evidence.measurements.length<3||evidence.measurements.some(m=>!Number.isFinite(m.metrics?.bindings)||m.metrics.bindings>45||!Number.isFinite(m.metrics.rowsRead)||!Number.isFinite(m.metrics.rowsWritten)))throw new Error('Missing Phase 6 actual-D1 cost evidence: '+id);return {suite:id,...evidence};}):[];
+    const phase5Measurements=['d1'].map(id=>{const evidence=readJson(join(directory,id+'-artifacts/performance/phase5-capabilities-cost.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!=='ENABLED'||evidence.records!==1000||!Array.isArray(evidence.measurements)||evidence.measurements.length<4||evidence.measurements.some(v=>!Number.isFinite(v.metrics?.bindings)||v.metrics.bindings>45))throw new Error('Incomplete Phase 5 resource evidence: '+id);return {suite:id,...evidence};});
+    const reviewMeasurements=['d1'].map(id=>{const evidence=readJson(join(directory,id+'-artifacts/review-summary-cost.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!=='ENABLED'||evidence.journalItems<10001||!Number.isFinite(evidence.bindingCalls)||evidence.bindingCalls<1||evidence.bindingCalls>10||evidence.metrics?.bindings!==evidence.bindingCalls||!Number.isFinite(evidence.metrics?.statements)||!Number.isFinite(evidence.metrics?.rowsWritten)||!Number.isFinite(evidence.metrics?.rowsRead)||!Number.isFinite(evidence.durationMs))throw new Error('Missing review authorization resource evidence: '+id);return {suite:id,...evidence};});
+    const reviewMoodboardMeasurements=['d1'].flatMap(id=>['enabled','disabled'].map(mode=>{const evidence=readJson(join(directory,id+'-artifacts/review-moodboard-cost-'+mode+'.json'));if(evidence.sourceSha!==startingSha||evidence.permissionMode!==mode.toUpperCase()||evidence.cards!==100||!Number.isFinite(evidence.metrics?.bindings)||evidence.metrics.bindings>=30||!Number.isFinite(evidence.metrics?.rowsRead))throw new Error('Missing batched moodboard authorization resource evidence: '+id+'/'+mode);return {suite:id,...evidence};}));
     const browserMeasurements=mode==='quick'?[]:['v8','v9'].flatMap(id=>{
       const report=readJson(join(directory,id,'results.json'));
       if(!Array.isArray(report.performance)||!report.performance.length)throw new Error(`Missing browser performance evidence: ${id}`);

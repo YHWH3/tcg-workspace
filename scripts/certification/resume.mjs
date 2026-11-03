@@ -55,5 +55,5 @@ export function copyVerifiedArtifacts(from,to,hashes){
  if(!verifyArtifactHashes(to,hashes))throw new Error('Copied artifact verification failed');
 }
 export function gateArtifactPaths(id){
- return [id+'.log',id+'.log.processes.jsonl',id,id+'-artifacts',...(id==='unit'?['vitest.json']:id==='d1'?['d1-results.json']:id.startsWith('d1-stress-')?[id+'.json']:id==='migrations'?['migrations.json']:[])];
+ return [id+'.log',id+'.log.processes.jsonl',id,id+'-artifacts',...(id==='unit'?['vitest.json','unit-selection.json']:id==='d1'?['d1-results.json','d1-selection.json']:id.startsWith('d1-stress-')?[id+'.json']:id==='migrations'?['migrations.json']:[])];
 }

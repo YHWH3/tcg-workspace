@@ -6,7 +6,8 @@ import {expect,it} from 'vitest';
 it('R2 rehearses a synthetic 0001–0003 SQL export, backfills and restores it on actual local D1', () => {
   mkdirSync('.artifacts/prod-copy-selftests',{recursive:true});
   const folder=mkdtempSync('.artifacts/prod-copy-selftests/d1-'),input=join(folder,'synthetic.sql');
-  const migrations=JSON.parse(readFileSync('scripts/certification/migrations.json','utf8')).slice(0,3) as {name:string}[];
+  const manifest=JSON.parse(readFileSync('scripts/certification/migrations.json','utf8')) as {name:string}[];
+  const migrations=manifest.slice(0,3);
   const schema=migrations.map(m=>readFileSync('migrations/'+m.name,'utf8')).join('\n');
   const dump=schema+`\nCREATE TABLE d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE,applied_at TEXT DEFAULT CURRENT_TIMESTAMP);
 ${migrations.map(m=>`INSERT INTO d1_migrations(name) VALUES('${m.name}');`).join('\n')}
@@ -19,7 +20,8 @@ INSERT INTO file_chunks(file_id,idx,data) VALUES('file',0,X'01020304');\n`;
   const run=execFileSync(process.execPath,['scripts/prod-copy-rehearsal.mjs',input],{encoding:'utf8',timeout:120_000});
   const output=JSON.parse(run.trim());expect(output.status).toBe('PASS');
   const report=JSON.parse(readFileSync(output.report,'utf8'));
-  expect(report.checks).toHaveLength(7);expect(report.migrations).toHaveLength(32);
+  expect(report.checks).toHaveLength(7);
+  expect(report.migrations.map((migration:{name:string})=>migration.name)).toEqual(manifest.slice(3).map(migration=>migration.name));
   expect(report.originalRecordCount).toBe(2);expect(report.originalMigrationCount).toBe(3);
   expect(report.maxBindingCalls).toBeLessThanOrEqual(45);
   expect(report.oauth.status).toBe('OWNER_VERIFICATION_REQUIRED');

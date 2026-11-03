@@ -56,6 +56,17 @@ and exact tested SHA in PROGRESS.md and any PR description. A resumed PASS still
 requires every current mandatory gate to pass, freshly or by verified reuse.
 Quick mode can never establish complete local certification.
 
+The `disjoint-d1-v1` selection contract discovers all `tests/**/*.test.ts`
+files, runs the existing dedicated D1 selection only in the D1 gate, and runs
+its complement in the unit gate. Every file appears exactly once; some legacy
+Website D1 files remain in unit under the existing selection rule. Reports
+validate the exact expected files, and each sealed gate includes its selection
+JSON. Required cost/plan evidence is produced and validated in D1, including
+Phase5/6 and review authorization measurements. Extended mode retains its
+explicit stress repeats. No mandatory gate or test assertion is removed.
+The selection contract is part of resume eligibility, so pre-partition gates
+cannot supply evidence for the new contract.
+
 ## Tooling verification
 
 ```sh
