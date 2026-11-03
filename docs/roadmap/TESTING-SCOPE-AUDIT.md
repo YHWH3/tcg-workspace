@@ -81,3 +81,11 @@ The same run found a stale production-copy rehearsal assertion expecting32
 pending migrations from a three-migration input. The rehearsal itself passed
 and applied the correct33pending migrations. The regression now asserts their
 exact registered names instead of an obsolete count. Baseline failure retained.
+
+
+The first disjoint unit run completed in318seconds and found two stale
+three-metric inventory assertions after the command-center fourth metric was
+added. This was a gap in the initial affected-test selection: pack metric edits
+need shared views/date tests as well as the new page's tests. Those regressions
+now assert exact authored identities and actual old/new range equivalence;
+production Home remains untouched. The original1146PASS/2FAIL is retained.

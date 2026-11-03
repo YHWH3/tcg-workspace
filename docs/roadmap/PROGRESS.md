@@ -630,3 +630,16 @@ name assertion now passes on actual disposable D1.83focused selector/resume/
 reporter harness checks and the corrected rehearsal pass. See the updated
 TESTING-SCOPE-AUDIT.md. New clean-source certification is required; no prior
 failed/incomplete gate becomes PASS. Phase8 remains HOLD.
+
+
+### Mandatory attempt3: completed unit report exposes two stale metric inventories
+
+The disjoint unit gate finishes in318seconds with1146PASS/2FAIL across its
+119-file selection. Both failures are old tests pinning exactly three pack
+deadline metrics; the separate command-center page intentionally adds a fourth.
+The initial pack-focused selection missed these existing views/date tests.
+They now assert the four exact authored keys, evaluate each actual metric, and
+preserve equivalence between the old Home range and the new within condition.
+No production filters or Home content change. The failed certificate remains
+unchanged; the next D1 gate was stopped to avoid source-obsolete work.
+Development pack checks now include shared views and Phase7 dates.

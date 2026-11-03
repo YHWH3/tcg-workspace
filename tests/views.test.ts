@@ -42,15 +42,15 @@ describe('R1 relative deadline windows', () => {
     expect(records.slice(0, 3).map(r => evalFilter(r, filter, { today }))).toEqual([true, false, false]);
   });
   it('evaluates the actual installed pack metric filters', () => {
-    const metrics: { filters: Filter[] }[] = [];
+    const metrics: { key:string; filters: Filter[] }[] = [];
     const visit = (value: unknown) => {
       if (!value || typeof value !== 'object') return;
       const object = value as Record<string, unknown>;
-      if (object.type === 'metric' && object.label === 'Deadlines in the next 30 days') metrics.push(object as unknown as { filters: Filter[] });
+      if (object.type === 'metric' && object.label === 'Deadlines in the next 30 days') metrics.push(object as unknown as { key:string; filters: Filter[] });
       Object.values(value).forEach(visit);
     };
     visit(pack);
-    expect(metrics).toHaveLength(3);
+    expect(metrics.map(metric=>metric.key).sort()).toEqual(['tpl_6','tpl_1f','tpl_4m','command_tpl_6'].sort());
     for (const metric of metrics) expect(aggregate(records, { agg: 'count', filters: metric.filters }, { today })).toMatchObject({ value: 1, ids: ['near'] });
   });
   it('fails closed for unresolved relative temporal operands', () => {
