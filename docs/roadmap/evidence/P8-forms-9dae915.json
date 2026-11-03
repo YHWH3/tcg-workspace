@@ -1,0 +1,407 @@
+{
+  "item": "8.14 Forms operations",
+  "decision": "INCREMENTAL_FEATURE_CHECKS_PASS; Phase8 HOLD",
+  "source": {
+    "sha": "9dae9151f0cc15786bd57d290f82566290504dfe",
+    "tree": "2d0995fbff3dbded4b0d1372faf181da73bfd666",
+    "fingerprint": "0fe6472fab892b9754b15c2898452024628c9742e5867b58728c3dbd00cfb684"
+  },
+  "retainedFocused": {
+    "source": {
+      "sha": "f8ad32b0922072681758e51bf99f664125725ef8",
+      "tree": "d6410a20843aa451971592f70534281f2210546e",
+      "fingerprint": "00f74d0b28874be6eeb799e217c683af16cf11d3e43c4ec843d00ec3f9329a5a"
+    },
+    "report": ".artifacts/phase8/forms-operations-final-focused-source.json",
+    "checks": "577tests/56files+5harness/typecheck/pack at f8ad32b, not freshly executed here",
+    "changedPaths": [
+      "docs/roadmap/00-baseline.md",
+      "docs/roadmap/PROGRESS.md",
+      "docs/roadmap/TESTING-SCOPE-AUDIT.md",
+      "scripts/ux-lab/form-operations.spec.mjs",
+      "src/modules/forms/FormOperations.tsx"
+    ],
+    "dependencyDecision": "Only count presentation/browser assertions/docs changed; worker,shared,auth,sync,migrations,unit tests,package configuration unchanged"
+  },
+  "freshChecks": [
+    {
+      "name": "typecheck",
+      "exitCode": 0,
+      "durationMs": 1281
+    },
+    {
+      "name": "build",
+      "exitCode": 0,
+      "durationMs": 3109
+    }
+  ],
+  "browser": {
+    "command": "UX_OUTPUT=.artifacts/phase8/forms-corrected-final-browser caffeinate -dims node scripts/qa-ux.mjs --skip-build --grep='Forms operations:'",
+    "pass": 72,
+    "fail": 0,
+    "skips": 0,
+    "flaky": 0,
+    "projects": 18,
+    "distinctDisposableFixtures": 18,
+    "sourceUnchanged": true,
+    "executionMs": 224118.033,
+    "runtimes": [
+      {
+        "project": "chromium-compact-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-compact-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      }
+    ]
+  },
+  "visual": {
+    "source": {
+      "sha": "9dae9151f0cc15786bd57d290f82566290504dfe",
+      "tree": "2d0995fbff3dbded4b0d1372faf181da73bfd666",
+      "fingerprint": "0fe6472fab892b9754b15c2898452024628c9742e5867b58728c3dbd00cfb684"
+    },
+    "images": [
+      {
+        "project": "chromium-compact-light",
+        "name": "forms-operations-counts",
+        "path": ".artifacts/phase8/forms-corrected-final-visual/chromium-compact-light-forms-operations-counts.png",
+        "sha256": "e482c7b588360b295ad08e679cccfd6e59b7995d79d42f7016293ff178b8ea4a"
+      },
+      {
+        "project": "chromium-compact-light",
+        "name": "forms-operations-enlarged-counts",
+        "path": ".artifacts/phase8/forms-corrected-final-visual/chromium-compact-light-forms-operations-enlarged-counts.png",
+        "sha256": "710a7fb48a7bf950707ca33ea0edc0bd2144af8010dd7842d087e6240da50e64"
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "name": "forms-operations-enlarged-counts",
+        "path": ".artifacts/phase8/forms-corrected-final-visual/firefox-tablet-dark-forms-operations-enlarged-counts.png",
+        "sha256": "70c5c780bd254fd364ec64768e6f232a340613a0d0c19e533b90efe02ce1c332"
+      },
+      {
+        "project": "webkit-desktop-light",
+        "name": "forms-operations-enlarged-counts",
+        "path": ".artifacts/phase8/forms-corrected-final-visual/webkit-desktop-light-forms-operations-enlarged-counts.png",
+        "sha256": "ca68305f53c8926093db258ad7e660e4e2087ac1ee520c04ef53a5ee0482323e"
+      }
+    ],
+    "review": "Four original PNGs inspected by the coding agent: compact normal/enlarged, Firefox tablet dark enlarged and WebKit desktop light enlarged. Count captions and values remain separate and state words readable. This is not human acceptance.",
+    "inspected": true
+  },
+  "migration": {
+    "name": "0036_form_operations_index.sql",
+    "sha256": "74816c6254de707dccafaf8b13f4f1056ba4fa3464b2777d3ab711011602acdc"
+  },
+  "contract": {
+    "version": 2,
+    "sha256": "fee8510a12a390b85ff7f58c65ada217e1bf7673972586c258d77736f264a5a4",
+    "websiteSha": "1bbc617da62168bbf094a2ad65b0140867f74fa5",
+    "websiteTree": "3eac9ec0a203205638d1abf024d639ad4b3c7ffa",
+    "websiteClean": true
+  },
+  "scopeAudit": "docs/roadmap/TESTING-SCOPE-AUDIT.md",
+  "artifacts": [
+    {
+      "path": ".artifacts/phase8/forms-corrected-checks.json",
+      "sha256": "47751c5ce59293952c16f6f7f7d33713d44ffe880ef419d3ae28854a50907400"
+    },
+    {
+      "path": ".artifacts/phase8/forms-corrected-final-browser/summary.json",
+      "sha256": "fc11ded3237cbe67c94d60dfc33643c505cb9cfd68eed9238c33ea94aec8e44e"
+    },
+    {
+      "path": ".artifacts/phase8/forms-corrected-final-visual/summary.json",
+      "sha256": "9147f2c90f7c9fa57f6047ae61de917ee357eba38a0a9d3b9cc6e27ef79b7a0c"
+    },
+    {
+      "path": ".artifacts/phase8/forms-operations-final-focused-source.json",
+      "sha256": "b728949c13dce092c887de94e2411964392fc3d0e2f8f65b8ed33c47269036b5"
+    },
+    {
+      "path": ".artifacts/phase8/forms-operations-final-browser/summary.json",
+      "sha256": "4ab984839bd076c6c5bd945a5bbfd67bdc44581b5f1996ec588c9644ce0ef1fc"
+    },
+    {
+      "path": ".artifacts/phase8/forms-count-captions-baseline/summary.json",
+      "sha256": "799d6edfbacebf95d1c8b185230cb6467baad9ce345d057cc38cf3ff114edab4"
+    },
+    {
+      "path": ".artifacts/phase8/forms-count-captions-corrected/summary.json",
+      "sha256": "ea421fc9657f26aae85d86be5d25c90af86384419e3fad64d69e5a22473a0431"
+    }
+  ],
+  "retainedFailures": [
+    {
+      "path": ".artifacts/phase8/forms-operations-first-d1.log",
+      "meaning": "Initial compound SELECT limit failure; corrected with two projection statements in one batch."
+    },
+    {
+      "path": ".artifacts/phase8/forms-operations-second-d1.log",
+      "meaning": "Missing data alias and missing index; retained development failures."
+    },
+    {
+      "path": ".artifacts/phase8/forms-operations-expanded-development.log",
+      "meaning": "82PASS/1test-fixtureFAIL: wrong guest column; corrected to canonical workspace_role."
+    },
+    {
+      "path": ".artifacts/phase8/forms-operations-first-browser/summary.json",
+      "meaning": "2PASS/2harnessFAIL: incorrect title locator and delayed-route release race."
+    },
+    {
+      "path": ".artifacts/phase8/forms-operations-counts-index-baseline.log",
+      "meaning": "Actual query-plan baseline failed before count outer-loop correction."
+    },
+    {
+      "path": ".artifacts/phase8/forms-operations-final-browser/summary.json",
+      "meaning": "exit130 retained;35reportedPASS and595selected cells without passing evidence after N50 visual finding."
+    },
+    {
+      "path": ".artifacts/phase8/forms-count-captions-baseline/summary.json",
+      "meaning": "1FAIL reproduces N50: both count captions split/overflow their cells."
+    }
+  ],
+  "notClaimed": [
+    "Fresh577-test execution at9dae915",
+    "A single-source630-case PASS",
+    "Full1476-cell Phase8 matrix or current mandatory certification",
+    "Fresh MCP64/Pack140/Phase642 integration reruns for this presentation change",
+    "Physical hardware/nativeAT/human approval",
+    "Production deployment/provider activation/permissions outside disposable fixtures"
+  ],
+  "remaining": [
+    "8.10 Automation health",
+    "8.2 Home",
+    "Full mandatory Phase8 certification and required matrix",
+    "Applicable native/physical/human acceptance",
+    "N40 earlier Chromium startup/access cause remains unproven"
+  ]
+}

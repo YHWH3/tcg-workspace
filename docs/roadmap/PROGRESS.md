@@ -475,3 +475,17 @@ typecheck/build and72 Forms cells across18projects, retain source-bound unaffect
 577 checks at f8ad32b after explicit dependency comparison. Do not rerun unrelated
 preserved suites for this presentation change. The final mandatory Phase8 suite
 and complete required matrix remain unchanged and pending. Phase8HOLD.
+
+
+8.14 incremental feature checks complete: fresh clean-source typecheck/build and
+72/72 Forms browser cases across18distinct disposablefixtures PASS at9dae915.
+No skips/flaky;3.7minutes of reported browser execution. Four original captures
+inspected acrossthree engines, compact/tablet/desktop andnormal/enlarged states.
+N50 captions now fit their own cells; source remains unchanged during verification.
+Retain577 focused tests/56files,5harness/typecheck/pack PASS atf8ad32b after explicit
+presentation-only dependency comparison. They were not rerun at9dae915. Full630
+rerun and unrelated preserved suites were removed from this incremental selection
+after the owner's scope audit; mandatory Phase8 boundary checks remain required.
+Exact sources, migration0036, contractv2, failures and artifact hashes:
+evidence/P8-forms-9dae915.json. Publication is documentation/evidence only.
+Next8.10, then8.2, thenfullPhase8certification; overallPhase8HOLD.
