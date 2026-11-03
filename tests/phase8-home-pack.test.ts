@@ -9,7 +9,7 @@ it('authors the four ordered Home sections using generic blocks and all four cal
  expect(home.filter(b=>b.type==='h2').map(b=>b.text)).toEqual(['Needs attention','My execution','Coming up','What changed']);
  expect(home[1]).toMatchObject({type:'attention',minimumSeverity:1,limit:10});
  expect(home.find(b=>b.type==='mywork')).toMatchObject({heading:'My open work'});
- expect(pack.snapshot.views!.v_home_my_projects).toMatchObject({databaseId:'db_projects',type:'list',config:{filters:[{key:'p_f_owner',op:'me'}]}});
+ expect(pack.snapshot.views!.v_home_my_projects).toMatchObject({databaseId:'db_projects',type:'list',config:{visible:['title'],filters:[{key:'p_f_owner',op:'me'}]}});
  expect(home.find(b=>b.type==='calendar')!.sources).toHaveLength(4);
  expect(['alice','bob'].map(owner=>evalFilter({p_f_owner:owner},{key:'p_f_owner',op:'me'},{meId:'alice'}))).toEqual([true,false]);
  expect(home.find(b=>b.heading==='Pending AI review')).toMatchObject({type:'attention',kinds:['ai_preview_pending','suggestion_pending'],limit:5,compact:true});

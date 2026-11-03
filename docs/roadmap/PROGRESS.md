@@ -565,3 +565,18 @@ selection and corrected three-engine diagnostic; inspect original captures;
 run54command-center cases across18fixtures and justified shared regressions;
 then commit/freeze and run full mandatory Phase8 certification plus the1602
 required catalog cells. Phase8 remains HOLD. No deployment or owner acceptance.
+
+
+### 8.2 clean-source checks and N54 view correction
+
+At clean committed1c45146:50/50 tests across8files, typecheck/build and9/9
+three-engine diagnostic cases PASS, no host pause. Five original final-source
+captures were inspected. The next15-project matrix was intentionally stopped
+with exit130 after6reportedPASS when the tablet capture revealed N54: default
+list metadata compressed the owned Project title to “Owne…”. A title-width
+assertion reproduces the defect on Firefox tablet/dark. The new view now
+configures only Title as visible. This is a pack configuration change, not a
+shared List renderer change; broad server/shared tests remain at1c45146.
+Rerun the affected four-section journey, retain other unaffected passing
+journeys at their exact source, and complete missing feature coverage before
+full-phase certification. Original failures/interruption remain retained.

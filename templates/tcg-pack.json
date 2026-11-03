@@ -414,6 +414,9 @@
                 "key": "p_f_owner",
                 "op": "me"
               }
+            ],
+            "visible": [
+              "title"
             ]
           }
         }

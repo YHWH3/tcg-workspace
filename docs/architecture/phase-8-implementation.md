@@ -993,3 +993,11 @@ claiming that it proves the cause of every earlier startup issue. Resume only
 unfinished affected checks on stable host availability, then the54-case
 command-center matrix and full mandatory Phase8 certification/current1602
 catalog cells. No failed or interrupted evidence is reused as PASS.
+
+
+8.2 follow-up at1c45146: clean-source50/50 focused tests, typecheck/build and
+9/9 diagnostic browser cases PASS, with five original captures inspected. The
+tablet capture found N54: default Project list metadata crowded the title. A
+new width assertion reproduces it. The command-center Project view now uses
+visible:[Title] only; no shared List renderer change. The next matrix retains
+its original exit130/6reportedPASS. Source-specific evidence remains separate.
