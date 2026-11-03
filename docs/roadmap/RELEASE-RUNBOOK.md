@@ -267,3 +267,22 @@ API access rules remain in place; the new read-only page does not display raw
 exceptions. Scheduler phase history is not recorded in this version and must not
 be inferred from an empty health list. Monitoring/backup/deployment and permission
 activation remain separately authorized owner actions.
+
+
+## Phase8.2 Daily command center
+
+Pack v11 adds a separate root page through Settings → Template gallery →
+review Update available → Apply, or an existing approved MCP upgrade preview.
+Existing Home content/order/filter choices and deleted reservations are
+preserved. The landing-page choice does not change automatically. The new
+page uses generic blocks for attention, personal execution/owned Projects,
+four-source dates, activity and pending AI review; existing root-page device
+reliability links appear only when local work needs attention.
+
+No new migration beyond0036, secret, binding, cron or provider activation.
+Review current personal filters, authorized source visibility, stale/offline
+labels and title readability on the target device before acceptance. Selected
+AI review snapshots are account/session/access/source bound; a snapshot is
+not mutation authority or proof an approval was made. The updater does not
+replace a team's existing Home or change permissions. Local feature evidence
+remains distinct from final merged-source certification and deployment.

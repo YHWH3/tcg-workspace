@@ -580,3 +580,22 @@ shared List renderer change; broad server/shared tests remain at1c45146.
 Rerun the affected four-section journey, retain other unaffected passing
 journeys at their exact source, and complete missing feature coverage before
 full-phase certification. Original failures/interruption remain retained.
+
+
+### 8.2 feature evidence complete; full Phase8 certification next
+
+Selected command-center coverage is54/54 across18engine/layout/theme profiles:
+44fresh atbf1ea8a and10unaffected cells retained at1c45146. All18 title-width
+journeys ran at the corrected source; the only runtime configuration change is
+Projects I own visible:[Title]. Retained server/shared checks:50/50 across8files,
+typecheck/build at1c45146. Fresh pack checks4/4 and build pass atbf1ea8a.
+Six original source-labelled captures inspected, including corrected tablet
+Project width. N51–N54 regressions pass. Original failures, partial matrix
+exit130/6reportedPASS and host interruptions remain unchanged. This is mixed-
+source feature evidence, not a single-head release certificate.
+
+Sanitized evidence: evidence/P8-command-center-bf1ea8a.json. Website source
+1bbc617 and both version2 contract hashes were rechecked; no change. Relevant
+upstream heads are unchanged. Every Phase8 feature now has incremental
+engineering evidence. Phase8 remains HOLD until a new clean-source mandatory
+certificate, full current89-case/1602-cell catalog and acceptance gates.

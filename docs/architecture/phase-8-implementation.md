@@ -1001,3 +1001,12 @@ tablet capture found N54: default Project list metadata crowded the title. A
 new width assertion reproduces it. The command-center Project view now uses
 visible:[Title] only; no shared List renderer change. The next matrix retains
 its original exit130/6reportedPASS. Source-specific evidence remains separate.
+
+
+8.2 verification:54/54 selected cells cover18profiles, with44fresh atbf1ea8a
+and10unaffected at1c45146. The changed title-width journey passes all18 at the
+corrected source. Six original captures inspected. Retain50/50 shared checks
+and typecheck/build at1c45146;4/4 pack tests/build freshly pass atbf1ea8a.
+Exact evidence and dependency comparison: P8-command-center-bf1ea8a.json.
+No single-source full-matrix or full Phase8 certificate is implied. The next
+step is the mandatory clean-source certificate and full1602-cell catalog.

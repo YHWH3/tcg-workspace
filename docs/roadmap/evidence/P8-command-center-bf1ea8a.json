@@ -1,0 +1,611 @@
+{
+  "schemaVersion": 1,
+  "item": "8.2 Daily command center",
+  "decision": "HOLD: full Phase8 mandatory certification and complete89-case/1602-cell catalog remain incomplete",
+  "recordedAt": "2026-11-03T15:20:39.743781+00:00",
+  "ownerDecision": "Add a separate command-center page; preserve existing Home",
+  "packVersion": 11,
+  "sources": {
+    "applicationAndShared": {
+      "sha": "1c4514606cbda5449f069579b77f758744a1f83b",
+      "tree": "7d6e6c94e98b8c7227c94fd95b96f9eb6d3b6920",
+      "fingerprint": "05785c76408276a19b999ec075165dcf483e234e77281ee7275b8b06010c72aa",
+      "focusedTests": {
+        "pass": 50,
+        "files": 8,
+        "exit": 0
+      },
+      "typecheck": 0,
+      "build": 0
+    },
+    "titleConfigurationCorrection": {
+      "sha": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+      "tree": "a887530d6b29bfbe2df24e91037ee330d3c2cd1b",
+      "fingerprint": "991897bb12e35a93a55d74903db7d1cc29a79c51974a5fdc91d4e81a15ebc8e6",
+      "focusedPackTests": {
+        "pass": 4,
+        "files": 1,
+        "exit": 0
+      },
+      "build": 0
+    },
+    "website": {
+      "sha": "1bbc617da62168bbf094a2ad65b0140867f74fa5",
+      "tree": "3eac9ec0a203205638d1abf024d639ad4b3c7ffa",
+      "clean": true
+    }
+  },
+  "dependencyComparison": {
+    "changedApplicationFile": "templates/tcg-pack.json",
+    "change": "Only Projects I own config.visible becomes [title]. Server/shared/permission/sync/cache and all other authored blocks unchanged. Home JSON unchanged.",
+    "patchSha256": "f75f6c9b04852fa433fe840ec181e94e047ae9009eb93a935d44d4e3beef9dbf",
+    "retainedTests": "50 at1c45146, not freshly rerun atbf1ea8a",
+    "retainedBrowserCells": 10
+  },
+  "browserCoverage": {
+    "pass": 54,
+    "freshAtCorrection": 44,
+    "retainedAtPriorSource": 10,
+    "projects": 18,
+    "engines": [
+      "Chromium",
+      "Firefox",
+      "WebKit"
+    ],
+    "layouts": [
+      "compact",
+      "tablet",
+      "desktop"
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "completeNamedFeatureMatrix": true,
+    "singleSourceMatrix": false,
+    "cells": [
+      {
+        "project": "chromium-compact-light",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+        "artifact": ".artifacts/phase8/command-1c45146-diagnostic/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-compact-light",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+        "artifact": ".artifacts/phase8/command-1c45146-diagnostic/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+        "artifact": ".artifacts/phase8/command-1c45146-diagnostic/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+        "artifact": ".artifacts/phase8/command-1c45146-diagnostic/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-desktop-light",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+        "artifact": ".artifacts/phase8/command-1c45146-diagnostic/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-desktop-light",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+        "artifact": ".artifacts/phase8/command-1c45146-diagnostic/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-compact-dark",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+        "artifact": ".artifacts/phase8/command-1c45146-remaining-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-compact-dark",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+        "artifact": ".artifacts/phase8/command-1c45146-remaining-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-tablet-light",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+        "artifact": ".artifacts/phase8/command-1c45146-remaining-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-tablet-light",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+        "artifact": ".artifacts/phase8/command-1c45146-remaining-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-compact-light",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-title-corrected-diagnostic/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-title-corrected-diagnostic/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-desktop-light",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-title-corrected-diagnostic/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-desktop-light",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-desktop-light",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-desktop-light",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-compact-light",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-compact-light",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-compact-light",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-compact-dark",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-compact-dark",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-compact-dark",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-tablet-light",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-tablet-light",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-tablet-light",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-desktop-light",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-desktop-light",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-desktop-light",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-compact-light",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-compact-light",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-compact-light",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-compact-dark",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-compact-dark",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-compact-dark",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-tablet-light",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-tablet-light",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-tablet-light",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "case": "Command center: AI review survives a crowded queue, failed reads and offline snapshots",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "case": "Command center: enlarged text, urgency configuration and explicit empty states",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-compact-dark",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-last-two/summary.json",
+        "status": "PASS"
+      },
+      {
+        "project": "chromium-tablet-light",
+        "case": "Command center: four sections, owned projects, merged dates and keyboard source navigation",
+        "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+        "artifact": ".artifacts/phase8/command-bf1ea8a-last-two/summary.json",
+        "status": "PASS"
+      }
+    ]
+  },
+  "visuals": [
+    {
+      "path": ".artifacts/phase8/command-1c45146-visual/chromium-compact-light-command-center-enlarged.png",
+      "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+      "sha256": "63e6482fb8845df232453f10de4b523886483a8adcbe979ba3e11533f92dd2c5",
+      "originalInspected": true
+    },
+    {
+      "path": ".artifacts/phase8/command-1c45146-visual/chromium-compact-light-command-center-populated.png",
+      "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+      "sha256": "8d3376430ec1577aff9e840f7805784371fe40b83b8db9247b035ea1222973ef",
+      "originalInspected": true
+    },
+    {
+      "path": ".artifacts/phase8/command-1c45146-visual/firefox-tablet-dark-command-center-enlarged.png",
+      "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+      "sha256": "0d64850fbc4798e280e63f5f15a8f682e13e8c53c3fc792d8f32205e7025e1ef",
+      "originalInspected": true
+    },
+    {
+      "path": ".artifacts/phase8/command-1c45146-visual/firefox-tablet-dark-command-center-populated.png",
+      "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+      "sha256": "c0c407a6d269c024e60fb86b6df83ab4ec469ed3854053cb38526f8771fd3126",
+      "originalInspected": true
+    },
+    {
+      "path": ".artifacts/phase8/command-1c45146-visual/webkit-desktop-light-command-center-populated.png",
+      "source": "1c4514606cbda5449f069579b77f758744a1f83b",
+      "sha256": "fe78556a182303388ac638af33c35d674b82ec63ce8a229fb6b9144c29246e0e",
+      "originalInspected": true
+    },
+    {
+      "path": ".artifacts/phase8/command-bf1ea8a-visual/firefox-tablet-dark-project-title-corrected.png",
+      "source": "bf1ea8acf273147f07d14b4d2cd6668726392ec8",
+      "sha256": "25e420c1aa642defc817def525d98db85a10474dc2972fa0d2829389cb419d86",
+      "originalInspected": true
+    }
+  ],
+  "findings": [
+    {
+      "id": "N51",
+      "finding": "Selected AI reviews starved behind general50-item page",
+      "baseline": "Two missing-suggestion failures with original MCP implementation, both permission modes",
+      "correction": "Select sources before pagination; source-bound cache and dashboard scopes"
+    },
+    {
+      "id": "N52",
+      "finding": "Calendar list structure and undersized touch targets",
+      "correction": "List items,44px targets and wrapped labels; whole-page checks retained"
+    },
+    {
+      "id": "N53",
+      "finding": "Empty/work/stage text contrast",
+      "baselineRatios": [
+        2.58,
+        3.8,
+        4.34
+      ],
+      "requiredNormalTextRatio": 4.5,
+      "correction": "Existing neutral/red theme pairs; whole-page checks both themes"
+    },
+    {
+      "id": "N54",
+      "finding": "Project title compressed by default metadata",
+      "baselineTitleWidthPx": 54.06666564941406,
+      "expectedMinimumPx": 240,
+      "correction": "New command-center view displays Title only; width regression across18profiles"
+    }
+  ],
+  "contract": {
+    "version": 2,
+    "bothCopiesSha256": "fee8510a12a390b85ff7f58c65ada217e1bf7673972586c258d77736f264a5a4",
+    "changed": false
+  },
+  "migrations": {
+    "newInThisItem": [],
+    "requiredLatest": "0036_form_operations_index.sql"
+  },
+  "upstreamHeads": {
+    "main": "ec14454b464d9accac9a5016272579d58319ff46",
+    "sol/p7-foundations": "6586ee173c676e33af7f8aae25ceeccd929ee98e",
+    "feature/unified-ai-mcp": "b6c3c4a4105fc3f6ebdba557e86f638426fa7a97"
+  },
+  "originalInterruptions": {
+    "retainedPartialMatrixExit": 130,
+    "retainedPartialMatrixReportedPass": 6,
+    "hostGapMs": [
+      880633,
+      900486
+    ],
+    "hostInterruptedExit": 130,
+    "startupFailureExecutedCases": 0,
+    "notReclassifiedAsPass": true
+  },
+  "artifactHashes": [
+    {
+      "path": ".artifacts/phase8/command-1c45146-diagnostic/summary.json",
+      "sha256": "b1bb4b6042876907f2d5976aaa80eee0a1f18c59fdadc4bcab81d5bcb7e627ca",
+      "originalExit": 0
+    },
+    {
+      "path": ".artifacts/phase8/command-1c45146-remaining-browser/summary.json",
+      "sha256": "f8d88b6d7c1a50d4d6d1bc049213279f0f49e2aae2a4a2722d9a2cff12bdc24f",
+      "originalExit": 130
+    },
+    {
+      "path": ".artifacts/phase8/command-title-corrected-diagnostic/summary.json",
+      "sha256": "4cc5d9be44ce87afad12aa8f144fad77257e8ca32875d7a500e181eb7f6112b6",
+      "originalExit": 0
+    },
+    {
+      "path": ".artifacts/phase8/command-bf1ea8a-missing-browser/summary.json",
+      "sha256": "7f8c2a375a642a69d0145f81fb85fc830765cd4ad8f889dc906d595063258f24",
+      "originalExit": 0
+    },
+    {
+      "path": ".artifacts/phase8/command-bf1ea8a-last-two/summary.json",
+      "sha256": "533ac8d573f158d7e874dca793bcbb595a559d8f653865be7d1241f9efd912ba",
+      "originalExit": 0
+    },
+    {
+      "path": ".artifacts/phase8/command-1c45146-focused.runner.json",
+      "sha256": "7d1172b272f1e569954ac4d7281f703a1bfe84063d9f0b23b4d25edaf72a8d0f"
+    },
+    {
+      "path": ".artifacts/phase8/command-1c45146-typecheck.runner.json",
+      "sha256": "19786925a11f1b3ea5c86bf11664ddf2869bba94d2084647be574ea10a489c36"
+    },
+    {
+      "path": ".artifacts/phase8/command-1c45146-build.runner.json",
+      "sha256": "f30724b1e8e8514f16c6393f352ed2f0f059f8cd623f64ba733e341a4e410352"
+    },
+    {
+      "path": ".artifacts/phase8/command-title-config-tests.runner.json",
+      "sha256": "0dd682dbf1ec4484fd48a5b6e4343fb019f684d2e66f032b4002c27f0605a5d2"
+    },
+    {
+      "path": ".artifacts/phase8/command-title-config-build.runner.json",
+      "sha256": "dacee75bb31af9bd3d877d547dd396bcf098e85ca77a84c45f40f1d8fd58aee0"
+    },
+    {
+      "path": ".artifacts/phase8/home-source-selection-baseline.json",
+      "sha256": "fd03437340ceecdfdd2cf73a118c203e0bb6e5514199d87b84e0b1589168321a"
+    },
+    {
+      "path": ".artifacts/phase8/command-project-title-baseline.runner.json",
+      "sha256": "88085399ad9455546fa4d5561b745e12de220321082f65693666a0d98d1e74bd"
+    },
+    {
+      "path": ".artifacts/phase8/command-diagnostic-tests.runner.json",
+      "sha256": "2eaa9ad30b3bfe2267963b501e6657b7cd3f60b68c88d76766ed08bd07c8f8e9"
+    },
+    {
+      "path": ".artifacts/phase8/command-sixth-browser.runner.json",
+      "sha256": "fd7046045c8ce95b6d7f3e29d8858137ddea2c1181c6ed6c0554ba7df9513db9"
+    }
+  ],
+  "limits": [
+    "No full Phase8 certificate/current1602-cell catalog completion.",
+    "No physical-device, human assistive-technology or independent acceptance claim.",
+    "Automated pending approvals and suggestions are disposable fixtures; no human decision or inference.",
+    "No deployment, remote migration/infrastructure, email, push, payment, mint or paid inference.",
+    "No automatic landing-page change; existing Home preserved."
+  ]
+}
