@@ -25,6 +25,9 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'Command center: four sections, owned projects, merged dates and keyboard source navigation',
+  'Command center: AI review survives a crowded queue, failed reads and offline snapshots',
+  'Command center: enlarged text, urgency configuration and explicit empty states',
   'Automation health: grouped failures, recovery states and exact read-only run history',
   'Automation health: loading, failed reads and offline privacy recover',
   'Automation health: editor tab, form operations and run-read failures preserve their source',

@@ -402,6 +402,20 @@
             ]
           },
           "key": "v_projects_archive"
+        },
+        {
+          "key": "v_home_my_projects",
+          "id": "v_home_my_projects",
+          "name": "Projects I own",
+          "type": "list",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_owner",
+                "op": "me"
+              }
+            ]
+          }
         }
       ]
     },
@@ -6795,6 +6809,159 @@
           "unit": ""
         }
       ]
+    },
+    {
+      "id": "pg_command_center",
+      "title": "Daily command center",
+      "icon": "☀️",
+      "order": "aG",
+      "blocks": [
+        {
+          "key": "command_home_attention_section",
+          "type": "h2",
+          "text": "Needs attention"
+        },
+        {
+          "key": "command_home_attention",
+          "type": "attention",
+          "heading": "Needs attention",
+          "minimumSeverity": 1,
+          "limit": 10
+        },
+        {
+          "type": "h2",
+          "text": "My execution",
+          "key": "command_tpl_3"
+        },
+        {
+          "key": "command_home_my_work",
+          "type": "mywork",
+          "heading": "My open work",
+          "limit": 10
+        },
+        {
+          "key": "command_home_my_projects",
+          "type": "view",
+          "databaseId": "db_projects",
+          "viewId": "v_home_my_projects",
+          "heading": "Projects I own",
+          "limit": 10
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_projects",
+          "agg": "count",
+          "label": "Active projects",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "active"
+            }
+          ],
+          "key": "command_tpl_4"
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_projects",
+          "agg": "count",
+          "label": "Blocked projects",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "blocked"
+            }
+          ],
+          "key": "command_tpl_5"
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_opportunities",
+          "agg": "count",
+          "label": "Deadlines in the next 30 days",
+          "filters": [
+            {
+              "key": "p_f_deadline",
+              "op": "within",
+              "value": {
+                "from": "today",
+                "to": "today+30"
+              }
+            },
+            {
+              "key": "status",
+              "op": "is_not",
+              "value": "won"
+            },
+            {
+              "key": "status",
+              "op": "is_not",
+              "value": "lost"
+            }
+          ],
+          "key": "command_tpl_6"
+        },
+        {
+          "type": "h2",
+          "text": "Coming up",
+          "key": "command_tpl_7"
+        },
+        {
+          "type": "calendar",
+          "sources": [
+            {
+              "databaseId": "db_events",
+              "dateKey": "p_f_start",
+              "color": "#14b8a6"
+            },
+            {
+              "databaseId": "db_projects",
+              "dateKey": "p_f_start",
+              "color": "#3b82f6"
+            },
+            {
+              "databaseId": "db_meetings",
+              "dateKey": "p_f_date",
+              "color": "#8b5cf6"
+            },
+            {
+              "databaseId": "db_opportunities",
+              "dateKey": "p_f_deadline",
+              "color": "#f59e0b"
+            }
+          ],
+          "key": "command_tpl_8"
+        },
+        {
+          "type": "h2",
+          "text": "What changed",
+          "key": "command_tpl_9"
+        },
+        {
+          "type": "activity",
+          "scope": "all",
+          "limit": 20,
+          "key": "command_tpl_a"
+        },
+        {
+          "key": "command_home_ai_review",
+          "type": "attention",
+          "heading": "Pending AI review",
+          "kinds": [
+            "ai_preview_pending",
+            "suggestion_pending"
+          ],
+          "limit": 5,
+          "compact": true
+        },
+        {
+          "type": "callout",
+          "text": "The Common Ground operating system — programs, projects, land, people, money and media in one graph.",
+          "key": "command_tpl_2"
+        }
+      ],
+      "key": "pg_command_center"
     }
   ],
   "links": [
@@ -7161,5 +7328,5 @@
       ]
     }
   ],
-  "version": 10
+  "version": 11
 }

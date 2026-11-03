@@ -15,7 +15,7 @@ import {recordsForCalendar} from '../shared/calendarView';
 import {argsHash} from '../shared/stablejson';
 import {recordHref} from '../shared/recordRoutes';
 import {collectAttention} from './attention';
-import {ATTENTION_KINDS,type AttentionKind,type AttentionPage} from '../shared/attention';
+import {ATTENTION_KINDS,isAttentionKind,type AttentionKind,type AttentionPage} from '../shared/attention';
 import {collectProjectHealth,projectHealthForOrigin} from './projectHealth';
 import {projectHealthConfigSchema,type ProjectHealthConfig} from '../shared/projectHealthConfig';
 import {hasD1Budget} from './d1budget';
@@ -96,14 +96,15 @@ export function registerReadTools(server:McpServer,c:Context) {
     if(derived)supported.push({...page,id:derived.id,collection:'blocks',data:{...derived,derived:true}});
    }
   }
-  const dateContext=await serverDateContext(c.env),attentionRows=new Map<string,AttentionPage>(),attentionScopes=new Map<string,{approvalDatabaseId?:string}>(),attentionKeys=new Map<string,string>();
+  const dateContext=await serverDateContext(c.env),attentionRows=new Map<string,AttentionPage>(),attentionScopes=new Map<string,{approvalDatabaseId?:string;kinds?:AttentionKind[]}>(),attentionKeys=new Map<string,string>();
   const partialAttention=(source:string):AttentionPage=>({items:[],nextCursor:null,partial:true,partialSources:[source],asOf:Date.now(),today:dateContext.today,urgentCount:0,quietDigest:false});
   for(const block of supported.filter(block=>block.data.type==='attention')){
    const id=block.data.approvalDatabaseId,scoped=id!==undefined&&id!==null;
    if(scoped&&(typeof id!=='string'||!id.length||id.length>64||!Array.isArray(block.data.kinds)||block.data.kinds.length!==1||block.data.kinds[0]!=='approval_pending')){attentionRows.set(block.id,partialAttention('configuration'));continue;}
-   const key=scoped?'database:'+id:'global';
+   const kinds=Array.isArray(block.data.kinds)?block.data.kinds.filter(isAttentionKind):[];
+   const key=scoped?'database:'+id:JSON.stringify([...new Set(kinds)].sort());
    if(!attentionScopes.has(key)&&attentionScopes.size>=20){attentionRows.set(block.id,partialAttention('block_limit'));continue;}
-   attentionScopes.set(key,scoped?{approvalDatabaseId:id as string}:{});attentionKeys.set(block.id,key);
+   attentionScopes.set(key,scoped?{approvalDatabaseId:id as string,kinds:['approval_pending']}:{kinds});attentionKeys.set(block.id,key);
   }
   const dbIds=[...new Set(supported.filter(b=>!['projecthealth','budget','fieldsessions','measurechart','eventops','commitments'].includes(String(b.data.type))).flatMap(b=>[b.data.databaseId,...(Array.isArray(b.data.sources)?b.data.sources.slice(0,50).map((s:{databaseId?:string})=>s.databaseId):[])]).filter((id):id is string=>typeof id==='string'))];
   const boards=await getRecs(c.env,dbIds.slice(0,50));
@@ -182,7 +183,7 @@ export function registerReadTools(server:McpServer,c:Context) {
    }else for(const item of commitmentConfigs)commitmentRows.set(item.id,{status:'partial',partial:true,partialSources:['processing_budget'],meetings:[]});
   }
   const attentionPages=new Map<string,AttentionPage>();
-  for(const [key,scope]of attentionScopes)attentionPages.set(key,hasD1Budget(c.env.DB,18)?await collectAttention(c.env,c.userId,{...scope,...(scope.approvalDatabaseId?{kinds:['approval_pending']}: {})}):partialAttention('processing_budget'));
+  for(const [key,scope]of attentionScopes)attentionPages.set(key,hasD1Budget(c.env.DB,18)?await collectAttention(c.env,c.userId,scope):partialAttention('processing_budget'));
   for(const [id,key]of attentionKeys)attentionRows.set(id,attentionPages.get(key)!);
   const contextFor=(board:typeof page)=>{
    const fieldsById=new Map(fieldsOf(board.data).map(field=>[field.id,field]));
@@ -205,7 +206,7 @@ export function registerReadTools(server:McpServer,c:Context) {
    if(data.type==='projecthealth')return {id:block.id,type:data.type,...healthRows.get(block.id)};
    if(data.type==='attention'){
     const kinds=Array.isArray(data.kinds)?data.kinds as AttentionKind[]:[],limit=[5,10,20].includes(Number(data.limit))?Number(data.limit):10,attention=attentionRows.get(block.id)!;
-    return {id:block.id,type:data.type,...attention,items:attention.items.filter(i=>!kinds.length||kinds.includes(i.kind)).slice(0,limit),truncated:attention.partial||!!attention.nextCursor};
+    return {id:block.id,type:data.type,...attention,items:attention.items.filter(i=>i.severity>=([0,1,2,3].includes(Number(data.minimumSeverity))?Number(data.minimumSeverity):0)&&(!kinds.length||kinds.includes(i.kind))).slice(0,limit),truncated:attention.partial||!!attention.nextCursor};
    }
    if(data.type==='activity')return {id:block.id,type:data.type,activity:activity?.activity.filter(r=>data.scope==='mine'?r.actorId===c.userId:data.scope&&typeof data.scope==='object'?treeRows.slice(0,2000).some(t=>t.root===(data.scope as {pageTreeId?:string}).pageTreeId&&(t.id===r.targetId||t.id===r.pageId)):true).slice(0,Math.min(Number(data.limit)||20,100)),truncated:!!activity?.truncated||treeRows.length>2000};
    if(data.type==='mywork'){

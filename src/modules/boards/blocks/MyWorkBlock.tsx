@@ -66,7 +66,7 @@ function MyWorkBlockInner({ block }: { block: LocalRow }) {
   let remaining = limit ?? Infinity;
   const total = groups.reduce((n, g) => n + g.rows.length, 0);
   if (total === 0) {
-    return <p className="rounded-lg border border-dashed border-neutral-200 px-3 py-4 text-center text-xs text-neutral-400 dark:border-neutral-700">No open work.</p>;
+    return <p className="rounded-lg border border-dashed border-neutral-200 px-3 py-4 text-center text-xs text-neutral-600 dark:text-neutral-400 dark:border-neutral-700">No open work.</p>;
   }
 
   return (
@@ -77,7 +77,7 @@ function MyWorkBlockInner({ block }: { block: LocalRow }) {
         remaining -= rows.length;
         return (
           <section key={g.key}>
-            <h4 className={cn('mb-1 text-[10px] font-semibold uppercase tracking-wide', g.key === 'overdue' ? 'text-red-500' : 'text-neutral-400')}>
+            <h4 className={cn('mb-1 text-[10px] font-semibold uppercase tracking-wide', g.key === 'overdue' ? 'text-red-700 dark:text-red-300' : 'text-neutral-600 dark:text-neutral-400')}>
               {g.label} <span className="font-normal">{g.rows.length}</span>
             </h4>
             <ul className="space-y-0.5">
@@ -86,12 +86,12 @@ function MyWorkBlockInner({ block }: { block: LocalRow }) {
                 return (
                   <li key={rec.id}>
                     <button
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-neutral-100 focus-visible:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus-visible:bg-neutral-800"
+                      className="flex min-h-11 w-full flex-wrap items-start gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-neutral-100 focus-visible:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus-visible:bg-neutral-800"
                       onClick={() => navigate(recordHref(board.id, undefined, rec.id))}
                     >
-                      <span className="min-w-0 flex-1 truncate">{String(rec.title ?? 'Untitled')}</span>
-                      {boardKind(board) === 'records' && <span className="shrink-0 text-[10px] text-neutral-400">{String(board.icon ?? '')} {noun}</span>}
-                      {typeof rec.dueDate === 'string' && rec.dueDate && <span className={cn('shrink-0 text-[10px]', rec.dueDate <= todayISO() ? 'text-red-500' : 'text-neutral-400')}>{rec.dueDate.slice(5)}</span>}
+                      <span className="min-w-0 flex-1 basis-40 break-words">{String(rec.title ?? 'Untitled')}</span>
+                      {boardKind(board) === 'records' && <span className="shrink-0 text-[10px] text-neutral-600 dark:text-neutral-400">{String(board.icon ?? '')} {noun}</span>}
+                      {typeof rec.dueDate === 'string' && rec.dueDate && <span className={cn('shrink-0 text-[10px]', rec.dueDate <= todayISO() ? 'text-red-700 dark:text-red-300' : 'text-neutral-600 dark:text-neutral-400')}>{rec.dueDate.slice(5)}</span>}
                       <StageChip rec={rec} board={board} />
                     </button>
                   </li>
@@ -101,7 +101,7 @@ function MyWorkBlockInner({ block }: { block: LocalRow }) {
           </section>
         );
       })}
-      {limit && total > limit && <p className="text-[10px] text-neutral-400">Showing {limit} of {total}.</p>}
+      {limit && total > limit && <p className="text-[10px] text-neutral-600 dark:text-neutral-400">Showing {limit} of {total}.</p>}
     </div>
   );
 }

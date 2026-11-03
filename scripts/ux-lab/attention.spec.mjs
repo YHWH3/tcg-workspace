@@ -14,7 +14,7 @@ async function seed(info,{gate=false}={}){
  return {board,pageId,record,unassigned,rows,title:rows[1].patch.title,triageTitle:rows[2].patch.title};
 }
 async function cleanup(f){await request('/api/sync/push',{protocol:3,changes:f.rows.map(r=>({id:r.id,collection:r.collection,patch:{deleted:true},ts:Date.now()}))});}
-async function queue(page,f){await open(page,{id:'attention-block',path:'/pages/'+f.pageId,ready:{role:'heading',name:'Needs attention'}});const region=page.getByRole('region',{name:'Needs attention',exact:true});await expect(region.getByText(f.title,{exact:true})).toBeVisible();return region;}
+async function queue(page,f){await open(page,{id:'attention-block',path:'/pages/'+f.pageId,ready:{role:'heading',name:'Daily attention'}});const region=page.getByRole('region',{name:'Daily attention',exact:true});await expect(region.getByText(f.title,{exact:true})).toBeVisible();return region;}
 
 test('attention: ranked block, keyboard completion, offline assignment and reconnect',async({page,context},info)=>{
  const f=await seed(info);
@@ -48,7 +48,7 @@ test('attention: configuration, source filters, 200 percent text and recovery',a
   const limit=page.getByRole('combobox',{name:'Attention item limit',exact:true});await expect(limit).toBeVisible();await limit.selectOption('5');
   await page.getByRole('combobox',{name:'Attention density',exact:true}).selectOption('compact');
   await page.getByRole('checkbox',{name:'Overdue',exact:true}).check();await page.keyboard.press('Escape');
-  const region=page.getByRole('region',{name:'Needs attention',exact:true});await expect(region.getByText(f.triageTitle,{exact:true})).toHaveCount(0);
+  const region=page.getByRole('region',{name:'Daily attention',exact:true});await expect(region.getByText(f.triageTitle,{exact:true})).toHaveCount(0);
   await page.addStyleTag({content:'html{font-size:200%!important}'});await expect(page.getByRole('button',{name:'Page menu',exact:true})).toBeInViewport({ratio:1});const reflow=await page.getByRole('button',{name:'Page menu',exact:true}).evaluate(el=>{const root=el.closest('.overflow-y-auto');return {scroll:root.scrollWidth,width:root.clientWidth};});expect(reflow.scroll).toBeLessThanOrEqual(reflow.width+1);await health(page,'attention enlarged',info);await info.attach('attention-enlarged',{body:await page.screenshot(),contentType:'image/png'});
   await reloadReady(page);await expect(region.getByText(f.title,{exact:true})).toBeVisible();
   await open(page,{id:'attention-settings',path:'/boards/'+f.board,ready:{role:'heading',name:'🗂️ Attention workflow '+f.board.slice('att-b-'.length)}});
@@ -65,7 +65,7 @@ test('attention: configuration, source filters, 200 percent text and recovery',a
   await context.unroute('**/api/attention?*');await region2.getByRole('button',{name:'Refresh',exact:true}).click();await expect(region2.getByRole('alert')).toHaveCount(0);await health(page,'attention failure recovered',info);
  }finally{await context.unroute('**/api/attention?*');await cleanup(f);}
 });
-async function queueAfterChange(page,f){await open(page,{id:'attention-empty',path:'/pages/'+f.pageId,ready:{role:'heading',name:'Needs attention'}});const region=page.getByRole('region',{name:'Needs attention',exact:true});await expect(region.getByText(/As of/)).toBeVisible();return region;}
+async function queueAfterChange(page,f){await open(page,{id:'attention-empty',path:'/pages/'+f.pageId,ready:{role:'heading',name:'Daily attention'}});const region=page.getByRole('region',{name:'Daily attention',exact:true});await expect(region.getByText(/As of/)).toBeVisible();return region;}
 
 test('attention: completion opens the existing approval request flow',async({page},info)=>{
  const f=await seed(info,{gate:true});

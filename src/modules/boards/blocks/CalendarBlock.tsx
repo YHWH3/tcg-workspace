@@ -90,15 +90,14 @@ function CalendarBlockInner({ block, compact }: { block: LocalRow; compact: bool
   const selEntries = sel ? (byDate.get(sel) ?? []) : [];
 
   const chip = (e: CalEntry) => (
-    <button
-      key={e.rec.id}
-      className="flex w-full items-center gap-1.5 truncate rounded px-1 py-0.5 text-left text-[11px] leading-tight hover:bg-neutral-100 focus-visible:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus-visible:bg-neutral-800"
+    <li key={e.rec.id}><button
+      className="flex min-h-11 w-full items-center gap-1.5 rounded px-2 py-2 text-left text-sm leading-snug hover:bg-neutral-100 focus-visible:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus-visible:bg-neutral-800"
       onClick={() => navigate(recordHref(e.board.id, undefined, e.rec.id))}
       title={String(e.rec.title ?? 'Untitled')}
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: e.color }} />
-      <span className="min-w-0 flex-1 truncate">{String(e.rec.title ?? 'Untitled')}</span>
-    </button>
+      <span className="min-w-0 flex-1 break-words">{String(e.rec.title ?? 'Untitled')}</span>
+    </button></li>
   );
 
   /* agenda mode (compact): sorted in-month days with their entries. */

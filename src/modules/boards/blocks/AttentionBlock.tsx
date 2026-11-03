@@ -4,6 +4,7 @@ import {Bell,CheckCircle,Clock,ShieldCheck,UserPlus} from 'lucide-react';
 import {ATTENTION_KINDS,isAttentionKind,type AttentionItem,type AttentionKind} from '../../../../shared/attention';
 import {planAttentionAction} from '../../../../shared/attentionActions';
 import {useAttention,refreshAttention} from '../../../core/attention';
+import {useSourceAttention} from '../../../core/useSourceAttention';
 import {useApprovalAttention} from '../../../core/useApprovalAttention';
 import type {AttentionState} from '../../../core/attentionCache';
 import {authStore} from '../../../core/auth';
@@ -22,16 +23,19 @@ import {GateMoveDialog,type GateAttempt} from '../GateMove';
 import {DashBlock,HeadingField,saveBlockCfg,str,useBoardsQuery,pickableBoards} from './shared';
 export const ATTENTION_LABELS:Record<AttentionKind,string>={approval_pending:'Approval needed',ai_preview_pending:'AI changes to review',suggestion_pending:'Suggestion to review',record_overdue:'Overdue',record_due_today:'Due today',record_due_soon:'Due soon',record_unassigned:'Unassigned',website_aging:'Awaiting a reply',mention_unread:'Unread mention',automation_failed:'Automation failed'};
 const actionClass='inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-offset-2 dark:text-neutral-200 dark:hover:bg-neutral-800';
-export function AttentionContent({limit=10,kinds=[],compact=false}:{limit?:number;kinds?:AttentionKind[];compact?:boolean}){
- const state=useAttention();return <AttentionList state={state} refresh={refreshAttention} limit={limit} kinds={kinds} compact={compact}/>;
+export function AttentionContent({limit=10,kinds=[],compact=false,minimumSeverity=0,title}:{limit?:number;kinds?:AttentionKind[];compact?:boolean;minimumSeverity?:number;title?:string}){
+ const state=useAttention();return <AttentionList state={state} refresh={refreshAttention} limit={limit} kinds={kinds} compact={compact} minimumSeverity={minimumSeverity} title={title}/>;
+}
+function SourceAttentionContent({kinds,...props}:{kinds:AttentionKind[];limit:number;compact:boolean;minimumSeverity:number;title?:string}){
+ const state=useSourceAttention(kinds);return <AttentionList {...props} kinds={kinds} state={state} refresh={state.refresh}/>;
 }
 function ApprovalAttentionContent({approvalDatabaseId,limit,compact}:{approvalDatabaseId:string;limit:number;compact:boolean}){
  const state=useApprovalAttention(approvalDatabaseId);return <AttentionList state={state} refresh={state.refresh} limit={limit} kinds={['approval_pending']} compact={compact} approvalDatabaseId={approvalDatabaseId}/>;
 }
-function AttentionList({state,refresh,limit,kinds,compact,approvalDatabaseId}:{state:AttentionState;refresh:()=>Promise<void>;limit:number;kinds:AttentionKind[];compact:boolean;approvalDatabaseId?:string}){
- const me=useStore(authStore).user,users=useUsers(),title=approvalDatabaseId?'My pending approvals':'Needs attention';
+function AttentionList({state,refresh,limit,kinds,compact,approvalDatabaseId,minimumSeverity=0,title:configuredTitle}:{state:AttentionState;refresh:()=>Promise<void>;limit:number;kinds:AttentionKind[];compact:boolean;approvalDatabaseId?:string;minimumSeverity?:number;title?:string}){
+ const me=useStore(authStore).user,users=useUsers(),title=configuredTitle||(approvalDatabaseId?'My pending approvals':'Needs attention');
  const [busy,setBusy]=useState<string|null>(null),[message,setMessage]=useState(''),[error,setError]=useState(''),[attempt,setAttempt]=useState<GateAttempt|null>(null),[savedKeys,setSavedKeys]=useState<Set<string>>(new Set());
- const items=(state.page?.items??[]).filter(i=>!kinds.length||kinds.includes(i.kind)),shown=items.slice(0,limit);
+ const items=(state.page?.items??[]).filter(i=>i.severity>=minimumSeverity&&(!kinds.length||kinds.includes(i.kind))),shown=items.slice(0,limit);
  const act=async(item:AttentionItem,action:'assign_me'|'mark_done')=>{
   setBusy(item.key);setError('');setMessage('');
   const uid=me?.id,token=getToken(),epoch=accessClientStore.get().epoch;
@@ -50,7 +54,7 @@ function AttentionList({state,refresh,limit,kinds,compact,approvalDatabaseId}:{s
   }catch(e){setError(e instanceof Error?e.message:'This change could not be saved.');}finally{setBusy(null);}
  };
  return <section aria-label={title} className="min-w-0 space-y-3 text-neutral-900 dark:text-neutral-100">
-  <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">{title}</h3><Button className="h-auto min-h-11 py-2" onClick={()=>void refresh()} disabled={state.loading||state.offline}>{state.loading?'Refreshing…':'Refresh'}</Button></div>
+  <div className="flex flex-wrap items-center justify-between gap-2">{!configuredTitle&&<h3 className="text-sm font-semibold">{title}</h3>}<Button className="h-auto min-h-11 py-2" onClick={()=>void refresh()} disabled={state.loading||state.offline}>{state.loading?'Refreshing…':'Refresh'}</Button></div>
   {approvalDatabaseId&&<p className="text-sm">Your pending approvals in the selected database. Other approvers' requests are outside this list.</p>}
   <div role="status" className="space-y-1 text-xs text-neutral-600 dark:text-neutral-400">
    {state.page&&<p>As of {new Date(state.page.asOf).toLocaleString()}{state.offline?' (offline)':state.stale?' (saved snapshot)':''}</p>}
@@ -88,7 +92,7 @@ function AttentionList({state,refresh,limit,kinds,compact,approvalDatabaseId}:{s
  </section>;
 }
 function AttentionConfigure({block}:Pick<MediaBlockProps,'block'>){
- const boards=useBoardsQuery(),[draft,setDraft]=useState(()=>({limit:[5,10,20].includes(Number(block.limit))?Number(block.limit):10,compact:block.compact===true,kinds:Array.isArray(block.kinds)?block.kinds.filter(isAttentionKind):[],approvalDatabaseId:typeof block.approvalDatabaseId==='string'?block.approvalDatabaseId:null}));
+ const boards=useBoardsQuery(),[draft,setDraft]=useState(()=>({limit:[5,10,20].includes(Number(block.limit))?Number(block.limit):10,compact:block.compact===true,minimumSeverity:[0,1,2,3].includes(Number(block.minimumSeverity))?Number(block.minimumSeverity):0,kinds:Array.isArray(block.kinds)?block.kinds.filter(isAttentionKind):[],approvalDatabaseId:typeof block.approvalDatabaseId==='string'?block.approvalDatabaseId:null}));
  const [error,setError]=useState('');
  const save=(patch:Partial<typeof draft>)=>{
   setDraft(s=>({...s,...patch}));setError('');
@@ -97,6 +101,7 @@ function AttentionConfigure({block}:Pick<MediaBlockProps,'block'>){
  return <>
   <HeadingField value={str(block.heading)} onChange={v=>saveBlockCfg(block,{heading:v??null})}/>
   <Field label="Maximum items"><Select aria-label="Attention item limit" value={draft.limit} onChange={e=>save({limit:Number(e.target.value)})}>{[5,10,20].map(n=><option key={n} value={n}>{n}</option>)}</Select></Field>
+  <Field label="Minimum urgency"><Select aria-label="Attention minimum urgency" value={draft.minimumSeverity} onChange={e=>save({minimumSeverity:Number(e.target.value)})}><option value="0">All items</option><option value="1">Due today or needs review</option><option value="2">Overdue or urgent</option><option value="3">Highest urgency</option></Select></Field>
   <Field label="Density"><Select aria-label="Attention density" value={draft.compact?'compact':'full'} onChange={e=>save({compact:e.target.value==='compact'})}><option value="full">Full</option><option value="compact">Compact</option></Select></Field>
   <Field label="Approval database"><Select className="h-auto min-h-11 max-w-full py-2" aria-label="Attention approval database" value={draft.approvalDatabaseId??''} onChange={event=>save({approvalDatabaseId:event.target.value||null,...(event.target.value?{kinds:['approval_pending'] as AttentionKind[]}:{})})}><option value="">No restriction</option>{draft.approvalDatabaseId&&!pickableBoards(boards).some(board=>board.id===draft.approvalDatabaseId)&&<option value={draft.approvalDatabaseId}>Unavailable database</option>}{pickableBoards(boards).map(board=><option key={board.id} value={board.id}>{String(board.name??'Database')}</option>)}</Select><p>Choosing a database makes this block an approval-only list. Other Attention blocks keep their own sources.</p></Field>
   <fieldset><legend className="font-medium">Sources (none selected means all)</legend>{ATTENTION_KINDS.map(kind=><label key={kind} className="flex min-h-11 items-center gap-2"><input type="checkbox" disabled={!!draft.approvalDatabaseId} checked={draft.kinds.includes(kind)} onChange={e=>save({kinds:e.target.checked?[...draft.kinds,kind]:draft.kinds.filter(k=>k!==kind)})}/>{ATTENTION_LABELS[kind]}</label>)}</fieldset>
@@ -107,7 +112,7 @@ export function AttentionBlock({block}:MediaBlockProps){
  const limit=[5,10,20].includes(Number(block.limit))?Number(block.limit):10,kinds=Array.isArray(block.kinds)?block.kinds.filter(isAttentionKind):[];
  const scoped=block.approvalDatabaseId!==undefined&&block.approvalDatabaseId!==null,valid=typeof block.approvalDatabaseId==='string'&&block.approvalDatabaseId.length>0&&block.approvalDatabaseId.length<=64&&Array.isArray(block.kinds)&&block.kinds.length===1&&block.kinds[0]==='approval_pending';
  return <DashBlock block={block} icon={Bell} label="Attention" config={<AttentionConfigure block={block}/>}>
-  {()=> scoped?(valid?<ApprovalAttentionContent key={String(block.approvalDatabaseId)} approvalDatabaseId={String(block.approvalDatabaseId)} limit={limit} compact={block.compact===true}/>:<p>Choose an approval database with Approval needed as its only source in Configure.</p>):<AttentionContent limit={limit} kinds={kinds} compact={block.compact===true}/>}
+  {()=> scoped?(valid?<ApprovalAttentionContent key={String(block.approvalDatabaseId)} approvalDatabaseId={String(block.approvalDatabaseId)} limit={limit} compact={block.compact===true}/>:<p>Choose an approval database with Approval needed as its only source in Configure.</p>):kinds.length?<SourceAttentionContent limit={limit} kinds={kinds} compact={block.compact===true} minimumSeverity={[0,1,2,3].includes(Number(block.minimumSeverity))?Number(block.minimumSeverity):0} title={str(block.heading)}/>:<AttentionContent limit={limit} compact={block.compact===true} minimumSeverity={[0,1,2,3].includes(Number(block.minimumSeverity))?Number(block.minimumSeverity):0} title={str(block.heading)}/>}
  </DashBlock>;
 }
 registerBlockType('attention','Attention',AttentionBlock);

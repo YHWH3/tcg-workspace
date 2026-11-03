@@ -520,3 +520,48 @@ engine change. InitialfixtureJSONfailure is retained. Exact evidence:
 evidence/P8-health-c938456.json. This is scopedincrementalproof, notfull1548-cell
 coverage or aPhase8certificate. Publication is documentation/evidence only.
 Next8.2Home, thenfullmandatoryPhase8certification andacceptance. Phase8HOLD.
+
+
+### 8.2 command-center continuation, 2026-11-03
+
+Owner chose a separate Daily command center page, preserving Home. Pack v11
+adds four sections through the existing additive updater; old Home blocks,
+order, filters and deleted reservations remain unchanged. Fresh configuration
+uses generic Attention/My work/view/calendar/activity blocks and the existing
+root-page reliability chip. Selected-source Attention reads now request their
+kinds before the 50-item page, with separate account/session/access-bound
+snapshots; MCP dashboard summaries follow the same source selection.
+Initial 41 focused tests across six files passed before the owner-choice
+configuration adjustment. Typecheck found a test-only unknown-type indexing
+error; corrected, rerun pending. Feature verification and full Phase8
+certification are incomplete. No release claim.
+
+
+### 8.2 source checkpoint and interrupted verification
+
+Owner decision is recorded in08-operating-desks.md. Old Home configuration is
+unchanged; the new Daily command center is additive pack v11. N51 source
+starvation: old MCP implementation reproduces2 failures (both permission
+modes); source-selected snapshots/read summaries correct the selection order.
+N52 calendar list/target and N53 contrast findings are retained in original
+compact browser reports and corrected in shared components. My work titles
+wrap instead of being squeezed behind metadata. Two original corrected PNGs
+were inspected. No migration or website event-contract change.
+
+Development evidence:41/41 initial focused tests; later47PASS/1timeout from
+48tests across8files, followed by6/6 narrow MCP PASS. A test-fixture root
+lookup error, oversized generated id and two wrong browser locators remain
+retained. Corrected compact run:2PASS/1failed navigation locator, with its
+preceding whole-page accessibility check passing. Typecheck/build PASS.
+Latest two-queue MCP regression remains unverified. Do not aggregate these
+results into a clean-source certificate. Local evidence lives under
+.artifacts/phase8/command-* and home-*; raw reports are not published.
+
+The host then suspended repeatedly: the focused wrapper measured880633ms
+and browser wrapper900486ms heartbeat gaps, interrupted both with exit130.
+An earlier Worker-start failure ran zero cases. Source is saved for review;
+verification awaits stable host execution. Next: complete the focused
+selection and corrected three-engine diagnostic; inspect original captures;
+run54command-center cases across18fixtures and justified shared regressions;
+then commit/freeze and run full mandatory Phase8 certification plus the1602
+required catalog cells. Phase8 remains HOLD. No deployment or owner acceptance.

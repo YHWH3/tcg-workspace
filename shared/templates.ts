@@ -443,7 +443,7 @@ export function planTemplateInstantiation(
     // Dashboard block whitelist (Phase 3 §3): config fields copy through,
     // authored databaseId/viewId/sources[].databaseId remap to live ids.
     if (DASHBOARD_BLOCK_TYPES.has(String(b.type))) {
-      for (const k of ['meetingId','days','actionsKey','decisionsKey','decisionOwnerKey','limit', 'agg', 'fieldKey', 'format', 'scope', 'url', 'inline', 'filters', 'kinds', 'compact','ownerKey','startKey','endKey','staleDays','mode','eventId','capacityKey','facilitatorsKey','volunteersKey','participantsKey','upcomingOnly','measurementKey','unitKey','observationKey','photoKey','placeKey','experimentKey','projectKey','experimentId','placeId','unit','missingOnly','dateKey','budgetKey','amountKey','typeKey','relationKey','priceKey','costKey'] as const) {
+      for (const k of ['meetingId','days','actionsKey','decisionsKey','decisionOwnerKey','limit', 'agg', 'fieldKey', 'format', 'scope', 'url', 'inline', 'filters', 'kinds', 'minimumSeverity', 'compact','ownerKey','startKey','endKey','staleDays','mode','eventId','capacityKey','facilitatorsKey','volunteersKey','participantsKey','upcomingOnly','measurementKey','unitKey','observationKey','photoKey','placeKey','experimentKey','projectKey','experimentId','placeId','unit','missingOnly','dateKey','budgetKey','amountKey','typeKey','relationKey','priceKey','costKey'] as const) {
         if (b[k] !== undefined) patch[k] = typeof b[k] === 'object' && b[k] !== null ? JSON.parse(JSON.stringify(b[k])) : b[k];
       }
       if (b.heading !== undefined) patch.heading = substituteVars(b.heading, vars);

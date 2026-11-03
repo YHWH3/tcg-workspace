@@ -952,3 +952,44 @@ budgets and leases are untouched. No scheduler table or new migration is added.
 Atc938456,81focusedtests/5files,typecheck/build and72freshHealthbrowsercells
 across18projects PASS;five original captures inspected. No full1548-cell/current
 mandatory phase certificate is claimed. Next8.2 andtheunchanged finalphasegates.
+
+
+### 8.2 Daily command center: implementation checkpoint, 2026-11-03
+
+Owner chose a separate pack page, preserving Home. Pack v11 adds Needs
+attention (severity at least1), My execution (My work and Projects I own),
+Coming up (four-source calendar), and What changed (activity and selected AI
+review). Existing root-page reliability UI remains conditional on device work
+that needs attention. No automatic landing-page change. The generic additive
+updater stays unchanged, including edited/deleted reservations and order.
+Existing Home author configuration is byte-equivalent as parsed JSON.
+
+Generic source-selected Attention snapshots bind their source list in addition
+to account/session/access. HTTP and MCP dashboard requests select kinds before
+the general50-item page, so approvals cannot crowd out suggestion reviews.
+Minimum urgency survives author compilation/template copying and remains
+configurable. Generic calendar entries now use list items and44px targets;
+My work titles wrap. Empty, overdue, metadata and stage text reuse readable
+neutral/red theme pairs. No new migration, provider, service or website contract.
+
+Verification is incomplete. N51 (source starvation) reproduces with the old
+MCP implementation in both permission modes:2 FAIL retained. Initial41
+focused tests/6files pass; after owner-choice updates47/48 pass with one
+MCP timeout retained, then that6-case MCP file passes narrowly. Typecheck
+and builds pass at development source. The later two-queue MCP regression
+is not yet verified. Compact rendered diagnostics reproduce N52 calendar
+list/target defects and N53 contrast defects. Their corrected diagnostic
+passes accessibility in the populated, enlarged and offline states, but its
+original navigation assertion used the wrong noun-specific textbox label.
+That locator is corrected; the full three-engine diagnostic has not completed.
+Two original corrected compact PNGs were inspected. No feature/full-phase
+certificate is claimed.
+
+A subsequent focused run and browser setup were interrupted with exit130 after
+measured host heartbeat gaps of880633ms and900486ms. A separate startup
+failure executed zero browser cases. The ignored process-scoped keep-awake
+wrapper retains these outcomes; macOS sleep/wake evidence is recorded, without
+claiming that it proves the cause of every earlier startup issue. Resume only
+unfinished affected checks on stable host availability, then the54-case
+command-center matrix and full mandatory Phase8 certification/current1602
+catalog cells. No failed or interrupted evidence is reused as PASS.

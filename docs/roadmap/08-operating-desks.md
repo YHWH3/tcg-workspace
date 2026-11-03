@@ -307,9 +307,16 @@ These are derived from source state, so there is no queue table in v1.
 
 ## 8.2 Daily command center
 
-**Goal:** Home becomes the place to start the day.
+**Goal:** A daily command center becomes the place to start the day.
 
-- **Pack page Home** (upgrade via 7.4). The page has four sections, built from
+**Owner decision, 2026-11-03:** add a separate “Daily command center” pack
+page. Preserve the existing Home page and all its blocks. The additive updater
+adds the new page; it does not refresh or reorder old defaults. The four-section
+configuration and `within` metric below apply to the new page. Root pages share
+the existing conditional device-reliability chip. No automatic landing-page
+change or pack-specific runtime code is introduced.
+
+- **Pack page Daily command center** (additive upgrade via 7.4). The page has four sections, built from
   existing blocks plus `attention`:
   1. Needs attention: `attention` block (severity ≥1).
   2. My execution: `mywork` block and a `view` block of "Projects I own"
@@ -323,7 +330,7 @@ These are derived from source state, so there is no queue table in v1.
 - Replace the pack's broken two-filter "Deadlines in the next 30 days" metric
   with `within` (7.1). R1 already makes the old form correct.
 - **Mobile:** sections stack; the attention block comes first.
-- **Acceptance:** the Home page works with no pack-specific code beyond
+- **Acceptance:** the command-center page works with no pack-specific code beyond
   configuration.
 
 ---

@@ -20,6 +20,32 @@ async function setup(enabled:boolean){fx=await openAuditFixture();await fx.db.pr
  ])).rejected).toBe(0);await fx.db.prepare('INSERT INTO date_index VALUES(?,?,?)').bind('source','dueDate',date).run();}
 async function call(name:string,args:any,userId='alice'){const env=withD1Budget(fx.env);createWorkspaceServer({env,ectx:ctx,userId,userRole:userId==='alice'?'admin':'member',origin:'https://localhost',userByKey:new Map(),userNameById:new Map(),pageTitleById:new Map(),recordTitleById:new Map(),recordIdByTitle:new Map(),pageIdByTitle:new Map(),cachesReady:false,warnings:[],cs:null,toolName:''} as never);const result=await tools.get(name)!(args);expect(45-d1BudgetRemaining(env.DB)).toBeLessThanOrEqual(45);return {result,json:JSON.parse(result.content[0].text)};}
 describe.each([false,true])('attention MCP permissions=%s',enabled=>{
+ it('keeps general and review queues separate in one dashboard snapshot',async()=>{
+  await setup(enabled);const now=Date.now();
+  await fx.db.prepare("INSERT INTO ai_suggestions(id,user_id,target_id,source_hash,source_rev,patch_json,rationale,provider,model,created_at) VALUES('review-source','alice','source','fixture',1,'{}','Synthetic','simulated','fixture',?)").bind(now).run();
+  await applyChanges(fx.env,'alice',[
+   {id:'attention-block',collection:'blocks',ts:now,patch:{minimumSeverity:1}},
+   {id:'review-block',collection:'blocks',ts:now,patch:{pageId:'home',type:'attention',kinds:['ai_preview_pending','suggestion_pending'],limit:5,order:'a1'}},
+  ]);
+  const snapshot=await call('dashboard_snapshot',{pageId:'home'});expect(snapshot.result.isError,JSON.stringify(snapshot.json)).not.toBe(true);
+  expect(snapshot.json.blocks.find((b:{id:string})=>b.id==='attention-block').items.some((item:{kind:string})=>item.kind==='record_overdue')).toBe(true);
+  expect(snapshot.json.blocks.find((b:{id:string})=>b.id==='review-block').items).toMatchObject([{kind:'suggestion_pending',targetId:'review-source'}]);
+ });
+ it('selects AI review sources before the general 50-item page and honors Home urgency',async()=>{
+  await setup(enabled);
+  const now=Date.now();
+  await fx.db.batch(Array.from({length:55},(_,n)=>fx.db.prepare("INSERT INTO approvals(id,target_type,target_id,requested_by,approver_id,status,created_at) VALUES(?,'record','source','bob','alice','pending',?)").bind('home-approval-'+n,now-n)));
+  await fx.db.prepare("INSERT INTO ai_suggestions(id,user_id,target_id,source_hash,source_rev,patch_json,rationale,provider,model,created_at) VALUES('home-suggestion','alice','source','fixture',1,'{}','Synthetic provider contract only','simulated','fixture',?)").bind(now).run();
+  expect((await collectAttention(fx.env,'alice')).items.some(item=>item.kind==='suggestion_pending')).toBe(false);
+  await applyChanges(fx.env,'alice',[{id:'attention-block',collection:'blocks',ts:now,patch:{kinds:['ai_preview_pending','suggestion_pending'],limit:5}}]);
+  const snapshot=await call('dashboard_snapshot',{pageId:'home'});
+  expect(snapshot.result.isError,JSON.stringify(snapshot.json)).not.toBe(true);
+  expect(snapshot.json.blocks[0].items).toMatchObject([{kind:'suggestion_pending',targetId:'home-suggestion'}]);
+  await applyChanges(fx.env,'alice',[{id:'attention-block',collection:'blocks',ts:now+1,patch:{kinds:null,minimumSeverity:3,limit:10}}]);
+  const urgent=await call('dashboard_snapshot',{pageId:'home'});
+  expect(urgent.result.isError,JSON.stringify(urgent.json)).not.toBe(true);expect(urgent.json.blocks[0].items).toHaveLength(10);
+  expect(urgent.json.blocks[0].items.every((item:{severity:number})=>item.severity>=3)).toBe(true);
+ });
  it('shares REST/AI results, remains read-only, and makes the answer action available',async()=>{
   await setup(enabled);const before=await fx.db.prepare('SELECT MAX(seq) n FROM records').first('n'),direct=await collectAttention(fx.env,'alice');const read=await call('attention_queue',{});
   expect(read.result.isError).not.toBe(true);expect(read.json.items).toEqual(direct.items);expect(read.json.trust).toMatchObject({untrusted:true,instructions:false});expect(await fx.db.prepare('SELECT MAX(seq) n FROM records').first('n')).toBe(before);

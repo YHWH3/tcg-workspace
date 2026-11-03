@@ -88,7 +88,7 @@ export function DashBlock({
 
 export function BlockNotice({ children, tone = 'muted' }: { children: ReactNode; tone?: 'muted' | 'loading' }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-dashed border-neutral-200 px-3 py-3 text-xs text-neutral-400 dark:border-neutral-700">
+    <div className="flex items-center gap-2 rounded-lg border border-dashed border-neutral-200 px-3 py-3 text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
       {tone === 'loading' ? <Spinner size={13} /> : <Database size={13} />}
       {children}
     </div>
@@ -182,7 +182,7 @@ export function StageChip({ rec, board }: { rec: TaskRow; board: BoardRow }) {
   const col = stagesOf(board).find((c) => c.id === columnIdFor(rec, board));
   if (!col) return null;
   return (
-    <span className="flex shrink-0 items-center gap-1 rounded-md bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+    <span className="flex shrink-0 items-center gap-1 rounded-md bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: col.color }} />
       {col.name}
     </span>

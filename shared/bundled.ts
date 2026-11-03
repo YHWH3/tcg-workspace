@@ -128,6 +128,7 @@ export interface AuthorBlock {
   limit?: number;
   heading?: string;
   kinds?: AttentionKind[];
+  minimumSeverity?: 0|1|2|3;
   compact?: boolean;
   filters?: Filter[];
   agg?: string;
@@ -194,7 +195,7 @@ function toStoredBlock(b: AuthorBlock, pageId: string, order: string): Record<st
     return out;
   }
   for (const k of [
-    'databaseId', 'approvalDatabaseId', 'viewId', 'inline', 'limit', 'heading', 'filters', 'kinds', 'compact',
+    'databaseId', 'approvalDatabaseId', 'viewId', 'inline', 'limit', 'heading', 'filters', 'kinds', 'minimumSeverity', 'compact',
     'meetingId','days','actionsKey','decisionsKey','decisionOwnerKey','agg', 'fieldKey', 'label', 'format', 'sources', 'scope', 'url', 'projectId','recordId','eventId','capacityKey','facilitatorsKey','volunteersKey','participantsKey','upcomingOnly','mode','measurementKey','unitKey','observationKey','photoKey','placeKey','experimentKey','projectKey','experimentId','placeId','unit','missingOnly','dateKey','budgetKey','amountKey','typeKey','relationKey','priceKey','costKey','ownerKey','startKey','endKey','staleDays',
   ] as const) {
     const v = b[k as keyof AuthorBlock];
