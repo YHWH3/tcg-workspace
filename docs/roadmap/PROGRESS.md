@@ -599,3 +599,15 @@ Sanitized evidence: evidence/P8-command-center-bf1ea8a.json. Website source
 upstream heads are unchanged. Every Phase8 feature now has incremental
 engineering evidence. Phase8 remains HOLD until a new clean-source mandatory
 certificate, full current89-case/1602-cell catalog and acceptance gates.
+
+
+### Full Phase8 certification attempt1: stale release migration contracts
+
+Clean dd3b748 mandatory run found two harness assertions still pinned to35
+migrations, while the immutable manifest correctly pins36. The36-hash gate
+passed; release preflight/rehearsal contracts were stale after0036. Harness
+143PASS/2FAIL is preserved. Execution was intentionally interrupted before
+further broad checks; the certificate remains FAIL. No old result is rewritten.
+The release contracts now explicitly expect36, retaining ordered names/hash
+checks and refusal of additional unreviewed migrations. Focused harness checks
+precede a new mandatory run. No SQL, manifest entry or application code changes.
