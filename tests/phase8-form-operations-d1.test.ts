@@ -101,7 +101,7 @@ it('keeps deleted, archived and moved records out and sanitizes unknown error te
   const report=await (await read()).json() as FormOperationsReport;expect(report.forms[0].followups).toEqual([]);expect(report.forms[0].failures.find(row=>row.submissionId==='retry')?.errorClass).toBe('unknown');expect(JSON.stringify(report)).not.toContain('NEVER_COPY');
 });
 it('uses a form-keyed journal index for the real operational query',async()=>{
-  await seed(false);const plans=await f.db.batch<{detail:string}>(FORM_OPERATIONS_SQL.map(sql=>f.db.prepare('EXPLAIN QUERY PLAN '+sql).bind(null,null,now-30*DAY,now-7*DAY,now-3*DAY,now,WEBSITE_INBOX_ID)));
+  await seed(false);const plans=await f.db.batch<{detail:string}>(FORM_OPERATIONS_SQL.map(sql=>f.db.prepare('EXPLAIN QUERY PLAN '+sql).bind(null,null,now-30*DAY,now-7*DAY,now-3*DAY,now,WEBSITE_INBOX_ID,1)));
   const plan=plans.flatMap(result=>result.results);
   if(process.env.FORM_OPS_PLAN_PATH){mkdirSync(dirname(process.env.FORM_OPS_PLAN_PATH),{recursive:true});writeFileSync(process.env.FORM_OPS_PLAN_PATH,JSON.stringify(plan,null,2));}
   expect(plan.map(row=>row.detail).join('\n')).toMatch(/SEARCH s USING COVERING INDEX idx_submissions_form_state_created \(form_id=\?/);

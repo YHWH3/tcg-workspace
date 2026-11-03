@@ -489,3 +489,21 @@ after the owner's scope audit; mandatory Phase8 boundary checks remain required.
 Exact sources, migration0036, contractv2, failures and artifact hashes:
 evidence/P8-forms-9dae915.json. Publication is documentation/evidence only.
 Next8.10, then8.2, thenfullPhase8certification; overallPhase8HOLD.
+
+8.10 Automation and delivery health is implemented locally; final checks pending.
+The admin REST/MCP collector batches safe failed-run, stuck-event, public-form and
+participant-only old-approval metadata, then applies current canonical source and
+role checks. It shares the Forms projection without Website/follow-up overfetch.
+Nine real-D1 checks pass at development source, including1,000runs andsevenbinding
+calls with auth renewal/final credentials. Two genuine in-process MCP checks pass
+in both permission modes without provider inference. First12browser diagnostic
+journeys pass; original screenshots were inspected before matrix expansion.
+Visible source actions are shortened while retaining full accessible labels;
+refined enlarged/run-history diagnostic6/6passes onthreeengine/layout/themeprofiles.
+Initial9D1failures were test setup using invalid journalJSON, corrected; original
+log retained. Additional inventory-cap/connector/query-plan cases still await the
+committed-source run. No new migration, permission activation or recovery-engine
+change. Optional scheduler history is explicitly unavailable: adding phase writes
+would alter the existing budget/rotation recovery paths. Next: commit/freeze,
+focused Health/Forms/read-gate/registry checks and72Healthbrowsercells. No blanket
+577/630 reruns or claim of full Phase8certification. OverallPhase8HOLD.

@@ -22,6 +22,7 @@ export interface FormOperationsFailure {
   createdAt: number;
   attempts: number;
   retryAt: number | null;
+  recovery: 'automatic' | 'stopped' | 'blocked';
   errorClass: FormErrorClass;
 }
 export interface FormOperationsFollowup {

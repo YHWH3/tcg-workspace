@@ -587,8 +587,8 @@ what to do if not.
 
 - **New endpoint** `GET /api/automations/health` (admin; at most 8 D1 calls,
   batched). It returns:
-  - failed `automation_runs` in the last 7 days, grouped by automation, with
-    last error and count;
+  - currently failed `automation_runs` created in the last 7 days, grouped by
+    automation, with last sanitized error class and count (unknown details withheld);
   - stuck `event_outbox` rows (`terminal_at` set, or attempts ≥5);
   - `form_submissions` with failed processing (verify the status columns);
   - pending approvals older than 3 days (approval age);
@@ -596,6 +596,13 @@ what to do if not.
     server table `scheduler_runs(phase, last_started_at, last_finished_at,
     last_error)` written at the end of each phase (1 call per phase), in a
     migration this phase. It is optional; skip it if the budget assertion fails.
+- Current admin authority and canonical record access both apply. Private spaces
+  are not overridden. Old approvals remain participant-only. Multi-record events
+  are withheld unless every referenced source is current/readable. Source caps
+  and unavailable sources are explicit. Forms requires editable destinations.
+- Scheduler phase history is optional and deferred in this increment: phase
+  bookkeeping would modify existing invocation budgets and recovery rotation.
+  Its unavailable state is shown; an empty list is not scheduler-run evidence.
 - **UI:** the Automations module gets a "Health" tab with lists and links to
   each automation's runs (`GET /api/automations/:id/runs` exists).
 - **No manual re-run in v1.** The existing recovery phases retry automatically;

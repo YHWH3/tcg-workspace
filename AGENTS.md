@@ -327,3 +327,17 @@ still produce an explicit partial window. Operations responses remain in memory,
 keyed by account/session/access and hidden offline. Website intake is separately
 labelled metadata about records added to Workspace, not public-form receipts or
 proof of relay delivery. Never introduce an admin bypass of private destinations.
+
+### Phase 8 Automation and delivery health
+
+`collectAutomationHealth` shares the Forms metadata projection and current
+`ReadGate.decideEditable` decision. The current workspace role returned by that
+same authority batch fences admin-only summary reads; session role hints do not.
+Keep all event source records inside the gate, including extra/notification
+references, or withhold the event with an explicit incomplete-source state.
+Approvals remain participant-only. Never return raw journal payloads, plans,
+receipts, approval notes or arbitrary error strings. Seven REST binding calls
+include auth renewal and the final credential fence; SQL work is separate.
+Do not add a scheduler journal or rerun action by silently changing existing
+recovery budgets/rotation. Full phase certification remains required; incremental
+presentation changes run their affected feature checks per TESTING-SCOPE-AUDIT.md.

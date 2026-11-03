@@ -911,3 +911,38 @@ remain NOT RUN. Fifteen original captures inspected. N44–N49 baselines and
 interrupted reports remain retained. Exact evidence:
 ../roadmap/evidence/P8-meetings-acef300.json. No full1404-cell or Phase8
 certificate, physical-device, human approval or native-zoom claim.
+
+## Forms operations and delivery health (8.14 / 8.10)
+
+Forms operations uses `worker/formOperations.ts`, re-exported from
+`worker/forms.ts`. `formOperationsStatements` and `formOperationsProjection`
+share one metadata boundary between per-form operations and admin delivery health.
+The health read omits Website and first-stage follow-up projections so its combined
+record-id inventory stays below the read gate's500-id chunk. Public Forms keeps
+its established fields and adds recovery eligibility metadata. Migration0036 is
+required for form/state/time lookups; original migrations remain unchanged.
+
+`worker/automationHealth.ts` serves authenticated GET/api/automations/health and
+MCP `automation_health` (read-classified). Current admin/owner role and record
+rights both apply; workspace administration never overrides private sources.
+Approvals remain participant-only. One metadata batch, one canonical graph and
+one current authority batch are shared across all sources. The REST request uses
+seven binding calls including initial role, optional session renewal and final
+credential checks. Binding counts do not stand for SQL statement or row-read costs.
+
+Failed runs are grouped by rule in a7-day creation window, stuck events must remain
+unprocessed and be terminal or have at least5attempts, and Forms shows30-day
+processing failures. Automatic means eligible for existing recovery; terminal or
+missing-payload states stay distinct. Unknown exception details are withheld;
+payloads, plans, receipts, answer bodies, approval notes and recipients never enter
+the new summary. Every target of a multi-record event must remain available and
+readable. Source caps are explicit:50rules,50events with at most4distinct source
+records each,40forms/10failures each,100participant approvals.
+
+The Automations module adds a Health tab and a read-only run-history page using
+the existing authorized runs endpoint. Health/run-history reads remain in memory,
+keyed by account/session/access and hidden offline. No manual rerun is added.
+The new run-history page classifies stored errors rather than rendering their
+arbitrary text. Existing editor and undo behavior is preserved. Optional scheduler
+phase history remains unimplemented and visibly unavailable; recovery rotation,
+budgets and leases are untouched. No scheduler table or new migration is added.

@@ -25,6 +25,10 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'Automation health: grouped failures, recovery states and exact read-only run history',
+  'Automation health: loading, failed reads and offline privacy recover',
+  'Automation health: editor tab, form operations and run-read failures preserve their source',
+  'Automation health: enlarged multilingual links, partial windows and unavailable authority stay explicit',
   'Forms operations: exact state counts, safe failures and source-linked follow-ups',
   'Forms operations: loading, failed reads and offline privacy recover',
   'Forms operations: list and builder tabs preserve editing and expose overall intake',

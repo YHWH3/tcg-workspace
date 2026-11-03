@@ -17,7 +17,7 @@
  * Gates are built per request and never stored in module state. Internal service work
  * (automations, form processing, integrity checks whose results never reach a caller)
  * uses the ungated environment explicitly via `serviceEnv`. */
-import { canEdit, canRead } from '../shared/access';
+import { canEdit, canRead, type WorkspaceRole } from '../shared/access';
 import { scopeResolver, ScopeError, type RecordScope } from '../shared/recordScope';
 import { loadAccessContext, MAX_ACCESS_SPACES, spaceAccess } from './access';
 import type { Env } from './auth';
@@ -39,6 +39,7 @@ export interface ReadDecision {
 }
 
 export interface EditableReadDecision extends ReadDecision {
+  workspaceRole: WorkspaceRole | null;
   editable: ReadonlySet<string>;
   principalActive: boolean;
 }
@@ -96,7 +97,7 @@ export function createReadGate(db: D1Database, userId: string, connector?: Env['
     if (!context.recordsCurrent) {
       graph.clear();
       if (retry) return decideFresh(ids,false);
-      return { enabled:true, readable:new Set(), editable:new Set(), principalActive:false, denied:new Set(ids), revs:new Map(), scopes:new Map() };
+      return { enabled:true, readable:new Set(), editable:new Set(), workspaceRole:null, principalActive:false, denied:new Set(ids), revs:new Map(), scopes:new Map() };
     }
     const principalActive=!!context.principal&&context.principal.disabledAt===null&&(!connector||context.connector?.version===connector.version);
     const readable = new Set<string>(), editable=new Set<string>(), denied = new Set<string>(), revs = new Map<string, number>();
@@ -109,8 +110,8 @@ export function createReadGate(db: D1Database, userId: string, connector?: Env['
       (ok ? readable : denied).add(id);
       if(ok&&canEdit(spaceAccess(context,scope!.spaceId)))editable.add(id);
     }
-    if (!mode) return { enabled: false, readable: new Set(ids), editable:principalActive?new Set(ids):new Set(), principalActive, denied: new Set(), revs, scopes };
-    return { enabled: true, readable, editable, principalActive, denied, revs, scopes,graphRevs:new Map([...graph].map(([id,r])=>[id,r.rev])) };
+    if (!mode) return { enabled: false, readable: new Set(ids), editable:principalActive?new Set(ids):new Set(), principalActive, workspaceRole:context.principal?.workspaceRole??null, denied: new Set(), revs, scopes };
+    return { enabled: true, readable, editable, principalActive, workspaceRole:context.principal?.workspaceRole??null, denied, revs, scopes,graphRevs:new Map([...graph].map(([id,r])=>[id,r.rev])) };
   };
   return {
     userId,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
+import {AutomationHealth,AutomationRuns} from './Health';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, ChevronRight, History, Plus, Trash2, Zap } from 'lucide-react';
 import type { AppModule } from '../types';
@@ -492,6 +493,7 @@ export function AutomationsEditor() {
           <Plus size={14} /> New automation
         </Button>
       </header>
+      <nav aria-label="Automation views" className="mb-4 flex flex-wrap gap-2 border-b border-neutral-200 pb-2 dark:border-neutral-700"><span aria-current="page" className="inline-flex min-h-11 items-center rounded-lg bg-neutral-100 px-3 dark:bg-neutral-800">Automations</span><Link className="inline-flex min-h-11 items-center rounded-lg px-3 underline" to={`/automations/${boardId}/health`}>Health (administrators)</Link></nav>
       {!autos.length && (
         <EmptyState
           icon={Zap}
@@ -511,6 +513,6 @@ export const automationsModule: AppModule = {
   id: 'automations',
   label: 'Automations',
   icon: Zap,
-  routes: [{ path: 'automations/:boardId', element: <AutomationsEditor /> }],
+  routes: [{path:'automations/health',element:<AutomationHealth/>},{path:'automations/:boardId/health',element:<AutomationHealth/>},{path:'automations/runs/:autoId',element:<AutomationRuns/>},{ path: 'automations/:boardId', element: <AutomationsEditor /> }],
   collections: ['automations', 'forms'],
 };

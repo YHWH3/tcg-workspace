@@ -254,3 +254,16 @@ have no private-space override. Monitor endpoint failures, source-change conflic
 and query work without logging answers or arbitrary stored error text. A rollback
 may retain the additive index; do not delete submission history or rewrite prior
 migrations. Local feature evidence does not authorize deployment or permissions.
+
+## Phase 8.10 Automation and delivery health
+
+No additional migration beyond0036, binding, secret, cron or permission flag.
+Review the admin Health page through its existing Automations entry point, verify
+current role and source isolation, and open source run histories. This increment
+adds no manual rerun control. Recovery labels describe the existing durable retry
+eligibility; they do not prove eventual delivery. Unknown errors are classified
+without copying arbitrary error text into the new summary. Existing run-history
+API access rules remain in place; the new read-only page does not display raw
+exceptions. Scheduler phase history is not recorded in this version and must not
+be inferred from an empty health list. Monitoring/backup/deployment and permission
+activation remain separately authorized owner actions.

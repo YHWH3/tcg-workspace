@@ -19,7 +19,7 @@ import { Hono, type Handler } from 'hono';
 import {z} from 'zod';
 import {collectFormOperations,FormOperationsChanged} from './formOperations';
 import {RecordAccessError} from './recordAccess';
-export {collectFormOperations} from './formOperations';
+export {collectFormOperations,formOperationsStatements,formOperationsProjection} from './formOperations';
 import { applyChanges, pokeLive } from './sync';
 import { beginChangeset } from './changesets';
 import { getRec, listBy } from './records';

@@ -73,7 +73,7 @@ export const CAPABILITIES: readonly Capability[] = [
   P('propose_suggestion', 'inbox'),
   R('website_query','inbox'), R('website_digest','inbox'), R('website_read_answers','inbox'), P('propose_website_triage','inbox'),
   // Automations
-  R('list_automations', 'automations'),
+  R('list_automations', 'automations'), R('automation_health','automations'),
   // History, activity, changesets
   R('get_record_history', 'history'), W('restore_record_fields', 'history'), R('recent_activity', 'history'), R('activity_for', 'history'),
   R('list_changes', 'changesets'), R('get_change', 'changesets'), H('undo_change', 'changesets'),
