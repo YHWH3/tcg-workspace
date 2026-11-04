@@ -828,8 +828,8 @@ permission, contract or provider changes. Phase 9.1 CSV export is next.
 
 ### 9.1 CSV export
 
-Status: done on `sol/p9-everyday`; the implementation and regression commit is
-recorded with this entry. `shared/csv.ts` provides BOM, CRLF, RFC 4180 quoting
+Status: done on `sol/p9-everyday` at `5c5152d7c83b02c076a397a36fa14cef1bbcc041`.
+`shared/csv.ts` provides BOM, CRLF, RFC 4180 quoting
 and formula-injection guards. `exportView` serializes evaluated view rows and
 visible columns, including labels, currency-code companions, people/relation
 names and typed checkbox/date/select values. The database menu opens an
