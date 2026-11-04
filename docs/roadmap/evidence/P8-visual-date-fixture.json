@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "finding": "Wall-clock-dependent Website inbox visual fixture",
+  "baseline": {
+    "source": {
+      "sha": "04033ac15b8b93886b19108656193284741d1fc1",
+      "fingerprint": "489203e61f253fb791acadf0be08daf8033e0d13b5ba16a5f1e87c64ee85be4d"
+    },
+    "exitCode": 1,
+    "stats": {
+      "startTime": "2026-11-04T05:17:01.299Z",
+      "duration": 1441048.0829999999,
+      "expected": 444,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    "artifact": {
+      "path": ".artifacts/phase8/full-catalog-04033ac/summary.json",
+      "sha256": "cd2d606399ceb1f5d242e3c60bfa58051083fae050ca4ca87a78afbcd42441a5"
+    },
+    "failure": "89 changed pixels confined to Received date; expected23/10/2026 versus actual27/10/2026. Four profiles pass89/89 each; fifth88PASS/1FAIL;13profiles unrun."
+  },
+  "correction": "Use the existing reference date2026-10-23T12:00:00.000Z for this synthetic visual event. Relative-date and response-age journeys retain their own fixtures. No application changes, masks, threshold changes or reference replacement.",
+  "diagnostic": {
+    "source": {
+      "sha": "04033ac15b8b93886b19108656193284741d1fc1",
+      "fingerprint": "477826f9b7a926e6ade278aabf5d51f92eaf0bd183efea693395650a12fd7b27"
+    },
+    "trackedWorkingTreeDirty": true,
+    "exitCode": 0,
+    "stats": {
+      "startTime": "2026-11-04T05:46:02.213Z",
+      "duration": 9429.757,
+      "expected": 3,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "artifact": {
+      "path": ".artifacts/phase8/visual-date-corrected/summary.json",
+      "sha256": "9a7ad8ead2ac4a8afb28ef6136e2b5adfc2c0f2817712bd2659e387393f318a9"
+    },
+    "projects": [
+      "chromium-desktop-light",
+      "firefox-desktop-dark",
+      "webkit-desktop-light"
+    ]
+  },
+  "review": "Original89pixel diff and original expected image inspected; all differences confined to date glyphs. Corrected reference assertions pass unchanged in Chromium light, Firefox dark and WebKit light desktop.",
+  "limits": [
+    "Three scoped diagnostic cells are not final-source certification.",
+    "Original failed run retained unchanged.",
+    "Complete1602cell matrix and34mandatory gates remain required."
+  ]
+}

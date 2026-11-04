@@ -137,3 +137,19 @@ opacity normalization pass15targeted cells across three diagnostic profiles and
 7Chromium release-UI checks. Original captures were inspected. Full catalog and
 mandatory source-specific certification remain required; no axe exclusion or
 contrast threshold is weakened.
+
+### Stable visual-reference fixture date
+
+The full catalog at clean04033ac executes445cells:444PASS/1FAIL. Four complete
+profiles pass; desktop/light has88PASS and one89pixel mismatch confined to the
+Received date. The reference says23October2026; the fixture derives27October
+from the host clock. Thirteen profiles remain unrun. Original report and diff
+remain intact. This is fixture nondeterminism, with no observed layout change.
+
+The synthetic visual event now uses the existing reference date. Relative-date
+and response-age journeys retain their independent dated fixtures. No app code,
+reference image, screenshot mask, pixel threshold or test count changes. The
+unchanged reference assertion passes3/3desktop cells across Chromium light,
+Firefox dark and WebKit light. Syntax and diff checks pass. Evidence:
+`docs/roadmap/evidence/P8-visual-date-fixture.json`. Full1602catalog and final34gates
+still require execution on clean committed source. Phase8 remains HOLD.
