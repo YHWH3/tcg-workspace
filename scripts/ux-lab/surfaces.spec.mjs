@@ -35,6 +35,31 @@ test('opened search: focus, empty results and recovery',async({page},info)=>{
   await trigger.press('Enter');await input.fill('UX journal');await expect(page.getByRole('option').filter({hasText:'UX journal'})).toBeVisible();
   await health(page,'search-recovered',info);
 });
+test('Search date filters: keyboard chip selection, custom bounds and announced scope',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='page'));
+  const trigger=page.getByRole('button',{name:/^Search/}).first();await trigger.focus();await trigger.press('Enter');
+  const input=page.getByRole('combobox',{name:'Search workspace',exact:true});await expect(input).toBeVisible();await input.fill('UX journal');
+  const filters=page.getByRole('button',{name:/^Filters/});if(await filters.isVisible())await filters.click();
+  const updated=page.getByRole('combobox',{name:'Updated date filter',exact:true});await expect(updated).toBeVisible();await updated.focus();await expect(updated).toBeFocused();await updated.selectOption('7');await expect(updated).toHaveValue('7');
+  await expect(page.getByRole('status')).toContainText('Filters: updated in the last 7 days');
+  await updated.selectOption('custom');
+  const today=new Date().toISOString().slice(0,10);
+  await page.getByLabel('Updated from',{exact:true}).fill(today);
+  await page.getByLabel('Updated to',{exact:true}).fill(today);
+  await expect(page.getByRole('status')).toContainText(`Filters: updated ${today} to ${today}`);
+  await health(page,'search date filters',info);
+});
+test('Public shares: expiry selection, visible expiry and guarded token rotation',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='page'));
+  const share=page.getByRole('button',{name:'Share',exact:true});await share.focus();await share.press('Enter');
+  const popover=page.getByTestId('share-popover');await expect(popover).toBeVisible();
+  await popover.getByLabel('Link expiry',{exact:true}).selectOption('7');
+  const publish=popover.getByRole('switch',{name:'Publish link',exact:true});await publish.focus();await expect(publish).toBeFocused();await publish.press('Space');
+  const link=popover.locator('input[readonly]');await expect(link).toBeVisible();const first=await link.inputValue();await expect(popover).toContainText('Expires on');
+  page.once('dialog',dialog=>dialog.accept());await popover.getByRole('button',{name:'Replace link',exact:true}).click();await expect.poll(()=>link.inputValue()).not.toBe(first);
+  await publish.press('Space');await expect(link).toBeHidden();
+  await health(page,'public share expiry and rotation',info);
+});
 test('approvals network failure and recovery',async({page,context},info)=>{
   await context.route('**/api/approvals**',route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"synthetic_unavailable"}'}));
   await open(page,surfaces.find(s=>s.id==='approvals-empty'));

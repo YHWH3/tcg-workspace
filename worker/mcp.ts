@@ -53,6 +53,7 @@ import { registerWebsiteTools } from './website';
 import { serviceEnv, withReadGate } from './readAccess';
 import { shareAuthority } from './shareAccess';
 import { SearchError } from './search';
+import { parseSearchDateBounds } from './searchDates';
 import { visibleItems, visibleSummaries } from './historyAccess';
 import { levelSql } from './capability';
 import type { Collection } from '../shared/collections';
@@ -789,23 +790,30 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   server.registerTool(
     'search',
     {
-      description: 'Search pages, tasks/records, boards, mood boards, comments, filenames and mood items by title and body text (words are prefix-matched). Returns at most `limit` (default 20, max 50) results per call; pass nextCursor back as `cursor` while hasMore is true. indexPending:true means recent changes are still being indexed.',
+      description: 'Search pages, tasks/records, boards, mood boards, comments, filenames and mood items by title and body text (words are prefix-matched). Optional updated/created date bounds accept yyyy-mm-dd, today, today-N or today+N in the workspace timezone. Returns at most `limit` (default 20, max 50) results per call; pass nextCursor back as `cursor` while hasMore is true. indexPending:true means recent changes or date metadata are still being indexed.',
       inputSchema: z.object({
         query: z.string().describe('Free-text search query'),
         mode:z.enum(['keyword','semantic','hybrid']).optional(),
         type: z.enum(['page', 'task', 'board', 'moodboard', 'comment', 'file', 'mooditem']).optional(),
         databaseId: z.string().optional().describe('Only records of this database'),
         spaceId:z.string().optional().describe('Only content in this authorized space'),
+        updatedFrom: z.string().optional().describe('Updated on or after yyyy-mm-dd, today, today-N or today+N'),
+        updatedTo: z.string().optional().describe('Updated on or before yyyy-mm-dd, today, today-N or today+N'),
+        createdFrom: z.string().optional().describe('Created on or after yyyy-mm-dd, today, today-N or today+N'),
+        createdTo: z.string().optional().describe('Created on or before yyyy-mm-dd, today, today-N or today+N'),
         cursor: z.string().optional(),
         limit: z.number().optional(),
       }),
       annotations: { readOnlyHint: true },
     },
-    async ({ query, type, databaseId, spaceId, cursor, limit, mode }) => {
+    async ({ query, type, databaseId, spaceId, updatedFrom, updatedTo, createdFrom, createdTo, cursor, limit, mode }) => {
       // The permission-aware search service (worker/search.ts): index + live dirty docs,
       // readable-space prefilter, the request's read gate, keyset pagination.
       let out;
-      try { out = await hybridSearch(ctx.env, ctx.userId, { q: query, type, databaseId, spaceId, cursor: cursor ?? null, limit },mode); }
+      const dateContext = await serverDateContext(ctx.env);
+      const dates = parseSearchDateBounds({ updatedFrom, updatedTo, createdFrom, createdTo }, dateContext.today, dateContext.timeZone);
+      if (!dates) return err('invalid_query');
+      try { out = await hybridSearch(ctx.env, ctx.userId, { q: query, type, databaseId, spaceId, ...dates, cursor: cursor ?? null, limit },mode); }
       catch (e) { if (e instanceof SearchError) return err(e.code); throw e; }
       const url = (h: (typeof out.results)[number]) => h.url ? `${ctx.origin}${h.url}` : h.type === 'page' ? pageUrl(ctx, h.docId) : h.type === 'task' ? `${ctx.origin}/boards/${h.databaseId ?? 'board-default'}/tasks/${h.docId}` : h.type === 'board' ? boardUrl(ctx, h.docId) : moodUrl(ctx, h.docId);
       // `rev` is the record's own revision (what expectedRev writes compare), not the index's.
@@ -2377,8 +2385,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'share_moodboard',
     {
-      description: 'Publish (or unpublish) a mood board as a read-only public canvas link. Returns /s/canvas/<token>.',
-      inputSchema: z.object({ moodboardId: z.string(), enabled: z.boolean().optional() }),
+      description: 'Publish (or unpublish) a mood board as a read-only public canvas link. Returns /s/canvas/<token>. Optional expiry is 7, 30 or 90 days; omit it for no expiry.',
+      inputSchema: z.object({ moodboardId: z.string(), enabled: z.boolean().optional(), expiresInDays: z.union([z.literal(7), z.literal(30), z.literal(90)]).nullable().optional() }),
       annotations: { idempotentHint: true },
     },
     async (a) => {
@@ -2390,13 +2398,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         await ctx.env.DB.prepare(`DELETE FROM shares WHERE page_id = ? AND target_type = 'moodboard'`).bind(a.moodboardId).run();
         return txt({ enabled: false });
       }
-      const existing = await ctx.env.DB.prepare(`SELECT token FROM shares WHERE page_id = ? AND target_type = 'moodboard'`).bind(a.moodboardId).first<{ token: string }>();
+      const existing = await ctx.env.DB.prepare(`SELECT token, expires_at FROM shares WHERE page_id = ? AND target_type = 'moodboard'`).bind(a.moodboardId).first<{ token: string; expires_at: number | null }>();
       const token = existing?.token ?? randomToken();
       if (!existing) {
-        const insert = ctx.env.DB.prepare(`INSERT INTO shares (token, target_type, page_id, created_by, created_at, space_id) VALUES (?, 'moodboard', ?, ?, ?, ?)`).bind(token, a.moodboardId, ctx.userId, Date.now(), authority.spaceId);
+        const expiresAt = a.expiresInDays == null ? null : Date.now() + a.expiresInDays * 86_400_000;
+        const insert = ctx.env.DB.prepare(`INSERT INTO shares (token, target_type, page_id, created_by, created_at, space_id, expires_at, rotated_at) VALUES (?, 'moodboard', ?, ?, ?, ?, ?, NULL)`).bind(token, a.moodboardId, ctx.userId, Date.now(), authority.spaceId, expiresAt);
         try { await (authority.fence ? ctx.env.DB.batch([authority.fence, insert]) : insert.run()); } catch { return err('mood board not found'); }
       }
-      return txt({ enabled: true, token, url: `${ctx.origin}/s/canvas/${token}`, api: `${ctx.origin}/api/public/canvas/${token}` });
+      return txt({ enabled: true, token, expiresAt: existing?.expires_at ?? (a.expiresInDays == null ? null : Date.now() + a.expiresInDays * 86_400_000), url: `${ctx.origin}/s/canvas/${token}`, api: `${ctx.origin}/api/public/canvas/${token}` });
     },
   );
 
@@ -2465,11 +2474,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'publish_page',
     {
-      description: 'Publish or unpublish a page (and its sub-pages) as a read-only public link.',
-      inputSchema: z.object({ pageId: z.string(), enabled: z.boolean() }),
+      description: 'Publish or unpublish a page (and its sub-pages) as a read-only public link. Optional expiry is 7, 30 or 90 days; omit it for no expiry.',
+      inputSchema: z.object({ pageId: z.string(), enabled: z.boolean(), expiresInDays: z.union([z.literal(7), z.literal(30), z.literal(90)]).nullable().optional() }),
       annotations: { idempotentHint: true },
     },
-    async ({ pageId, enabled }) => {
+    async ({ pageId, enabled, expiresInDays }) => {
       const p = await rec(ctx.env, 'pages', pageId);
       if (!p || p.data.deleted) return err('page not found');
       const authority = await shareAuthority(ctx.env, ctx.userId, 'pages', pageId);
@@ -2478,13 +2487,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         await ctx.env.DB.prepare('DELETE FROM shares WHERE page_id = ?').bind(pageId).run();
         return txt({ enabled: false });
       }
-      const existing = await ctx.env.DB.prepare('SELECT token FROM shares WHERE page_id = ?').bind(pageId).first<{ token: string }>();
+      const existing = await ctx.env.DB.prepare('SELECT token, expires_at FROM shares WHERE page_id = ?').bind(pageId).first<{ token: string; expires_at: number | null }>();
       const token = existing?.token ?? randomToken();
       if (!existing) {
-        const insert = ctx.env.DB.prepare('INSERT INTO shares (token, page_id, created_by, created_at, space_id) VALUES (?, ?, ?, ?, ?)').bind(token, pageId, ctx.userId, Date.now(), authority.spaceId);
+        const expiresAt = expiresInDays == null ? null : Date.now() + expiresInDays * 86_400_000;
+        const insert = ctx.env.DB.prepare('INSERT INTO shares (token, page_id, created_by, created_at, space_id, expires_at, rotated_at) VALUES (?, ?, ?, ?, ?, ?, NULL)').bind(token, pageId, ctx.userId, Date.now(), authority.spaceId, expiresAt);
         try { await (authority.fence ? ctx.env.DB.batch([authority.fence, insert]) : insert.run()); } catch { return err('page not found'); }
       }
-      return txt({ enabled: true, token, url: `${ctx.origin}/s/${token}` });
+      return txt({ enabled: true, token, expiresAt: existing?.expires_at ?? (expiresInDays == null ? null : Date.now() + expiresInDays * 86_400_000), url: `${ctx.origin}/s/${token}` });
     },
   );
 

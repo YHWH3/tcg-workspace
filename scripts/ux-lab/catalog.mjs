@@ -98,5 +98,7 @@ export const requiredCases=[
   'CSV import: map, preview, import and accessible error recovery',
   'Page and record export: Markdown download and print stylesheet',
   'Resolved comments: unresolved count, resolve, show resolved and reopen',
+  'Search date filters: keyboard chip selection, custom bounds and announced scope',
+  'Public shares: expiry selection, visible expiry and guarded token rotation',
 ];
 export const requiredProjects=['chromium','firefox','webkit'].flatMap(e=>['compact','tablet','desktop'].flatMap(v=>['light','dark'].map(t=>`${e}-${v}-${t}`)));

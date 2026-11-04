@@ -51,8 +51,15 @@ export async function hybridSearch(env:Env,userId:string,q:SearchQuery,mode:'key
   const scoped=withReadGate(env,userId),enabled=await scoped.READ_GATE!.enabled();
   const filter=enabled?` AND ${levelSql('?', 'e.space_id')}>=1`:'';
   const connection=env.CONNECTOR?` AND e.space_id IN(SELECT value FROM ai_connections g,json_each(g.spaces_json) WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>?)`:'';
-  const rows=(await env.DB.prepare(`SELECT e.doc_id,e.vec,d.title,d.collection,d.database_id,d.source_rev FROM ai_embeddings e JOIN search_documents d ON d.doc_id=e.doc_id AND d.source_rev=e.source_rev WHERE e.model_id=? AND e.dim=? AND NOT EXISTS(SELECT 1 FROM search_dirty s WHERE s.doc_id=e.doc_id)${filter}${connection}${q.databaseId?' AND d.database_id=?':''}${q.spaceId?' AND e.space_id=?':''} ORDER BY e.doc_id LIMIT 501`)
-   .bind(provider.modelId,provider.dimensions,...(enabled?[userId]:[]),...(env.CONNECTOR?[env.CONNECTOR.id,userId,Date.now()]:[]),...(q.databaseId?[q.databaseId]:[]),...(q.spaceId?[q.spaceId]:[])).all<{doc_id:string;vec:string;title:string;collection:string;database_id:string|null;source_rev:number}>()).results;
+  const dateFilter = `${q.updatedFrom !== undefined ? ' AND d.updated_at >= ?' : ''}${q.updatedTo !== undefined ? ' AND d.updated_at <= ?' : ''}${q.createdFrom !== undefined ? ' AND d.created_at >= ?' : ''}${q.createdTo !== undefined ? ' AND d.created_at <= ?' : ''}`;
+  const dateBind = [
+    ...(q.updatedFrom !== undefined ? [q.updatedFrom] : []),
+    ...(q.updatedTo !== undefined ? [q.updatedTo] : []),
+    ...(q.createdFrom !== undefined ? [q.createdFrom] : []),
+    ...(q.createdTo !== undefined ? [q.createdTo] : []),
+  ];
+  const rows=(await env.DB.prepare(`SELECT e.doc_id,e.vec,d.title,d.collection,d.database_id,d.source_rev FROM ai_embeddings e JOIN search_documents d ON d.doc_id=e.doc_id AND d.source_rev=e.source_rev WHERE e.model_id=? AND e.dim=? AND NOT EXISTS(SELECT 1 FROM search_dirty s WHERE s.doc_id=e.doc_id)${filter}${connection}${q.databaseId?' AND d.database_id=?':''}${q.spaceId?' AND e.space_id=?':''}${dateFilter} ORDER BY e.doc_id LIMIT 501`)
+   .bind(provider.modelId,provider.dimensions,...(enabled?[userId]:[]),...(env.CONNECTOR?[env.CONNECTOR.id,userId,Date.now()]:[]),...(q.databaseId?[q.databaseId]:[]),...(q.spaceId?[q.spaceId]:[]),...dateBind).all<{doc_id:string;vec:string;title:string;collection:string;database_id:string|null;source_rev:number}>()).results;
   const live=await loadDocs(env.DB,rows.slice(0,500).map(r=>r.doc_id));
   const allowed=await scoped.READ_GATE!.filter(rows.slice(0,500).filter(r=>live.get(r.doc_id)?.rev===r.source_rev).map(r=>({id:r.doc_id,...r})));
   const types:Record<string,string>={pages:'page',tasks:'task',boards:'board',moodboards:'moodboard',comments:'comment',files:'file',mooditems:'mooditem'};

@@ -34,9 +34,20 @@ const COLLECTION_TYPE: Record<string, SearchType> = { pages: 'page', tasks: 'tas
 
 /* ---------- documents ---------- */
 
-interface Doc { docId: string; collection: string; spaceId: string | null; databaseId: string | null; title: string; body: string; rev: number; url: string }
-interface RootRow { id: string; collection: string; data: string; space_id: string | null; seq: number }
-interface BlockRow { doc: string; text: string | null; seq: number }
+interface Doc {
+  docId: string;
+  collection: string;
+  spaceId: string | null;
+  databaseId: string | null;
+  title: string;
+  body: string;
+  rev: number;
+  url: string;
+  updatedAt: number | null;
+  createdAt: number | null;
+}
+interface RootRow { id: string; collection: string; data: string; space_id: string | null; seq: number; updated_at: number | null }
+interface BlockRow { doc: string; text: string | null; seq: number; updated_at: number | null }
 
 const plain = (text: unknown) => String(text ?? '').replace(/@\[(?:page|user|rec):[^\]]+\]/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -48,8 +59,8 @@ export async function loadDocs(db: D1Database, ids: string[]): Promise<Map<strin
   if (!ids.length) return out;
   const json = JSON.stringify(ids);
   const [roots, blocks, ancestry] = await db.batch([
-    db.prepare(`SELECT id, collection, data, space_id, seq FROM records WHERE id IN (SELECT value FROM json_each(?)) AND collection IN ('pages','tasks','boards','moodboards','comments','files','mooditems')`).bind(json),
-    db.prepare(`SELECT json_extract(data,'$.pageId') AS doc, json_extract(data,'$.text') AS text, seq FROM records
+    db.prepare(`SELECT id, collection, data, space_id, seq, updated_at FROM records WHERE id IN (SELECT value FROM json_each(?)) AND collection IN ('pages','tasks','boards','moodboards','comments','files','mooditems')`).bind(json),
+    db.prepare(`SELECT json_extract(data,'$.pageId') AS doc, json_extract(data,'$.text') AS text, seq, updated_at FROM records
         WHERE collection='blocks' AND json_extract(data,'$.pageId') IN (SELECT value FROM json_each(?)) AND COALESCE(json_extract(data,'$.deleted'),0)!=1
         ORDER BY doc, CAST(json_extract(data,'$.order') AS TEXT), id`).bind(json),
     db.prepare(`WITH RECURSIVE lineage(doc,id,collection,data,depth) AS (
@@ -67,12 +78,13 @@ export async function loadDocs(db: D1Database, ids: string[]): Promise<Map<strin
   for (const r of ancestry.results as unknown as {doc:string;id:string;collection:string;data:string;depth:number}[]) {
     const list=paths.get(r.doc)??[];list.push(r);paths.set(r.doc,list);
   }
-  const bodies = new Map<string, { text: string[]; size: number; rev: number }>();
+  const bodies = new Map<string, { text: string[]; size: number; rev: number; updatedAt: number | null }>();
   for (const b of blocks.results as unknown as BlockRow[]) {
-    const entry = bodies.get(b.doc) ?? { text: [], size: 0, rev: 0 };
+    const entry = bodies.get(b.doc) ?? { text: [], size: 0, rev: 0, updatedAt: null };
     const t = plain(b.text);
     if (t && entry.size < BODY_MAX) { entry.text.push(t); entry.size += t.length + 1; }
     entry.rev = Math.max(entry.rev, b.seq);
+    entry.updatedAt = Math.max(entry.updatedAt ?? 0, Number(b.updated_at ?? 0)) || null;
     bodies.set(b.doc, entry);
   }
   for (const r of roots.results as unknown as RootRow[]) {
@@ -89,8 +101,10 @@ export async function loadDocs(db: D1Database, ids: string[]): Promise<Map<strin
     const body = bodies.get(r.id);
     const title = String((r.collection === 'boards' || r.collection === 'files' ? data.name ?? data.title : r.collection === 'comments' ? data.body : r.collection === 'mooditems' ? data.title ?? data.text : data.title) ?? (r.collection === 'pages' ? 'Untitled' : '')) || (r.collection === 'boards' ? 'Board' : r.collection === 'moodboards' ? 'Mood board' : 'Untitled');
     const text = [plain(data.description), r.collection==='comments'?plain(data.body):'', r.collection==='mooditems'?plain(data.text):'', r.collection==='files'?linkMetadata(data.url):'', ...Object.entries(data).filter(([k,v])=>k.startsWith('p_')&&typeof v==='string').map(([,v])=>plain(v)), ...(body?.text ?? [])].filter(Boolean).join('\n').slice(0, BODY_MAX);
+    const createdAt = Number.isFinite(Number(data.createdAt)) ? Number(data.createdAt) : null;
+    const updatedAt = Math.max(Number(r.updated_at ?? 0), Number(data.updatedAt ?? 0), Number(body?.updatedAt ?? 0), createdAt ?? 0) || null;
     out.set(r.id, { docId: r.id, collection: r.collection, spaceId: r.space_id, databaseId: r.collection === 'tasks' ? String(data.boardId ?? 'board-default') : null,
-      title: plain(title).slice(0,300), body: text, rev: Math.max(r.seq, body?.rev ?? 0), url });
+      title: plain(title).slice(0,300), body: text, rev: Math.max(r.seq, body?.rev ?? 0), url, updatedAt, createdAt });
   }
   return out;
 }
@@ -108,9 +122,9 @@ export async function processSearchDirty(env: Pick<Env, 'DB'>, limit = PROCESS_C
     statements.push(db.prepare('DELETE FROM search_fts WHERE rowid = (SELECT rowid FROM search_documents WHERE doc_id = ?) AND EXISTS(SELECT 1 FROM search_dirty WHERE doc_id=? AND token=?)').bind(id,id,token));
     if (doc) {
       statements.push(
-        db.prepare(`INSERT INTO search_documents(doc_id, collection, space_id, database_id, title, body, source_rev) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM search_dirty WHERE doc_id=? AND token=?)
+        db.prepare(`INSERT INTO search_documents(doc_id, collection, space_id, database_id, title, body, source_rev, updated_at, created_at) SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM search_dirty WHERE doc_id=? AND token=?)
             ON CONFLICT(doc_id) DO UPDATE SET collection=excluded.collection, space_id=excluded.space_id, database_id=excluded.database_id,
-              title=excluded.title, body=excluded.body, source_rev=excluded.source_rev`).bind(id, doc.collection, doc.spaceId, doc.databaseId, doc.title, doc.body, doc.rev,id,token),
+              title=excluded.title, body=excluded.body, source_rev=excluded.source_rev, updated_at=excluded.updated_at, created_at=excluded.created_at`).bind(id, doc.collection, doc.spaceId, doc.databaseId, doc.title, doc.body, doc.rev, doc.updatedAt, doc.createdAt, id, token),
         db.prepare('INSERT INTO search_fts(rowid, title, body) SELECT rowid, title, body FROM search_documents WHERE doc_id = ? AND EXISTS(SELECT 1 FROM search_dirty WHERE doc_id=? AND token=?)').bind(id,id,token),
       );
     } else statements.push(db.prepare('DELETE FROM search_documents WHERE doc_id = ? AND EXISTS(SELECT 1 FROM search_dirty WHERE doc_id=? AND token=?)').bind(id,id,token));
@@ -144,7 +158,18 @@ export async function enqueueSearchRebuild(env: Pick<Env, 'DB'>, after = '', pag
 
 /* ---------- query ---------- */
 
-export interface SearchQuery { q: string; spaceId?: string; type?: SearchType; databaseId?: string; cursor?: string | null; limit?: number }
+export interface SearchQuery {
+  q: string;
+  spaceId?: string;
+  type?: SearchType;
+  databaseId?: string;
+  updatedFrom?: number;
+  updatedTo?: number;
+  createdFrom?: number;
+  createdTo?: number;
+  cursor?: string | null;
+  limit?: number;
+}
 export interface SearchHit { docId: string; type: SearchType; title: string; databaseId: string | null; rev: number; snippet: string | null; url?: string }
 export interface SearchResult { results: SearchHit[]; nextCursor: string | null; hasMore: boolean; indexPending: boolean }
 export class SearchError extends Error { constructor(public readonly code: 'invalid_cursor' | 'invalid_query') { super(code); this.name = 'SearchError'; } }
@@ -177,7 +202,8 @@ export async function searchRecords(env: Pick<Env, 'DB' | 'READ_GATE' | 'CONNECT
   if (!tokens.length) return { results: [], nextCursor: null, hasMore: false, indexPending: false };
   const collection = query.type ? TYPE_COLLECTION[query.type] : null;
   if (query.type && !collection) throw new SearchError('invalid_query');
-  const fingerprint = await sha(JSON.stringify([userId, env.CONNECTOR?.id ?? null, tokens, collection, query.databaseId ?? null, query.spaceId ?? null]));
+  const fingerprint = await sha(JSON.stringify([userId, env.CONNECTOR?.id ?? null, tokens, collection, query.databaseId ?? null, query.spaceId ?? null,
+    query.updatedFrom ?? null, query.updatedTo ?? null, query.createdFrom ?? null, query.createdTo ?? null]));
   let after: Key | null = null;
   if (query.cursor) {
     const c = decode(query.cursor);
@@ -188,8 +214,21 @@ export async function searchRecords(env: Pick<Env, 'DB' | 'READ_GATE' | 'CONNECT
   const spaceFilter = (col: string) => (scoped ? ` AND ${col} IN (SELECT s.id FROM spaces s WHERE ${levelSql('?', 's.id')} >= 1${env.CONNECTOR ? ' AND s.id IN(SELECT value FROM ai_connections g,json_each(g.spaces_json) WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>?)' : ''})` : '');
   const spaceBind = scoped ? [userId,...(env.CONNECTOR ? [env.CONNECTOR.id,userId,Date.now()] : [])] : [];
   const match = ftsExpr(tokens), titleMatch = `{title} : (${match})`;
-  const docFilter = `${collection ? ' AND d.collection = ?' : ''}${query.databaseId ? ' AND d.database_id = ?' : ''}${query.spaceId ? ' AND d.space_id = ?' : ''}`;
-  const docBind = [...(collection ? [collection] : []), ...(query.databaseId ? [query.databaseId] : []), ...(query.spaceId ? [query.spaceId] : [])];
+  const dateFilter = `${query.updatedFrom !== undefined ? ' AND d.updated_at >= ?' : ''}${query.updatedTo !== undefined ? ' AND d.updated_at <= ?' : ''}${query.createdFrom !== undefined ? ' AND d.created_at >= ?' : ''}${query.createdTo !== undefined ? ' AND d.created_at <= ?' : ''}`;
+  const dateBind = [
+    ...(query.updatedFrom !== undefined ? [query.updatedFrom] : []),
+    ...(query.updatedTo !== undefined ? [query.updatedTo] : []),
+    ...(query.createdFrom !== undefined ? [query.createdFrom] : []),
+    ...(query.createdTo !== undefined ? [query.createdTo] : []),
+  ];
+  const docFilter = `${collection ? ' AND d.collection = ?' : ''}${query.databaseId ? ' AND d.database_id = ?' : ''}${query.spaceId ? ' AND d.space_id = ?' : ''}${dateFilter}`;
+  const docBind = [...(collection ? [collection] : []), ...(query.databaseId ? [query.databaseId] : []), ...(query.spaceId ? [query.spaceId] : []), ...dateBind];
+  const pendingDateTerms = [
+    ...(query.updatedFrom !== undefined || query.updatedTo !== undefined ? ['d.updated_at IS NULL'] : []),
+    ...(query.createdFrom !== undefined || query.createdTo !== undefined ? ['d.created_at IS NULL'] : []),
+  ];
+  const pendingDate = pendingDateTerms.length ? await db.prepare(`SELECT 1 AS pending FROM search_documents d WHERE (${pendingDateTerms.join(' OR ')})${spaceFilter('d.space_id')}${collection ? ' AND d.collection = ?' : ''}${query.databaseId ? ' AND d.database_id = ?' : ''}${query.spaceId ? ' AND d.space_id = ?' : ''} LIMIT 1`)
+    .bind(...spaceBind, ...(collection ? [collection] : []), ...(query.databaseId ? [query.databaseId] : []), ...(query.spaceId ? [query.spaceId] : [])).first<{ pending: number }>() : null;
 
   // Live candidates: dirty documents in readable spaces, matched on current content.
   const { results: dirtyRows } = await db.prepare(`SELECT s.doc_id FROM search_dirty s JOIN records r ON r.id = s.doc_id
@@ -200,6 +239,10 @@ export async function searchRecords(env: Pick<Env, 'DB' | 'READ_GATE' | 'CONNECT
   const live: (Key & { doc: Doc })[] = [];
   for (const doc of (await loadDocs(db, dirtyIds)).values()) {
     if ((collection && doc.collection !== collection) || (query.databaseId && doc.databaseId !== query.databaseId) || (query.spaceId && doc.spaceId !== query.spaceId)) continue;
+    if (query.updatedFrom !== undefined && (doc.updatedAt === null || doc.updatedAt < query.updatedFrom)) continue;
+    if (query.updatedTo !== undefined && (doc.updatedAt === null || doc.updatedAt > query.updatedTo)) continue;
+    if (query.createdFrom !== undefined && (doc.createdAt === null || doc.createdAt < query.createdFrom)) continue;
+    if (query.createdTo !== undefined && (doc.createdAt === null || doc.createdAt > query.createdTo)) continue;
     const titleHit = liveMatch(tokens, doc.title);
     if (!titleHit && !liveMatch(tokens, `${doc.title} ${doc.body}`)) continue;
     live.push({ s: titleHit ? 1 : 0, r: doc.rev, id: doc.docId, doc });
@@ -260,7 +303,7 @@ export async function searchRecords(env: Pick<Env, 'DB' | 'READ_GATE' | 'CONNECT
         return {...r.hit,title:d.title,url:d.url,snippet:r.rowid!==undefined&&d.rev===r.r?r.hit.snippet:d.body.slice(0,180)||null};});
     })(),
     nextCursor: hasMore && scan ? encode({ v: 1, f: fingerprint, s: scan.s, r: scan.r, id: scan.id }) : null,
-    hasMore, indexPending,
+    hasMore, indexPending: indexPending || !!pendingDate,
   };
 }
 

@@ -27,6 +27,8 @@ interface ShareRow {
   page_id: string;
   target_type: string;
   space_id: string | null;
+  expires_at: number | null;
+  rotated_at: number | null;
 }
 
 interface PageRec extends PubPage {
@@ -35,7 +37,7 @@ interface PageRec extends PubPage {
 }
 
 async function shareFor(db: D1Database, token: string, targetType: 'page' | 'moodboard'): Promise<ShareRow | null> {
-  return db.prepare('SELECT token, page_id, target_type, space_id FROM shares WHERE token = ? AND target_type = ?').bind(token, targetType).first<ShareRow>();
+  return db.prepare('SELECT token, page_id, target_type, space_id, expires_at, rotated_at FROM shares WHERE token = ? AND target_type = ? AND (expires_at IS NULL OR expires_at > ?)').bind(token, targetType, Date.now()).first<ShareRow>();
 }
 
 /** The share row AND its public capability (null: inactive, indistinguishable from unknown). */
