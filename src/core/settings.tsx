@@ -24,6 +24,7 @@ import { cn } from './utils';
 import { Sessions } from './Sessions';
 import { AssistantSettings } from './assistant/AssistantSettings';
 import { listBulkJournals, undoBulkJournal, type BulkJournal } from './views/bulk';
+import { listCsvImportJournals, undoCsvImportJournal, type CsvImportJournal } from './csvImport';
 
 interface InviteRow {
   code: string;
@@ -59,6 +60,7 @@ export function SettingsPage() {
         <NotificationsSection />
         <LocalDataSection user={user} />
         <RecentBulkEditsSection />
+        <RecentImportsSection />
         <PasswordSection />
         <Section title="Signed-in devices"><Sessions /></Section>
         {user?.role === 'admin' && <AdminSection />}
@@ -244,6 +246,29 @@ function RecentBulkEditsSection() {
           <li key={journal.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700">
             <span className="min-w-0 flex-1">{journal.summary} · {journal.items.length} records</span>
             <Button size="sm" variant="outline" disabled={busy === journal.id} onClick={() => { setBusy(journal.id); void undoBulkJournal(journal).then((result) => { toast(`Undo restored ${result.restored}${result.skipped ? ` · ${result.skipped} changed since` : ''}`); return reload(); }).finally(() => setBusy(null)); }}>
+              <Undo2 size={13} /> Undo
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+function RecentImportsSection() {
+  const [journals, setJournals] = useState<CsvImportJournal[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const reload = useCallback(async () => setJournals(await listCsvImportJournals()), []);
+  useEffect(() => { void reload(); }, [reload]);
+  if (!journals.length) return null;
+  return (
+    <Section title="Recent imports">
+      <p className="mb-3 text-xs text-neutral-600 dark:text-neutral-400">Undo is available for seven days. Records changed after an import are left untouched.</p>
+      <ul className="space-y-2">
+        {journals.slice(0, 20).map((journal) => (
+          <li key={journal.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700">
+            <span className="min-w-0 flex-1">{journal.created.length + journal.updates.length} rows · {new Date(journal.createdAt).toLocaleString()}</span>
+            <Button size="sm" variant="outline" disabled={busy === journal.id} onClick={() => { setBusy(journal.id); void undoCsvImportJournal(journal).then((result) => { toast(`Undo restored ${result.restored}${result.skipped ? ` · ${result.skipped} changed since` : ''}`); return reload(); }).finally(() => setBusy(null)); }}>
               <Undo2 size={13} /> Undo
             </Button>
           </li>

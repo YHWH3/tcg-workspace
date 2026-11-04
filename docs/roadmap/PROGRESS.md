@@ -863,3 +863,23 @@ and `git diff --check` pass. The focused UX run
 `npm run qa:ux -- --grep 'Bulk edit'` passes18/18 cells across Chromium,
 Firefox and WebKit with no skips, failures or host pause. No server, migration,
 permission, provider or contract changes. Phase 9.2 CSV import wizard is next.
+
+### 9.2 CSV import
+
+Status: implementation complete locally on `sol/p9-everyday`; commit follows
+after this checkpoint is verified. The bounded parser accepts comma, semicolon
+and tab files with quoted newlines, strips BOMs and enforces 5 MB/5,000-row
+limits. The database menu opens a file/map/options/preview/import wizard with
+explicit date formats, select-option policy, person matching and exact relation
+title matching. Preview errors can be downloaded as `errors.csv`; writes use
+`mutateMany` in 200-row chunks. Created records, mapped updates and relation
+links receive a seven-day local undo journal; expired journals are pruned and
+Settings exposes recent imports.
+
+Evidence: `npx vitest run tests/phase9-csv-import.test.ts
+tests/phase9-csv.test.ts tests/phase9-bulk.test.ts tests/phase9-engine.test.ts`
+passes14/14; `npm run typecheck`, `npm run build` and `git diff --check` pass.
+The focused UX run `npm run qa:ux -- --grep 'CSV import'` passes18/18 cells
+across Chromium, Firefox and WebKit with no skips, failures or host pause. No
+server, migration, permission, provider or contract changes. Phase 9.3 page
+export is next.

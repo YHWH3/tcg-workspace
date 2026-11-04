@@ -193,3 +193,17 @@ test('Bulk edit: select filtered rows, apply field, undo and clear selection',as
   await expect(page.getByText(/Undo restored 1/)).toBeVisible();
   await health(page,'bulk edit and undo',info);
 });
+test('CSV import: map, preview, import and accessible error recovery',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='records-table'));
+  const menu=page.getByRole('button',{name:'Database menu',exact:true});await menu.focus();await menu.press('Enter');
+  await page.getByRole('button',{name:'Import CSV…',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Import CSV',exact:true});await expect(dialog).toBeVisible();
+  await dialog.locator('input[type="file"]').setInputFiles({name:'phase9-import.csv',mimeType:'text/csv',buffer:Buffer.from('Title,Date\nImported from QA,2026-11-10\n')});
+  await expect(dialog).toContainText('2 columns');
+  await dialog.getByRole('button',{name:'Next: options',exact:true}).click();
+  await dialog.getByRole('button',{name:'Preview import',exact:true}).click();
+  await expect(dialog).toContainText(/Preview: 1 create/);
+  await dialog.getByRole('button',{name:'Import 1 rows',exact:true}).click();
+  await expect(dialog).toContainText(/Import complete/);
+  await health(page,'CSV import wizard',info);
+});

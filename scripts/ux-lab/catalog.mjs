@@ -95,5 +95,6 @@ export const requiredCases=[
   'task draft: focus, cross-field edits and responsive recovery',
   'CSV export: visible filtered rows, formula-safe download and keyboard dialog',
   'Bulk edit: select filtered rows, apply field, undo and clear selection',
+  'CSV import: map, preview, import and accessible error recovery',
 ];
 export const requiredProjects=['chromium','firefox','webkit'].flatMap(e=>['compact','tablet','desktop'].flatMap(v=>['light','dark'].map(t=>`${e}-${v}-${t}`)));

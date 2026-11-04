@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toCsv } from '../shared/csv';
+import { parseCsv, toCsv } from '../shared/csv';
 import { exportView } from '../src/core/records';
 import type { BoardRow, TaskRow } from '../src/modules/boards/api';
 
@@ -50,5 +50,14 @@ describe('Phase 9 CSV export', () => {
     expect(included.headers).toEqual(['Title', 'Email', 'Paid', 'Token', 'id']);
     expect(included.csv).toContain('pay_1');
     expect(included.csv).toContain('tok_1');
+  });
+
+  it('parses BOM, semicolon delimiters, quoted newlines and bounded errors', () => {
+    const parsed = parseCsv('\uFEFFName;Notes\r\nA;"line one\nline two"\r\nB;ok\r\n');
+    expect(parsed.delimiter).toBe(';');
+    expect(parsed.headers).toEqual(['Name', 'Notes']);
+    expect(parsed.rows).toEqual([['A', 'line one\nline two'], ['B', 'ok']]);
+    expect(() => parseCsv('A,A\n1,2\n')).toThrow('duplicate');
+    expect(() => parseCsv('A\n"unterminated')).toThrow('unterminated');
   });
 });

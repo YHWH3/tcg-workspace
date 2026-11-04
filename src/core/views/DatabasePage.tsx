@@ -14,7 +14,7 @@ import {MoveSpaceButton} from '../MoveSpace';
  */
 import { useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, ClipboardList, Download, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users, Zap } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, ClipboardList, Download, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Upload, Users, Zap } from 'lucide-react';
 import { authStore } from '../auth';
 import { useIsMobile } from '../mobile';
 import { PresenceStack } from '../presence';
@@ -70,6 +70,7 @@ import {DateFilterControl,DATE_VALUE_OPERATORS} from './DateFilterControl';
 import {useContainerWidth} from '../container';
 import { archivePatch, isArchived } from '../../../shared/archive';
 import { BulkActionBar, BulkSelectionProvider } from './bulk';
+import { ImportCsvDialog } from './ImportCsv';
 
 const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3 };
 
@@ -105,6 +106,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [attentionOpen,setAttentionOpen]=useState(false);
   const [csvExportOpen, setCsvExportOpen] = useState(false);
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
   useAssistantContext(board ? { kind: 'database', id: board.id } : null);
 
   const view = board ? resolveView(board, views, viewId) : undefined;
@@ -162,6 +164,9 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
                 </button>
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setCsvExportOpen(true); }}>
                   <Download size={14} /> Export CSV…
+                </button>
+                <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setCsvImportOpen(true); }}>
+                  <Upload size={14} /> Import CSV…
                 </button>
                 <button className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setAttentionOpen(true); }}>Attention…</button>
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); navigate(`/forms/${board.id}`); }}>
@@ -284,6 +289,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
         </Sheet>
       )}
       {csvExportOpen && view && <CsvExportDialog board={board} view={view} records={records} tasks={tasks} links={links} meId={me} onClose={() => setCsvExportOpen(false)} />}
+      {csvImportOpen && <ImportCsvDialog board={board} records={records} onClose={() => setCsvImportOpen(false)} />}
     </div>
   );
 }
