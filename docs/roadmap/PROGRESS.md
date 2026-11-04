@@ -813,8 +813,8 @@ engineering checks are complete on this source; owner launch gates remain open.
 
 ### 9.0 Engine helper `mutateMany`
 
-Status: done on `sol/p9-everyday`, implementation commit recorded with this
-ledger entry. `src/core/sync/engine.ts` now exposes `mutateMany(collection,
+Status: done on `sol/p9-everyday` at `ad28998f27855b9f55ad79cb66d7bd041a11f32e`.
+`src/core/sync/engine.ts` now exposes `mutateMany(collection,
 items)` with the existing 500-item cap. A batch uses one Dexie transaction for
 local rows, per-field timestamps and outbox entries, then performs one pending
 refresh and one sync schedule. `mutate()` uses the same internal path, preserving
