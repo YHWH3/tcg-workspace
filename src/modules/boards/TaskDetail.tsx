@@ -163,7 +163,7 @@ function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClo
             rows={1}
             aria-label="Task title"
             placeholder="Task title"
-            className="w-full resize-none overflow-hidden bg-transparent text-lg font-semibold outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
+            className="w-full resize-none overflow-hidden bg-transparent text-lg font-semibold outline-none placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
             onFocus={titleDraft.focus}
             onBlur={titleDraft.blur}
             onChange={(e) => titleDraft.change(e.target.value)}
@@ -230,7 +230,7 @@ function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClo
               rows={4}
               aria-label="Task description"
               placeholder="Add details…"
-              className="-m-1 w-full resize-none overflow-hidden rounded-lg bg-transparent p-1 text-base sm:text-sm leading-6 outline-none placeholder:text-neutral-300 focus:bg-neutral-50 dark:placeholder:text-neutral-600 dark:focus:bg-neutral-900/60"
+              className="-m-1 w-full resize-none overflow-hidden rounded-lg bg-transparent p-1 text-base sm:text-sm leading-6 outline-none placeholder:text-neutral-600 focus:bg-neutral-50 dark:placeholder:text-neutral-400 dark:focus:bg-neutral-900/60"
               onFocus={descriptionDraft.focus}
               onChange={(e) => descriptionDraft.change(e.target.value)}
               onBlur={descriptionDraft.blur}

@@ -738,3 +738,32 @@ no href# history links and network failure/recovery. No authorization/server/sch
 contract/provider change. Exact source/evidence: `docs/roadmap/evidence/P8-unavailable-approval-ui.json`.
 Full1602catalog and final34gates remain required after this correction commit.
 Phase8 HOLD; native/physical/human checks remain separately unverified.
+
+### Native-placeholder contrast measurement and correction
+
+At clean8e889c3 the first full-catalog profile passes89/89. Screenshot review of
+task details then finds faint authored prompts despite an axe pass. The runner
+was intentionally stopped during its second profile: wrapper exit130, aggregate
+incomplete/exit1; only the completed first89cells count. No host pause. The original
+run stays unchanged. W3C's contrast guidance explicitly includes placeholder text.
+
+A renderer check reproduces the task-description prompt at1.482:1 and comment
+prompt at2.584:1 on white, both below4.5. It samples actual ::placeholder color,
+pseudo opacity, ancestor backgrounds/group opacity and normal/large-text thresholds.
+Unresolved/image backgrounds fail explicitly. It is wired into UX health and
+release UI; negative controls require faint and translucent prompts to fail,
+then an opaque restored prompt to pass. The first anchored-grep diagnostic matched
+zero tests and remains a nonpassing selection error, not a product result.
+
+Shared prompts now use existing neutral600 light/neutral400 dark tokens with
+opacity1, including explicit title/editor/picker/comment/composer/public-form
+classes. Caption input text keeps the same readable theme basis. No layout,
+font-size, mutation, authorization, schema or contract change.
+
+Typecheck/build PASS.15/15scoped browser cells across Chromium compact/light,
+Firefox tablet/dark and WebKit desktop/light PASS, including the negative controls.
+The augmented release UI preflight passes7/7Chromium checks across six widths.
+Three original corrected task captures inspected. Exact baseline/correction sources
+and limits: `docs/roadmap/evidence/P8-placeholder-contrast-ui.json`. These are
+precommit diagnostics; the full1602catalog and final34gates still need execution
+after this source commit. Phase8 HOLD; native/physical/human acceptance separate.

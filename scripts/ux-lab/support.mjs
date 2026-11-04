@@ -5,6 +5,7 @@ import {test as base,expect} from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import {WCAG_AA_TAGS} from '../accessibility-tags.mjs';
 import {assertControlGeometry} from '../control-geometry.mjs';
+import {assertPlaceholderContrast} from '../placeholder-contrast.mjs';
 export {expect};
 export const fixture=JSON.parse(readFileSync(process.env.UX_FIXTURE,'utf8'));
 const origin=new URL(fixture.base);
@@ -96,6 +97,7 @@ export async function health(page,label,info,{axe=true}={}){
   // accessibility results against an unstyled document. Never retry tests to pass.
   expect(await page.evaluate(()=>getComputedStyle(document.body).fontFamily),label+': stylesheet must load').toContain('Inter');
   await assertControlGeometry(page,label);
+  await assertPlaceholderContrast(page,label);
   const layout=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,positiveTabs:document.querySelectorAll('[tabindex]').length&&[...document.querySelectorAll('[tabindex]')].filter(e=>Number(e.getAttribute('tabindex'))>0).length}));
   expect(layout.scroll,`${label}: root overflow`).toBeLessThanOrEqual(layout.width+1);
   expect(layout.positiveTabs,`${label}: positive tabindex`).toBe(0);

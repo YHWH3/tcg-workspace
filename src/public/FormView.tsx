@@ -541,7 +541,7 @@ export function FormView() {
 
 function inputCls(err: boolean, extra = ''): string {
   return cn(
-    'w-full min-w-0 rounded-xl border bg-white px-3.5 py-2.5 text-sm transition-colors placeholder:text-neutral-400 focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 dark:bg-neutral-900',
+    'w-full min-w-0 rounded-xl border bg-white px-3.5 py-2.5 text-sm transition-colors placeholder:text-neutral-600 dark:placeholder:text-neutral-400 focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 dark:bg-neutral-900',
     err ? 'border-red-400 dark:border-red-700' : 'border-neutral-300 dark:border-neutral-700',
     extra,
   );

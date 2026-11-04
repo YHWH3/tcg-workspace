@@ -86,3 +86,11 @@ real unit and D1 gates. The next gate is INTERRUPTED before execution. The
 second command verifies and reuses unit/D1, runs the remaining mandatory gates,
 and records minutes saved. Keep both original reports. Never represent the
 simulated pause as an observed host sleep, or fixture approvals as human review.
+
+Native authored input prompts have a separate rendered contrast assertion in
+`scripts/placeholder-contrast.mjs`, called by UX health and release UI. It includes
+pseudo-element opacity and ancestor surface/group composition, with normal/large
+text thresholds. Unresolved/image backgrounds fail for explicit investigation.
+Negative browser fixtures verify faint colors, translucent colors and an opaque
+restored prompt. This supplements axe; it does not exclude shell regions or lower
+existing geometry/accessibility requirements.

@@ -84,7 +84,7 @@ export function CommentThread({ targetType, targetId, compact }: { targetType: C
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Add a comment…"
-          className="h-9 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-neutral-400"
+          className="h-9 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();

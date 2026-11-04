@@ -189,7 +189,7 @@ export function PageView() {
         value={title}
         rows={1}
         placeholder="Untitled"
-        className={cn('mb-4 w-full resize-none overflow-hidden bg-transparent text-4xl font-bold tracking-tight outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-700')}
+        className={cn('mb-4 w-full resize-none overflow-hidden bg-transparent text-4xl font-bold tracking-tight outline-none placeholder:text-neutral-600 dark:placeholder:text-neutral-400')}
         onFocus={() => setFocused(true)}
         onBlur={() => {
           setFocused(false);

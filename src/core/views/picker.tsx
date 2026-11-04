@@ -103,7 +103,7 @@ export function ItemPicker({
                 }
               }}
               placeholder={placeholder}
-              className="h-7 w-full bg-transparent text-sm outline-none placeholder:text-neutral-400"
+              className="h-7 w-full bg-transparent text-sm outline-none placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
               role="combobox"
               aria-expanded="true"
               aria-controls={listId}

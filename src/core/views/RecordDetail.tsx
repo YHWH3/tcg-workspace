@@ -182,7 +182,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
           title={String(rec.title??'')}
           placeholder={`${noun} title`}
           aria-label={`${noun} title`}
-          className="w-full bg-transparent text-xl font-semibold tracking-tight outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
+          className="w-full bg-transparent text-xl font-semibold tracking-tight outline-none placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
         />
 
         {parent && (

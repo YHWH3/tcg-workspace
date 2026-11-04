@@ -121,3 +121,19 @@ engine/layout/theme diagnostics. Community's configured-region selector and an
 explicitly reachable, keyboard-opened automation-history state also pass. Original
 reports remain. No82-cell result is claimed fresh at the correction source, and
 the full1602catalog remains required after commit.
+
+## Visual prompt contrast gap
+
+The first complete profile at8e889c3 passes89/89, but original captures reveal faint
+native placeholder text that axe did not sample. A new actual-renderer assertion
+reproduces1.482:1 task-description and2.584:1 comment prompts. Full execution was
+intentionally stopped in its second profile to correct this finding before running
+the remaining profiles. Only the completed89cells count; the whole run is incomplete.
+
+The shared placeholder assertion now checks actual pseudo-element paint and alpha
+composition; faint and translucent negative fixtures must fail, opaque restoration
+must pass. Unresolved backgrounds fail. Readable existing theme tokens and browser
+opacity normalization pass15targeted cells across three diagnostic profiles and
+7Chromium release-UI checks. Original captures were inspected. Full catalog and
+mandatory source-specific certification remain required; no axe exclusion or
+contrast threshold is weakened.
