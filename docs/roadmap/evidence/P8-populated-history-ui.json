@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "decision": "HOLD: scoped correction verified; full Phase8 matrix and certificate incomplete",
+  "fullCatalogBaseline": {
+    "source": {
+      "sha": "48049367a0f3d2384676099edffde5d769d8c9d0",
+      "fingerprint": "1d58172ff18ca83a210bdc8b68919399212049f5c84ccc0a3d2a84d001ae69c8"
+    },
+    "exitCode": 1,
+    "stats": {
+      "startTime": "2026-11-04T04:39:27.746Z",
+      "duration": 303437.447,
+      "expected": 82,
+      "skipped": 0,
+      "unexpected": 7,
+      "flaky": 0
+    },
+    "required": 1602,
+    "executed": 89,
+    "failed": [
+      "Command center: AI review survives a crowded queue, failed reads and offline snapshots/chromium-compact-light",
+      "Command center: enlarged text, urgency configuration and explicit empty states/chromium-compact-light",
+      "Community desk: membership views and offline conversation ownership reach Attention/chromium-compact-light",
+      "surface: approvals-empty/chromium-compact-light",
+      "surface: activity/chromium-compact-light",
+      "relative dates: filter and automation hints with bounded results/chromium-compact-light",
+      "approvals network failure and recovery/chromium-compact-light"
+    ],
+    "missingCount": 1513,
+    "summary": ".artifacts/phase8/full-catalog-4804936/summary.json",
+    "summarySha256": "07dda4a2ad5eac2e456157a0f9d2226d5309a08d523a5a626a2803eedbd31429",
+    "originalUnchanged": true
+  },
+  "findings": [
+    {
+      "surface": "Activity block and Activity page",
+      "baseline": "Timestamp and via labels have 2.58:1 contrast on white. Populated history appears after other journeys; empty feature fixtures missed it.",
+      "correction": "Use existing neutral600 light/neutral400 dark text tokens for metadata."
+    },
+    {
+      "surface": "Approval history",
+      "baseline": "Cancelled-state text has4.34:1 contrast on neutral100 instead of required4.5.",
+      "correction": "Use neutral600 on the existing neutral100 background in both approval history renderers."
+    },
+    {
+      "surface": "Community Attention",
+      "baseline": "Test searched Needs attention; the actual heading and accessible region are Conversation attention. Expected overdue record exists.",
+      "correction": "Use the configured accessible region name; retain exact record/title/link assertions."
+    },
+    {
+      "surface": "Automation history",
+      "baseline": "A32px history button was partly at the scroll boundary during the full-page target audit.",
+      "correction": "Verify scroll/focus brings its center above compact navigation, open by keyboard, assert expanded state, and scroll the empty-history message into view before audit. Use readable loading/empty copy colors."
+    }
+  ],
+  "deterministicFixture": "Each disposable profile now contains one synthetic Activity row and an authenticated, cancelled approval request. No genuine human approval or external action. Focused tests cover populated states without inherited history.",
+  "focusedBaseline": {
+    "source": {
+      "sha": "48049367a0f3d2384676099edffde5d769d8c9d0",
+      "fingerprint": "6d675a640a85e87af448d566ac21609acf84d4b5863dcf70a4f49d337dfe2276"
+    },
+    "trackedWorkingTreeDirty": true,
+    "applicationCode": "4804936 unchanged; only fixture/test edits",
+    "exitCode": 1,
+    "stats": {
+      "startTime": "2026-11-04T04:46:20.342Z",
+      "duration": 23391.647,
+      "expected": 3,
+      "skipped": 0,
+      "unexpected": 5,
+      "flaky": 0
+    },
+    "summary": ".artifacts/phase8/populated-history-baseline-4804936/summary.json",
+    "sha256": "f403e38171d4f0c7360846a2d1f71b883ecb37e6e430055420f5a6af26ec316c"
+  },
+  "correctedPreflight": {
+    "source": {
+      "sha": "48049367a0f3d2384676099edffde5d769d8c9d0",
+      "fingerprint": "7712c6634b9e6d028313426d1ac882220744a8a40de45ed430ae0b8d1554c98b"
+    },
+    "trackedWorkingTreeDirty": true,
+    "exitCode": 0,
+    "stats": {
+      "startTime": "2026-11-04T04:47:53.636Z",
+      "duration": 76100.942,
+      "expected": 24,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "projects": [
+      "chromium-compact-light",
+      "firefox-tablet-dark",
+      "webkit-desktop-light"
+    ],
+    "cases": 8,
+    "cells": 24,
+    "summary": ".artifacts/phase8/populated-history-corrected/summary.json",
+    "sha256": "121cedff1e0db7bb43231a4a46c295029537c2cb1aa19f1097c26a1098c27173",
+    "sourceFileSha256": {
+      "src/modules/boards/blocks/ActivityBlock.tsx": "5ddcdb68219096b48b274c4148efe1ba832286af347ef9967efc9ecd82b5a2f2",
+      "src/modules/activity/index.tsx": "1135825ae642adbfc898cadd52e9f2932bac7b96c7f2029f226ef4e448d226cc",
+      "src/modules/approvals/index.tsx": "5f7591b3d9c60a56e3f9c7d4729ab91c50476478c8415c0185e66b9812d62610",
+      "src/modules/automations/index.tsx": "4f2b17f649e80f108736a48f8d238586ac31ad4facb7b233cc9eeb4bb6e5e29d",
+      "scripts/qa-ux.mjs": "a156094254db904b6b245aa3917d97629e6204f1347aa57ce0299d98351da236",
+      "scripts/ux-lab/community.spec.mjs": "4b45bef6ac337eed99c3a097e509638ff99d5b7dc0af66356155c6f393cbc98f",
+      "scripts/ux-lab/relative-dates.spec.mjs": "338167f35c937cda24a99b39e6bf6169dd5947d8ab7b75b91ab79cbf3f180fc1"
+    }
+  },
+  "checks": [
+    {
+      "command": "npm run typecheck",
+      "exitCode": 0,
+      "log": ".artifacts/phase8/populated-history-typecheck.log"
+    },
+    {
+      "command": "npm run build",
+      "exitCode": 0,
+      "log": ".artifacts/phase8/populated-history-build.log"
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "originalScreenshotsInspected": [
+    ".artifacts/phase8/populated-history-corrected/visual/chromium-compact-light-activity.png",
+    ".artifacts/phase8/populated-history-corrected/visual/chromium-compact-light-relative-automation-condition.png",
+    ".artifacts/phase8/populated-history-corrected/visual/firefox-tablet-dark-approvals-empty.png"
+  ],
+  "limits": [
+    "24 scoped cells are not a full18-profile certificate.",
+    "No security, permission, sync or server behavior changed. No migration or contract change.",
+    "Prior failed/interrupted artifacts remain unchanged; no physical-device/human acceptance claim."
+  ],
+  "next": "Commit correction with this evidence, then full1602-cell catalog and final34-gate certificate on clean integrated source; applicable native qualification remains."
+}

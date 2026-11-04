@@ -45,6 +45,7 @@ try{
     {id:'ux-records',collection:'boards',patch:{name:'UX records',kind:'records',recordNoun:'Record',columns:[{id:'todo',name:'To do',color:'gray'},{id:'done',name:'Done',color:'green'}],fields:[{id:'date',name:'Date',type:'date'},{id:'email',name:'Email',type:'email'}],defaultViewId:'ux-table',order:'a0'}},
     {id:'ux-tasks',collection:'boards',patch:{name:'UX tasks',kind:'tasks',columns:[{id:'todo',name:'To do',color:'gray'},{id:'done',name:'Done',color:'green'}],fields:[],order:'a1'}},
     {id:'ux-task',collection:'tasks',patch:{boardId:'ux-tasks',title:'UX task for input geometry',status:'todo',order:'a0'}},
+    {id:'ux-activity',collection:'activity',patch:{actorId:admin.user.id,verb:'updated',targetType:'task',targetId:'ux-task',targetTitle:'UX task for input geometry',meta:{via:'Synthetic UX fixture',assigneeId:admin.user.id},createdAt:Date.now()}},
     // Protocol 3 deliberately does not create legacy client seeds. Configure
     // the existing first-reply rule explicitly in this disposable fixture.
     {id:'auto-wi-first-reply',collection:'automations',patch:{databaseId:'board-website-inbox',name:'Website inbox: record the first reply date',enabled:true,trigger:{kind:'stage_changed',to:'replied'},conditions:[{key:'p_wi_replied',op:'empty'}],actions:[{type:'set_field',fieldKey:'p_wi_replied',value:'{{today}}'}],createdBy:admin.user.id,createdAt:Date.now()}},
@@ -52,6 +53,10 @@ try{
     ...['Unicode café 👩🏽‍💻 日本語 العربية é','Very long synthetic record title '+('length '.repeat(14))].map((title,i)=>({id:'ux-record-'+i,collection:'tasks',patch:{boardId:'ux-records',title,status:'todo',p_date:new Date().toISOString().slice(0,10),p_email:'synthetic-long-address@example.org',order:'a'+i}})),
   ];
   const pushed=await req('/api/sync/push',{changes:records.map(r=>({...r,ts:Date.now()}))},admin.token);if(pushed.rejected||pushed.rejectedItems?.length)throw new Error('UX fixture seeding rejected');
+  // Always exercise populated activity and historical approval states, including
+  // focused runs that do not inherit earlier journeys' retained history.
+  const historical=await req('/api/approvals',{targetType:'record',targetId:'ux-task',approverId:admin.user.id,note:'Disposable cancelled history fixture; no human approval',requestId:'ux-history-fixture'},admin.token);
+  await req('/api/approvals/'+encodeURIComponent(historical.approval.id)+'/cancel',{},admin.token);
   const grant=await fetch(owned.base+'/api/admin/website-ingest',{method:'PUT',headers:{Authorization:'Bearer '+admin.token,'Content-Type':'application/json'},body:JSON.stringify({spaceId:'space-core'})});if(grant.status!==200)throw new Error('UX service grant setup failed');
   const body={v:2,id:'ux-visual-event',event:'form.submitted',occurred_at:new Date(Date.now()-8*86400000).toISOString(),form_id:'consulting',subject:'UX application',page:'/consulting/',reply_to:'example-applicant@example.org',answers:[{name:'Name',label:'Your name',value:'Example Applicant'},{name:'Why',label:'What are you building?',value:'Synthetic testing data. No real applicant.'}]};
   const raw=JSON.stringify(body),timestamp=String(Math.floor(Date.now()/1000));

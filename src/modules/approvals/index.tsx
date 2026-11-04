@@ -208,7 +208,7 @@ function HistoryRow({ approval, stageName, users }: { approval: Approval; stageN
       ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
       : approval.status === 'rejected'
         ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-        : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400';
+        : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400';
   return (
     <div className="flex items-start gap-2 py-1.5">
       <span className={cn('mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize', chip)}>{approval.status}</span>
@@ -379,7 +379,7 @@ function ApprovalPageRow({ a, me, onDone }: { a: Approval; me: string; onDone: (
           <span
             className={cn(
               'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize',
-              a.status === 'approved' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : a.status === 'rejected' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
+              a.status === 'approved' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : a.status === 'rejected' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400',
             )}
           >
             {a.status}

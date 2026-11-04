@@ -111,3 +111,13 @@ The interrupted whole diagnostic never becomes PASS. Final clean-source
 certification and the complete catalog remain required.
 
 Reference: [Playwright BrowserContext routing](https://playwright.dev/docs/api/class-browsercontext#browser-context-route).
+
+The first full-catalog profile at4804936 executed89cases (82PASS/7FAIL) and stopped
+before17other profiles. It exposed populated-history contrast states missed by
+empty fixtures. The corrected lab always seeds synthetic Activity and one cancelled
+session-authenticated request. An8-case focused baseline reproduces5contrast
+failures; after theme-token corrections, all24selected cells pass across three
+engine/layout/theme diagnostics. Community's configured-region selector and an
+explicitly reachable, keyboard-opened automation-history state also pass. Original
+reports remain. No82-cell result is claimed fresh at the correction source, and
+the full1602catalog remains required after commit.

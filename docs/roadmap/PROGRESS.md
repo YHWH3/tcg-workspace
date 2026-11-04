@@ -682,3 +682,35 @@ Phase8 remains HOLD. All earlier failed/interrupted artifacts stay unchanged.
 Correction checkpoint checks:39/39 certification core/failure-injection tests
 PASS, all four changed scripts parse, evidence JSON parses and whitespace passes.
 The corrected v7/release UI browser checks remain incomplete; no PASS inferred.
+
+### Full-catalog first profile and populated-history correction, 2026-11-04
+
+Owner confirmed lid-open availability. At clean4804936, the interrupted preflights
+finish successfully: v7 Chromium84automated PASS/3external NOTRUN and release UI
+Chromium7/7 across six widths, no host pauses. This is the targeted preflight
+scope; the full cross-browser mandatory gates still need execution.
+
+The full1602-cell catalog then ran its first profile at4804936:82PASS/7FAIL,
+89executed,1513missing; it stopped before the other17profiles. Original reports
+remain. Activity block/page timestamps and connector labels fail contrast2.58:1;
+cancelled approval badges fail4.34:1. Earlier feature fixtures did not consistently
+contain history. Community's expected overdue item exists, but its old test
+searched Needs attention instead of the configured Conversation attention region.
+The automation target warning involved a32px history button partly at the scroll
+boundary; the revised journey verifies scrolling, unobscured center, keyboard
+opening and an explicitly visible empty-history message before the whole-page audit.
+
+The correction changes metadata/history text to existing readable theme tokens.
+Both Activity renderers and both neutral approval-history badges are covered;
+automation loading/empty text uses the same established tokens. The disposable
+fixture now always seeds synthetic Activity and a cancelled authenticated request,
+so focused tests cover populated history without relying on earlier journeys.
+No provider/human decision, server behavior, authority, migration or contract changes.
+
+Focused baseline:3PASS/5FAIL against unchanged4804936 application code with the
+new fixture/test inputs. Corrected typecheck/build and24/24affected browser cells
+PASS across Chromium compact/light, Firefox tablet/dark and WebKit desktop/light.
+Three original captures inspected. The24cells are scoped precommit evidence;
+they do not replace the full catalog or final certificate. Evidence and exact
+sources: `docs/roadmap/evidence/P8-populated-history-ui.json`. Next source freeze
+runs the full catalog before the expensive mandatory certificate. Phase8 HOLD.

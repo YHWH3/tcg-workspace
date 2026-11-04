@@ -352,8 +352,8 @@ function RunHistory({ autoId }: { autoId: string }) {
           {errors.map((e) => <p key={e}>⚠ {e}</p>)}
         </div>
       )}
-      {runs === null && <p className="text-neutral-400">Loading runs…</p>}
-      {runs !== null && !runs.length && <p className="text-neutral-400">No runs yet.</p>}
+      {runs === null && <p className="text-neutral-600 dark:text-neutral-400">Loading runs…</p>}
+      {runs !== null && !runs.length && <p className="text-neutral-600 dark:text-neutral-400">No runs yet.</p>}
       {undoMsg && <p className="mb-1 text-neutral-500">{undoMsg}</p>}
       <div role="list" aria-label="Automation runs">
       {(runs ?? []).map((r) => (

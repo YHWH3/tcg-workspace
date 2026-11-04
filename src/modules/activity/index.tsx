@@ -137,7 +137,7 @@ function ActivityPage() {
                     <span className="font-medium">{actor?.name ?? 'Someone'}</span>{' '}
                     <span className="text-neutral-500 dark:text-neutral-400">{verbText(a)}</span>{' '}
                     <span className="font-medium">{String(a.targetTitle ?? '') || 'Untitled'}</span>
-                    {!!a.meta?.via && <span className="text-neutral-400"> · via {String(a.meta.via)}</span>}
+                    {!!a.meta?.via && <span className="text-neutral-600 dark:text-neutral-400"> · via {String(a.meta.via)}</span>}
                     {a.verb === 'assigned' && a.meta?.assigneeId && (
                       <span className="text-neutral-500 dark:text-neutral-400"> → {resolveUser(a.meta.assigneeId, users, meUser)?.name ?? 'someone'}</span>
                     )}
@@ -156,7 +156,7 @@ function ActivityPage() {
                       <Undo2 size={12} /> Undo
                     </button>
                   )}
-                  <span className="shrink-0 pt-0.5 text-[11px] text-neutral-400">{relTime(Number(a.createdAt ?? 0))}</span>
+                  <span className="shrink-0 pt-0.5 text-[11px] text-neutral-600 dark:text-neutral-400">{relTime(Number(a.createdAt ?? 0))}</span>
                 </Link>
               </li>
             );
