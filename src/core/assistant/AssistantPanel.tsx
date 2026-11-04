@@ -937,7 +937,7 @@ function Composer({ state: s, online }: { state: AssistantState; online: boolean
               if (sendable) void sendMessage();
             }
           }}
-          className="max-h-[200px] min-h-11 min-w-0 flex-1 resize-none rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-base leading-6 placeholder:text-neutral-400 focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10"
+          className="max-h-[200px] min-h-11 min-w-0 flex-1 resize-none rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-base leading-6 placeholder:text-neutral-600 dark:placeholder:text-neutral-400 focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-white/10"
         />
         {s.streaming ? (
           <button ref={actionButton} type="button" data-testid="assistant-stop" onClick={stop} aria-label="Stop response" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900">

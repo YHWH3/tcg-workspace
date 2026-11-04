@@ -1,3 +1,4 @@
+import {setUploading} from './uploadState';
 import {reserveDownloadedCache} from './cacheBudget';
 import { PERMISSION_PROTOCOL } from '../../shared/protocol';
 import { useEffect, useRef, useState } from 'react';
@@ -139,18 +140,23 @@ async function mediaDuration(blob: Blob, kind: 'audio' | 'video'): Promise<numbe
  * the row still can't be written — callers must then record an honest
  * 'failed' state rather than let the throw swallow their surrounding save.
  */
-async function putBlobRow(row: BlobRow): Promise<boolean> {
+export async function putBlobRow(row: BlobRow): Promise<boolean> {
   try {
-    await db.blobs.put(row);
+    await db.blobs.put({...row,pendingSince:row.pendingSince??Date.now()});
     return true;
   } catch {
+    let bytes: ArrayBuffer | undefined;
     try {
-      const bytes = await row.blob.arrayBuffer();
-      await db.blobs.put({ ...row, blob: new Blob([bytes], { type: row.blob.type }) });
+      bytes = await row.blob.arrayBuffer();
+      await db.blobs.put({ ...row, pendingSince:row.pendingSince??Date.now(), blob: new Blob([bytes], { type: row.blob.type }) });
       return true;
-    } catch {
-      return false;
-    }
+    } catch { /* Some WebKit contexts refuse even memory-backed Blobs. */ }
+    if (bytes) try {
+      const {blob: _blob, ...metadata} = row;
+      await db.blobs.put({...metadata,pendingSince:row.pendingSince??Date.now(),blobEncoding:'array-buffer-v1',blobBytes:bytes});
+      return true;
+    } catch { /* A storage/quota failure still follows the existing refusal path. */ }
+    return false;
   }
 }
 
@@ -208,7 +214,7 @@ export async function addFile(input: Blob | File, opts: { parentType: ParentType
     // forever. The caller's save (record, context link, saved state) is never
     // swallowed by one unstorable blob.
     try {
-      await db.blobs.put({ id, blob: new Blob([]), state: 'failed', uploadedChunks: 0, mime: blob.type, error: 'Browser could not store the attachment' });
+      await putBlobRow({ id, blob: new Blob([]), state: 'failed', uploadedChunks: 0, mime: blob.type, error: 'Browser could not store the attachment' });
     } catch {
       /* even the empty marker can't be written — the files row still lands */
     }
@@ -279,12 +285,30 @@ export async function uploadPendingBlobs(checkSession: () => void = () => {}): P
     if (localStorage.getItem('ws_uid') !== uid || getToken() !== token || accessClientStore.get().epoch !== epoch) throw new Error('media_access_changed');
   };
   assertCurrent();
-  const pending = await db.blobs.where('state').equals('pending').toArray();
-  for (const row of pending) {
+  // Encoded fallback rows materialize bytes on read. Enumerate only keys so
+  // the queue never decodes every attachment before sending the first one.
+  const pending = await db.blobs.where('state').equals('pending').primaryKeys();
+  assertCurrent();
+  for (const id of pending) {
+    assertCurrent();
+    const row = await db.blobs.get(id);
+    assertCurrent();
+    if (!row || row.state !== 'pending') continue;
+    if(uid)setUploading(uid,row.id,true);
     try {
       assertCurrent();
       const file = await db.files.get(row.id); assertCurrent();
       if (file?.deleted) { await db.blobs.delete(row.id); continue; }
+      // addFile stages bytes before its metadata mutation. A partial save may
+      // leave only those bytes; keep them for the same capture's retry rather
+      // than uploading an unknown file and blocking sync with a 404. Canonical
+      // thumbnails intentionally use their main file's metadata instead.
+      if (!file) {
+        const parentId = thumbnailParentId(row.id);
+        if (!parentId) continue;
+        const owner = await db.files.get(parentId); assertCurrent();
+        if (!owner || owner.deleted || owner.thumbId !== row.id) continue;
+      }
       const total = chunkCount(row.blob.size);
       for (let i = row.uploadedChunks; i < total; i++) {
         await putChunk(row.id, i, chunkSlice(row.blob, i), assertCurrent);
@@ -304,7 +328,7 @@ export async function uploadPendingBlobs(checkSession: () => void = () => {}): P
       }
       if (e instanceof ApiError && e.status === 401) throw e;
       throw e; // transient → abort the pass; next sync retries
-    }
+    }finally{if(uid)setUploading(uid,row.id,false);}
   }
   await transcribePending(assertCurrent);
 }

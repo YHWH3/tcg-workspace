@@ -41,6 +41,10 @@ test('relative dates: filter and automation hints with bounded results',async({p
     await readableDateSelectors(page,['Condition field','Condition operator']);
     await keyboardSelect(page.getByRole('combobox',{name:'Condition relative day',exact:true}),'past');
     await condition.focus();await condition.fill('7');await condition.press('Tab');
+    const history=page.getByRole('button',{name:'Run history',exact:true});
+    await history.scrollIntoViewIfNeeded();await history.focus();
+    expect(await history.evaluate(el=>{const r=el.getBoundingClientRect();return r.width>=24&&r.height>=24&&el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),'Run history can be fully reached above compact navigation').toBe(true);
+    await history.press('Enter');await expect(history).toHaveAttribute('aria-expanded','true');const emptyRuns=page.getByText('No runs yet.',{exact:true});await expect(emptyRuns).toBeVisible();await emptyRuns.scrollIntoViewIfNeeded();
     await health(page,'relative automation condition',info);
     await info.attach('relative automation condition',{body:await page.screenshot(),contentType:'image/png'});
   }finally{

@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "decision": "HOLD: scoped correction passes; full phase evidence pending",
+  "fullCatalogBaseline": {
+    "source": {
+      "sha": "22c60a82a0e7305b341b15370a7e1ada7c15a4f1",
+      "fingerprint": "1ff19f9245bd2f7d4f79396f2782fc30f6d9cb0964a52ca8e86d0ff4b3b16c7e"
+    },
+    "exitCode": 1,
+    "stats": {
+      "startTime": "2026-11-04T04:50:57.497Z",
+      "duration": 279734.864,
+      "expected": 87,
+      "skipped": 0,
+      "unexpected": 2,
+      "flaky": 0
+    },
+    "required": 1602,
+    "executed": 89,
+    "failed": [
+      "surface: approvals-empty/chromium-compact-light",
+      "approvals network failure and recovery/chromium-compact-light"
+    ],
+    "missingCount": 1513,
+    "summary": ".artifacts/phase8/full-catalog-22c60a8/summary.json",
+    "sha256": "96fc726b1f1b34d83de6c88b3a5e7b3661062510477a4084ff0e31d79e353ca0"
+  },
+  "finding": "Approval rows with unavailable/restricted targets render href# links. Populated history exposes a target-size failure and an action without a destination.",
+  "correction": "Render unavailable targets as text. Preserve server Restricted item wording; use Unavailable item when the missing-target response only supplies its id. Available internal links retain a minimum24px height. Authorization and server responses are unchanged.",
+  "fixture": "Authenticated cancelled history request with a subsequently soft-deleted synthetic target; no human approval. Regression verifies plain text, no unavailable/restricted links, no history href# and an intact valid target URL/hit area.",
+  "intermediateDiagnostic": {
+    "source": {
+      "sha": "22c60a82a0e7305b341b15370a7e1ada7c15a4f1",
+      "fingerprint": "c1ab4e1e85685e0008530f43783a92d70016e642ebe8f1dda40609336239318e"
+    },
+    "trackedWorkingTreeDirty": true,
+    "exitCode": 1,
+    "stats": {
+      "startTime": "2026-11-04T04:56:41.426Z",
+      "duration": 18308.724000000002,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    "reason": "First test expectation used Restricted item, but the missing target response supplies its id. Original1FAIL/1PASS remains; this is a fixture-expectation failure, not a passing product regression. Product baseline is the original full-catalog failure.",
+    "summary": ".artifacts/phase8/unavailable-approval-baseline-22c60a8/summary.json"
+  },
+  "correctedPreflight": {
+    "source": {
+      "sha": "22c60a82a0e7305b341b15370a7e1ada7c15a4f1",
+      "fingerprint": "0cd0f3e1d58f1682393c399b7fdd7ea5f684f953cda89246ea175fbf49181e7a"
+    },
+    "trackedWorkingTreeDirty": true,
+    "exitCode": 0,
+    "stats": {
+      "startTime": "2026-11-04T04:58:11.498Z",
+      "duration": 13916.121,
+      "expected": 6,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "projects": [
+      "chromium-compact-light",
+      "firefox-tablet-dark",
+      "webkit-desktop-light"
+    ],
+    "cells": 6,
+    "summary": ".artifacts/phase8/unavailable-approval-corrected/summary.json",
+    "sha256": "f6f20c78f1b2ffd7a93db2557c1ad486fd564f1464fc6851c7dcfab19c147327",
+    "sourceFileSha256": {
+      "src/modules/approvals/index.tsx": "a8efa5d9e65606ccd36b817678d9728ab4432ed35d9c344013089ae210f491a8",
+      "scripts/qa-ux.mjs": "18d1d5e6b8746ccffe2b459579d17a17fbb6e2935ca934490d61e15ad899c9b4",
+      "scripts/ux-lab/surfaces.spec.mjs": "7b9430ba8a68585b35060bbf45e85bde71e3b6b127357912369c087847a3139d"
+    }
+  },
+  "checks": [
+    {
+      "command": "npm run typecheck",
+      "exitCode": 0,
+      "log": ".artifacts/phase8/unavailable-approval-typecheck.log"
+    },
+    {
+      "command": "npm run build",
+      "exitCode": 0,
+      "log": ".artifacts/phase8/unavailable-approval-build.log"
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "originalCapturesInspected": [
+    ".artifacts/phase8/unavailable-approval-corrected/visual/chromium-compact-light.png",
+    ".artifacts/phase8/unavailable-approval-corrected/visual/firefox-tablet-dark.png",
+    ".artifacts/phase8/unavailable-approval-corrected/visual/webkit-desktop-light.png"
+  ],
+  "limits": [
+    "Six scoped cells are not a full18-profile or release certificate.",
+    "All prior failed/interrupted evidence retained.",
+    "No server behavior, permissions, migration, contract or external provider change."
+  ],
+  "next": "Commit correction, run full1602catalog at clean integrated head, then final34mandatory gates and applicable native qualification."
+}

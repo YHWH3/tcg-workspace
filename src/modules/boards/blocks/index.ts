@@ -4,3 +4,13 @@ import './MetricBlock';
 import './CalendarBlock';
 import './ActivityBlock';
 import './MyWorkBlock';
+
+import './AttentionBlock';
+import './ProjectHealthBlock';
+
+import './BudgetBlock';
+
+import './FieldEvidenceBlock';
+import './EventOpsBlock';
+
+import './CommitmentsBlock';

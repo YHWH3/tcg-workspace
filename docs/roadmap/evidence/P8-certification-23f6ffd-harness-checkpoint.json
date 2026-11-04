@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 1,
+  "kind": "failed_phase8_certificate_and_harness_correction_checkpoint",
+  "decision": "HOLD",
+  "source": {
+    "sha": "23f6ffdc2c43edad6d379b4387b0f099a4dfcd2c",
+    "fingerprint": "d8e1eb712cfdbb24dd0bf2a4b1a2723e63b73e4d5beecc7ad927f61d30450491",
+    "cleanAtStart": true,
+    "finalTestedSha": "23f6ffdc2c43edad6d379b4387b0f099a4dfcd2c"
+  },
+  "certificate": {
+    "directory": ".artifacts/certification/23f6ffdc2c43edad6d379b4387b0f099a4dfcd2c-2026-11-03T16-27-38-400Z-complete",
+    "startedAt": "2026-11-03T16:27:38.400Z",
+    "endedAt": "2026-11-03T17:13:17.280Z",
+    "gates": {
+      "pass": 30,
+      "fail": 4,
+      "notRun": 0
+    },
+    "hostPauses": [],
+    "completeLocalCertification": false,
+    "reusedGates": [
+      "whitespace",
+      "migrations",
+      "harness",
+      "typecheck"
+    ],
+    "summarySha256": "d76098f1ae598fd8f2a1ede37487c25e575f428ecd3dfdb7f428b7d8122c689b"
+  },
+  "gateResults": [
+    {
+      "id": "prerequisites",
+      "status": "PASS",
+      "pass": 6,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 23,
+      "reused": false
+    },
+    {
+      "id": "dependencies",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 760,
+      "reused": false
+    },
+    {
+      "id": "lockfile",
+      "status": "PASS",
+      "pass": 2,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 745,
+      "reused": false
+    },
+    {
+      "id": "whitespace",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 273,
+      "reused": true
+    },
+    {
+      "id": "migrations",
+      "status": "PASS",
+      "pass": 36,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 2,
+      "reused": true
+    },
+    {
+      "id": "harness",
+      "status": "PASS",
+      "pass": 147,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 8790,
+      "reused": true
+    },
+    {
+      "id": "typecheck",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 1559,
+      "reused": true
+    },
+    {
+      "id": "unit",
+      "status": "PASS",
+      "pass": 1148,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 321067,
+      "reused": false
+    },
+    {
+      "id": "build",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 3192,
+      "reused": false
+    },
+    {
+      "id": "d1",
+      "status": "PASS",
+      "pass": 921,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 856186,
+      "reused": false
+    },
+    {
+      "id": "security",
+      "status": "FAIL",
+      "pass": 0,
+      "fail": 1,
+      "notRun": 0,
+      "durationMs": 6757,
+      "reused": false
+    },
+    {
+      "id": "browsers",
+      "status": "PASS",
+      "pass": 3,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 1628,
+      "reused": false
+    },
+    {
+      "id": "smoke",
+      "status": "PASS",
+      "pass": 46,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 5079,
+      "reused": false
+    },
+    {
+      "id": "mcp-base",
+      "status": "PASS",
+      "pass": 94,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 14877,
+      "reused": false
+    },
+    {
+      "id": "mcp-multiuser",
+      "status": "PASS",
+      "pass": 61,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 2187,
+      "reused": false
+    },
+    {
+      "id": "mcp-phase1",
+      "status": "PASS",
+      "pass": 37,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 1438,
+      "reused": false
+    },
+    {
+      "id": "mcp-phase2",
+      "status": "PASS",
+      "pass": 113,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 2748,
+      "reused": false
+    },
+    {
+      "id": "mcp-phase3",
+      "status": "PASS",
+      "pass": 64,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 2280,
+      "reused": false
+    },
+    {
+      "id": "mcp-phase4",
+      "status": "PASS",
+      "pass": 46,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 5499,
+      "reused": false
+    },
+    {
+      "id": "v4",
+      "status": "PASS",
+      "pass": 33,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 36770,
+      "reused": false
+    },
+    {
+      "id": "v6",
+      "status": "FAIL",
+      "pass": 130,
+      "fail": 22,
+      "notRun": 0,
+      "durationMs": 417266,
+      "reused": false
+    },
+    {
+      "id": "v7",
+      "status": "FAIL",
+      "pass": 110,
+      "fail": 4,
+      "notRun": 0,
+      "durationMs": 195407,
+      "reused": false
+    },
+    {
+      "id": "v8",
+      "status": "PASS",
+      "pass": 140,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 169080,
+      "reused": false
+    },
+    {
+      "id": "v9",
+      "status": "PASS",
+      "pass": 75,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 97558,
+      "reused": false
+    },
+    {
+      "id": "phase5-sync",
+      "status": "PASS",
+      "pass": 33,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 92835,
+      "reused": false
+    },
+    {
+      "id": "phase5-workflows",
+      "status": "PASS",
+      "pass": 36,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 126199,
+      "reused": false
+    },
+    {
+      "id": "phase5-mcp",
+      "status": "PASS",
+      "pass": 15,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 16626,
+      "reused": false
+    },
+    {
+      "id": "phase6-workflows",
+      "status": "PASS",
+      "pass": 42,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 63985,
+      "reused": false
+    },
+    {
+      "id": "release-preflight",
+      "status": "PASS",
+      "pass": 14,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 325,
+      "reused": false
+    },
+    {
+      "id": "release-rehearsal",
+      "status": "PASS",
+      "pass": 12,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 2981,
+      "reused": false
+    },
+    {
+      "id": "release-ui",
+      "status": "FAIL",
+      "pass": 3,
+      "fail": 18,
+      "notRun": 0,
+      "durationMs": 124012,
+      "reused": false
+    },
+    {
+      "id": "assistant-e2e",
+      "status": "PASS",
+      "pass": 27,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 58420,
+      "reused": false
+    },
+    {
+      "id": "performance-evidence",
+      "status": "PASS",
+      "pass": 71,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 4,
+      "reused": false
+    },
+    {
+      "id": "source-integrity",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "durationMs": 46,
+      "reused": false
+    }
+  ],
+  "findings": [
+    {
+      "gate": "security",
+      "cause": "npm advisory registry request timed out; no valid certificate audit report",
+      "correction": "Keep the original failure; retrieve a fresh complete report in final certification. Two separate probes returned valid reports with 2 low, 8 moderate, 0 high, 0 critical findings. No dependency changes or exceptions."
+    },
+    {
+      "gate": "v6",
+      "cause": "Relation button no longer has an aria-label attribute; native accessible name is visible text. Network-idle navigation also waited on the dummy external Drive iframe.",
+      "correction": "Semantic button/combobox/listbox locators, exact new-record relation assertion, bounded local persistence wait, existing foreground-read fence with DOM-content readiness and explicit rendered-surface waits."
+    },
+    {
+      "gate": "v7",
+      "cause": "October 2026 fixture records were checked against the current month; timeline bars were outside its displayed period.",
+      "correction": "Navigate calendar and timeline controls explicitly to October 2026 before unchanged date placement and date-edit assertions. Verification pending after host pause."
+    },
+    {
+      "gate": "release-ui",
+      "cause": "Default /ai now opens Review; old harness expected seven library copy buttons immediately.",
+      "correction": "Assert the Review surface, follow Workflow library, retain the seven-workflow assertion and light/dark library accessibility checks. Verification pending."
+    }
+  ],
+  "correctionPreflight": {
+    "source": {
+      "sha": "23f6ffdc2c43edad6d379b4387b0f099a4dfcd2c",
+      "fingerprint": "1ac24161c69ffa80f64411c01c795133aca369b5e8e7c055d222f5208644b369",
+      "dirty": true
+    },
+    "v6": {
+      "startedAt": "2026-11-03T17:22:34.530Z",
+      "endedAt": "2026-11-03T17:27:33.764Z",
+      "exitCode": 0,
+      "summary": {
+        "pass": 150,
+        "fail": 0,
+        "notRun": 0,
+        "blocking": 0,
+        "total": 150
+      },
+      "allMandatoryAssertionsExecuted": true,
+      "report": ".artifacts/phase8/harness-corrections-dom-ready/v6/results.json",
+      "sha256": "3246a3f35ebde3b2f99a724f4fa0f782896a171e0650670496202c77cf475141"
+    },
+    "wholeRun": "INTERRUPTED; v7 interrupted after v6 completed",
+    "hostGapMs": 227650,
+    "notACleanSourceCertificate": true
+  },
+  "retainedDiagnostics": [
+    {
+      "directory": ".artifacts/phase8/harness-corrections-preflight",
+      "outcome": "Stopped after an early Firefox record-detail readiness failure; original incomplete report preserved."
+    },
+    {
+      "directory": ".artifacts/phase8/harness-corrections-ready",
+      "outcome": "136 PASS / 18 FAIL: browser request routing disabled HTTP cache and interfered with Firefox offline reload. Routing was removed; the successful v6 preflight follows this correction."
+    }
+  ],
+  "routingReference": "https://playwright.dev/docs/api/class-browsercontext#browser-context-route",
+  "unchanged": "Application code, shared logic, SQL migrations, contract and mandatory test inventory unchanged by this correction batch.",
+  "remaining": [
+    "Corrected v7 and release UI preflights",
+    "Clean committed-source full 89-case by 18-project UX catalog (1602 cells)",
+    "Final 34-gate certification",
+    "Applicable native simulator/emulator checks",
+    "Physical-device, human assistive-technology and independent acceptance; never substituted by fixtures"
+  ],
+  "harnessValidation": {
+    "command": "node --test scripts/certification/core.test.mjs",
+    "exitCode": 0,
+    "pass": 39,
+    "fail": 0,
+    "skipped": 0,
+    "log": ".artifacts/phase8/harness-corrections-core.log",
+    "scope": "Failure-injection and report/core regression checks; not the pending browser preflights."
+  }
+}

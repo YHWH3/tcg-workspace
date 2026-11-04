@@ -41,7 +41,7 @@ async function websiteWeek(env:Env,now:number){
  if(!hasD1Budget(env.DB,8))return null;
  const d=await websiteDigestFor(env,'',{},now);
  if('error' in d)return null;
- return {received:d.received.count,byFamily:d.byFamily.map(p=>({label:p.label,count:p.count})),patronMovement:d.patronMovement.map(p=>({label:p.label,count:p.count})),oldestOpen:d.oldestOpen.slice(0,5),replyFirst:d.replyFirst.slice(0,5).map(r=>({recordId:r.recordId,url:r.url,title:r.title})),truncated:d.truncated};
+ return {received:d.received.count,byFamily:d.byFamily.map(p=>({label:p.label,count:p.count})),patronMovement:d.patronMovement.map(p=>({label:p.label,count:p.count})),oldestOpen:d.oldestOpen.slice(0,5),replyFirst:d.replyFirst.slice(0,5).map(r=>({recordId:r.recordId,url:r.url,title:r.title})),responseBands:d.responseBands.map(p=>({label:p.label,count:p.count})),targetBreaches:d.targetBreaches.count,targetDays:d.targetDays,truncated:d.truncated};
 }
 export async function runWeeklyDigests(env:Env,now=Date.now()){
  env=env.WORKSPACE_CONTEXT?env:withWorkspaceContext(env);

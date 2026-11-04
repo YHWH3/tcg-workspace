@@ -72,6 +72,7 @@ function connect(): void {
       else if (m.t === 'changed') {
         console.debug('[live] changed — instant-sync poke received');
         void onChanged();
+        window.dispatchEvent(new Event('ws-records-changed'));
         void import('../modules/inbox')
           .then((mod) => mod.fetchUnreadBadge())
           .then((n) => window.dispatchEvent(new CustomEvent('ws-inbox-unread', { detail: n })))

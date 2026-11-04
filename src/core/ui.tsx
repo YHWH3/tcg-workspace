@@ -1,5 +1,6 @@
-import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes, type ComponentType } from 'react';
+import { cloneElement, isValidElement, useEffect, useLayoutEffect, useId, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
+import { placePopover } from './popoverPosition';
 import { X, type LucideIcon } from 'lucide-react';
 import { cn, initials } from './utils';
 import { useIsMobile, useVisualViewport } from './mobile';
@@ -101,7 +102,7 @@ export function Field({ label, children, hint }: { label: string; children: Reac
     <label className="block">
       <span className="mb-1.5 block text-xs font-medium text-neutral-500 dark:text-neutral-400">{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-neutral-400">{hint}</span>}
+      {hint && <span className="mt-1 block text-xs text-neutral-600 dark:text-neutral-400">{hint}</span>}
     </label>
   );
 }
@@ -163,13 +164,8 @@ export function Popover({
     const update = () => {
       const r = triggerRef.current?.getBoundingClientRect();
       if (!r) return;
-      const minW = 176; // min-w-44
-      // Clamp against the panel's real rendered width (w-80 etc.), not just
-      // minW — otherwise right-anchored panels overflow the viewport.
-      const panelW = Math.max(minW, panelRef.current?.offsetWidth ?? r.width);
-      let left = align === 'right' ? r.right - panelW : align === 'center' ? r.left + r.width / 2 - panelW / 2 : r.left;
-      left = Math.max(8, Math.min(left, window.innerWidth - panelW - 8));
-      setPos({ left, top: r.bottom + 4, width: Math.max(minW, r.width) });
+      const next = placePopover(r, {width: panelRef.current?.offsetWidth ?? 0, height: panelRef.current?.offsetHeight ?? 0}, {width: window.innerWidth, height: window.innerHeight}, align);
+      setPos(p => p && p.left === next.left && p.top === next.top && p.width === next.width ? p : next);
     };
     update();
     window.addEventListener('resize', update);
@@ -197,18 +193,24 @@ export function Popover({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, sheetMode]);
-  // Once the panel exists, re-clamp left against its real rendered width —
-  // the first measure only knows minW, so wide panels could overflow right.
-  useEffect(() => {
-    if (!isOpen || !pos) return;
-    const w = panelRef.current?.offsetWidth ?? 0;
-    if (!w) return;
-    const maxLeft = Math.max(8, window.innerWidth - w - 8);
-    if (pos.left > maxLeft) setPos((p) => (p ? { ...p, left: maxLeft } : p));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, pos]);
+  // Measure before paint and again when menu content changes. Footer triggers
+  // need the same viewport collision handling as toolbar triggers.
+  const positioned = pos !== null;
+  useLayoutEffect(() => {
+    if (!isOpen || sheetMode || !positioned || !panelRef.current) return;
+    const update = () => {
+      const trigger = triggerRef.current?.getBoundingClientRect(), panel = panelRef.current;
+      if (!trigger || !panel) return;
+      const next = placePopover(trigger, {width: panel.offsetWidth, height: panel.offsetHeight}, {width: innerWidth, height: innerHeight}, align);
+      setPos(p => p && p.left === next.left && p.top === next.top && p.width === next.width ? p : next);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(panelRef.current);
+    return () => observer.disconnect();
+  }, [isOpen, sheetMode, positioned, align]);
   return (
-    <div ref={ref} className="relative inline-block">
+    <div ref={ref} className="relative inline-block min-w-0 max-w-full">
       <span
         ref={triggerRef}
         role={nativeTrigger ? undefined : "button"}
@@ -219,7 +221,7 @@ export function Popover({
         onKeyDown={(e) => {
           if (!nativeTrigger && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); setOpen(!isOpen); }
         }}
-        className="inline-flex rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
+        className="inline-flex min-w-0 max-w-full rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
       >
         {nativeTrigger ? cloneElement(trigger, { 'aria-haspopup': true, 'aria-expanded': isOpen }) : trigger}
       </span>

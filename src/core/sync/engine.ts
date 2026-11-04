@@ -1,3 +1,4 @@
+import {recordSyncObservation} from './observations';
 import {mutationGuardMatches,validMutationGuard,type MutationGuard} from '../../../shared/mutationGuard';
 import { PERMISSION_PROTOCOL } from '../../../shared/protocol';
 import { isCollection, type Collection } from '../../../shared/collections';
@@ -154,7 +155,7 @@ export async function mutate(collection: Collection, id: string, patch: Record<s
     for (const field of Object.keys(patch)) fieldTs[field] = ts;
     row._ts = fieldTs;
     await table.put(row);
-    await db.outbox.add({ id, collection, patch, ts, createIntent: !existing,...(ifUnchanged?{ifUnchanged}:{}) });
+    await db.outbox.add({ id, collection, patch, ts, enqueuedAt:Date.now(), createIntent: !existing,...(ifUnchanged?{ifUnchanged}:{}) });
   });
   refreshPending();
   scheduleSync();
@@ -258,10 +259,11 @@ async function pushOutbox(access: ReconciledAccess, assertCurrent: () => void): 
     // recoverable locally (they were never claimed as synced).
     const { acked, refused } = planPushOutcome(good, validatePushReply(res, good));
     if (access.protocol === PERMISSION_PROTOCOL && (typeof res.accessEtag !== 'string' || !res.accessEtag)) throw new Error('invalid_push_reply');
-    await db.transaction('rw', db.outbox, async () => {
+    await db.transaction('rw', db.outbox, db.meta, async () => {
       assertCurrent();
       await db.outbox.bulkDelete(acked.map((e) => e.autoId!).filter((n) => n !== undefined));
       if (refused.length) await db.outbox.bulkPut(refused);
+      if(acked.length)await recordSyncObservation(db,access.userId,'push',Date.now(),assertCurrent);
       assertCurrent();
     });
     await updatePending();
@@ -363,12 +365,13 @@ export async function syncNow(): Promise<void> {
     if (!userId) throw new Error('unauthenticated');
     const access = await prepareOnlineAccess(userId, assertCurrent);
     epoch = accessClientStore.get().epoch;
+    if(access.protocol===PERMISSION_PROTOCOL)await recordSyncObservation(db,userId,'pull',Date.now(),assertCurrent);
     if (access.protocol === 1) startPresence();
     else stopPresence(); // scoped presence waits for the server ACL integration
     await pushOutbox(access, assertCurrent);
     if (access.protocol === PERMISSION_PROTOCOL) {
       epoch = null; await prepareOnlineAccess(userId, assertCurrent); epoch = accessClientStore.get().epoch;
-    } else await pullRemote(access, assertCurrent);
+    } else {await pullRemote(access, assertCurrent);await recordSyncObservation(db,userId,'pull',Date.now(),assertCurrent);}
     // Guest/read-only clients must never manufacture Core seed writes. The
     // server bootstrap will provision built-ins for scoped workspaces.
     if (access.protocol === 1) { await seedBuiltins(); await seedWebsiteInbox(); }

@@ -74,9 +74,9 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
   });
   await check(names[5],async()=>{
    const p=await call('propose_suggestion',{targetId:'ai_task',patch:{priority:'high'},rationale:'Fixture suggestion; verify original evidence.'});assert.equal(p.isError,false,p.text);
-   await page.goto(fixture.base+'/ai');const card=page.locator('li').filter({hasText:'ai_task · pending'});await card.getByRole('textbox',{name:'Proposed fields'}).fill('{"priority":"low"}');await card.getByRole('button',{name:'Accept edited suggestion'}).tap();await page.getByText('ai_task · accepted',{exact:true}).waitFor();
+   await page.goto(fixture.base+'/ai');const card=page.locator('li').filter({hasText:'ai_task · pending'});await card.getByRole('textbox',{name:'Proposed fields'}).fill('{"priority":"low"}');await card.getByRole('button',{name:'Accept edited suggestion'}).tap();await card.waitFor({state:'detached'});
    const record=await call('get_record',{recordId:'ai_task'});assert.equal(record.data.record.priority??record.data.record.data?.priority,'low');
-   const suggestions=await api('/api/ai/suggestions');const saved=suggestions.data.suggestions.find(s=>s.id===p.data.suggestionId);assert.ok(saved.changeset_id);await page.goto(fixture.base+'/ai/undo/'+saved.changeset_id);await page.getByRole('heading',{name:'Review changeset undo'}).waitFor();await page.getByRole('button',{name:'Confirm revision-safe undo'}).tap();await page.getByRole('status').filter({hasText:'restored'}).waitFor();assert.notEqual((await call('get_record',{recordId:'ai_task'})).data.record.priority,'low');
+   const suggestions=await api('/api/ai/suggestions');const saved=suggestions.data.suggestions.find(s=>s.id===p.data.suggestionId);assert.equal(saved.status,'accepted');assert.ok(saved.changeset_id);await page.goto(fixture.base+'/ai/undo/'+saved.changeset_id);await page.getByRole('heading',{name:'Review changeset undo'}).waitFor();await page.getByRole('button',{name:'Confirm revision-safe undo'}).tap();await page.getByRole('status').filter({hasText:'restored'}).waitFor();assert.notEqual((await call('get_record',{recordId:'ai_task'})).data.record.priority,'low');
   });
   await check(names[13],async()=>{
    // Exercise the final two workflow contracts with real scoped MCP calls,
@@ -134,7 +134,7 @@ for(const [engine,type] of Object.entries(engines).filter(([e])=>!only||e===only
    }
    const runs=await fixture.sql(`SELECT u.username,d.delivered,d.outcome FROM users u LEFT JOIN ai_digest_runs d ON d.user_id=u.id ORDER BY u.username;`);const terminal=runs.flatMap(r=>r.results??[]);assert.deepEqual(terminal.map(r=>({username:r.username,delivered:r.delivered,outcome:r.outcome})),[{username:'admin',delivered:1,outcome:'delivered'},{username:'bob',delivered:1,outcome:'no_content'}],JSON.stringify(runs));
    const rows=await fixture.sql(`SELECT COUNT(*) AS n FROM notifications WHERE user_id='${admin.user.id}' AND group_key LIKE 'weekly-digest:%';`);assert.ok(JSON.stringify(rows).includes('"n":1'),JSON.stringify(rows));
-   await page.goto(fixture.base+'/ai');await page.getByRole('heading',{name:'Pending approvals',exact:true}).waitFor();await page.getByRole('link',{name:'Changed after proposal',exact:true}).tap();assert.ok(page.url().includes('/inbox'));
+   await page.goto(fixture.base+'/ai');await page.getByRole('navigation',{name:'AI views'}).getByRole('link',{name:'Workflow library',exact:true}).tap();await page.getByRole('heading',{name:'Pending approvals',exact:true}).waitFor();await page.getByRole('link',{name:'Changed after proposal',exact:true}).tap();assert.ok(page.url().includes('/inbox'));
   });
   await check(names[7],async()=>{
    const increased=await api('/api/oauth/connections/'+connection.connectionId,{spaces:['space-core','ai-vault'],expectedVersion:1},'PATCH');assert.equal(increased.status,409);

@@ -13,7 +13,9 @@ import { EmptyState, Spinner } from '../../core/ui';
 import { cn } from '../../core/utils';
 import { recordHref } from '../../../shared/recordRoutes';
 import { WEBSITE_INBOX_ID, websiteInboxViews } from '../../../shared/websiteInbox';
-import { websiteDashboard, type FlatRecord } from '../../../shared/websiteStats';
+import { websiteDashboard,responseConfig, type FlatRecord } from '../../../shared/websiteStats';
+import {useWorkspaceLocale,workspaceTimeZone} from '../../core/workspaceLocale';
+import {ResponseDesk} from './ResponseDesk';
 import type { AppModule } from '../types';
 
 const card = 'flex min-w-0 flex-col gap-3 rounded-xl border border-neutral-200/80 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900/40';
@@ -61,14 +63,15 @@ const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? o
 export function WebsitePage() {
   const board = useLiveQuery(() => db.boards.get(WEBSITE_INBOX_ID), []) as LocalRow | undefined | null;
   const rows = useLiveQuery(() => db.tasks.where('boardId').equals(WEBSITE_INBOX_ID).toArray(), []) as LocalRow[] | undefined;
-  const now = useMemo(() => Date.now(), [rows]);
-  const stats = useMemo(() => (rows ? websiteDashboard(rows.filter((r) => !r.parentId) as FlatRecord[], now) : null), [rows, now]);
+  const locale=useWorkspaceLocale();
+  const now = useMemo(() => Date.now(), [rows,locale.today]);
+  const stats = useMemo(() => (rows ? websiteDashboard(rows.filter((r) => !r.parentId) as FlatRecord[], now,5,{...responseConfig(board),today:locale.today,timeZone:workspaceTimeZone()}) : null), [rows, now,board,locale.today,locale.settings?.timeZone]);
   const titles = useMemo(() => new Map((rows ?? []).map((r) => [r.id, String(r.title ?? 'Untitled')])), [rows]);
   const views = websiteInboxViews();
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
+    <div className="h-full min-w-0 overflow-y-auto">
+      <div className="mx-auto max-w-5xl px-2 py-6 sm:px-4 md:px-8 md:py-8">
         <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
@@ -99,6 +102,7 @@ export function WebsitePage() {
             <p className="sr-only" role="status">
               {plural(stats!.total, 'submission')}, {stats!.open} open.
             </p>
+            <ResponseDesk rows={rows} board={board} stats={stats!}/>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Card icon={TrendingUp} title="New this week" id="wb-new">
                 <p className="text-3xl font-semibold tabular-nums tracking-tight">
@@ -151,7 +155,7 @@ export function WebsitePage() {
                       <li key={r.id}>
                         <Link to={recordHref(WEBSITE_INBOX_ID, undefined, r.id)} className={cn(linkRow, 'justify-between')}>
                           <span className="min-w-0 break-words">{r.title}</span>
-                          <span className="shrink-0 tabular-nums text-xs text-neutral-500 dark:text-neutral-400">{r.ageDays === 0 ? 'today' : plural(r.ageDays, 'day')}</span>
+                          <span className="shrink-0 tabular-nums text-xs text-neutral-500 dark:text-neutral-400">{r.ageDays === null?'Date unavailable':r.ageDays === 0 ? 'today' : plural(r.ageDays, 'day')}</span>
                         </Link>
                       </li>
                     ))}

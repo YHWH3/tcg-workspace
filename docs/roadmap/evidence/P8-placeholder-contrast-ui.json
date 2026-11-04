@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "decision": "HOLD: scoped placeholder correction verified; final matrix/certificate pending",
+  "visualFinding": "Empty task description and comment prompts are too faint; axe text contrast samples did not report their native pseudo-element paint.",
+  "reference": "https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html",
+  "baseline": {
+    "source": {
+      "sha": "8e889c309877e824e2b92d8e0cbd09c4b7ca65c7",
+      "fingerprint": "4bd73ed726036a6bf5ce0cafb65dc6a9dd15831c2e5e21a16bae570a45047509"
+    },
+    "trackedWorkingTreeDirty": true,
+    "applicationCode": "8e889c3 unchanged, new check only",
+    "exitCode": 1,
+    "stats": {
+      "startTime": "2026-11-04T05:11:25.287Z",
+      "duration": 1804.5410000000002,
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    "measured": [
+      {
+        "label": "Task description",
+        "ratio": 1.482266131414131,
+        "minimum": 4.5,
+        "foreground": [
+          212,
+          212,
+          212
+        ],
+        "background": [
+          255,
+          255,
+          255
+        ]
+      },
+      {
+        "label": "Add a comment",
+        "ratio": 2.583660500924753,
+        "minimum": 4.5,
+        "foreground": [
+          161,
+          161,
+          161
+        ],
+        "background": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "summary": ".artifacts/phase8/placeholder-baseline-task-8e889c3/summary.json",
+    "sha256": "8da4e14a39aa8c76cec3df4a73bcb12873e3b3b306f9261cf4d07267e82f08ec"
+  },
+  "retainedCatalog": {
+    "source": {
+      "sha": "8e889c309877e824e2b92d8e0cbd09c4b7ca65c7",
+      "fingerprint": "ccf2760dc2eb7f5873bad64cad1fad2cc292f571c9ac8dac31bb0ba03301f93c"
+    },
+    "aggregateExitCode": 1,
+    "wrapperExitCode": 130,
+    "reason": "Intentionally stopped during second profile after visual placeholder finding; no host pause. First profile89/89 complete, second incomplete and not counted.",
+    "stats": {
+      "startTime": "2026-11-04T04:59:56.990Z",
+      "duration": 277095.36799999996,
+      "expected": 89,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "coverageExecuted": 89,
+    "coverageMissing": 1513,
+    "directory": ".artifacts/phase8/full-catalog-8e889c3"
+  },
+  "initialSelectionDiagnostic": {
+    "directory": ".artifacts/phase8/placeholder-baseline-8e889c3",
+    "exitCode": 1,
+    "executed": 0,
+    "reason": "Anchored grep matched no full Playwright titles; retained, no test pass claimed."
+  },
+  "correction": "Use established neutral600 light/neutral400 dark placeholder tokens, retain opacity1 across browsers and readable caption input colors. Layouts, font sizes and editing behavior are unchanged.",
+  "gate": "A shared renderer check measures ::placeholder color/opacity, ancestor background/opacity composition and normal/large-text thresholds. Image/unresolved backgrounds fail explicitly. UX health and release UI both invoke it.",
+  "negativeControls": [
+    "Injected faint prompt must fail.",
+    "Injected black prompt at50percent opacity must fail.",
+    "Restored opaque black prompt on white must pass."
+  ],
+  "correctedDiagnostic": {
+    "source": {
+      "sha": "8e889c309877e824e2b92d8e0cbd09c4b7ca65c7",
+      "fingerprint": "c61d68b9eb7d03db762082db079ebd9fc8626d0fb889bb71dbdb5b6fa42040ad"
+    },
+    "trackedWorkingTreeDirty": true,
+    "exitCode": 0,
+    "stats": {
+      "startTime": "2026-11-04T05:12:35.547Z",
+      "duration": 38490.513,
+      "expected": 15,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "cells": 15,
+    "projects": [
+      "chromium-compact-light",
+      "firefox-tablet-dark",
+      "webkit-desktop-light"
+    ],
+    "summary": ".artifacts/phase8/placeholder-corrected-diagnostic/summary.json",
+    "sha256": "920afb3a016a3dd2d5fdeb90f1215b2a53f3cc7001068bb12402b80eab46ed89"
+  },
+  "releaseUiPreflight": {
+    "sourceSha": "8e889c309877e824e2b92d8e0cbd09c4b7ca65c7",
+    "trackedWorkingTreeDirty": true,
+    "summary": {
+      "pass": 7,
+      "fail": 0,
+      "notRun": 0,
+      "blocking": 0,
+      "total": 7
+    },
+    "allMandatoryAssertionsExecuted": true,
+    "scope": "Chromium, six widths plus navigation-readiness check; full3engine gate still required.",
+    "report": ".artifacts/phase8/placeholder-release-ui/results.json"
+  },
+  "checks": [
+    {
+      "command": "npm run typecheck",
+      "exitCode": 0,
+      "log": ".artifacts/phase8/placeholder-typecheck.log"
+    },
+    {
+      "command": "npm run build",
+      "exitCode": 0,
+      "log": ".artifacts/phase8/placeholder-build.log"
+    },
+    {
+      "command": "node --check scripts/placeholder-contrast.mjs",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "candidateSourceFileSha256": {
+    "scripts/ux-lab/support.mjs": "ffa85432b157b125c94bf283de0e3fe4574ae4a538178c3b639d2641962a4d2a",
+    "scripts/ux-lab/surfaces.spec.mjs": "d7824046720c3f310a5e1067bb9875ee7fd92a6791dcf4c059106432bc327f90",
+    "scripts/verify-release-ui.mjs": "c16c2c6804beffe140f317a6dbe0d16760408d8c8ecbc27544dd3c2475b2c71a",
+    "src/core/assistant/AssistantPanel.tsx": "7ad7fa7f1be9e77bae3ff1f3dcffb15789b58c2a1e56e5031fdf86117482a1f4",
+    "src/core/fileui.tsx": "b4d257262ff4b18ac104aa4e9a6622e9c4a4f4ed35b3c83d9f38de403361be32",
+    "src/core/views/RecordDetail.tsx": "4c4dc7f004a6814658300a1d7e34f2b878c8cc14541597ef55d2aea9431a9995",
+    "src/core/views/picker.tsx": "71eb31e5c16383066644726c7ec10bc33d533137472eadb9e6abeffc29eaf87e",
+    "src/index.css": "bc3049c650623535a0d638f695fdabf13c349c9fef215b4d42cc60ec1b80204a",
+    "src/modules/boards/ContextPicker.tsx": "21e2c122d1ad3227372dcc0f876a4909c42a1c086685522421917a1d2c2e5f41",
+    "src/modules/boards/TaskDetail.tsx": "a1b16f4e25b494cc6a7c503cd54f3582aaa36d156c680e5ab1b6d7cfc899a695",
+    "src/modules/comments/index.tsx": "7198f1d466a2c3a4622ca5d25274ba170d1db4c2e66413ee89133d760afc43f5",
+    "src/modules/pages/PageView.tsx": "5896d1f0d41c2fffbab9f968f6e0d2865d3fd17be30d36dc9565b5a46ba5ccc9",
+    "src/modules/pages/blocks/media.tsx": "0a619a4bdfbac566221437d3c0e9822ac95b852494e2e9a6ac9a747593022f21",
+    "src/public/FormView.tsx": "389f77107ea3641e8f1c07a91a2eeba7e5eda47128d6f27fadcafcf5b63e983b",
+    "scripts/placeholder-contrast.mjs": "87fe513384e37ee85f108b927bbe4042dcc08825ff16c8fafc9a6f94553ef91a"
+  },
+  "originalCapturesInspected": [
+    ".artifacts/phase8/placeholder-corrected-diagnostic/visual/chromium-compact-light.png",
+    ".artifacts/phase8/placeholder-corrected-diagnostic/visual/firefox-tablet-dark.png",
+    ".artifacts/phase8/placeholder-corrected-diagnostic/visual/webkit-desktop-light.png"
+  ],
+  "limits": [
+    "Fifteen scoped cells and7Chromium release checks are not a full-phase certificate.",
+    "No source/security/permission/migration/contract/provider behavior changes beyond presentation and the new measurement gate.",
+    "Original failed/interrupted/no-test reports remain unchanged. Physical-device and human acceptance remain unverified."
+  ],
+  "next": "Commit, then full1602catalog, final34mandatory gates and applicable native qualification on clean integrated source."
+}

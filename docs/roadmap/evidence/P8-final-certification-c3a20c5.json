@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "phase": "8",
+  "source": {
+    "sha": "c3a20c56e758d8a7dd7fca31eaf636594f4e2c05",
+    "tree": "031cfe01cc966ab49e912f4ecc9ec9b0c56f4692",
+    "fingerprint": "05718c98188815fa2dacaad11eb3a1977e381c62f4359fc295882287c715d2e5",
+    "branch": "sol/p8-desks",
+    "clean": true,
+    "pushed": true
+  },
+  "browserMatrix": {
+    "command": "npm run qa:ux",
+    "status": "PASS",
+    "cases": 1602,
+    "passed": 1602,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "profiles": 18,
+    "engines": ["Chromium", "Firefox", "WebKit"],
+    "viewports": ["compact", "tablet", "desktop"],
+    "themes": ["light", "dark"],
+    "artifact": ".artifacts/phase8/full-catalog-c3a20c5/summary.json",
+    "runner": ".artifacts/phase8/full-catalog-c3a20c5.runner.json",
+    "hostPauseDetected": false
+  },
+  "mandatoryCertificate": {
+    "command": "npm run certify:ai -- --keep-awake",
+    "status": "PASS",
+    "gates": 34,
+    "passed": 34,
+    "failed": 0,
+    "notRun": 0,
+    "reused": 0,
+    "hostPauses": [],
+    "artifact": ".artifacts/certification/c3a20c56e758d8a7dd7fca31eaf636594f4e2c05-2026-11-04T07-26-34-744Z-complete/summary.json",
+    "report": ".artifacts/certification/c3a20c56e758d8a7dd7fca31eaf636594f4e2c05-2026-11-04T07-26-34-744Z-complete/report.md"
+  },
+  "nativeSafari": {
+    "status": "PASS",
+    "physical": false,
+    "runtime": "iOS 26.4 simulator",
+    "profiles": 5,
+    "journeysPerProfile": 5,
+    "journeys": 25,
+    "passed": 25,
+    "failed": 0,
+    "completedProfileArtifacts": [
+      ".artifacts/phase8/apple-c3a20c5/results.json",
+      ".artifacts/phase8/apple-c3a20c5-ipadpro-resume/results.json"
+    ],
+    "interruptedAttempt": ".artifacts/phase8/apple-c3a20c5/OWNER-PAUSE.json",
+    "interruptedAttemptTreatment": "The owner-paused iPad Pro attempt remains preserved and is not counted. The later single-profile run passed all five journeys.",
+    "limitations": [
+      "Physical iPhone/iPad not run",
+      "Manual VoiceOver/TalkBack/NVDA not run",
+      "Native 400% zoom not run",
+      "Camera, microphone and file-provider hardware not run",
+      "PWA installation and OS background-suspension acceptance remain separate"
+    ]
+  },
+  "android": {
+    "status": "PASS_WITH_EXTERNAL_BLOCK",
+    "physical": false,
+    "runtime": "Android 35 ARM64 Google APIs disposable emulator",
+    "browserReliability": {
+      "passed": 20,
+      "failed": 0,
+      "profiles": ["small", "large", "tablet"],
+      "artifact": ".artifacts/phase8/android-c3a20c5/chrome/results.json"
+    },
+    "pwaStandalone": {
+      "status": "BLOCKED",
+      "reason": "Home Screen install did not yield a verifiable standalone target from the private loopback HTTPS origin; WebAPK launcher acceptance requires external verification.",
+      "artifact": ".artifacts/phase8/android-c3a20c5/chrome/results.json"
+    },
+    "cleanup": ".artifacts/phase8/android-c3a20c5/cleanup.json",
+    "limitations": [
+      "Physical Android not run",
+      "Manual TalkBack not run",
+      "Native text scaling/zoom not run",
+      "PWA standalone launch needs a suitable externally hosted HTTPS verification environment"
+    ]
+  },
+  "decision": "ENGINEERING GO / EXTERNAL BLOCKED",
+  "externalGates": [
+    "Physical iOS and Android devices",
+    "Human VoiceOver, TalkBack and other assistive-technology acceptance",
+    "Native 400% zoom and OS text-scaling acceptance",
+    "Android WebAPK/Home Screen standalone launch from a suitable externally hosted HTTPS origin",
+    "Previous major OS runtime, hardware media providers and production/provider acceptance"
+  ],
+  "boundaries": [
+    "No deployment, remote migration, remote infrastructure, real email, payment, push, mint or paid inference",
+    "Permissions and approvals used only disposable fixtures; fixture approvals are not human decisions",
+    "No applicant payloads or secrets are included in this evidence"
+  ]
+}

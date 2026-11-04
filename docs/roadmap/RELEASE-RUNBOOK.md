@@ -168,3 +168,139 @@ and resumable execution; dry-run output alone is not approval or application.
 Rollback preserves applied additions and user data. A software rollback does not
 remove fields/items or reverse currency display choices; deliberate edits need
 normal reviewed mutation paths. No real installation was upgraded in certification.
+
+
+## Phase8.7 Community review and later owner rollout
+
+Engineering feature evidence: docs/roadmap/evidence/P8-community-533fe09.json.
+Phase8 is still HOLD; this section performs no deployment or real pack upgrade.
+
+## Current source-bound Phase 8 checkpoint
+
+At clean pushed source `c3a20c56e758d8a7dd7fca31eaf636594f4e2c05`, the complete
+browser matrix is `1602/1602 PASS` and the fresh mandatory certificate is
+`34/34 PASS` with no reused gates or host pauses. Native Safari simulator
+qualification is `25/25 PASS` across five installed iOS26.4 profiles. Android
+emulator browser reliability is `20/20 PASS` across small, large and tablet
+profiles. The Android PWA standalone-launch assertion remains explicitly
+`BLOCKED` because private loopback HTTPS cannot provide a verifiable WebAPK
+launcher; it requires a separately authorized hosted HTTPS verification run.
+
+The resulting decision is `ENGINEERING GO / EXTERNAL BLOCKED`. Physical phones
+and tablets, human assistive technology, native zoom/text scaling, hardware
+media providers, previous OS runtimes and production/provider acceptance remain
+owner gates. No deployment, remote migration, real provider operation or human
+approval is claimed by this local certificate. Full evidence is in
+`docs/roadmap/evidence/P8-final-certification-c3a20c5.json`.
+When a later release is authorized, retain the existing backup/rollback steps
+and preview the additive packv7 update in Template gallery. It adds owner/date
+fields and views to People/Organizations and an Event roles block. Existing
+attention settings, form mappings and deleted items are preserved. No migration
+or secret is added by8.7; the inherited latest migration remains0035.
+
+After reviewing the preview, verify both relationship databases' attention
+person/date keys against their actual fields. Intentionally customized settings
+require normal reviewed edits. Confirm source and role fields in Event block
+Configure, review undated Events and compare the displayed count to accessible
+participant relationships. Capacity is informational; do not use it as an
+enforcement or attendance system. A partial device snapshot is not server proof.
+
+For a new Event registration starter, select the intended active Event in fixed
+relations before enabling or sharing the form. Preserve existing configured or
+intentionally disabled forms. Check-in, attendance proof, capacity enforcement
+and consent records still need owner design. Recovery uses the existing record
+editors, form configuration and explicit refresh; do not resurrect deleted
+People, clear outbox work or alter permissions to make a count look complete.
+
+
+## Phase8.8 Editorial review and later owner rollout
+
+Review the additive Operating Packv8 update before applying it. It adds a child
+Editorial page and stable views; it must preserve Media defaults, team edits and
+deleted reservations. Review requests remain personal and scoped to Media.
+Existing approval controls decide them; automation fixtures are not human consent.
+
+Missing owner/date lists are independent. Evidence lists show source-record
+associations only; review Research Note/Case Study Sources/Evidence text and
+source quality separately. Hidden, deleted, archived or wrong-database peers do
+not establish an available source. No external publishing occurs. No new secret,
+migration or service is needed; inherited latest migration remains0035. Production
+rollout, permissions, native/AT acceptance and final phase certification remain
+separate gates.
+
+## Phase 8.12 Ideas review readiness
+
+Pack v9 adds the Ideas queues and canonical conversion relation. Upgrades remain
+additive: team content, configuration and deleted reservations survive. No new
+migration, secret, provider, cron or website event-contract version is needed.
+The conversion action prepares a deterministic frozen proposal; current session
+approval and resumable execution remain required. Historical conversions without
+a canonical relation do not gain a guessed banner. An archived original is not
+replaced or resurrected. Follow existing undo/restore paths if reviewing it.
+
+Feature evidence at 36437be includes486 focused tests,143 fresh browser cells
+and271 unaffected retained cells at 9af2f76, with fresh preserved64/140/42 checks.
+See evidence/P8-ideas-36437be.json for source-specific proof and retained failures.
+This does not authorize deployment or establish final Phase 8 certification.
+Remaining 8.13,8.14,8.10,8.2 and native/physical/human acceptance still gate release.
+
+Meetings desk (8.13) review checkpoint:acef300; packv10. No new migration,
+secret, provider, collection or Website event-contract version. Existing
+migrations0001–0035 remain prerequisites. Review/apply the additive pack upgrade
+through its normal approved flow; team edits and intentionally deleted blocks
+stay reserved. Recent-meeting and self-record blocks preserve source links.
+Owner/date edits use normal guarded writes; local device snapshots are partial.
+Meeting-to-actions remains proposals only, and no owner/deadline is invented.
+Rollback is an owner-reviewed source rollback plus explicit review of additive
+pack records; never mass-delete or overwrite team data.
+Source-bound feature evidence:P8-meetings-acef300.json. Full Phase8 certification,
+8.14/8.10/8.2 and native/physical/human acceptance remain open; no deployment.
+
+## Phase 8.14 Forms operations prerequisite
+
+Owner-only rollout requires `0036_form_operations_index.sql` after 0035, in the
+manifest's pinned order. It adds only the form/state/created-time index; existing
+migration contents, journals and account permissions are preserved. Rehearse it
+on the disposable/restored copy before any separately authorized staging or
+production migration. No new secret, binding, collection, cron or feature flag.
+
+The read-only Operations views show rolling counts and bounded safe metadata.
+A partial candidate window is not an empty-work guarantee. Website records are
+listed separately by their Workspace creation time; this is not relay receipt
+or provider delivery proof. Access remains canonical and current; administrators
+have no private-space override. Monitor endpoint failures, source-change conflicts
+and query work without logging answers or arbitrary stored error text. A rollback
+may retain the additive index; do not delete submission history or rewrite prior
+migrations. Local feature evidence does not authorize deployment or permissions.
+
+## Phase 8.10 Automation and delivery health
+
+No additional migration beyond0036, binding, secret, cron or permission flag.
+Review the admin Health page through its existing Automations entry point, verify
+current role and source isolation, and open source run histories. This increment
+adds no manual rerun control. Recovery labels describe the existing durable retry
+eligibility; they do not prove eventual delivery. Unknown errors are classified
+without copying arbitrary error text into the new summary. Existing run-history
+API access rules remain in place; the new read-only page does not display raw
+exceptions. Scheduler phase history is not recorded in this version and must not
+be inferred from an empty health list. Monitoring/backup/deployment and permission
+activation remain separately authorized owner actions.
+
+
+## Phase8.2 Daily command center
+
+Pack v11 adds a separate root page through Settings → Template gallery →
+review Update available → Apply, or an existing approved MCP upgrade preview.
+Existing Home content/order/filter choices and deleted reservations are
+preserved. The landing-page choice does not change automatically. The new
+page uses generic blocks for attention, personal execution/owned Projects,
+four-source dates, activity and pending AI review; existing root-page device
+reliability links appear only when local work needs attention.
+
+No new migration beyond0036, secret, binding, cron or provider activation.
+Review current personal filters, authorized source visibility, stale/offline
+labels and title readability on the target device before acceptance. Selected
+AI review snapshots are account/session/access/source bound; a snapshot is
+not mutation authority or proof an approval was made. The updater does not
+replace a team's existing Home or change permissions. Local feature evidence
+remains distinct from final merged-source certification and deployment.

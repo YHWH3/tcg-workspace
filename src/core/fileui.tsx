@@ -292,7 +292,7 @@ function EmbedUrlInput({ onSet }: { onSet: (url: string) => void }) {
           if (e.key === 'Enter' && v.trim()) onSet(v.trim());
         }}
         placeholder="Paste a Google Drive or external link…"
-        className="h-8 flex-1 bg-transparent text-xs outline-none placeholder:text-neutral-400"
+        className="h-8 flex-1 bg-transparent text-xs outline-none placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
         aria-label="Embed URL"
       />
       <button className="rounded-md bg-neutral-900 px-2 py-1 text-[11px] font-medium text-white disabled:opacity-40 dark:bg-white dark:text-neutral-900" disabled={!v.trim()} onClick={() => onSet(v.trim())}>

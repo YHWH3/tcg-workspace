@@ -1,0 +1,629 @@
+{
+  "item": "8.0",
+  "status": "ACCEPTED: local tooling demonstration",
+  "clientDate": "2026-10-27",
+  "source": {
+    "sha": "6f8a1c3b18e938f68f718383e4b51aefdb489925",
+    "tree": "09ebeac0ea8fa8f1da3ef269a7703ab4a8e70e9c",
+    "fingerprint": "2f61988912a73bc76922284738b9dc09527d07fabf94d133453f2047aaf14e5f"
+  },
+  "scope": "Certification tooling only; operating desks not yet implemented",
+  "contractVersion": 2,
+  "migrationsUnchanged": true,
+  "migrations": [
+    {
+      "name": "0001_init.sql",
+      "sha256": "89c0736cb52d3ad7b3e269eaae9b7cec244b3dc81ea64124acde726321708839"
+    },
+    {
+      "name": "0002_files.sql",
+      "sha256": "489182db8cdad971df1d3fb32f92f40cc080df878562bda30901c229876282d3"
+    },
+    {
+      "name": "0003_shares.sql",
+      "sha256": "53362d0bfb5228a359a7f10038671d595e8e8cec9017d0e188a9646572d52afb"
+    },
+    {
+      "name": "0004_safe_ai.sql",
+      "sha256": "21b9c5a17be73b9eef23ce5a2bf39100d4a7a7a3445401c8be1613c4ba01a758"
+    },
+    {
+      "name": "0005_links_index.sql",
+      "sha256": "24660b0c70ad7abd1ee8849ebcd2a5d2734f93d379027e2ddba366ba6b3e63ee"
+    },
+    {
+      "name": "0006_share_targets.sql",
+      "sha256": "0ec6061fee0f4b7843a7872ebc04e06fac89dcdd0760496da58c30819ea7d00b"
+    },
+    {
+      "name": "0007_phase4.sql",
+      "sha256": "3ba47c8eed3ed496f1666128c845a5ae4e1fdcd8930b48947bd81cc64f3cf149"
+    },
+    {
+      "name": "0008_phase4_recovery.sql",
+      "sha256": "d1ee1ec4d35822329f500c1dbacea270e18a93bc99c7453ff9379668918c22e6"
+    },
+    {
+      "name": "0009_phase4_approval_delivery.sql",
+      "sha256": "9e959d0f765d72a444aca277919fe4fd31e0de21620af9f703e2215681633106"
+    },
+    {
+      "name": "0010_phase4_sweep_cursor.sql",
+      "sha256": "2b5948a03722d6b235f380aeecdac76635aff7366b73d8230c87c2b4d0e440b7"
+    },
+    {
+      "name": "0011_integrity.sql",
+      "sha256": "bdfba4d33ea71b3559031f70d7619812585f23c43c0b3fba4c6987e0f68b611d"
+    },
+    {
+      "name": "0012_phase5_access_foundation.sql",
+      "sha256": "207f08fd76bead8b0505e8a42201abb50530e09c4d6a8382a7d36d90685b900d"
+    },
+    {
+      "name": "0013_phase5_visibility_epoch.sql",
+      "sha256": "316488940e081e6240b7253d5956d974d9cd95724e07508865b1810d53d2d309"
+    },
+    {
+      "name": "0014_phase5_sync_snapshots.sql",
+      "sha256": "5e84a04b3160ad4f5599f8302105f35380eba3535dd66800bebd03add1baeac3"
+    },
+    {
+      "name": "0015_phase5_sessions.sql",
+      "sha256": "114025e574412ee93928981e62852d9a68b284d14594e56921f8f2635b9babb8"
+    },
+    {
+      "name": "0016_phase5_thumbnail_visibility.sql",
+      "sha256": "678ea3737434f2cf7ccebc2883f7e9c642fa10c38a7ef4b92688ce42d5f0fb9a"
+    },
+    {
+      "name": "0017_phase5_space_feeds.sql",
+      "sha256": "708318d5eabbc31eb5a0b5f2c5428cb5f83479f6e885a8b6840da8c181ab48f1"
+    },
+    {
+      "name": "0018_phase5_retire_generation_snapshots.sql",
+      "sha256": "6ce7b32116f5714f8c7ea5b302bac64f2f92b6d1be38d836a4205216bb53aef3"
+    },
+    {
+      "name": "0019_phase5_peer_eviction_fact.sql",
+      "sha256": "045178875d32122aa8077a41c36634926372104acc8619e53b3bce00e5f9a2db"
+    },
+    {
+      "name": "0020_phase5_upsert_eviction_facts.sql",
+      "sha256": "c9dbfe2591507208e10ffcd427f4200936d834dfc1b2502fc9342b7adc41716e"
+    },
+    {
+      "name": "0021_phase5_share_space_pin.sql",
+      "sha256": "798843d06b9161b102c839f712dcdcef70fe7a01dabffbb0b60ac366ecf6e6b2"
+    },
+    {
+      "name": "0022_phase5_search_index.sql",
+      "sha256": "510e1156a27e3b807d5dfd577400940b1d0a737911b4490ed3720fd17a368169"
+    },
+    {
+      "name": "0023_phase5_search_coverage.sql",
+      "sha256": "c14a36c6f0483f41346975eadc5c0f3352b3af66c14b88bcdd805fcfe3932442"
+    },
+    {
+      "name": "0024_phase5_guest_invites.sql",
+      "sha256": "780d8b6cbcb482985252d441ed845b6b0a0da7435ca65844ecfa457462730551"
+    },
+    {
+      "name": "0025_phase5_record_history.sql",
+      "sha256": "9e83825dfd3d957d30e48d8d06f294325615e291e4f4e31daa3ab046c2f9952b"
+    },
+    {
+      "name": "0026_phase5_directory_privacy.sql",
+      "sha256": "f665c8899945141bd018370b7b82517d6c2438a9731d958eced7fec463c4cf86"
+    },
+    {
+      "name": "0027_phase5_notification_paging.sql",
+      "sha256": "cd5e20382dec6c034f2fb5eb57394ff1181818751df5bcee27f01e2c134c3932"
+    },
+    {
+      "name": "0028_phase6_connector_scopes.sql",
+      "sha256": "eee501f6cc16f6545a966959d46d342fe3d9ca8db901ff478f6a385cf89e232e"
+    },
+    {
+      "name": "0029_phase6_human_previews.sql",
+      "sha256": "ab758bc99b7199782b104c398bf72e039d170f31765fffa09bb3a641ddc5a8ed"
+    },
+    {
+      "name": "0030_phase6_optional_ai.sql",
+      "sha256": "eb0b47a283a3ad95a6d15b93907d1c162349371dbbc9f3897427446ceb895a2e"
+    },
+    {
+      "name": "0031_phase6_digest_outcome.sql",
+      "sha256": "a6eed938b184557cc1efe4bcc439f618f5f710eb08246d16fa79c6f42107c2ac"
+    },
+    {
+      "name": "0032_assistant_conversations.sql",
+      "sha256": "8979e22b1a6019b8a7a3d6b20aa84b5528fb3c01f8f4d4dab7ca38a6953bfb85"
+    },
+    {
+      "name": "0033_website_ingest.sql",
+      "sha256": "afb634470d941ce6c3445a3e2c185d9d836e5facbf09b7d21749f2972903ff67"
+    },
+    {
+      "name": "0034_website_source_authority.sql",
+      "sha256": "87c96e5d7ae7a374a5ae536ca1ab96e3b9704fe6460973e54d202a584d9b76f8"
+    },
+    {
+      "name": "0035_workspace_settings.sql",
+      "sha256": "8c2c8d3a2b659e77486cf33defcdc1bfc1bb85648c2c0fe0a57506627f518fa8"
+    }
+  ],
+  "versions": {
+    "node": "v26.7.0",
+    "playwright": "1.63.0",
+    "browsers": {
+      "chromium": "153.0.8010.12",
+      "firefox": "155.0",
+      "webkit": "26.6"
+    }
+  },
+  "configuration": {
+    "assistant": true,
+    "phase6": true,
+    "mode": "complete",
+    "flags": {
+      "ai": true,
+      "phase6": false,
+      "quick": false,
+      "extended": false
+    },
+    "permissionMode": "runtime DISABLED; actual-D1 and Phase5/6/assistant disposable ENABLED and DISABLED contracts"
+  },
+  "demonstration": {
+    "initial": {
+      "command": [
+        "npm",
+        "run",
+        "certify:ai",
+        "--",
+        "--keep-awake",
+        "--test-pause-after=d1"
+      ],
+      "exitCode": 1,
+      "status": "EXPECTED PARTIAL",
+      "directory": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/certification/6f8a1c3b18e938f68f718383e4b51aefdb489925-2026-10-26T19-12-07-502Z-complete",
+      "summarySha256": "d886d2924edcccf32bfb3cb6d1e63ebd0310862cc61ffe64a9d54ae3239bf4c9",
+      "simulatedHostPause": {
+        "at": "2026-10-26T19:46:57.606Z",
+        "gapMs": 94765.22891700035,
+        "gate": "security"
+      },
+      "unit": 1644,
+      "d1": 732
+    },
+    "resumed": {
+      "command": [
+        "npm",
+        "run",
+        "certify:ai",
+        "--",
+        "--keep-awake",
+        "--resume",
+        "/Users/trinity/Desktop/tcg-next-phases/.artifacts/certification/6f8a1c3b18e938f68f718383e4b51aefdb489925-2026-10-26T19-12-07-502Z-complete"
+      ],
+      "exitCode": 0,
+      "directory": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/certification/6f8a1c3b18e938f68f718383e4b51aefdb489925-2026-10-26T19-46-58-205Z-complete",
+      "summarySha256": "70b384340a865d752af17ea52b1839eb07d6ea6544892e1cb46dc03be952d632",
+      "reportSha256": "cf5c577ac98d0b427c9163e5538c61b080ea397539c89615594a876c6e4cc7e1",
+      "decision": "PASS",
+      "mandatoryGates": 34,
+      "pass": 34,
+      "fail": 0,
+      "notRun": 0,
+      "reusedGates": [
+        "whitespace",
+        "migrations",
+        "harness",
+        "typecheck",
+        "unit",
+        "build",
+        "d1"
+      ],
+      "reusedArtifactFileCounts": {
+        "whitespace": 2,
+        "migrations": 1,
+        "harness": 2,
+        "typecheck": 2,
+        "unit": 17,
+        "build": 55,
+        "d1": 17
+      },
+      "minutesSaved": 34.76076666666667,
+      "originalCertificateUnchanged": true,
+      "startingTreeDirty": false,
+      "finalTestedSha": "6f8a1c3b18e938f68f718383e4b51aefdb489925"
+    }
+  },
+  "gates": [
+    {
+      "id": "prerequisites",
+      "status": "PASS",
+      "pass": 6,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 39,
+      "reused": false,
+      "artifactFiles": 0
+    },
+    {
+      "id": "dependencies",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 843,
+      "reused": false,
+      "artifactFiles": 2
+    },
+    {
+      "id": "lockfile",
+      "status": "PASS",
+      "pass": 2,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 790,
+      "reused": false,
+      "artifactFiles": 2
+    },
+    {
+      "id": "whitespace",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 277,
+      "reused": true,
+      "artifactFiles": 2
+    },
+    {
+      "id": "migrations",
+      "status": "PASS",
+      "pass": 35,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2,
+      "reused": true,
+      "artifactFiles": 1
+    },
+    {
+      "id": "harness",
+      "status": "PASS",
+      "pass": 138,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 9407,
+      "reused": true,
+      "artifactFiles": 2
+    },
+    {
+      "id": "typecheck",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 1481,
+      "reused": true,
+      "artifactFiles": 2
+    },
+    {
+      "id": "unit",
+      "status": "PASS",
+      "pass": 1644,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 1259716,
+      "reused": true,
+      "artifactFiles": 17
+    },
+    {
+      "id": "build",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 3112,
+      "reused": true,
+      "artifactFiles": 55
+    },
+    {
+      "id": "d1",
+      "status": "PASS",
+      "pass": 732,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 811651,
+      "reused": true,
+      "artifactFiles": 17
+    },
+    {
+      "id": "security",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 1379,
+      "reused": false,
+      "artifactFiles": 2
+    },
+    {
+      "id": "browsers",
+      "status": "PASS",
+      "pass": 3,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 1396,
+      "reused": false,
+      "artifactFiles": 0
+    },
+    {
+      "id": "smoke",
+      "status": "PASS",
+      "pass": 46,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 5071,
+      "reused": false,
+      "artifactFiles": 7
+    },
+    {
+      "id": "mcp-base",
+      "status": "PASS",
+      "pass": 94,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 14610,
+      "reused": false,
+      "artifactFiles": 17
+    },
+    {
+      "id": "mcp-multiuser",
+      "status": "PASS",
+      "pass": 61,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2293,
+      "reused": false,
+      "artifactFiles": 8
+    },
+    {
+      "id": "mcp-phase1",
+      "status": "PASS",
+      "pass": 37,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 1453,
+      "reused": false,
+      "artifactFiles": 8
+    },
+    {
+      "id": "mcp-phase2",
+      "status": "PASS",
+      "pass": 113,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2993,
+      "reused": false,
+      "artifactFiles": 8
+    },
+    {
+      "id": "mcp-phase3",
+      "status": "PASS",
+      "pass": 64,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2178,
+      "reused": false,
+      "artifactFiles": 8
+    },
+    {
+      "id": "mcp-phase4",
+      "status": "PASS",
+      "pass": 46,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 5633,
+      "reused": false,
+      "artifactFiles": 8
+    },
+    {
+      "id": "v4",
+      "status": "PASS",
+      "pass": 33,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 36425,
+      "reused": false,
+      "artifactFiles": 23
+    },
+    {
+      "id": "v6",
+      "status": "PASS",
+      "pass": 150,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 214104,
+      "reused": false,
+      "artifactFiles": 8
+    },
+    {
+      "id": "v7",
+      "status": "PASS",
+      "pass": 114,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 164178,
+      "reused": false,
+      "artifactFiles": 25
+    },
+    {
+      "id": "v8",
+      "status": "PASS",
+      "pass": 140,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 226271,
+      "reused": false,
+      "artifactFiles": 10
+    },
+    {
+      "id": "v9",
+      "status": "PASS",
+      "pass": 75,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 95059,
+      "reused": false,
+      "artifactFiles": 523
+    },
+    {
+      "id": "phase5-sync",
+      "status": "PASS",
+      "pass": 33,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 87341,
+      "reused": false,
+      "artifactFiles": 281
+    },
+    {
+      "id": "phase5-workflows",
+      "status": "PASS",
+      "pass": 36,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 122616,
+      "reused": false,
+      "artifactFiles": 15
+    },
+    {
+      "id": "phase5-mcp",
+      "status": "PASS",
+      "pass": 15,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 15594,
+      "reused": false,
+      "artifactFiles": 7
+    },
+    {
+      "id": "phase6-workflows",
+      "status": "PASS",
+      "pass": 42,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 58748,
+      "reused": false,
+      "artifactFiles": 15
+    },
+    {
+      "id": "release-preflight",
+      "status": "PASS",
+      "pass": 14,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 323,
+      "reused": false,
+      "artifactFiles": 3
+    },
+    {
+      "id": "release-rehearsal",
+      "status": "PASS",
+      "pass": 12,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2843,
+      "reused": false,
+      "artifactFiles": 3
+    },
+    {
+      "id": "release-ui",
+      "status": "PASS",
+      "pass": 21,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 163764,
+      "reused": false,
+      "artifactFiles": 266
+    },
+    {
+      "id": "assistant-e2e",
+      "status": "PASS",
+      "pass": 27,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 57609,
+      "reused": false,
+      "artifactFiles": 36
+    },
+    {
+      "id": "performance-evidence",
+      "status": "PASS",
+      "pass": 118,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 6,
+      "reused": false,
+      "artifactFiles": 0
+    },
+    {
+      "id": "source-integrity",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 42,
+      "reused": false,
+      "artifactFiles": 0
+    }
+  ],
+  "retainedUserInterruptedAttempt": {
+    "path": ".artifacts/phase8/PAUSED.json",
+    "qualification": "User explicitly stopped the prior attempt during D1. Its completed 1644-test unit gate was preserved and verified, but not reused in this fresh pair because chained reuse is forbidden."
+  },
+  "limitations": [
+    "Unit and dedicated D1 counts overlap.",
+    "Injected pause is simulated; application assertions and fixtures are real local executions.",
+    "All approvals in these suites are disposable authenticated test fixtures, not human review.",
+    "No new native Safari simulator, Android emulator, physical-device or manual assistive-technology run for tooling-only 8.0. Phase 8 feature acceptance still requires its browser/device matrix.",
+    "No deployment, remote migration, permissions activation outside fixtures, real email/payment/token operation or paid inference.",
+    "Later source changes require new affected evidence; this certificate remains bound to 6f8a1c3."
+  ]
+}

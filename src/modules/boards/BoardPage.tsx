@@ -1,3 +1,4 @@
+import {AttentionEditor} from './AttentionEditor';
 import {useWorkspaceLocale} from '../../core/workspaceLocale';
 import {MoveSpaceButton} from '../../core/MoveSpace';
 import { useMemo, useState } from 'react';
@@ -174,10 +175,12 @@ function BoardMenu({ board, deletable }: { board: BoardRow; deletable: boolean }
   const mobile = useIsMobile();
   const [renaming, setRenaming] = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [attentionOpen,setAttentionOpen]=useState(false);
   const [gateOpen, setGateOpen] = useState(false); // P4-D
   const [name, setName] = useState(String(board.name ?? ''));
   return (
     <>
+    {attentionOpen&&<Sheet label="Attention settings" onClose={()=>setAttentionOpen(false)} side={mobile?'bottom':'right'}><AttentionEditor board={board}/></Sheet>}
     {fieldsOpen && (
       <Sheet onClose={() => setFieldsOpen(false)} side={mobile ? 'bottom' : 'right'}>
         <FieldsEditor board={board} />
@@ -222,6 +225,7 @@ function BoardMenu({ board, deletable }: { board: BoardRow; deletable: boolean }
               close={close}
               items={[
                 { label: 'Fields', icon: ListPlus, onClick: () => setFieldsOpen(true) },
+                { label: 'Attention', icon: ListPlus, onClick: () => setAttentionOpen(true) },
                 { label: 'Approval gate', icon: ShieldCheck, onClick: () => setGateOpen(true) }, // P4-D
                 { label: 'Rename board', icon: Pencil, onClick: () => setRenaming(true) },
                 {

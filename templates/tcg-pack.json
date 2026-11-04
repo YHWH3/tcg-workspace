@@ -402,6 +402,23 @@
             ]
           },
           "key": "v_projects_archive"
+        },
+        {
+          "key": "v_home_my_projects",
+          "id": "v_home_my_projects",
+          "name": "Projects I own",
+          "type": "list",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_owner",
+                "op": "me"
+              }
+            ],
+            "visible": [
+              "title"
+            ]
+          }
         }
       ]
     },
@@ -861,6 +878,32 @@
             "dateKey": "p_f_date"
           },
           "key": "v_fieldlog_calendar"
+        },
+        {
+          "id": "v_fieldlog_unlinked_experiments",
+          "key": "v_fieldlog_unlinked_experiments",
+          "name": "Observations without a linked Experiment",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "p_f_date",
+              "p_f_observation",
+              "rel_f_experiment"
+            ],
+            "filters": [
+              {
+                "key": "rel_f_experiment",
+                "op": "empty"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "p_f_date",
+                "dir": "desc"
+              }
+            ]
+          }
         }
       ]
     },
@@ -1068,8 +1111,85 @@
             "showSubrecords": true
           },
           "key": "v_ideas_table"
+        },
+        {
+          "id": "v_ideas_review",
+          "key": "v_ideas_review",
+          "name": "Waiting for review",
+          "type": "list",
+          "config": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "review"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_creator"
+            ]
+          }
+        },
+        {
+          "id": "v_ideas_parked_old",
+          "key": "v_ideas_parked_old",
+          "name": "Parked, created over 30 days ago",
+          "type": "list",
+          "config": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "parked"
+              },
+              {
+                "key": "createdAt",
+                "op": "within",
+                "value": {
+                  "from": "2000-01-01",
+                  "to": "today-30"
+                }
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_creator"
+            ]
+          }
+        },
+        {
+          "id": "v_ideas_approved",
+          "key": "v_ideas_approved",
+          "name": "Approved, not converted",
+          "type": "list",
+          "config": {
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "approved"
+              },
+              {
+                "key": "rel_f_converted_project",
+                "op": "empty"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_creator"
+            ]
+          }
         }
-      ]
+      ],
+      "attention": {
+        "enabled": true,
+        "personKey": "p_f_creator",
+        "triage": false
+      }
     },
     {
       "id": "db_decisions",
@@ -1163,7 +1283,13 @@
           },
           "key": "v_decisions_board"
         }
-      ]
+      ],
+      "attention": {
+        "enabled": true,
+        "personKey": "p_f_decider",
+        "dateKey": "p_f_date",
+        "soonDays": 3
+      }
     },
     {
       "id": "db_meetings",
@@ -1583,6 +1709,45 @@
             "timelineScale": "month"
           },
           "key": "v_events_timeline"
+        },
+        {
+          "id": "v_events_upcoming",
+          "key": "v_events_upcoming",
+          "name": "Upcoming events",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_start",
+                "op": "on_or_after",
+                "value": "today"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "done"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "reviewed"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "p_f_start",
+                "dir": "asc"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_start",
+              "rel_f_facilitators",
+              "rel_f_volunteers",
+              "rel_f_participants",
+              "p_f_capacity"
+            ]
+          }
         }
       ]
     },
@@ -2014,7 +2179,13 @@
           },
           "key": "v_opportunities_next"
         }
-      ]
+      ],
+      "attention": {
+        "enabled": true,
+        "personKey": "p_f_owner",
+        "dateKey": "p_f_next_action_date",
+        "soonDays": 3
+      }
     },
     {
       "id": "db_media",
@@ -2258,8 +2429,130 @@
             "dateKey": "p_f_publish_date"
           },
           "key": "v_media_calendar"
+        },
+        {
+          "id": "v_media_editorial_pipeline",
+          "key": "v_media_editorial_pipeline",
+          "name": "Editorial pipeline",
+          "type": "board",
+          "config": {
+            "groupBy": "status",
+            "filters": [
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "archived"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_media_review",
+          "key": "v_media_review",
+          "name": "Ready for review",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "p_f_publish_date",
+              "rel_f_experiments"
+            ],
+            "filters": [
+              {
+                "key": "status",
+                "op": "is",
+                "value": "review"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_media_missing_owner",
+          "key": "v_media_missing_owner",
+          "name": "Missing owner",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "p_f_publish_date",
+              "rel_f_experiments"
+            ],
+            "filters": [
+              {
+                "key": "p_f_owner",
+                "op": "empty"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "archived"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_media_missing_date",
+          "key": "v_media_missing_date",
+          "name": "Missing publish date",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "p_f_publish_date",
+              "rel_f_experiments"
+            ],
+            "filters": [
+              {
+                "key": "p_f_publish_date",
+                "op": "empty"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "archived"
+              }
+            ]
+          }
+        },
+        {
+          "id": "v_media_evidence_gaps",
+          "key": "v_media_evidence_gaps",
+          "name": "Media without a linked Experiment",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "status",
+              "p_f_owner",
+              "p_f_publish_date",
+              "rel_f_experiments"
+            ],
+            "filters": [
+              {
+                "key": "rel_f_experiments",
+                "op": "empty"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "archived"
+              }
+            ]
+          }
         }
-      ]
+      ],
+      "attention": {
+        "enabled": true,
+        "personKey": "p_f_owner",
+        "dateKey": "p_f_publish_date",
+        "soonDays": 3
+      }
     },
     {
       "id": "db_courses",
@@ -3049,6 +3342,16 @@
             "pairedFieldId": "f_credits",
             "primary": false
           }
+        },
+        {
+          "id": "f_relationship_owner",
+          "name": "Relationship owner",
+          "type": "person"
+        },
+        {
+          "id": "f_next_conversation",
+          "name": "Next conversation",
+          "type": "date"
         }
       ],
       "views": [
@@ -3110,8 +3413,188 @@
             ]
           },
           "key": "v_people_team"
+        },
+        {
+          "id": "v_people_relationship_member",
+          "key": "v_people_relationship_member",
+          "name": "Member relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "member"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_volunteer",
+          "key": "v_people_relationship_volunteer",
+          "name": "Volunteer relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "volunteer"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_partner",
+          "key": "v_people_relationship_partner",
+          "name": "Partner relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "partner"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_participant",
+          "key": "v_people_relationship_participant",
+          "name": "Participant relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "participant"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_donor",
+          "key": "v_people_relationship_donor",
+          "name": "Donor relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "donor"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_facilitator",
+          "key": "v_people_relationship_facilitator",
+          "name": "Facilitator relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "facilitator"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_relationship_team",
+          "key": "v_people_relationship_team",
+          "name": "Team relationships",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_membership",
+                "op": "is",
+                "value": "team"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_people_next_conversations",
+          "key": "v_people_next_conversations",
+          "name": "Next conversations",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_next_conversation",
+                "op": "not_empty"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "p_f_next_conversation",
+                "dir": "asc"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_membership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
         }
-      ]
+      ],
+      "attention": {
+        "enabled": true,
+        "personKey": "p_f_relationship_owner",
+        "dateKey": "p_f_next_conversation",
+        "soonDays": 3,
+        "triage": false
+      }
     },
     {
       "id": "db_orgs",
@@ -3307,6 +3790,16 @@
           "id": "f_onotes",
           "name": "Notes",
           "type": "text"
+        },
+        {
+          "id": "f_relationship_owner",
+          "name": "Relationship owner",
+          "type": "person"
+        },
+        {
+          "id": "f_next_conversation",
+          "name": "Next conversation",
+          "type": "date"
         }
       ],
       "views": [
@@ -3346,8 +3839,56 @@
             ]
           },
           "key": "v_orgs_partners"
+        },
+        {
+          "id": "v_orgs_relationships",
+          "key": "v_orgs_relationships",
+          "name": "By partnership status",
+          "type": "board",
+          "config": {
+            "groupBy": "p_f_partnership",
+            "visible": [
+              "title",
+              "p_f_partnership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
+        },
+        {
+          "id": "v_orgs_next_conversations",
+          "key": "v_orgs_next_conversations",
+          "name": "Next conversations",
+          "type": "table",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_next_conversation",
+                "op": "not_empty"
+              }
+            ],
+            "sorts": [
+              {
+                "key": "p_f_next_conversation",
+                "dir": "asc"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_partnership",
+              "p_f_relationship_owner",
+              "p_f_next_conversation"
+            ]
+          }
         }
-      ]
+      ],
+      "attention": {
+        "enabled": true,
+        "personKey": "p_f_relationship_owner",
+        "dateKey": "p_f_next_conversation",
+        "soonDays": 3,
+        "triage": false
+      }
     }
   ],
   "pages": [
@@ -3894,6 +4435,43 @@
           "viewId": "v_orgs_table",
           "heading": "Organizations",
           "key": "tpl_1a"
+        },
+        {
+          "type": "callout",
+          "key": "community_relationship_setup",
+          "text": "Review People through their named membership views and Organizations by partnership status. A person can appear in several membership views. Assign a Relationship owner and Next conversation date to include the conversation in that owner’s Attention queue."
+        },
+        {
+          "type": "view",
+          "key": "community_members",
+          "databaseId": "db_people",
+          "viewId": "v_people_relationship_member",
+          "heading": "Member relationships",
+          "limit": 10
+        },
+        {
+          "type": "view",
+          "key": "community_partnerships",
+          "databaseId": "db_orgs",
+          "viewId": "v_orgs_relationships",
+          "heading": "Partnership relationships",
+          "limit": 10
+        },
+        {
+          "type": "view",
+          "key": "community_people_conversations",
+          "databaseId": "db_people",
+          "viewId": "v_people_next_conversations",
+          "heading": "People: next conversations",
+          "limit": 10
+        },
+        {
+          "type": "view",
+          "key": "community_org_conversations",
+          "databaseId": "db_orgs",
+          "viewId": "v_orgs_next_conversations",
+          "heading": "Organizations: next conversations",
+          "limit": 10
         }
       ],
       "key": "pg_community"
@@ -4017,6 +4595,47 @@
           "limit": 10,
           "heading": "Income",
           "key": "tpl_1j"
+        },
+        {
+          "key": "funding_stale_next_actions",
+          "type": "view",
+          "databaseId": "db_opportunities",
+          "heading": "Stale next actions",
+          "inline": {
+            "filters": [
+              {
+                "key": "p_f_next_action_date",
+                "op": "within",
+                "value": {
+                  "from": "2000-01-01",
+                  "to": "today-1"
+                }
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "won"
+              },
+              {
+                "key": "status",
+                "op": "is_not",
+                "value": "lost"
+              }
+            ],
+            "visible": [
+              "title",
+              "status",
+              "p_f_next_action_date",
+              "p_f_owner"
+            ],
+            "sorts": [
+              {
+                "key": "p_f_next_action_date",
+                "dir": "asc"
+              }
+            ]
+          },
+          "limit": 20
         }
       ],
       "key": "pg_partnerships"
@@ -4057,6 +4676,27 @@
           "viewId": "v_courses_board",
           "heading": "Courses",
           "key": "tpl_1n"
+        },
+        {
+          "type": "view",
+          "key": "events_upcoming",
+          "databaseId": "db_events",
+          "viewId": "v_events_upcoming",
+          "heading": "Upcoming events",
+          "limit": 10
+        },
+        {
+          "type": "callout",
+          "key": "events_registration_setup",
+          "text": "Before sharing an Event registration form, select its Event in the form’s fixed relations and enable the form. The bundled starter is a setup draft. Participant links may come from a form or the team; they are not submission receipts or attendance proof."
+        },
+        {
+          "type": "eventops",
+          "key": "events_role_coverage",
+          "databaseId": "db_events",
+          "heading": "Event roles and participants",
+          "limit": 10,
+          "upcomingOnly": true
         }
       ],
       "key": "pg_events"
@@ -4102,6 +4742,113 @@
       "key": "pg_media"
     },
     {
+      "id": "pg_editorial",
+      "key": "pg_editorial",
+      "parentId": "pg_media",
+      "title": "Editorial desk",
+      "icon": "✍️",
+      "order": "a0",
+      "blocks": [
+        {
+          "type": "callout",
+          "key": "editorial_intro",
+          "text": "Plan Media, review work and check source relationships before preparing case studies or research notes. Open a source record to make a change."
+        },
+        {
+          "type": "view",
+          "key": "editorial_pipeline",
+          "databaseId": "db_media",
+          "viewId": "v_media_editorial_pipeline",
+          "heading": "Media by stage",
+          "limit": 20
+        },
+        {
+          "type": "calendar",
+          "key": "editorial_calendar",
+          "heading": "Publishing calendar",
+          "sources": [
+            {
+              "databaseId": "db_media",
+              "dateKey": "p_f_publish_date",
+              "color": "#ec4899",
+              "filters": [
+                {
+                  "key": "status",
+                  "op": "is_not",
+                  "value": "archived"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "view",
+          "key": "editorial_review",
+          "databaseId": "db_media",
+          "viewId": "v_media_review",
+          "heading": "Media ready for review",
+          "limit": 20
+        },
+        {
+          "type": "attention",
+          "key": "editorial_approvals",
+          "heading": "My pending Media approvals",
+          "approvalDatabaseId": "db_media",
+          "kinds": [
+            "approval_pending"
+          ],
+          "limit": 10
+        },
+        {
+          "type": "callout",
+          "key": "editorial_gaps_context",
+          "text": "The next two lists show missing owners and missing publish dates separately. An item can appear in both. Archived Media is excluded."
+        },
+        {
+          "type": "view",
+          "key": "editorial_missing_owner",
+          "databaseId": "db_media",
+          "viewId": "v_media_missing_owner",
+          "heading": "Media needing an owner",
+          "limit": 20
+        },
+        {
+          "type": "view",
+          "key": "editorial_missing_date",
+          "databaseId": "db_media",
+          "viewId": "v_media_missing_date",
+          "heading": "Media needing a publish date",
+          "limit": 20
+        },
+        {
+          "type": "h2",
+          "key": "editorial_evidence_heading",
+          "text": "Evidence checklist"
+        },
+        {
+          "type": "callout",
+          "key": "editorial_evidence_context",
+          "text": "These lists show Media and Field Log records without an available linked Experiment. Review and link the source records when preparing a case study or research note. They do not assess evidence quality or the free-text Sources and Evidence sections inside page templates; review those sections separately."
+        },
+        {
+          "type": "view",
+          "key": "editorial_media_sources",
+          "databaseId": "db_media",
+          "viewId": "v_media_evidence_gaps",
+          "heading": "Media without a linked Experiment",
+          "limit": 20
+        },
+        {
+          "type": "view",
+          "key": "editorial_fieldlog_sources",
+          "databaseId": "db_fieldlog",
+          "viewId": "v_fieldlog_unlinked_experiments",
+          "heading": "Observations without a linked Experiment",
+          "limit": 20
+        }
+      ]
+    },
+    {
       "id": "pg_meetings",
       "title": "Meetings & Decisions",
       "icon": "🗣️",
@@ -4137,6 +4884,14 @@
           "viewId": "v_decisions_table",
           "heading": "Decisions",
           "key": "tpl_1v"
+        },
+        {
+          "key": "meetings_commitment_review",
+          "type": "commitments",
+          "databaseId": "db_meetings",
+          "days": 30,
+          "limit": 10,
+          "heading": "Meeting commitment review"
         }
       ],
       "key": "pg_meetings"
@@ -4165,6 +4920,40 @@
           "viewId": "v_ideas_table",
           "heading": "All ideas",
           "key": "tpl_1y"
+        },
+        {
+          "type": "h2",
+          "text": "Ideas review desk",
+          "key": "ideas_review_heading"
+        },
+        {
+          "type": "callout",
+          "text": "The parked list uses creation age, not time spent parked. Open an idea to review conversion into a project; the review creates no project until you approve and execute it. Existing conversions without a Converted to project relationship do not show a handoff banner.",
+          "key": "ideas_review_note"
+        },
+        {
+          "type": "view",
+          "databaseId": "db_ideas",
+          "viewId": "v_ideas_review",
+          "heading": "Waiting for review",
+          "key": "ideas_review_desk",
+          "limit": 20
+        },
+        {
+          "type": "view",
+          "databaseId": "db_ideas",
+          "viewId": "v_ideas_parked_old",
+          "heading": "Parked, created over 30 days ago",
+          "key": "ideas_parked_old_desk",
+          "limit": 20
+        },
+        {
+          "type": "view",
+          "databaseId": "db_ideas",
+          "viewId": "v_ideas_approved",
+          "heading": "Approved, not converted",
+          "key": "ideas_approved_desk",
+          "limit": 20
         }
       ],
       "key": "pg_ideas"
@@ -4251,6 +5040,22 @@
           "viewId": "v_products_board",
           "heading": "Common Cupboard",
           "key": "tpl_24"
+        },
+        {
+          "key": "finance_project_budgets",
+          "type": "budget",
+          "databaseId": "db_projects",
+          "mode": "project",
+          "heading": "Project budgets",
+          "limit": 10
+        },
+        {
+          "key": "finance_product_economics",
+          "type": "budget",
+          "databaseId": "db_products",
+          "mode": "product",
+          "heading": "Common Cupboard price and cost",
+          "limit": 10
         }
       ],
       "key": "pg_finance"
@@ -4825,6 +5630,21 @@
           "text": "",
           "checked": false,
           "key": "tpl_48"
+        },
+        {
+          "key": "field_visit_sessions",
+          "type": "fieldsessions",
+          "heading": "Field evidence to review",
+          "databaseId": "db_fieldlog",
+          "limit": 5,
+          "missingOnly": true
+        },
+        {
+          "key": "field_visit_measurements",
+          "type": "measurechart",
+          "heading": "Source measurements",
+          "databaseId": "db_fieldlog",
+          "unit": ""
         }
       ],
       "key": "pg_tpl_field_visit"
@@ -4861,6 +5681,19 @@
           "type": "text",
           "text": "",
           "key": "tpl_4d"
+        },
+        {
+          "key": "meeting_linked_commitments",
+          "type": "commitments",
+          "databaseId": "db_meetings",
+          "meetingId": "self",
+          "limit": 1,
+          "heading": "This meeting’s linked commitments"
+        },
+        {
+          "key": "meeting_commitment_scope_note",
+          "type": "text",
+          "text": "Use linked commitments to review this meeting. The Open decisions and Actions lists also include work from other meetings."
         },
         {
           "type": "h2",
@@ -5079,6 +5912,27 @@
           "key": "tpl_4v"
         },
         {
+          "key": "project_review_health",
+          "type": "projecthealth",
+          "projectId": "self",
+          "databaseId": "db_projects",
+          "heading": "Project health",
+          "ownerKey": "p_f_owner",
+          "startKey": "p_f_start",
+          "endKey": "p_f_end",
+          "staleDays": 14,
+          "limit": 1
+        },
+        {
+          "key": "project_review_budget",
+          "type": "budget",
+          "databaseId": "db_projects",
+          "recordId": "self",
+          "mode": "project",
+          "heading": "Project budget",
+          "limit": 1
+        },
+        {
           "type": "h2",
           "text": "What was planned?",
           "key": "tpl_4w"
@@ -5286,6 +6140,14 @@
           "text": "",
           "checked": false,
           "key": "tpl_5p"
+        },
+        {
+          "key": "finance_review_budgets",
+          "type": "budget",
+          "databaseId": "db_projects",
+          "mode": "project",
+          "heading": "Project budgets",
+          "limit": 10
         }
       ],
       "key": "pg_tpl_finance_review"
@@ -5923,6 +6785,186 @@
         }
       ],
       "key": "pg_tpl_volunteer"
+    },
+    {
+      "id": "pg_field_evidence",
+      "key": "pg_field_evidence",
+      "title": "Field evidence",
+      "icon": "📋",
+      "parentId": "pg_commonlab",
+      "blocks": [
+        {
+          "type": "text",
+          "text": "Review visits and their missing context. Open an observation to read the original notes and attachments. Photo intent is unknown for older captures."
+        },
+        {
+          "key": "field_evidence_sessions",
+          "type": "fieldsessions",
+          "heading": "Recent field visits",
+          "databaseId": "db_fieldlog",
+          "limit": 10
+        },
+        {
+          "key": "field_evidence_measurements",
+          "type": "measurechart",
+          "heading": "Measurements over time",
+          "databaseId": "db_fieldlog",
+          "unit": ""
+        }
+      ]
+    },
+    {
+      "id": "pg_command_center",
+      "title": "Daily command center",
+      "icon": "☀️",
+      "order": "aG",
+      "blocks": [
+        {
+          "key": "command_home_attention_section",
+          "type": "h2",
+          "text": "Needs attention"
+        },
+        {
+          "key": "command_home_attention",
+          "type": "attention",
+          "heading": "Needs attention",
+          "minimumSeverity": 1,
+          "limit": 10
+        },
+        {
+          "type": "h2",
+          "text": "My execution",
+          "key": "command_tpl_3"
+        },
+        {
+          "key": "command_home_my_work",
+          "type": "mywork",
+          "heading": "My open work",
+          "limit": 10
+        },
+        {
+          "key": "command_home_my_projects",
+          "type": "view",
+          "databaseId": "db_projects",
+          "viewId": "v_home_my_projects",
+          "heading": "Projects I own",
+          "limit": 10
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_projects",
+          "agg": "count",
+          "label": "Active projects",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "active"
+            }
+          ],
+          "key": "command_tpl_4"
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_projects",
+          "agg": "count",
+          "label": "Blocked projects",
+          "filters": [
+            {
+              "key": "status",
+              "op": "is",
+              "value": "blocked"
+            }
+          ],
+          "key": "command_tpl_5"
+        },
+        {
+          "type": "metric",
+          "databaseId": "db_opportunities",
+          "agg": "count",
+          "label": "Deadlines in the next 30 days",
+          "filters": [
+            {
+              "key": "p_f_deadline",
+              "op": "within",
+              "value": {
+                "from": "today",
+                "to": "today+30"
+              }
+            },
+            {
+              "key": "status",
+              "op": "is_not",
+              "value": "won"
+            },
+            {
+              "key": "status",
+              "op": "is_not",
+              "value": "lost"
+            }
+          ],
+          "key": "command_tpl_6"
+        },
+        {
+          "type": "h2",
+          "text": "Coming up",
+          "key": "command_tpl_7"
+        },
+        {
+          "type": "calendar",
+          "sources": [
+            {
+              "databaseId": "db_events",
+              "dateKey": "p_f_start",
+              "color": "#14b8a6"
+            },
+            {
+              "databaseId": "db_projects",
+              "dateKey": "p_f_start",
+              "color": "#3b82f6"
+            },
+            {
+              "databaseId": "db_meetings",
+              "dateKey": "p_f_date",
+              "color": "#8b5cf6"
+            },
+            {
+              "databaseId": "db_opportunities",
+              "dateKey": "p_f_deadline",
+              "color": "#f59e0b"
+            }
+          ],
+          "key": "command_tpl_8"
+        },
+        {
+          "type": "h2",
+          "text": "What changed",
+          "key": "command_tpl_9"
+        },
+        {
+          "type": "activity",
+          "scope": "all",
+          "limit": 20,
+          "key": "command_tpl_a"
+        },
+        {
+          "key": "command_home_ai_review",
+          "type": "attention",
+          "heading": "Pending AI review",
+          "kinds": [
+            "ai_preview_pending",
+            "suggestion_pending"
+          ],
+          "limit": 5,
+          "compact": true
+        },
+        {
+          "type": "callout",
+          "text": "The Common Ground operating system — programs, projects, land, people, money and media in one graph.",
+          "key": "command_tpl_2"
+        }
+      ],
+      "key": "pg_command_center"
     }
   ],
   "links": [
@@ -6110,8 +7152,8 @@
       "id": "form_event_registration",
       "databaseId": "db_people",
       "title": "Event registration",
-      "description": "Register to attend an event.",
-      "enabled": true,
+      "description": "Choose an Event in fixed relations before enabling and sharing this registration form.",
+      "enabled": false,
       "submitLabel": "Register",
       "successMessage": "You are registered — see you there.",
       "peopleMatch": {
@@ -6289,5 +7331,5 @@
       ]
     }
   ],
-  "version": 2
+  "version": 11
 }

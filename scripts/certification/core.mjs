@@ -40,13 +40,13 @@ export async function fetchFixtureApi(url,init={},fetchImpl=fetch) {
 
 /** A temporary assertion, tied to this process; never changes power settings.
  * macOS may still suspend on explicit lid closure. Such interrupted runs fail. */
-export function preventIdleSleep({os=platform(),available=existsSync('/usr/bin/caffeinate'),spawnProcess=spawn,ownerPid=process.pid}={}) {
+export function preventIdleSleep({os=platform(),available=existsSync('/usr/bin/caffeinate'),spawnProcess=spawn,ownerPid=process.pid,keepAwake=false}={}) {
   const evidence={applicable:os==='darwin',active:false,mechanism:'none',ownerPid};
   if(os!=='darwin'||!available) return {evidence,stop:()=>{}};
   let child;
   try {
-    child=spawnProcess('/usr/bin/caffeinate',['-i','-w',String(ownerPid)],{stdio:'ignore'});
-    evidence.active=true;evidence.mechanism='macOS caffeinate -i';evidence.pid=child.pid;
+    child=spawnProcess('/usr/bin/caffeinate',[keepAwake?'-dims':'-i','-w',String(ownerPid)],{stdio:'ignore'});
+    evidence.active=true;evidence.mechanism=keepAwake?'macOS caffeinate -dims':'macOS caffeinate -i';evidence.limitation='Closing the lid or explicit sleep can still suspend the Mac.';evidence.pid=child.pid;
     child.on('error',error=>{evidence.active=false;evidence.error=error.message;});
     child.unref();
   } catch(error){evidence.error=error.message;}
@@ -172,7 +172,7 @@ export function validateSmoke(output,source) {
 }
 export function decision(rows,expectedIds) {
   const missing=expectedIds.filter(id=>!rows.some(r=>r.suiteId===id));
-  return rows.some(r=>r.status==='FAIL')?'FAIL':missing.length||rows.some(r=>r.status==='NOT RUN')?'PARTIAL':'PASS';
+  return rows.some(r=>r.status==='FAIL')?'FAIL':missing.length||rows.some(r=>r.status==='NOT RUN'||r.status==='INTERRUPTED')?'PARTIAL':'PASS';
 }
 export function migrationsManifest(cwd) {
   const lock=JSON.parse(readFileSync(`${cwd}/scripts/certification/migrations.json`));

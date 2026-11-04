@@ -5,8 +5,16 @@ import {randomUUID} from 'node:crypto';
 import {readAccountStore} from '../certification/browser-db.mjs';
 import {surfaces} from './catalog.mjs';
 import {assertControlGeometry} from '../control-geometry.mjs';
+import {assertPlaceholderContrast} from '../placeholder-contrast.mjs';
 for(const surface of surfaces)test(`surface: ${surface.id}`,async({page},info)=>{
   await open(page,surface);
+  if(surface.id==='approvals-empty'){
+    await expect(page.getByText('Unavailable item',{exact:true}).first()).toBeVisible();
+    await expect(page.getByRole('link',{name:/^(?:Restricted|Unavailable) item$/})).toHaveCount(0);
+    await expect(page.locator('li a[href="#"]')).toHaveCount(0);
+    const target=page.getByRole('link',{name:'UX task for input geometry',exact:true});await expect(target).toHaveAttribute('href',/\/boards\/ux-tasks\/tasks\/ux-task$/);
+    expect(await target.evaluate(el=>el.getBoundingClientRect().height),'Available approval targets retain a24px hit area').toBeGreaterThanOrEqual(24);
+  }
   await info.attach(surface.id,{body:await page.screenshot({fullPage:true,animations:'disabled'}),contentType:'image/png'});
   await health(page,surface.id,info);
 });
@@ -40,6 +48,17 @@ test('negative controls: clipped labels and mismatched names must be detected',a
   const style=await page.addStyleTag({content:'select {height:28px!important;min-height:0!important;padding-top:8px!important;padding-bottom:8px!important;line-height:20px!important;}'});
   await expect(assertControlGeometry(page,'injected old clipping defect')).rejects.toThrow(/clipped control labels/);
   await style.evaluate(e=>e.remove());await assertControlGeometry(page,'restored controls');
+  await page.evaluate(()=>{
+    const input=document.createElement('input');input.id='ux-negative-placeholder';input.placeholder='Contrast fixture';input.setAttribute('aria-label','Placeholder contrast fixture');input.style.cssText='position:fixed;top:144px;left:16px;z-index:99999;width:240px;height:44px;padding:8px;background:white;color:black;font-size:16px';
+    const rule=document.createElement('style');rule.id='ux-negative-placeholder-style';rule.textContent='#ux-negative-placeholder::placeholder{color:rgb(210,210,210)!important;opacity:1!important}';document.head.append(rule);
+    (document.querySelector('[aria-label="Task title"]').closest('[role="dialog"]')??document.querySelector('main')).append(input);
+  });
+  await expect(assertPlaceholderContrast(page,'injected faint prompt','#ux-negative-placeholder')).rejects.toThrow(/placeholder contrast/);
+  await page.locator('#ux-negative-placeholder-style').evaluate(el=>{el.textContent='#ux-negative-placeholder::placeholder{color:black!important;opacity:0.5!important}';});
+  await expect(assertPlaceholderContrast(page,'injected translucent prompt','#ux-negative-placeholder')).rejects.toThrow(/placeholder contrast/);
+  await page.locator('#ux-negative-placeholder-style').evaluate(el=>{el.textContent='#ux-negative-placeholder::placeholder{color:black!important;opacity:1!important}';});
+  await assertPlaceholderContrast(page,'restored opaque prompt','#ux-negative-placeholder');
+  await page.locator('#ux-negative-placeholder').evaluate(el=>el.remove());await page.locator('#ux-negative-placeholder-style').evaluate(el=>el.remove());
   // Confirm that the configured tags detect a visible-label/name mismatch.
   // This deliberately inserted defect is removed before the restored audit.
   await page.evaluate(()=>{const button=document.createElement('button');button.id='ux-negative-label';button.textContent='Save changes';button.setAttribute('aria-label','Different action');button.style.cssText='position:fixed;top:80px;left:16px;z-index:99999;padding:8px;background:white;color:black;font-size:16px';(document.querySelector('[aria-label="Task title"]').closest('[role="dialog"]')??document.querySelector('main')).append(button);});

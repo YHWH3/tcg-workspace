@@ -1,0 +1,303 @@
+{
+  "item": "8.1 Attention queue",
+  "status": "FOCUSED_ENGINEERING_PASS_PHASE_CERTIFICATION_PENDING",
+  "testedBrowserSource": {
+    "sha": "870e8a24172ab9af0f756be674f355a3d0707b0e",
+    "tree": "acf2ffa34f61bb837dbfabb3ba946d1e98f3ad85",
+    "fingerprint": "88e760c6bdb6f9d73ff39712311c6809085e36646a9906d1abf2d7c4c626fd88",
+    "clean": true
+  },
+  "browser": {
+    "command": "npm run qa:ux -- --grep 'attention:|text enlargement: 200 percent'",
+    "exit": 0,
+    "pass": 72,
+    "skip": 0,
+    "fail": 0,
+    "flaky": 0,
+    "scope": "Matrix: 3 engines \u00d7 3 viewport sizes \u00d7 2 themes. Only executed named states and bounded generated interactions count. No claim of all features/devices.",
+    "report": ".artifacts/ux-lab/2026-10-27T14-49-12.317Z/html/index.html",
+    "summarySha256": "fbc510605b7475cb788c010703867b1c2521bf1e61bcb58ee2751f8322ae15c2",
+    "runtimes": [
+      {
+        "project": "chromium-compact-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-compact-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-tablet-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-light",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "chromium-desktop-dark",
+        "engine": "chromium",
+        "version": "153.0.8010.12",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-compact-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-tablet-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-light",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "firefox-desktop-dark",
+        "engine": "firefox",
+        "version": "155.0",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-compact-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-tablet-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 820,
+          "height": 1180
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": true,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-light",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "light",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      },
+      {
+        "project": "webkit-desktop-dark",
+        "engine": "webkit",
+        "version": "26.6",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "colorScheme": "dark",
+        "deviceScaleFactor": 1,
+        "hasTouch": false,
+        "physicalDevice": false
+      }
+    ]
+  },
+  "focused": {
+    "sha": "3aff4dba03435246337fb8b51bc9a74078d895d7",
+    "pass": 179,
+    "files": 18,
+    "exit": 0,
+    "log": ".artifacts/phase8/attention-3aff4db-focused.log",
+    "qualification": "Later code changes are page/sidebar wrapping only; test result remains bound to its original source."
+  },
+  "typecheck": {
+    "sha": "870e8a24172ab9af0f756be674f355a3d0707b0e",
+    "exit": 0,
+    "log": ".artifacts/phase8/attention-sidebar-typecheck.log"
+  },
+  "earlierRuns": [
+    {
+      "sha": "79c931b95be03cd341c211d1ef9fe7278a870180",
+      "pass": 24,
+      "fail": 30,
+      "path": ".artifacts/ux-lab/2026-10-27T14-17-17.980Z"
+    },
+    {
+      "sha": "64e580f484d2bbc8a993c7567ea6a42cab7dc834",
+      "pass": 45,
+      "fail": 9,
+      "path": ".artifacts/ux-lab/2026-10-27T14-23-21.525Z"
+    },
+    {
+      "sha": "3aff4dba03435246337fb8b51bc9a74078d895d7",
+      "pass": 54,
+      "fail": 0,
+      "qualification": "Screenshot review found a missing enlarged-text visibility assertion; subsequent correction required."
+    },
+    {
+      "sha": "5e811fb37d718e527c004d0827555bbb381d50b3",
+      "pass": 48,
+      "fail": 6,
+      "path": ".artifacts/ux-lab/2026-10-27T14-42-42.773Z"
+    }
+  ],
+  "limits": [
+    "Attention-specific selection plus existing inbox/task enlargement check, not the complete global UX matrix",
+    "No new physical-device, human screen-reader or genuine human-approval evidence",
+    "No production deployment or real-provider operation",
+    "Final Phase 8 mandatory certification and remaining desks pending"
+  ],
+  "next": "8.9 Reliability view, then 8.11 AI review desk"
+}

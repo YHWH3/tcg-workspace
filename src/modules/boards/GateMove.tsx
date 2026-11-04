@@ -43,8 +43,8 @@ export function GateMoveHost() {
   return <GateMoveDialog attempt={attempt} />;
 }
 
-function GateMoveDialog({ attempt }: { attempt: GateAttempt }) {
-  const close = () => gateAttemptStore.set(null);
+export function GateMoveDialog({ attempt, onClose }: { attempt: GateAttempt; onClose?: () => void }) {
+  const close = onClose ?? (() => gateAttemptStore.set(null));
   const users = useUsers();
   const [board, setBoard] = useState<BoardRow | undefined>();
   const [task, setTask] = useState<TaskRow | undefined>();

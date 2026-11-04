@@ -113,7 +113,7 @@ export function ContextPicker({
           onKeyDown={onKey}
           placeholder="Search pages and records…"
           aria-label="Search context"
-          className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-neutral-400"
+          className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
         />
         <kbd className="rounded border border-neutral-200 px-1.5 py-0.5 text-[10px] text-neutral-400 dark:border-neutral-700">esc</kbd>
       </div>

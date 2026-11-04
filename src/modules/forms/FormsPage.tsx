@@ -64,6 +64,7 @@ export function FormsPage() {
           {creating ? <Spinner size={13} /> : <Plus size={14} />} New form
         </Button>
       </header>
+      <nav aria-label="Forms views" className="flex flex-wrap gap-2 border-b border-neutral-200 px-4 py-2 dark:border-neutral-700"><span aria-current="page" className="inline-flex min-h-11 items-center rounded-lg bg-neutral-100 px-3 dark:bg-neutral-800">Forms</span><Link to={`/forms/${boardId}/operations`} className="inline-flex min-h-11 items-center rounded-lg px-3 underline">Operations</Link><Link to="/forms" className="inline-flex min-h-11 items-center rounded-lg px-3 underline">All form operations</Link></nav>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {!forms.length ? (
           <EmptyState

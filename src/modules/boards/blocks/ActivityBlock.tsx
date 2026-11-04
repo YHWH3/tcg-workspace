@@ -107,8 +107,8 @@ function ActivityBlockInner({ block }: { block: LocalRow }) {
               ) : (
                 <span className="font-medium">{String(r.targetTitle ?? 'Untitled')}</span>
               )}
-              {r.meta?.via && <span className="text-neutral-400"> · via {String(r.meta.via)}</span>}
-              <span className="block text-[10px] text-neutral-400">{r.createdAt ? relTime(r.createdAt) : ''}</span>
+              {r.meta?.via && <span className="text-neutral-600 dark:text-neutral-400"> · via {String(r.meta.via)}</span>}
+              <span className="block text-[10px] text-neutral-600 dark:text-neutral-400">{r.createdAt ? relTime(r.createdAt) : ''}</span>
             </span>
           </li>
         );

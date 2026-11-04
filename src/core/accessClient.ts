@@ -1,5 +1,5 @@
 /** Client presentation/cache barrier. Server authorization remains mandatory. */
-import { api, getToken } from './api';
+import { api, getToken, ApiError } from './api';
 import { db } from './db';
 import { PERMISSION_PROTOCOL } from '../../shared/protocol';
 import { readState } from './sync/feedState';
@@ -35,7 +35,14 @@ export async function prepareOnlineAccess(userId: string, assertCurrent: () => v
     });
     assertCurrent(); accessClientStore.set(s => ({ ...s, status: 'ready', manifest, reason: null }));
     return manifest;
-  } catch (error) { failClientAccess(); throw error; }
+  } catch (error) {
+    // syncNow owns the validated transport fallback. A transient error barrier
+    // here unmounts editors and flushes their pending text while writes are
+    // forbidden, before that same cache is accepted offline. Keep any barrier
+    // already raised by reconciliation; HTTP denials still lock immediately.
+    if (!(error instanceof ApiError && error.status === 0)) failClientAccess();
+    throw error;
+  }
 }
 
 export async function prepareOfflineAccess(userId: string): Promise<void> {

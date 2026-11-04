@@ -8,11 +8,22 @@ import {searchRecords} from './search';
 import {buildDigest} from './aiDigest';
 import {argsHash} from '../shared/stablejson';
 import {linkId} from '../shared/linkid';
+import {collectProjectHealth,projectHealthForOrigin} from './projectHealth';
+import {projectHealthConfigSchema} from '../shared/projectHealthConfig';
+import {gateRows} from './readAccess';
+import {hasD1Budget} from './d1budget';
 interface Ctx {env:Env;userId:string;origin:string;clientName?:string}
 const txt=(value:unknown)=>({content:[{type:'text' as const,text:JSON.stringify(value)}]});
 const err=(error:string)=>({...txt({error}),isError:true});
 export function registerAiWorkflows(server:McpServer,c:Ctx){
- server.registerTool('operating_review_context',{description:'Current authorized deterministic weekly deadlines, pending approvals, project changes, decisions and follow-ups. Gather supporting dashboard_snapshot and activity_for before drafting; partial workloads are explicit.',inputSchema:z.object({}),annotations:{readOnlyHint:true}},async()=>txt(await buildDigest(c.env,c.userId)));
+ server.registerTool('operating_review_context',{description:'Current authorized deterministic weekly deadlines, participant-visible approvals, source-linked project health, decisions and follow-ups. Gather supporting dashboard_snapshot and activity_for before drafting; partial workloads are explicit. Health is based only on current authorized sources.',inputSchema:z.object({}),annotations:{readOnlyHint:true}},async()=>{
+  const digest=await buildDigest(c.env,c.userId);
+  if(digest.accessChanged||!hasD1Budget(c.env.DB,26))return txt({...digest,projectHealth:{partial:true,partialSources:['processing_budget'],pages:[]}});
+  const rows=(await c.env.DB.prepare("SELECT id,seq rev FROM records WHERE collection='boards' AND json_extract(data,'$.templateDbKey')='projects' AND COALESCE(json_extract(data,'$.deleted'),0)!=1 AND COALESCE(json_extract(data,'$.archived'),0)!=1 ORDER BY id LIMIT 6").all<{id:string;rev:number}>()).results;
+  const boards=await gateRows(c.env,rows.slice(0,5));
+  const pages=boards.length?await collectProjectHealth(c.env,c.userId,boards.map(b=>projectHealthConfigSchema.parse({databaseId:b.id,limit:5}))):[];
+  return txt({...digest,projectHealth:{partial:rows.length>5||pages.some(p=>p.partial),partialSources:rows.length>5?['database_limit']:[],pages:pages.map(p=>projectHealthForOrigin(p,c.origin))}});
+ });
  server.registerTool('find_collaborators',{description:'Evidence-backed People matches from an explicitly authorized People database using word-prefix search. Never infers undocumented skills, identity or availability. Guests retain the canonical directory restrictions.',inputSchema:z.object({databaseId:z.string(),query:z.string().min(1).max(200),cursor:z.string().optional(),limit:z.number().int().min(1).max(20).default(10)}),annotations:{readOnlyHint:true}},async a=>{
   const board=await getRec(c.env,a.databaseId);if(!board||board.collection!=='boards'||board.data.deleted||board.data.archived)return err('not_found');
   const matches=await searchRecords(c.env,c.userId,{q:a.query,databaseId:a.databaseId,type:'task',cursor:a.cursor,limit:a.limit});

@@ -3,7 +3,7 @@
  * field editor (chips + popover search + inline create). All writes go
  * through links.ts → mutate().
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { FileText, Plus, Search, X } from 'lucide-react';
@@ -51,6 +51,7 @@ export function ItemPicker({
   createLabel?: (q: string) => string;
   align?: 'left' | 'right';
 }) {
+  const listId=useId();
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
   const filtered = useMemo(() => {
@@ -102,16 +103,20 @@ export function ItemPicker({
                 }
               }}
               placeholder={placeholder}
-              className="h-7 w-full bg-transparent text-sm outline-none placeholder:text-neutral-400"
+              className="h-7 w-full bg-transparent text-sm outline-none placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
               role="combobox"
               aria-expanded="true"
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={total>0?`${listId}-${idx}`:undefined}
               aria-label={placeholder}
             />
           </div>
-          <div className="max-h-60 overflow-y-auto p-1" role="listbox">
+          <div id={listId} className="max-h-60 overflow-y-auto p-1" role="listbox" aria-label={placeholder}>
             {rows.map((item, i) => (
               <button
                 key={`${item.ref.type}:${item.ref.id}`}
+                id={`${listId}-${i}`}
                 role="option"
                 aria-selected={i === idx}
                 className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm', i === idx && 'bg-neutral-100 dark:bg-neutral-800')}
@@ -123,11 +128,12 @@ export function ItemPicker({
               >
                 <span className="w-4 shrink-0 text-center text-xs">{item.icon ?? (item.ref.type === 'page' ? '📄' : '·')}</span>
                 <span className="min-w-0 flex-1 truncate">{item.title || 'Untitled'}</span>
-                <span className="shrink-0 truncate text-[10px] text-neutral-400">{item.subtitle}</span>
+                <span className="shrink-0 truncate text-[10px] text-neutral-600 dark:text-neutral-400">{item.subtitle}</span>
               </button>
             ))}
             {canCreate && (
               <button
+                id={`${listId}-${rows.length}`}
                 role="option"
                 aria-selected={idx === rows.length}
                 className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-blue-600 dark:text-blue-400', idx === rows.length && 'bg-neutral-100 dark:bg-neutral-800')}
@@ -140,7 +146,7 @@ export function ItemPicker({
                 <Plus size={13} /> <span className="truncate">{createLabel ? createLabel(q.trim()) : `Create "${q.trim()}"`}</span>
               </button>
             )}
-            {rows.length === 0 && !canCreate && <p className="px-2 py-3 text-center text-xs text-neutral-400">No matches</p>}
+            {rows.length === 0 && !canCreate && <p className="px-2 py-3 text-center text-xs text-neutral-600 dark:text-neutral-400">No matches</p>}
           </div>
         </div>
       )}
@@ -171,14 +177,14 @@ export function LinkedChips({ ids, kind, boards, onRemove }: { ids: string[]; ki
         const board = t.boardId ? boards.find((b) => b.id === t.boardId) : undefined;
         const href = kind === 'page' ? `/pages/${t.id}` : `/boards/${t.boardId}/tasks/${t.id}`;
         return (
-          <span key={t.id} className="inline-flex max-w-44 items-center gap-1 rounded-full bg-neutral-100 py-0.5 pl-2 pr-1 text-[11px] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300" title={t.title}>
-            <button className="min-w-0 truncate hover:underline" onClick={() => navigate(href)}>
+          <span key={t.id} className="inline-flex max-w-44 items-center gap-1 rounded-full bg-neutral-100 py-0.5 pl-2 pr-1 text-[0.6875rem] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300" title={t.title}>
+            <button className="min-h-11 min-w-11 flex-1 truncate text-left hover:underline" onClick={() => navigate(href)}>
               {kind === 'page' ? <FileText size={10} className="mr-0.5 inline" /> : null}
               {renderPlain(t.title || 'Untitled', resolve)}
             </button>
             {board && <span className="text-neutral-400">{String(board.icon ?? '')}</span>}
             {onRemove && (
-              <button aria-label={`Unlink ${t.title}`} className="flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 hover:opacity-100" onClick={() => onRemove(t.id)}>
+              <button aria-label={`Unlink ${t.title}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-60 hover:opacity-100" onClick={() => onRemove(t.id)}>
                 <X size={10} />
               </button>
             )}
@@ -201,10 +207,10 @@ export function RelationPicker({ record, field }: { record: TaskRow; field: Rela
   const targetBoard = boards.find((b) => b.id === targetId);
   const isPages = targetId === 'pages';
   const allTasks = useLiveQuery(() => db.tasks.toArray(), [], []);
-  const targetTasks = useMemo(() => (allTasks ?? []).filter((t) => !t.deleted && taskBoardIdOf(t as TaskRow) === targetId), [allTasks, targetId]);
+  const targetTasks = useMemo(() => (allTasks ?? []).filter((t) => !t.deleted && !t.archived && taskBoardIdOf(t as TaskRow) === targetId), [allTasks, targetId]);
   const resolve = useTokenResolver();
 
-  const values = relationValues(links, record.id, field);
+  const values = relationValues(links, record.id, field).filter(id=>isPages?pages?.some(page=>page.id===id&&!page.deleted):targetTasks.some(task=>task.id===id));
   const missingTarget = !isPages && targetBoard === undefined;
 
   const items: PickItem[] = useMemo(() => {
@@ -250,8 +256,8 @@ export function RelationPicker({ record, field }: { record: TaskRow; field: Rela
       <LinkedChips ids={values} kind={kind} boards={boards} onRemove={(id) => void unlinkRelation(record.id, field, id)} />
       <ItemPicker
         trigger={
-          <button className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300" aria-label={`Link ${field.name}`}>
-            <Plus size={11} /> {values.length === 0 ? `Link ${noun}…` : 'Add'}
+          <button className="flex min-h-11 min-w-0 max-w-full items-center gap-1 rounded-lg px-2 py-1 text-left text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200">
+            <Plus size={11} aria-hidden className="shrink-0"/><span className="break-words">{values.length===0?'Link':'Add'} {field.name}</span>
           </button>
         }
         items={items.filter((i) => !values.includes(i.ref.id))}

@@ -75,13 +75,13 @@ describe('Phase 7 calendar and range boundaries',()=>{
   expect(changeFilterOperator(range,'after').value).toBe('today');
   expect(changeFilterOperator({...range,value:null},'before').value).toBe('today');
  });
- it('expresses each of the three pack deadline metrics with a single within condition',()=>{
-  const found:{filters:Filter[]}[]=[];
+ it('keeps all four pack deadline metrics equivalent to one within condition',()=>{
+  const found:{key:string;filters:Filter[]}[]=[];
   const visit=(value:unknown)=>{if(!value||typeof value!=='object')return;const x=value as Record<string,unknown>;
-   if(x.type==='metric'&&x.label==='Deadlines in the next 30 days')found.push(x as unknown as {filters:Filter[]});Object.values(x).forEach(visit);};visit(pack);
-  expect(found).toHaveLength(3);
+   if(x.type==='metric'&&x.label==='Deadlines in the next 30 days')found.push(x as unknown as {key:string;filters:Filter[]});Object.values(x).forEach(visit);};visit(pack);
+  expect(found.map(metric=>metric.key).sort()).toEqual(['tpl_6','tpl_1f','tpl_4m','command_tpl_6'].sort());
   const records=[{id:'near',p_f_deadline:'2026-10-30',status:'open'},{id:'far',p_f_deadline:'2099-01-01',status:'open'},{id:'won',p_f_deadline:'2026-10-30',status:'won'}];
-  for(const metric of found){const filters=metric.filters.filter(f=>f.key!=='p_f_deadline');filters.push({key:'p_f_deadline',op:'within',value:{from:'today',to:'today+30'}});
+  for(const metric of found){expect(aggregate(records,{agg:'count',filters:metric.filters},{today:'2026-10-24'}).ids).toEqual(['near']);const filters=metric.filters.filter(f=>f.key!=='p_f_deadline');filters.push({key:'p_f_deadline',op:'within',value:{from:'today',to:'today+30'}});
    expect(aggregate(records,{agg:'count',filters},{today:'2026-10-24'}).ids).toEqual(['near']);}
  });
  it('shares within evaluation and validation with automation conditions',()=>{

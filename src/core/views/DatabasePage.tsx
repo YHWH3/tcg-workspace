@@ -1,3 +1,6 @@
+import {modules} from '../../modules';
+import {Slot} from '../../modules/slots';
+import {AttentionEditor} from '../../modules/boards/AttentionEditor';
 import {MoveSpaceButton} from '../MoveSpace';
 /**
  * DatabasePage — the Phase 1 database shell: view tabs, view config toolbar
@@ -62,6 +65,7 @@ import { TimelineView } from '../../modules/boards/views/TimelineView';
 import { fieldKeyOf } from '../records';
 import {changeFilterOperator,isDateFilterKey,type DateFieldKey} from '../../../shared/views';
 import {DateFilterControl,DATE_VALUE_OPERATORS} from './DateFilterControl';
+import {useContainerWidth} from '../container';
 import { archivePatch, isArchived } from '../../../shared/archive';
 
 const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3 };
@@ -82,6 +86,7 @@ export function BoardOrDb() {
 /* ============ shell ============ */
 
 export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) {
+  const container=useContainerWidth();
   const { boardId = '', viewId, taskId, recordId } = useParams();
   const openRecordId = propRecordId ?? recordId ?? taskId;
   const navigate = useNavigate();
@@ -91,7 +96,11 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
   const links = useLinks();
   const me = useStore(authStore).user?.id;
   const mobile = useIsMobile();
+  // Keep both panes usable. A tablet database must not shrink to a toolbar
+  // sliver beside a fixed-width detail, especially with enlarged root text.
+  const detailOverlay=mobile||container.width<54*parseFloat(getComputedStyle(document.documentElement).fontSize);
   const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [attentionOpen,setAttentionOpen]=useState(false);
   useAssistantContext(board ? { kind: 'database', id: board.id } : null);
 
   const view = board ? resolveView(board, views, viewId) : undefined;
@@ -112,7 +121,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
 
 
   return (
-    <div className="flex h-full min-h-0">
+    <div ref={container.ref} className="flex h-full min-h-0 min-w-0">
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-neutral-200/70 px-4 py-2.5 dark:border-neutral-800/70">
           <h1 className="flex items-center gap-2 text-base font-semibold tracking-tight">
@@ -142,6 +151,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setFieldsOpen(true); }}>
                   <Pencil size={14} /> Fields…
                 </button>
+                <button className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setAttentionOpen(true); }}>Attention…</button>
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); navigate(`/forms/${board.id}`); }}>
                   <ClipboardList size={14} /> Forms…
                 </button>
@@ -169,6 +179,8 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
             </button>
           </div>
         )}
+
+        <Slot modules={modules} kind="databaseSummary" props={{databaseId:board.id}}/>
 
         {/* view tabs */}
         <div className="flex items-center gap-1 overflow-x-auto border-b border-neutral-200/70 px-3 py-1.5 dark:border-neutral-800/70">
@@ -235,17 +247,18 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
       </div>
 
       {/* record detail: desktop aside / mobile sheet */}
-      {openRecordId && !mobile && (
+      {openRecordId && !detailOverlay && (
         <aside className="w-[400px] shrink-0 overflow-y-auto border-l border-neutral-200/70 dark:border-neutral-800/70">
           <RecordDetail recordId={openRecordId} board={board} onClose={closeDetail} />
         </aside>
       )}
-      {openRecordId && mobile && (
+      {openRecordId && detailOverlay && (
         <Sheet onClose={closeDetail}>
           <RecordDetail recordId={openRecordId} board={board} onClose={closeDetail} />
         </Sheet>
       )}
 
+      {attentionOpen&&<Sheet label="Attention settings" onClose={()=>setAttentionOpen(false)}><AttentionEditor board={board}/></Sheet>}
       {fieldsOpen && (
         <Sheet onClose={() => setFieldsOpen(false)}>
           <div className="overflow-y-auto p-4">
@@ -583,7 +596,7 @@ function NewViewMenu({ board, cols, onCreate }: { board: BoardRow; cols: { id: s
   );
 }
 
-function FilterRow({ board, keys, filter, onChange }: { board: BoardRow; keys: FieldKey[]; filter: VFilter; onChange: (f: VFilter | null) => void }) {
+export function FilterRow({ board, keys, filter, onChange }: { board: BoardRow; keys: FieldKey[]; filter: VFilter; onChange: (f: VFilter | null) => void }) {
   const noValue = ['empty', 'not_empty', 'checked', 'unchecked', 'me'].includes(filter.op);
   const fields=fieldsOf(board),isDate=isDateFilterKey(filter.key,fields);
   const structuredDate=isDate&&DATE_VALUE_OPERATORS.includes(filter.op);

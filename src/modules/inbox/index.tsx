@@ -266,7 +266,7 @@ export function NotificationPrefs() {
 
   if (offline) {
     return (
-      <p className="flex items-center gap-2 text-xs text-neutral-400">
+      <p className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
         <WifiOff size={13} /> Notification preferences need a connection.
       </p>
     );
@@ -276,13 +276,13 @@ export function NotificationPrefs() {
   return (
     <div className="space-y-3">
       {NOTIF_KINDS.map((kind) => (
-        <div key={kind} className="flex items-center justify-between gap-3">
+        <div key={kind} className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <label htmlFor={`pref-${kind}`} className="text-sm text-neutral-700 dark:text-neutral-300">
             {KIND_LABELS[kind]}
           </label>
           <Select
             id={`pref-${kind}`}
-            className="w-28"
+            className="w-28 max-w-full"
             value={prefs.notifications?.[kind] ?? 'inbox'}
             disabled={saving}
             onChange={(e) =>
@@ -297,7 +297,7 @@ export function NotificationPrefs() {
       <label className="flex items-center justify-between gap-3 pt-1">
         <span className="text-sm text-neutral-700 dark:text-neutral-300">
           Quiet digest
-          <span className="block text-xs text-neutral-400">Only mentions, assignments and approvals count on the badge</span>
+          <span className="block text-xs text-neutral-600 dark:text-neutral-400">Only mentions, assignments and approvals count on the badge</span>
         </span>
         <input
           type="checkbox"

@@ -6,7 +6,7 @@ import { logActivity } from '../../core/activity';
 import { authStore } from '../../core/auth';
 import { db, getMeta, setMeta } from '../../core/db';
 import { draftKey } from '../../core/drafts';
-import { addFile, addLink } from '../../core/files';
+import { addFile, addLink, putBlobRow } from '../../core/files';
 import { link } from '../../core/links';
 import { useRecorder } from '../../core/recorder';
 import { takeShared } from '../../core/sharedInbox';
@@ -117,14 +117,7 @@ async function stageDraftMedia(media: CaptureMedia): Promise<void> {
   const prefix = draftBlobPrefix(userId);
   await db.blobs.where('id').startsWith(prefix).delete();
   const refs: DraftMediaRefs = {};
-  const stage = async (id: string, blob: Blob): Promise<boolean> => {
-    try {
-      await db.blobs.put({ id, blob, state: 'cached', uploadedChunks: 0, mime: blob.type });
-      return true;
-    } catch {
-      return false;
-    }
-  };
+  const stage = (id: string, blob: Blob): Promise<boolean> => putBlobRow({ id, blob, state: 'cached', uploadedChunks: 0, mime: blob.type });
   for (const [i, p] of (media.photos ?? []).entries()) {
     const id = `${prefix}photo_${i}`;
     if (await stage(id, p)) (refs.photos ??= []).push(id);
@@ -265,7 +258,7 @@ export function CapturePage() {
         if (mp.docs?.length) setDocs(mp.docs.map((x) => new File([x.data], x.name, { type: x.type })));
         if (mp.voice) setVoiceBlob(mp.voice);
         const legacyMissing = (f.photoCount ?? 0) - (mp.photos?.length ?? 0) + (f.hasVoice && !mp.voice ? 1 : 0);
-        if (legacyMissing > 0) setRestoreNote('Restored draft — re-attach media (files were not stored in this older draft).');
+        if (legacyMissing > 0) setRestoreNote('Restored draft. Re-attach missing media before saving; some original files were not stored.');
         else if (mp.photos?.length || mp.voice || mp.docs?.length) setRestoreNote('Restored draft with attachments.');
         if (f.recordId) setSaveRecordId(f.recordId);
         if (f.stage && f.stage !== 'done') setRestoreNote((n) => n ?? 'Restored a partially saved capture — press Save to finish it.');
@@ -422,7 +415,7 @@ export function CapturePage() {
       const { props, leftovers } = routed ? propsForForm(destBoard, kind, form) : { props: {}, leftovers: [] };
       const recTitle = titleFor(kind, form, stamp());
       const description = bodyForKind(kind, form, leftovers);
-      await createRecord(destBoard.id, { id: ids.recordId, title: recTitle, extra: { ...props, ...(description ? { description } : {}) } });
+      await createRecord(destBoard.id, { id: ids.recordId, title: recTitle, extra: { ...props, ...(description ? { description } : {}), captureEvidence:{v:1,photoCount:photos.length} } });
       await checkpoint('record');
 
       let coverId: string | undefined;
@@ -744,8 +737,8 @@ export function CapturePage() {
 
         {/* hidden inputs shared by all kinds */}
         <input ref={photoInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setPhotos((p) => [...p, f]); e.target.value = ''; }} />
-        <input ref={galleryInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { setPhotos((p) => [...p, ...Array.from(e.target.files ?? [])]); e.target.value = ''; }} />
-        <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => { setDocs((d) => [...d, ...Array.from(e.target.files ?? [])]); e.target.value = ''; }} />
+        <input ref={galleryInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { const files=Array.from(e.target.files??[]);setPhotos((p) => [...p, ...files]); e.target.value = ''; }} />
+        <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => { const files=Array.from(e.target.files??[]);setDocs((d) => [...d, ...files]); e.target.value = ''; }} />
 
         {form}
         {attachments}

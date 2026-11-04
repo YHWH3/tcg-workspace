@@ -531,6 +531,7 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
   const ops: WriteOp[] = [];
   const expect = new Map<string, number>();
   const boardPatch: Record<string, unknown> = {};
+  if(boardData.attention===undefined)boardPatch.attention=WEBSITE_INBOX_BOARD.attention;
   if (merged) boardPatch.fields = merged;
   if (people && boardData.peopleDatabaseId !== people.id) boardPatch.peopleDatabaseId = people.id;
   if (Object.keys(boardPatch).length) {

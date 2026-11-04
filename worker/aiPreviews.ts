@@ -50,6 +50,7 @@ export async function proposePreview(env:Env,userId:string,tool:string,args:unkn
  if(workflowId&&(await env.DB.prepare('SELECT COUNT(*) n FROM ai_previews WHERE user_id=? AND workflow_id=?').bind(userId,workflowId).first<number>('n')??0)>=100)throw new PreviewError('workflow_preview_limit',400);
  const dependencyRows=await currentRows(env,dependencies);
  const dependencyRevs=Object.fromEntries([...dependencyRows].map(([id,r])=>[id,r.seq]));
+ if(validatedRevisions&&dependencies.some(id=>validatedRevisions.has(id)&&dependencyRows.get(id)?.seq!==validatedRevisions.get(id)))throw new PreviewError('records_changed_during_planning');
  // A record tool already ran the canonical planner. Preserve that exact
  // revision snapshot rather than silently adopting an intervening human edit.
  // Proposal persistence grants no execution authority; review/execution revalidate.

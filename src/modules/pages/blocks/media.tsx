@@ -47,7 +47,7 @@ function Caption({ block }: { block: LocalRow }) {
       }}
       onBlur={() => deb.current.flush(v)}
       placeholder="Add a caption…"
-      className="mt-1 w-full bg-transparent px-1 text-center text-xs text-neutral-400 outline-none placeholder:text-neutral-300 focus:text-neutral-500 dark:placeholder:text-neutral-600"
+      className="mt-1 w-full bg-transparent px-1 text-center text-xs text-neutral-600 dark:text-neutral-400 outline-none placeholder:text-neutral-600 focus:text-neutral-600 dark:focus:text-neutral-300 dark:placeholder:text-neutral-400"
     />
   );
 }

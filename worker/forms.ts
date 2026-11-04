@@ -15,7 +15,11 @@
 // Everything testable is a plain exported function (see tests/forms.test.ts).
 
 import { editableBy, withReadGate } from './readAccess';
-import { Hono } from 'hono';
+import { Hono, type Handler } from 'hono';
+import {z} from 'zod';
+import {collectFormOperations,FormOperationsChanged} from './formOperations';
+import {RecordAccessError} from './recordAccess';
+export {collectFormOperations,formOperationsStatements,formOperationsProjection} from './formOperations';
 import { applyChanges, pokeLive } from './sync';
 import { beginChangeset } from './changesets';
 import { getRec, listBy } from './records';
@@ -569,6 +573,23 @@ export function planSubmissionChanges(args: {
 
 export const formsApi = new Hono<{ Bindings: Bindings; Variables: { user: AuthUser } }>();
 formsApi.use('*', requireAuth);
+
+const operationsOptions=z.object({formId:z.string().min(1).max(64).optional(),databaseId:z.string().min(1).max(64).optional(),followupDays:z.coerce.number().int().min(1).max(3650).default(3)});
+const operationsRoute:Handler<{Bindings:Bindings;Variables:{user:AuthUser}}>=async c=>{
+  const options=operationsOptions.safeParse({formId:c.req.param('id'),databaseId:c.req.query('databaseId'),followupDays:c.req.query('followupDays')});
+  if(!options.success)return c.json({error:'invalid_operations_options'},400);
+  try{
+    const report=await collectFormOperations(c.env,c.get('user').id,options.data);
+    if(!report)return c.json({error:'form not found'},404);
+    c.header('Cache-Control','no-store');return c.json(report);
+  }catch(error){
+    if(error instanceof FormOperationsChanged||error instanceof RecordAccessError)return c.json({error:'form_operations_sources_changed',retryable:true},409);
+    throw error;
+  }
+};
+// Fixed operations route must precede the existing GET /:id config route.
+formsApi.get('/operations',operationsRoute);
+formsApi.get('/:id/operations',operationsRoute);
 
 /** Create or update a form config (upsert by body.id; always re-validates). */
 formsApi.post('/', async (c) => {

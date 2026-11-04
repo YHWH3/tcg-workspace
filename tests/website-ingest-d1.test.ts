@@ -132,7 +132,7 @@ describe('records',()=>{
     const res=await send(f,v1Form());
     const recordId=String(res.body.recordId);
     expect(recordId).toBe(websiteRecordId(IngestBody.parse(v1Form())));
-    expect(await rec(f,WEBSITE_INBOX_ID)).toMatchObject({name:'Website inbox',kind:'records'});
+    expect(await rec(f,WEBSITE_INBOX_ID)).toMatchObject({name:'Website inbox',kind:'records',attention:{enabled:true,triage:true,triagers:'admins'}});
     for(const id of ['view-wi-all','view-wi-new','view-wi-pipeline','view-wi-fam-patrons','view-wi-fam-general']) expect(await rec(f,id)).toMatchObject({databaseId:WEBSITE_INBOX_ID});
     const r=await rec(f,recordId);
     expect(r).toMatchObject({boardId:WEBSITE_INBOX_ID,title:'Contact · Ada Lovelace',status:'new',p_wi_source:'contact',p_wi_family:'general',p_wi_received:'2026-10-22',p_wi_email:'ada@example.com',p_wi_page:'https://thecommonground.living/contact/',p_wi_event:'form.submitted',deleted:false});
@@ -145,6 +145,14 @@ describe('records',()=>{
     await drainOutbox(f);
     const notes=(await f.db.prepare('SELECT user_id,kind,target_id,url FROM notifications ORDER BY user_id').all<Record<string,unknown>>()).results;
     expect(notes).toEqual(['alice','carol','dave'].map(user_id=>({user_id,kind:'form_submission',target_id:recordId,url:`/tasks/${recordId}`})));
+  });
+  it('adds only missing legacy attention defaults and preserves a team opt-out',async()=>{
+    await applyChanges(f.env,'alice',[{id:WEBSITE_INBOX_ID,collection:'boards',patch:{name:'Our inbox',kind:'records',columns:[{id:'new'},{id:'done'}]},ts:2}]);
+    expect((await send(f,v1Form())).status).toBe(200);
+    expect(await rec(f,WEBSITE_INBOX_ID)).toMatchObject({name:'Our inbox',attention:{enabled:true,triage:true}});
+    await applyChanges(f.env,'alice',[{id:WEBSITE_INBOX_ID,collection:'boards',patch:{attention:null},ts:Date.now()}]);
+    expect((await send(f,v1Form({id:'second-attention-event'}))).status).toBe(200);
+    expect((await rec(f,WEBSITE_INBOX_ID))!.attention).toBeNull();
   });
   it('neutralizes hostile answers: no mention tokens, no image or embed blocks',async()=>{
     const res=await send(f,v1Form({answers:[

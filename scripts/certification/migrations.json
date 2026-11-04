@@ -138,5 +138,9 @@
   {
     "name": "0035_workspace_settings.sql",
     "sha256": "8c2c8d3a2b659e77486cf33defcdc1bfc1bb85648c2c0fe0a57506627f518fa8"
+  },
+  {
+    "name": "0036_form_operations_index.sql",
+    "sha256": "74816c6254de707dccafaf8b13f4f1056ba4fa3464b2777d3ab711011602acdc"
   }
 ]

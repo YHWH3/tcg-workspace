@@ -90,15 +90,14 @@ function CalendarBlockInner({ block, compact }: { block: LocalRow; compact: bool
   const selEntries = sel ? (byDate.get(sel) ?? []) : [];
 
   const chip = (e: CalEntry) => (
-    <button
-      key={e.rec.id}
-      className="flex w-full items-center gap-1.5 truncate rounded px-1 py-0.5 text-left text-[11px] leading-tight hover:bg-neutral-100 focus-visible:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus-visible:bg-neutral-800"
+    <li key={e.rec.id}><button
+      className="flex min-h-11 w-full items-center gap-1.5 rounded px-2 py-2 text-left text-sm leading-snug hover:bg-neutral-100 focus-visible:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus-visible:bg-neutral-800"
       onClick={() => navigate(recordHref(e.board.id, undefined, e.rec.id))}
       title={String(e.rec.title ?? 'Untitled')}
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: e.color }} />
-      <span className="min-w-0 flex-1 truncate">{String(e.rec.title ?? 'Untitled')}</span>
-    </button>
+      <span className="min-w-0 flex-1 break-words">{String(e.rec.title ?? 'Untitled')}</span>
+    </button></li>
   );
 
   /* agenda mode (compact): sorted in-month days with their entries. */
@@ -113,11 +112,11 @@ function CalendarBlockInner({ block, compact }: { block: LocalRow; compact: bool
             <IconButton className="h-7 w-7" aria-label="Next month" onClick={() => move(1)}><ChevronRight size={14} /></IconButton>
           </span>
         </div>
-        {monthDays.length === 0 && <p className="py-3 text-center text-xs text-neutral-400">Nothing scheduled.</p>}
+        {monthDays.length === 0 && <p className="py-3 text-center text-xs text-neutral-600 dark:text-neutral-400">Nothing scheduled.</p>}
         <ul className="space-y-2">
           {monthDays.map((c) => (
             <li key={c.date}>
-              <p className={cn('text-[10px] font-semibold uppercase tracking-wide', c.date === today ? 'text-blue-600 dark:text-blue-400' : 'text-neutral-400')}>{formatDay(c.date)}</p>
+              <p className={cn('text-[10px] font-semibold uppercase tracking-wide', c.date === today ? 'text-blue-600 dark:text-blue-400' : 'text-neutral-600 dark:text-neutral-400')}>{formatDay(c.date)}</p>
               <ul>{(byDate.get(c.date) ?? []).map(chip)}</ul>
             </li>
           ))}
@@ -137,7 +136,7 @@ function CalendarBlockInner({ block, compact }: { block: LocalRow; compact: bool
       </div>
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-neutral-200/70 bg-neutral-200/70 dark:border-neutral-800 dark:bg-neutral-800">
         {Array.from({length:7},(_,i)=>WDAYS[(weekStart+i+6)%7]).map((d) => (
-          <div key={d} className="bg-white px-1 py-0.5 text-center text-[9px] font-semibold uppercase tracking-wide text-neutral-400 dark:bg-neutral-900">{d.slice(0, 2)}</div>
+          <div key={d} className="bg-white px-1 py-0.5 text-center text-[9px] font-semibold uppercase tracking-wide text-neutral-600 dark:text-neutral-400 dark:bg-neutral-900">{d.slice(0, 2)}</div>
         ))}
         {cells.map((c) => {
           const entries = byDate.get(c.date) ?? [];
@@ -146,7 +145,7 @@ function CalendarBlockInner({ block, compact }: { block: LocalRow; compact: bool
               key={c.date}
               className={cn(
                 'flex min-h-14 flex-col items-stretch gap-0.5 bg-white p-1 text-left focus-visible:bg-neutral-50 dark:bg-neutral-900 dark:focus-visible:bg-neutral-800/70',
-                !c.inMonth && 'opacity-40',
+                !c.inMonth && 'bg-neutral-50 text-neutral-600 dark:bg-neutral-950 dark:text-neutral-400',
                 sel === c.date && 'ring-1 ring-inset ring-blue-400',
               )}
               onClick={() => setSel(sel === c.date ? null : c.date)}
@@ -159,15 +158,15 @@ function CalendarBlockInner({ block, compact }: { block: LocalRow; compact: bool
                   <span className="truncate">{String(e.rec.title ?? 'Untitled')}</span>
                 </span>
               ))}
-              {entries.length > 3 && <span className="text-[9px] text-neutral-400">+{entries.length - 3} more</span>}
+              {entries.length > 3 && <span className="text-[9px] text-neutral-600 dark:text-neutral-400">+{entries.length - 3} more</span>}
             </button>
           );
         })}
       </div>
       {sel && (
         <div className="mt-2 rounded-lg border border-neutral-200/70 p-2 dark:border-neutral-800">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">{formatDay(sel)}</p>
-          {selEntries.length === 0 && <p className="text-xs text-neutral-400">Nothing on this day.</p>}
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-600 dark:text-neutral-400">{formatDay(sel)}</p>
+          {selEntries.length === 0 && <p className="text-xs text-neutral-600 dark:text-neutral-400">Nothing on this day.</p>}
           <ul>{selEntries.map(chip)}</ul>
         </div>
       )}
@@ -198,7 +197,7 @@ function CalendarBlock({ block }: MediaBlockProps) {
       config={
         <>
           <HeadingField value={str(block.heading)} onChange={(v) => saveBlockCfg(block, { heading: v ?? null })} />
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">Sources</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-600 dark:text-neutral-400">Sources</p>
           {sources.map((src, i) => {
             const b = src.databaseId ? boardById.get(src.databaseId) : undefined;
             return (
@@ -212,7 +211,7 @@ function CalendarBlock({ block }: MediaBlockProps) {
                       </option>
                     ))}
                   </Select>
-                  <IconButton className="h-7 w-7 text-neutral-400 hover:text-red-500" aria-label={`Remove source ${i + 1}`} onClick={() => setSources(sources.filter((_, j) => j !== i))}>
+                  <IconButton className="h-7 w-7 text-neutral-600 dark:text-neutral-400 hover:text-red-500" aria-label={`Remove source ${i + 1}`} onClick={() => setSources(sources.filter((_, j) => j !== i))}>
                     <Trash2 size={13} />
                   </IconButton>
                 </div>

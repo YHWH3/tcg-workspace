@@ -1,3 +1,5 @@
+import {collectAutomationHealth,AutomationHealthDenied,AutomationHealthChanged,FormOperationsChanged} from './automationHealth';
+import {RecordAccessError} from './recordAccess';
 import {serverDateContext,readWorkspaceSettings,withWorkspaceContext} from './workspaceSettings';
 // Phase 4 — automation engine (Workstream E). Config is a synced `automations`
 // collection; this file is the only executor: matches triggers on derived
@@ -731,6 +733,11 @@ export async function runAutomationsForEvent(
  * Automation CONFIG itself is a synced collection edited via mutate()/sync. */
 export const automationsApi = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 automationsApi.use('*', requireAuth);
+
+automationsApi.get('/health',async c=>{
+  try{const health=await collectAutomationHealth(c.env,c.get('user').id);c.header('Cache-Control','no-store');return c.json(health);}
+  catch(error){if(error instanceof AutomationHealthDenied)return c.json({error:'forbidden'},403);if(error instanceof AutomationHealthChanged||error instanceof FormOperationsChanged||error instanceof RecordAccessError)return c.json({error:'automation_health_sources_changed',retryable:true},409);throw error;}
+});
 
 automationsApi.get('/:id/runs', async (c) => {
   // Run history (status/error) belongs to readers of the automation (permissions enabled).

@@ -17,7 +17,7 @@
  * Gates are built per request and never stored in module state. Internal service work
  * (automations, form processing, integrity checks whose results never reach a caller)
  * uses the ungated environment explicitly via `serviceEnv`. */
-import { canEdit, canRead } from '../shared/access';
+import { canEdit, canRead, type WorkspaceRole } from '../shared/access';
 import { scopeResolver, ScopeError, type RecordScope } from '../shared/recordScope';
 import { loadAccessContext, MAX_ACCESS_SPACES, spaceAccess } from './access';
 import type { Env } from './auth';
@@ -38,11 +38,19 @@ export interface ReadDecision {
   graphRevs?:ReadonlyMap<string,number>;
 }
 
+export interface EditableReadDecision extends ReadDecision {
+  workspaceRole: WorkspaceRole | null;
+  editable: ReadonlySet<string>;
+  principalActive: boolean;
+}
+
 export interface ReadGate {
   readonly userId: string;
   readonly connectorKey:string;
   enabled(): Promise<boolean>;
   decide(ids: readonly string[]): Promise<ReadDecision>;
+  /** Fresh canonical read/edit decision after a bounded metadata read. No race retry. */
+  decideEditable(ids: readonly string[]): Promise<EditableReadDecision>;
   /** Keep the rows the principal may read now. Rows carrying `rev` must match the graph. */
   filter<T extends { id: string; rev?: number }>(rows: readonly T[]): Promise<T[]>;
   /** True iff `id` exists and is readable (legacy: true iff it exists or is unknown). */
@@ -71,7 +79,7 @@ export function createReadGate(db: D1Database, userId: string, connector?: Env['
     for (const id of result.readable) observed.add(id);
     return result;
   };
-  const decideFresh = async (ids: readonly string[], retry = true): Promise<ReadDecision> => {
+  const decideFresh = async (ids: readonly string[], retry = true): Promise<EditableReadDecision> => {
     const missing = ids.filter(id=>!graph.has(id));
     for (let i = 0; i < missing.length; i += GRAPH_CHUNK) {
       for (const [id, record] of (await loadScopeGraph(db, missing.slice(i, i + GRAPH_CHUNK))).records) graph.set(id, record);
@@ -89,9 +97,10 @@ export function createReadGate(db: D1Database, userId: string, connector?: Env['
     if (!context.recordsCurrent) {
       graph.clear();
       if (retry) return decideFresh(ids,false);
-      return { enabled:true, readable:new Set(), denied:new Set(ids), revs:new Map(), scopes:new Map() };
+      return { enabled:true, readable:new Set(), editable:new Set(), workspaceRole:null, principalActive:false, denied:new Set(ids), revs:new Map(), scopes:new Map() };
     }
-    const readable = new Set<string>(), denied = new Set<string>(), revs = new Map<string, number>();
+    const principalActive=!!context.principal&&context.principal.disabledAt===null&&(!connector||context.connector?.version===connector.version);
+    const readable = new Set<string>(), editable=new Set<string>(), denied = new Set<string>(), revs = new Map<string, number>();
     for (const id of ids) {
       const record = graph.get(id);
       if (!record) continue;
@@ -99,9 +108,10 @@ export function createReadGate(db: D1Database, userId: string, connector?: Env['
       const scope = scopes.get(id);
       const ok = mode && !!scope && !scope.serviceOnly && !scope.ancestorDeleted && scope.readSpaceIds.every(space => canRead(spaceAccess(context, space)));
       (ok ? readable : denied).add(id);
+      if(ok&&canEdit(spaceAccess(context,scope!.spaceId)))editable.add(id);
     }
-    if (!mode) return { enabled: false, readable: new Set(ids), denied: new Set(), revs, scopes };
-    return { enabled: true, readable, denied, revs, scopes,graphRevs:new Map([...graph].map(([id,r])=>[id,r.rev])) };
+    if (!mode) return { enabled: false, readable: new Set(ids), editable:principalActive?new Set(ids):new Set(), principalActive, workspaceRole:context.principal?.workspaceRole??null, denied: new Set(), revs, scopes };
+    return { enabled: true, readable, editable, principalActive, workspaceRole:context.principal?.workspaceRole??null, denied, revs, scopes,graphRevs:new Map([...graph].map(([id,r])=>[id,r.rev])) };
   };
   return {
     userId,
@@ -109,6 +119,12 @@ export function createReadGate(db: D1Database, userId: string, connector?: Env['
     enabled: isEnabled,
     observedIds:()=>[...observed],
     decide,
+    async decideEditable(input) {
+      const result=await decideFresh([...new Set(input)],false);
+      if(!result.principalActive)throw new RecordAccessError('access_reset_required');
+      for(const id of result.readable)observed.add(id);
+      return result;
+    },
     async validateObserved() {
       if (!observed.size) {if(!connector)return true;const c=await loadAccessContext(db,userId,[],undefined,connector);return !!c.principal&&c.principal.disabledAt===null&&c.connector?.version===connector.version;}
       const ids = [...observed], result = await decide(ids);

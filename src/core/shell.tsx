@@ -1,3 +1,5 @@
+import {ReliabilityChip} from './ReliabilityPanel';
+import {downloadRejected} from './rejectedExport';
 import {startWorkspaceSettings} from './workspaceSettings';
 import {WorkspaceDateNotice} from './WorkspaceSettingsPanel';
 import {SpaceSwitcher} from './SpaceHome';
@@ -18,7 +20,7 @@ import { assistantStore, toggleAssistant } from './assistant/store';
 import { sendHere } from './live';
 import { PresenceDots } from './presence';
 import { BoardOrDb } from './views/DatabasePage';
-import { countLocalPending, flushAndCountPending, onlineStore, retryRejected, serializeRejected, syncNow, syncStore } from './sync/engine';
+import { countLocalPending, flushAndCountPending, onlineStore, retryRejected, syncNow, syncStore } from './sync/engine';
 import { createStore, useStore } from './store';
 import { setTheme, themeStore } from './theme';
 import { Avatar, Button, Dialog, Menu, Popover, Sheet } from './ui';
@@ -41,7 +43,7 @@ function SyncIndicator({ heldOnly = false }: { heldOnly?: boolean }) {
     return (
       <button
         onClick={() => void retryRejected()}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-700 dark:text-red-300 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
         title="Changes rejected by the server, kept locally — click to retry"
       >
         <AlertTriangle size={13} />
@@ -53,7 +55,7 @@ function SyncIndicator({ heldOnly = false }: { heldOnly?: boolean }) {
     return (
       <button
         onClick={() => void syncNow()}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-700 dark:text-red-300 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
         title="Sync failed — click to retry"
       >
         <AlertTriangle size={13} />
@@ -63,7 +65,7 @@ function SyncIndicator({ heldOnly = false }: { heldOnly?: boolean }) {
   }
   if (!online) {
     return (
-      <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-amber-500">
+      <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
         <CloudOff size={13} />
         <span>Offline{total > 0 ? ` · ${total} pending` : ''}</span>
       </div>
@@ -159,12 +161,12 @@ function UserMenu() {
         adaptive
         label="Account"
         trigger={
-          <span className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800">
+          <span className="flex min-w-0 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800">
             <Avatar name={user.name} color={user.color} size={24} />
             <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{user.name}</span>
           </span>
         }
-        className="bottom-full left-0 mb-1 mt-0 w-56"
+        className="w-56"
       >
         {(close) => (
           <div>
@@ -234,16 +236,7 @@ export function reportError(text: string): void {
 function DurableError() {
   const err = useStore(durableErrorStore);
   const rejected = useStore(syncStore).rejected;
-  const downloadRejected = async () => {
-    const payload = await serializeRejected();
-    const file = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(file);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `workspace-rejected-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+
   if (!err && !rejected) return null;
   return (
     <div
@@ -267,7 +260,7 @@ function DurableError() {
             {rejected ? 'Retry rejected' : 'Retry sync'}
           </button>
           {rejected > 0 && (
-            <button className="font-medium underline decoration-red-300 underline-offset-2 hover:decoration-red-500" onClick={() => void downloadRejected()}>
+            <button className="font-medium underline decoration-red-300 underline-offset-2 hover:decoration-red-500" onClick={() => void downloadRejected().catch(()=>reportError('Rejected items could not be exported. Check the account and retry.'))}>
               Export JSON
             </button>
           )}
@@ -526,6 +519,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <UserMenu />
         </div>
         <SyncIndicator />
+        <ReliabilityChip/>
       </div>
     </div>
   );
@@ -573,7 +567,7 @@ export function Shell() {
     <div className="vv-fit px-safe flex">
       {/* Desktop sidebar */}
       {!mobile && (
-        <aside className="w-60 shrink-0 border-r border-neutral-200/70 bg-neutral-50/60 dark:border-neutral-800/70 dark:bg-neutral-900/40">
+        <aside className="w-60 max-w-[35vw] shrink-0 border-r border-neutral-200/70 bg-neutral-50/60 dark:border-neutral-800/70 dark:bg-neutral-900/40">
           <SidebarContent />
         </aside>
       )}

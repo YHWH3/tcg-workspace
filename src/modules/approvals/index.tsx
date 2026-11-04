@@ -208,7 +208,7 @@ function HistoryRow({ approval, stageName, users }: { approval: Approval; stageN
       ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
       : approval.status === 'rejected'
         ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-        : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400';
+        : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400';
   return (
     <div className="flex items-start gap-2 py-1.5">
       <span className={cn('mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize', chip)}>{approval.status}</span>
@@ -366,9 +366,11 @@ function ApprovalPageRow({ a, me, onDone }: { a: Approval; me: string; onDone: (
     <li className="rounded-xl border border-neutral-200/80 px-3.5 py-3 dark:border-neutral-800">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <a href={a.url ?? '#'} className="block truncate text-[13px] font-semibold text-neutral-800 hover:underline dark:text-neutral-100">
+          {a.url ? <a href={a.url} className="block min-h-6 truncate text-[13px] font-semibold text-neutral-800 hover:underline dark:text-neutral-100">
             {a.targetTitle ?? a.targetId}
-          </a>
+          </a> : <span className="block text-[13px] font-semibold text-neutral-800 dark:text-neutral-100">
+            {a.targetTitle && a.targetTitle !== a.targetId ? a.targetTitle : 'Unavailable item'}
+          </span>}
           <p className="mt-0.5 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
             <span className="font-medium text-neutral-700 dark:text-neutral-300">{requester?.name ?? 'Someone'}</span> → {approver?.name ?? 'member'}
             {stageLabel ? ` · “${stageLabel}”` : ''} · {relTime(a.createdAt)}
@@ -379,7 +381,7 @@ function ApprovalPageRow({ a, me, onDone }: { a: Approval; me: string; onDone: (
           <span
             className={cn(
               'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize',
-              a.status === 'approved' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : a.status === 'rejected' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
+              a.status === 'approved' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : a.status === 'rejected' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400',
             )}
           >
             {a.status}

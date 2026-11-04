@@ -55,7 +55,7 @@ export const CAPABILITIES: readonly Capability[] = [
   W('create_project', 'projects'), W('convert_idea_to_project', 'projects'),
   W('archive_item', 'workspace'), W('unarchive_item', 'workspace'), W('delete_item', 'workspace'), W('restore_item', 'workspace'),
   // Dashboards
-  R('dashboard_snapshot', 'dashboards'), R('operating_review_context', 'dashboards'),
+  R('dashboard_snapshot', 'dashboards'), R('operating_review_context', 'dashboards'), R('attention_queue','dashboards'),
   // Moodboards
   W('create_moodboard', 'moodboards'), W('add_mood_items', 'moodboards'), R('get_moodboard', 'moodboards'),
   W('update_mood_items', 'moodboards'), W('connect_items', 'moodboards'), W('add_frame', 'moodboards'),
@@ -73,7 +73,7 @@ export const CAPABILITIES: readonly Capability[] = [
   P('propose_suggestion', 'inbox'),
   R('website_query','inbox'), R('website_digest','inbox'), R('website_read_answers','inbox'), P('propose_website_triage','inbox'),
   // Automations
-  R('list_automations', 'automations'),
+  R('list_automations', 'automations'), R('automation_health','automations'),
   // History, activity, changesets
   R('get_record_history', 'history'), W('restore_record_fields', 'history'), R('recent_activity', 'history'), R('activity_for', 'history'),
   R('list_changes', 'changesets'), R('get_change', 'changesets'), H('undo_change', 'changesets'),
