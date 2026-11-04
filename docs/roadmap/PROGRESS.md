@@ -842,4 +842,24 @@ Evidence: `npx vitest run tests/phase9-csv.test.ts` passes3/3;
 `npm run typecheck` and `npm run build` pass; the focused UX run
 `npm run qa:ux -- --grep 'CSV export'` passes18/18 cells across Chromium,
 Firefox and WebKit. No server endpoint, migration, MCP tool, provider or
-permission change. Phase 9.2 CSV import is next.
+permission change. The bounded parser and import planning helpers are now
+present as the 9.2 foundation; the user-facing wizard remains to be wired.
+
+### 9.5 Bulk edit
+
+Status: implementation complete locally on `sol/p9-everyday`; commit follows
+after this checkpoint is verified. Table and list views now share a capped
+selection model (500 rows), with shift-range selection, select-all-filtered,
+keyboard arrow extension and touch long-press entry. The action bar supports
+stage, non-relation field, assignee, due date, archive, soft delete and clear
+selection. Approval-gated stage transitions are withheld and surfaced as
+approval requests rather than being applied optimistically. Bulk writes use
+`mutateMany`; a seven-day Dexie journal supports revision-safe undo from the
+action bar and Settings → Recent bulk edits.
+
+Evidence: `npx vitest run tests/phase9-bulk.test.ts tests/phase9-csv.test.ts
+tests/phase9-engine.test.ts` passes11/11; `npm run typecheck`, `npm run build`
+and `git diff --check` pass. The focused UX run
+`npm run qa:ux -- --grep 'Bulk edit'` passes18/18 cells across Chromium,
+Firefox and WebKit with no skips, failures or host pause. No server, migration,
+permission, provider or contract changes. Phase 9.2 CSV import wizard is next.

@@ -176,3 +176,20 @@ test('CSV export: visible filtered rows, formula-safe download and keyboard dial
   await page.keyboard.press('Escape');await expect(dialog).toBeHidden();await expect(menu).toBeFocused();
   await health(page,'CSV export dialog and download',info);
 });
+test('Bulk edit: select filtered rows, apply field, undo and clear selection',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='records-table'));
+  const table=page.getByTestId('record-table');
+  const checkbox=await table.count()
+    ? table.locator('tbody input[type="checkbox"]').first()
+    : page.getByRole('checkbox',{name:/^Select /}).first();
+  await expect(checkbox).toBeVisible();
+  await checkbox.check();
+  const bar=page.getByRole('region',{name:'Bulk actions',exact:true});await expect(bar).toContainText('1 selected');
+  await bar.getByRole('combobox',{name:'Bulk field',exact:true}).selectOption('date');
+  await bar.getByLabel('Bulk Date',{exact:true}).fill('2026-11-10');
+  await bar.getByRole('button',{name:'Apply field',exact:true}).click();
+  await expect(page.getByText(/1 updated date/i)).toBeVisible();
+  await bar.getByRole('button',{name:'Undo',exact:true}).click();
+  await expect(page.getByText(/Undo restored 1/)).toBeVisible();
+  await health(page,'bulk edit and undo',info);
+});

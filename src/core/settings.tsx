@@ -23,6 +23,7 @@ import { AdaptiveDialog, Avatar, Button, Field, Input, Spinner } from './ui';
 import { cn } from './utils';
 import { Sessions } from './Sessions';
 import { AssistantSettings } from './assistant/AssistantSettings';
+import { listBulkJournals, undoBulkJournal, type BulkJournal } from './views/bulk';
 
 interface InviteRow {
   code: string;
@@ -57,6 +58,7 @@ export function SettingsPage() {
         <Section title="Usage and retention"><Usage/></Section>
         <NotificationsSection />
         <LocalDataSection user={user} />
+        <RecentBulkEditsSection />
         <PasswordSection />
         <Section title="Signed-in devices"><Sessions /></Section>
         {user?.role === 'admin' && <AdminSection />}
@@ -224,6 +226,29 @@ function LocalDataSection({ user }: { user: PublicUser | null }) {
         </div>
       )}
       </div>}
+    </Section>
+  );
+}
+
+function RecentBulkEditsSection() {
+  const [journals, setJournals] = useState<BulkJournal[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const reload = useCallback(async () => setJournals(await listBulkJournals()), []);
+  useEffect(() => { void reload(); }, [reload]);
+  if (!journals.length) return null;
+  return (
+    <Section title="Recent bulk edits">
+      <p className="mb-3 text-xs text-neutral-600 dark:text-neutral-400">Undo is available for seven days. Records changed after an edit are left untouched.</p>
+      <ul className="space-y-2">
+        {journals.slice(0, 20).map((journal) => (
+          <li key={journal.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700">
+            <span className="min-w-0 flex-1">{journal.summary} · {journal.items.length} records</span>
+            <Button size="sm" variant="outline" disabled={busy === journal.id} onClick={() => { setBusy(journal.id); void undoBulkJournal(journal).then((result) => { toast(`Undo restored ${result.restored}${result.skipped ? ` · ${result.skipped} changed since` : ''}`); return reload(); }).finally(() => setBusy(null)); }}>
+              <Undo2 size={13} /> Undo
+            </Button>
+          </li>
+        ))}
+      </ul>
     </Section>
   );
 }

@@ -94,5 +94,6 @@ export const requiredCases=[
   'seeded interaction exploration: edit, offline, reload, resize, theme and search',
   'task draft: focus, cross-field edits and responsive recovery',
   'CSV export: visible filtered rows, formula-safe download and keyboard dialog',
+  'Bulk edit: select filtered rows, apply field, undo and clear selection',
 ];
 export const requiredProjects=['chromium','firefox','webkit'].flatMap(e=>['compact','tablet','desktop'].flatMap(v=>['light','dark'].map(t=>`${e}-${v}-${t}`)));

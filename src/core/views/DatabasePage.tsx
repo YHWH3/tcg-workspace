@@ -69,6 +69,7 @@ import {changeFilterOperator,isDateFilterKey,type DateFieldKey} from '../../../s
 import {DateFilterControl,DATE_VALUE_OPERATORS} from './DateFilterControl';
 import {useContainerWidth} from '../container';
 import { archivePatch, isArchived } from '../../../shared/archive';
+import { BulkActionBar, BulkSelectionProvider } from './bulk';
 
 const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3 };
 
@@ -107,11 +108,16 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
   useAssistantContext(board ? { kind: 'database', id: board.id } : null);
 
   const view = board ? resolveView(board, views, viewId) : undefined;
+  const records = board ? boardTasks(tasks, board.id).filter((t) => !t.parentId) : [];
+  const selectionRows = useMemo(() => {
+    if (!board || !view) return [];
+    const ctx = viewCtx(board, tasks, links, me, todayISO());
+    return applyView(records, view.config, ctx).rows;
+  }, [board, links, me, records, tasks, view]);
 
   if (board === undefined) return null;
   if (!board) return <Navigate to="/boards" replace />;
 
-  const records = boardTasks(tasks, board.id).filter((t) => !t.parentId);
   const noun = recordNoun(board);
   const cols = stagesOf(board);
 
@@ -248,7 +254,12 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
 
         {/* the active view */}
         <div className="min-h-0 flex-1 overflow-hidden">
-          {view && renderView(board, view, records, { tasks, links, meId: me })}
+          {view && (
+            <BulkSelectionProvider rows={selectionRows}>
+              {(view.type === 'table' || view.type === 'list') && <BulkActionBar board={board} />}
+              {renderView(board, view, records, { tasks, links, meId: me })}
+            </BulkSelectionProvider>
+          )}
         </div>
       </div>
 

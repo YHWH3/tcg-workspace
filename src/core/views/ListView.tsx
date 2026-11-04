@@ -17,6 +17,7 @@ import { dependencyEdges, isBlocked, useLinks } from '../links';
 import { CheckSquare } from 'lucide-react';
 import { useTokenResolver } from '../resolveMentions';
 import { renderPlain } from '../mentions';
+import { BulkRowCheckbox, useBulkSelection } from './bulk';
 
 export function ListView({ board, view, records }: { board: BoardRow; view: ViewRow; records: TaskRow[] }) {
   const tasks = useTasks();
@@ -29,6 +30,7 @@ export function ListView({ board, view, records }: { board: BoardRow; view: View
   const mobile = useIsMobile();
   const cfg = view.config ?? {};
   const visible = (cfg.visible?.length ? cfg.visible : defaultVisibleKeys(board)).filter((k) => k !== 'title');
+  const selection = useBulkSelection();
 
   const locale=useWorkspaceLocale();
   const ctx = useMemo(() => viewCtx(board, tasks, links, meId, todayISO()), [meId, board, links, tasks,locale.today,locale.settings?.timeZone]);
@@ -50,12 +52,19 @@ export function ListView({ board, view, records }: { board: BoardRow; view: View
         const prio = PRIORITIES.find((p) => p.id === r.priority);
         const isDone = done(r.id);
         return (
-          <button
+          <div
             key={r.id}
-            onClick={() => navigate(`/boards/${board.id}/views/${view.id}/records/${r.id}`)}
-            className="flex w-full items-center gap-3 border-b border-neutral-100 px-3 py-2.5 text-left text-sm transition-colors last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
-            style={{ minHeight: 44 }}
+            className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2.5 last:border-0 dark:border-neutral-800"
+            onPointerDown={() => selection?.startLongPress(r.id)}
+            onPointerUp={selection?.cancelLongPress}
+            onPointerCancel={selection?.cancelLongPress}
           >
+            <BulkRowCheckbox id={r.id} label={`Select ${recordTitle(r) || 'record'}`} />
+            <button
+              onClick={() => navigate(`/boards/${board.id}/views/${view.id}/records/${r.id}`)}
+              className="flex min-w-0 flex-1 items-center gap-3 text-left text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900"
+              style={{ minHeight: 44 }}
+            >
             {stagesOf(board).length > 0 && (
               <span
                 role="checkbox"
@@ -86,7 +95,8 @@ export function ListView({ board, view, records }: { board: BoardRow; view: View
             {prio && prio.id !== 'none' && <span className={cn('hidden text-[11px] sm:inline', prio.cls)}>{prio.label}</span>}
             {r.dueDate && <span className={cn('text-[11px]', overdue ? 'font-medium text-red-500' : 'text-neutral-400')}>{formatDate(String(r.dueDate))}</span>}
             {assignee && <Avatar name={assignee.name} color={assignee.color} size={18} />}
-          </button>
+            </button>
+          </div>
         );
       })}
     </div>
