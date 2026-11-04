@@ -900,3 +900,23 @@ UX run `npm run qa:ux -- --grep 'Page and record export'` passes18/18 cells
 across Chromium, Firefox and WebKit with no skips, failures or host pause. No
 server, migration, permission, provider or contract changes. Phase 9.4
 resolved comments is next.
+
+### 9.4 Resolved comments
+
+Status: implementation complete locally on `sol/p9-everyday`; commit follows
+after this checkpoint is verified. Comment records now carry `resolvedAt` and
+`resolvedBy`; commenter-level access can resolve or reopen a thread without
+editing its body, author or target. The server clamps resolution timestamps,
+derives a notification event for thread participants, and exposes the
+`resolve_comments` MCP tool. The client count excludes resolved comments and
+offers resolve/reopen plus a Show resolved toggle; new comments remain
+unresolved. The activity surface records the resolution and the notification
+preference is independently disable-able.
+
+Evidence: `npx vitest run tests/phase9-comments.test.ts
+tests/phase5-writes-d1.test.ts` passes39/39; `npm run typecheck` and
+`git diff --check` pass. The focused UX run
+`npm run qa:ux -- --grep 'Resolved comments'` passes18/18 cells across
+Chromium, Firefox and WebKit with no skips, failures or host pause. No schema,
+migration, provider or contract change. Phase 9.6 search date/scope filters
+is next (9.6 follows 9.4 per the roadmap; 9.5 and 9.2 are already complete).

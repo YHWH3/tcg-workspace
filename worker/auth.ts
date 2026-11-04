@@ -74,6 +74,7 @@ export type NotifKind =
   | 'mention'
   | 'assigned'
   | 'comment_on_mine'
+  | 'comment_resolved'
   | 'due_soon'
   | 'overdue'
   | 'approval_requested'
@@ -85,6 +86,7 @@ export const NOTIF_KINDS: readonly NotifKind[] = [
   'mention',
   'assigned',
   'comment_on_mine',
+  'comment_resolved',
   'due_soon',
   'overdue',
   'approval_requested',

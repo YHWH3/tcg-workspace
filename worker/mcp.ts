@@ -2440,6 +2440,26 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
   );
 
+  reg(
+    'resolve_comments',
+    {
+      description: 'Resolve or reopen all comments currently on a target. Resolving requires commenter access; it never changes comment bodies.',
+      inputSchema: z.object({ targetType: z.enum(['task', 'page', 'block', 'mooditem']), targetId: z.string(), reopen: z.boolean().optional() }),
+      annotations: { idempotentHint: true },
+    },
+    async ({ targetType, targetId, reopen }) => {
+      const all = (await listBy(ctx.env, 'comments', 'targetId', targetId)).map(toRec).filter((comment) => comment.data.targetType === targetType && !comment.data.deleted);
+      const desired = reopen === true ? null : Date.now();
+      const selected = all.filter((comment) => (desired === null ? comment.data.resolvedAt !== null : comment.data.resolvedAt === undefined || comment.data.resolvedAt === null));
+      if (!selected.length) return txt({ changed: 0, targetType, targetId, reopened: reopen === true });
+      await write(ctx, [
+        ...selected.map((comment) => ({ collection: 'comments' as const, id: comment.id, patch: { resolvedAt: desired, resolvedBy: desired === null ? null : ctx.userId } })),
+        activityOp(ctx.userId, ctx.clientName, 'resolved', targetType, targetId, 'comments', ctx.cs?.id),
+      ]);
+      return txt({ changed: selected.length, targetType, targetId, reopened: reopen === true });
+    },
+  );
+
   /* ---------- 14. publish_page ---------- */
 
   reg(

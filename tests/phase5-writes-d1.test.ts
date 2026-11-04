@@ -227,6 +227,27 @@ describe('Phase 5 actual applyChanges and sync write enforcement', () => {
     expect((await data('own-comment')).body).toBe('Updated');
   });
 
+  it('allows commenter-level users to resolve another author\'s comment, but not viewers', async () => {
+    for (const actor of ['owner', 'editor', 'commenter']) {
+      const result = await applyChanges(env, actor, [change('other-comment', 'comments', { resolvedAt: Date.now(), resolvedBy: actor })], { serverTs: true });
+      expect(result.changed, actor).toBe(1);
+      await applyChanges(env, 'owner', [change('other-comment', 'comments', { resolvedAt: null, resolvedBy: null })], { serverTs: true });
+    }
+    const denied = await applyChanges(env, 'viewer', [change('other-comment', 'comments', { resolvedAt: Date.now(), resolvedBy: 'viewer' })], { serverTs: true });
+    expect(denied.changed).toBe(0); expect(denied.rejected).toBeGreaterThan(0);
+  });
+
+  it('keeps resolution separate from body edits and rejects spoofed or malformed resolution patches', async () => {
+    const mixed = await applyChanges(env, 'commenter', [change('other-comment', 'comments', { body: 'No bundled edit', resolvedAt: Date.now(), resolvedBy: 'commenter' })], { serverTs: true });
+    expect(mixed.changed).toBe(0); expect(mixed.rejected).toBeGreaterThan(0);
+    const spoof = await applyChanges(env, 'commenter', [change('other-comment', 'comments', { resolvedAt: Date.now(), resolvedBy: 'editor' })], { serverTs: true });
+    expect(spoof.changed).toBe(0); expect(spoof.rejected).toBeGreaterThan(0);
+    const valid = await applyChanges(env, 'commenter', [change('other-comment', 'comments', { resolvedAt: Date.now(), resolvedBy: 'commenter' })], { serverTs: true });
+    expect(valid.changed).toBe(1);
+    const reopened = await applyChanges(env, 'commenter', [change('other-comment', 'comments', { resolvedAt: null, resolvedBy: null })], { serverTs: true });
+    expect(reopened.changed).toBe(1); expect((await data('other-comment')).resolvedAt).toBeNull();
+  });
+
   it('requires comment rights for creation and cannot mint a comment as another author', async () => {
     const valid = await applyChanges(env, 'commenter', [change('new-comment', 'comments', { targetType: 'task', targetId: 'record', authorId: 'commenter', body: 'Hello' })]);
     expect(valid.changed).toBe(1); expect((await data('new-comment'))._space).toBe('private');

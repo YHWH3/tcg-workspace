@@ -219,3 +219,14 @@ test('Page and record export: Markdown download and print stylesheet',async({pag
   await health(page,'page Markdown export',info);
   await page.emulateMedia({media:'print'});await info.attach('page-print',{body:await page.screenshot({fullPage:true}),contentType:'image/png'});await page.emulateMedia({media:'screen'});
 });
+test('Resolved comments: unresolved count, resolve, show resolved and reopen',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='task-detail'));
+  await expect(page.getByRole('button',{name:'Resolve thread',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Resolve thread',exact:true}).click();
+  await expect(page.getByText('No unresolved comments',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Show resolved (1)',exact:true}).click();
+  await expect(page.getByText('Synthetic unresolved comment',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Reopen thread',exact:true}).click();
+  await expect(page.getByText('No comments yet',{exact:true})).toHaveCount(0);
+  await health(page,'resolved comments',info);
+});

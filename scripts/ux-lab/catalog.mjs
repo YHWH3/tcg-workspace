@@ -97,5 +97,6 @@ export const requiredCases=[
   'Bulk edit: select filtered rows, apply field, undo and clear selection',
   'CSV import: map, preview, import and accessible error recovery',
   'Page and record export: Markdown download and print stylesheet',
+  'Resolved comments: unresolved count, resolve, show resolved and reopen',
 ];
 export const requiredProjects=['chromium','firefox','webkit'].flatMap(e=>['compact','tablet','desktop'].flatMap(v=>['light','dark'].map(t=>`${e}-${v}-${t}`)));
