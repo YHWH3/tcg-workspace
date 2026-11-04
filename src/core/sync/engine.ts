@@ -34,7 +34,7 @@ interface SyncState {
 export const syncStore = createStore<SyncState>({ status: 'idle', pending: 0, pendingMedia: 0, rejected: 0, quarantined: 0, lastSyncedAt: null });
 export const onlineStore = createStore(typeof navigator === 'undefined' ? true : navigator.onLine);
 
-const PUSH_CHUNK = 500;
+export const PUSH_CHUNK = 500;
 const PULL_LIMIT = 500;
 const CURSOR_KEY = 'sync_cursor';
 
@@ -141,24 +141,40 @@ async function seedWebsiteInbox(): Promise<void> {
   await setMeta(WEBSITE_SEED_DONE, 1);
 }
 
-/** Local write API: apply patch to the local row + enqueue for sync, in one tx. */
-export async function mutate(collection: Collection, id: string, patch: Record<string, unknown>,ifUnchanged?:MutationGuard): Promise<void> {
+type LocalMutation = { id: string; patch: Record<string, unknown>; ifUnchanged?: MutationGuard };
+
+/** Apply local mutations and enqueue their sync entries in one Dexie transaction. */
+async function applyLocalMutations(collection: Collection, items: LocalMutation[]): Promise<void> {
+  if (items.length > PUSH_CHUNK) throw new Error(`mutateMany accepts at most ${PUSH_CHUNK} items`);
+  if (!items.length) return;
   sameAccount();
   assertClientMutationReady();
   const table = db.collection(collection);
-  const ts = hlc.next();
   await db.transaction('rw', table, db.outbox, async () => {
-    const existing = await table.get(id);
-    if(ifUnchanged&&!mutationGuardMatches(ifUnchanged,existing??null))throw new Error('Pack source changed. Refresh the preview before applying.');
-    const row = { ...(existing ?? { id, _ts: {} }), ...patch };
-    const fieldTs = { ...((existing?._ts as Record<string, number> | undefined) ?? {}) };
-    for (const field of Object.keys(patch)) fieldTs[field] = ts;
-    row._ts = fieldTs;
-    await table.put(row);
-    await db.outbox.add({ id, collection, patch, ts, enqueuedAt:Date.now(), createIntent: !existing,...(ifUnchanged?{ifUnchanged}:{}) });
+    for (const { id, patch, ifUnchanged } of items) {
+      const existing = await table.get(id);
+      if (ifUnchanged && !mutationGuardMatches(ifUnchanged, existing ?? null)) throw new Error('Pack source changed. Refresh the preview before applying.');
+      const ts = hlc.next();
+      const row = { ...(existing ?? { id, _ts: {} }), ...patch };
+      const fieldTs = { ...((existing?._ts as Record<string, number> | undefined) ?? {}) };
+      for (const field of Object.keys(patch)) fieldTs[field] = ts;
+      row._ts = fieldTs;
+      await table.put(row);
+      await db.outbox.add({ id, collection, patch, ts, enqueuedAt: Date.now(), createIntent: !existing, ...(ifUnchanged ? { ifUnchanged } : {}) });
+    }
   });
   refreshPending();
   scheduleSync();
+}
+
+/** Local write API: apply one patch to the local row and enqueue it for sync. */
+export async function mutate(collection: Collection, id: string, patch: Record<string, unknown>, ifUnchanged?: MutationGuard): Promise<void> {
+  await applyLocalMutations(collection, [{ id, patch, ...(ifUnchanged ? { ifUnchanged } : {}) }]);
+}
+
+/** Apply up to one push chunk atomically, with one pending refresh and sync kick. */
+export async function mutateMany(collection: Collection, items: { id: string; patch: Record<string, unknown> }[]): Promise<void> {
+  await applyLocalMutations(collection, items);
 }
 
 function validOutboxEntry(e: { id: unknown; collection: unknown; patch: unknown; ts: unknown; ifUnchanged?:unknown }): boolean {

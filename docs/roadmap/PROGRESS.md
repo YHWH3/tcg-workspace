@@ -808,3 +808,20 @@ Engineering decision: `ENGINEERING GO / EXTERNAL BLOCKED`. This is local source
 qualification, not production deployment, legal/provider activation, physical
 device acceptance or genuine human approval. Phase8 implementation and local
 engineering checks are complete on this source; owner launch gates remain open.
+
+## Phase 9 — Everyday conveniences
+
+### 9.0 Engine helper `mutateMany`
+
+Status: done on `sol/p9-everyday`, implementation commit recorded with this
+ledger entry. `src/core/sync/engine.ts` now exposes `mutateMany(collection,
+items)` with the existing 500-item cap. A batch uses one Dexie transaction for
+local rows, per-field timestamps and outbox entries, then performs one pending
+refresh and one sync schedule. `mutate()` uses the same internal path, preserving
+mutation guards and single-write behavior.
+
+Focused evidence: `npx vitest run tests/phase9-engine.test.ts` passes4/4;
+`npm run typecheck` passes; `git diff --check` passes. The tests cover cap
+enforcement, per-item HLC timestamps, outbox patches, mid-batch rollback and
+equivalence to sequential `mutate()` writes. No schema, migration, server,
+permission, contract or provider changes. Phase 9.1 CSV export is next.
