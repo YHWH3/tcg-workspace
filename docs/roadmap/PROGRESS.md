@@ -825,3 +825,21 @@ Focused evidence: `npx vitest run tests/phase9-engine.test.ts` passes4/4;
 enforcement, per-item HLC timestamps, outbox patches, mid-batch rollback and
 equivalence to sequential `mutate()` writes. No schema, migration, server,
 permission, contract or provider changes. Phase 9.1 CSV export is next.
+
+### 9.1 CSV export
+
+Status: done on `sol/p9-everyday`; the implementation and regression commit is
+recorded with this entry. `shared/csv.ts` provides BOM, CRLF, RFC 4180 quoting
+and formula-injection guards. `exportView` serializes evaluated view rows and
+visible columns, including labels, currency-code companions, people/relation
+names and typed checkbox/date/select values. The database menu opens an
+accessible export dialog with row/column counts and the device-sync note.
+Desktop downloads use a Blob; mobile uses Web Share with a file when available
+and falls back to download. Website inbox exports remain typed-field-only and
+omit paid/token references unless explicitly selected.
+
+Evidence: `npx vitest run tests/phase9-csv.test.ts` passes3/3;
+`npm run typecheck` and `npm run build` pass; the focused UX run
+`npm run qa:ux -- --grep 'CSV export'` passes18/18 cells across Chromium,
+Firefox and WebKit. No server endpoint, migration, MCP tool, provider or
+permission change. Phase 9.2 CSV import is next.

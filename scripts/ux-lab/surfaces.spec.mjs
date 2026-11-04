@@ -162,3 +162,17 @@ test('task draft: focus, cross-field edits and responsive recovery',async({page,
   await page.reload();await expect(title).toHaveValue(draft);await expect(description).toHaveValue(body);
   await health(page,'draft recovery',info);
 });
+test('CSV export: visible filtered rows, formula-safe download and keyboard dialog',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='records-table'));
+  const menu=page.getByRole('button',{name:'Database menu',exact:true});await menu.focus();await menu.press('Enter');
+  await page.getByRole('button',{name:'Export CSV…',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Export CSV',exact:true});await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Exports the records synced to this device that you can see');
+  await expect(dialog).toContainText(/rows · \d+ columns/);
+  const [download]=await Promise.all([page.waitForEvent('download'),dialog.getByRole('button',{name:'Download CSV',exact:true}).click()]);
+  expect(download.suggestedFilename()).toMatch(/^ux-records-table-\d{4}-\d{2}-\d{2}\.csv$/);
+  const stream=await download.createReadStream();let body='';if(stream)for await(const chunk of stream)body+=chunk.toString();
+  expect(body.startsWith('\uFEFF')).toBe(true);expect(body).toContain('Unicode');expect(body).toContain('Email');
+  await page.keyboard.press('Escape');await expect(dialog).toBeHidden();await expect(menu).toBeFocused();
+  await health(page,'CSV export dialog and download',info);
+});

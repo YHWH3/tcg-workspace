@@ -12,9 +12,9 @@ import {MoveSpaceButton} from '../MoveSpace';
  * BoardPage (kind 'tasks', unchanged UX) and this shell (kind 'records',
  * or when a database has views).
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, ClipboardList, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users, Zap } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, ClipboardList, Download, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users, Zap } from 'lucide-react';
 import { authStore } from '../auth';
 import { useIsMobile } from '../mobile';
 import { PresenceStack } from '../presence';
@@ -36,6 +36,7 @@ import {
   createView,
   defaultVisibleKeys,
   deleteView,
+  exportView,
   fieldKeyLabel,
   isRecordsDb,
   persistViewConfig,
@@ -55,6 +56,7 @@ import {
   type ViewType,
 } from '../records';
 import { useLinks } from '../links';
+import { useUsers } from '../users';
 import { TableView } from './TableView';
 import { ListView } from './ListView';
 import { GalleryView } from './GalleryView';
@@ -101,6 +103,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
   const detailOverlay=mobile||container.width<54*parseFloat(getComputedStyle(document.documentElement).fontSize);
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [attentionOpen,setAttentionOpen]=useState(false);
+  const [csvExportOpen, setCsvExportOpen] = useState(false);
   useAssistantContext(board ? { kind: 'database', id: board.id } : null);
 
   const view = board ? resolveView(board, views, viewId) : undefined;
@@ -150,6 +153,9 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
               <div className="w-52 p-1 text-sm">
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setFieldsOpen(true); }}>
                   <Pencil size={14} /> Fields…
+                </button>
+                <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setCsvExportOpen(true); }}>
+                  <Download size={14} /> Export CSV…
                 </button>
                 <button className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setAttentionOpen(true); }}>Attention…</button>
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); navigate(`/forms/${board.id}`); }}>
@@ -266,8 +272,67 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
           </div>
         </Sheet>
       )}
+      {csvExportOpen && view && <CsvExportDialog board={board} view={view} records={records} tasks={tasks} links={links} meId={me} onClose={() => setCsvExportOpen(false)} />}
     </div>
   );
+}
+
+function CsvExportDialog({ board, view, records, tasks, links, meId, onClose }: { board: BoardRow; view: ViewRow; records: ReturnType<typeof useDbRecords>; tasks: ReturnType<typeof useTasks>; links: ReturnType<typeof useLinks>; meId: string | undefined; onClose: () => void }) {
+  const mobile = useIsMobile();
+  const users = useUsers();
+  const [includePaymentReferences, setIncludePaymentReferences] = useState(false);
+  const [message, setMessage] = useState('');
+  const ctx = useMemo(() => viewCtx(board, tasks, links, meId, todayISO()), [board, links, meId, tasks]);
+  const result = useMemo(() => exportView(board, view.config, records, ctx, {
+    includePaymentReferences,
+    userName: id => users.find(user => user.id === id)?.name,
+  }), [board, ctx, includePaymentReferences, records, users, view.config]);
+  const filename = `${safeFilename(String(board.name ?? 'database'))}-${safeFilename(String(view.name ?? 'view'))}-${todayISO()}.csv`;
+  const nav = typeof navigator === 'undefined' ? undefined : navigator as Navigator & { share?: (data: ShareData) => Promise<void>; canShare?: (data: ShareData) => boolean };
+  const canShare = typeof nav?.share === 'function' && typeof File !== 'undefined';
+
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([result.csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+  const share = async () => {
+    if (!canShare || !nav) return download();
+    const file = new File([result.csv], filename, { type: 'text/csv;charset=utf-8' });
+    if (!nav.canShare?.({ files: [file] })) return download();
+    try {
+      await nav.share?.({ title: filename, files: [file] });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setMessage('Sharing was unavailable. The file is ready to download.');
+    }
+  };
+
+  return (
+    <Dialog title="Export CSV" onClose={onClose}>
+      <p className="text-sm text-neutral-600 dark:text-neutral-300">{result.rows} rows · {result.columns} columns</p>
+      <p className="mt-2 text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">Exports the records synced to this device that you can see.</p>
+      {board.id === 'board-website-inbox' && (
+        <label className="mt-4 flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={includePaymentReferences} onChange={event => setIncludePaymentReferences(event.target.checked)} className="mt-0.5 h-4 w-4 accent-neutral-900 dark:accent-neutral-200" />
+          <span>Include payment references</span>
+        </label>
+      )}
+      {message && <p role="status" className="mt-3 text-xs text-amber-700 dark:text-amber-300">{message}</p>}
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        {mobile && canShare && <Button variant="primary" onClick={() => void share()}>Share CSV</Button>}
+        <Button variant={mobile && canShare ? 'ghost' : 'primary'} onClick={download}><Download size={14} /> Download CSV</Button>
+      </div>
+    </Dialog>
+  );
+}
+
+function safeFilename(value: string): string {
+  return value.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'export';
 }
 
 function renderView(board: BoardRow, view: ViewRow, records: ReturnType<typeof useDbRecords>, deps: { tasks: ReturnType<typeof useTasks>; links: ReturnType<typeof useLinks>; meId: string | undefined }) {

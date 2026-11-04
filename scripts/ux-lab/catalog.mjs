@@ -93,5 +93,6 @@ export const requiredCases=[
   'text enlargement: 200 percent in inbox and task detail',
   'seeded interaction exploration: edit, offline, reload, resize, theme and search',
   'task draft: focus, cross-field edits and responsive recovery',
+  'CSV export: visible filtered rows, formula-safe download and keyboard dialog',
 ];
 export const requiredProjects=['chromium','firefox','webkit'].flatMap(e=>['compact','tablet','desktop'].flatMap(v=>['light','dark'].map(t=>`${e}-${v}-${t}`)));
