@@ -847,8 +847,8 @@ present as the 9.2 foundation; the user-facing wizard remains to be wired.
 
 ### 9.5 Bulk edit
 
-Status: implementation complete locally on `sol/p9-everyday`; commit follows
-after this checkpoint is verified. Table and list views now share a capped
+Status: done on `sol/p9-everyday` at `c5d361923875fb4682ea8096e064adc5e2e11ee0`.
+Table and list views now share a capped
 selection model (500 rows), with shift-range selection, select-all-filtered,
 keyboard arrow extension and touch long-press entry. The action bar supports
 stage, non-relation field, assignee, due date, archive, soft delete and clear
@@ -866,8 +866,8 @@ permission, provider or contract changes. Phase 9.2 CSV import wizard is next.
 
 ### 9.2 CSV import
 
-Status: implementation complete locally on `sol/p9-everyday`; commit follows
-after this checkpoint is verified. The bounded parser accepts comma, semicolon
+Status: done on `sol/p9-everyday` at `55a5fd8e19dfe835ac76047705458462fa327a97`; the bounded parser accepts
+comma, semicolon
 and tab files with quoted newlines, strips BOMs and enforces 5 MB/5,000-row
 limits. The database menu opens a file/map/options/preview/import wizard with
 explicit date formats, select-option policy, person matching and exact relation
