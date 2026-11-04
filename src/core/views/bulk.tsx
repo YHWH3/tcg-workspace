@@ -209,7 +209,7 @@ export function BulkActionBar({ board }: { board: BoardRow }) {
   const [undoJournal, setUndoJournal] = useState<BulkJournal | null>(null);
   const fields = fieldsOf(board).filter((field) => field.type !== 'relation');
   const stages = Array.isArray(board.columns) ? board.columns : [];
-  if (!selection) return null;
+  if (!selection || (selection.selectedRows.length === 0 && !undoJournal)) return null;
 
   const run = async (patch: Record<string, unknown>, summary: string) => {
     if (!selection.selectedRows.length || busy) return;
@@ -266,7 +266,7 @@ export function BulkActionBar({ board }: { board: BoardRow }) {
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2 border-b border-blue-200 bg-blue-50 px-3 py-2 text-sm dark:border-blue-900/50 dark:bg-blue-950/30" role="region" aria-label="Bulk actions">
+      <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-blue-200 bg-blue-50 px-3 py-2 text-sm dark:border-blue-900/50 dark:bg-blue-950/30" role="region" aria-label="Bulk actions">
         <span className="font-medium">{selection.selectedRows.length} selected</span>
         <button className="rounded-md px-2 py-1 text-xs underline" onClick={selection.selectAll} disabled={selection.rows.length <= selection.selectedRows.length}>Select all filtered ({Math.min(selection.rows.length, BULK_LIMIT)})</button>
         <Select density="compact" aria-label="Bulk stage" value={stage} onChange={(event) => setStage(event.target.value)} className="max-w-40">
