@@ -7,6 +7,13 @@ import {surfaces} from './catalog.mjs';
 import {assertControlGeometry} from '../control-geometry.mjs';
 for(const surface of surfaces)test(`surface: ${surface.id}`,async({page},info)=>{
   await open(page,surface);
+  if(surface.id==='approvals-empty'){
+    await expect(page.getByText('Unavailable item',{exact:true}).first()).toBeVisible();
+    await expect(page.getByRole('link',{name:/^(?:Restricted|Unavailable) item$/})).toHaveCount(0);
+    await expect(page.locator('li a[href="#"]')).toHaveCount(0);
+    const target=page.getByRole('link',{name:'UX task for input geometry',exact:true});await expect(target).toHaveAttribute('href',/\/boards\/ux-tasks\/tasks\/ux-task$/);
+    expect(await target.evaluate(el=>el.getBoundingClientRect().height),'Available approval targets retain a24px hit area').toBeGreaterThanOrEqual(24);
+  }
   await info.attach(surface.id,{body:await page.screenshot({fullPage:true,animations:'disabled'}),contentType:'image/png'});
   await health(page,surface.id,info);
 });

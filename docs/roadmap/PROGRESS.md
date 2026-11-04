@@ -714,3 +714,27 @@ Three original captures inspected. The24cells are scoped precommit evidence;
 they do not replace the full catalog or final certificate. Evidence and exact
 sources: `docs/roadmap/evidence/P8-populated-history-ui.json`. Next source freeze
 runs the full catalog before the expensive mandatory certificate. Phase8 HOLD.
+
+### Unavailable approval history correction
+
+The full catalog at clean22c60a8 finishes its first profile87PASS/2FAIL, with
+1513cells unrun. Both failures are in approvals: unavailable/restricted targets
+render an href# action and can fail target-size at compact scroll boundaries.
+All earlier contrast/Community/automation findings clear in this profile.
+The original failed report remains unchanged.
+
+Approval rows now render unavailable/restricted targets as ordinary text. The
+existing server Restricted item wording stays; missing targets whose only title
+is their id display Unavailable item. Valid internal links retain at least24px
+height. The disposable fixture creates/cancels a request and soft-deletes only
+its synthetic target to make this case repeatable. The initial fixture diagnostic
+expected Restricted item for a missing target; its1FAIL/1PASS is retained as an
+incorrect expectation, not counted as a product regression pass.
+
+Corrected typecheck/build and6/6scoped browser cases across Chromium compact/light,
+Firefox tablet/dark and WebKit desktop/light PASS. Three original captures inspected.
+Regression checks preserve the valid target URL/hit area, plain unavailable text,
+no href# history links and network failure/recovery. No authorization/server/schema/
+contract/provider change. Exact source/evidence: `docs/roadmap/evidence/P8-unavailable-approval-ui.json`.
+Full1602catalog and final34gates remain required after this correction commit.
+Phase8 HOLD; native/physical/human checks remain separately unverified.

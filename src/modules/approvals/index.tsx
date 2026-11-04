@@ -366,9 +366,11 @@ function ApprovalPageRow({ a, me, onDone }: { a: Approval; me: string; onDone: (
     <li className="rounded-xl border border-neutral-200/80 px-3.5 py-3 dark:border-neutral-800">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <a href={a.url ?? '#'} className="block truncate text-[13px] font-semibold text-neutral-800 hover:underline dark:text-neutral-100">
+          {a.url ? <a href={a.url} className="block min-h-6 truncate text-[13px] font-semibold text-neutral-800 hover:underline dark:text-neutral-100">
             {a.targetTitle ?? a.targetId}
-          </a>
+          </a> : <span className="block text-[13px] font-semibold text-neutral-800 dark:text-neutral-100">
+            {a.targetTitle && a.targetTitle !== a.targetId ? a.targetTitle : 'Unavailable item'}
+          </span>}
           <p className="mt-0.5 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
             <span className="font-medium text-neutral-700 dark:text-neutral-300">{requester?.name ?? 'Someone'}</span> → {approver?.name ?? 'member'}
             {stageLabel ? ` · “${stageLabel}”` : ''} · {relTime(a.createdAt)}
