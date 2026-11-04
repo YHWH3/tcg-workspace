@@ -174,6 +174,24 @@ normal reviewed mutation paths. No real installation was upgraded in certificati
 
 Engineering feature evidence: docs/roadmap/evidence/P8-community-533fe09.json.
 Phase8 is still HOLD; this section performs no deployment or real pack upgrade.
+
+## Current source-bound Phase 8 checkpoint
+
+At clean pushed source `c3a20c56e758d8a7dd7fca31eaf636594f4e2c05`, the complete
+browser matrix is `1602/1602 PASS` and the fresh mandatory certificate is
+`34/34 PASS` with no reused gates or host pauses. Native Safari simulator
+qualification is `25/25 PASS` across five installed iOS26.4 profiles. Android
+emulator browser reliability is `20/20 PASS` across small, large and tablet
+profiles. The Android PWA standalone-launch assertion remains explicitly
+`BLOCKED` because private loopback HTTPS cannot provide a verifiable WebAPK
+launcher; it requires a separately authorized hosted HTTPS verification run.
+
+The resulting decision is `ENGINEERING GO / EXTERNAL BLOCKED`. Physical phones
+and tablets, human assistive technology, native zoom/text scaling, hardware
+media providers, previous OS runtimes and production/provider acceptance remain
+owner gates. No deployment, remote migration, real provider operation or human
+approval is claimed by this local certificate. Full evidence is in
+`docs/roadmap/evidence/P8-final-certification-c3a20c5.json`.
 When a later release is authorized, retain the existing backup/rollback steps
 and preview the additive packv7 update in Template gallery. It adds owner/date
 fields and views to People/Organizations and an Event roles block. Existing

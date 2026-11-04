@@ -783,3 +783,28 @@ unchanged reference assertion passes3/3desktop cells across Chromium light,
 Firefox dark and WebKit light. Syntax and diff checks pass. Evidence:
 `docs/roadmap/evidence/P8-visual-date-fixture.json`. Full1602catalog and final34gates
 still require execution on clean committed source. Phase8 remains HOLD.
+
+### Phase 8 final source-bound qualification at c3a20c5
+
+The clean pushed source `c3a20c56e758d8a7dd7fca31eaf636594f4e2c05` passes the
+complete UX matrix:1602/1602 cases across18 Chromium, Firefox and WebKit
+profiles, with no skips, flaky cases or host pause. The fresh mandatory
+certificate passes34/34 gates with0 reused results,0 failures and0 host pauses.
+The exact artifacts are `.artifacts/phase8/full-catalog-c3a20c5/summary.json`
+and `.artifacts/certification/c3a20c56e758d8a7dd7fca31eaf636594f4e2c05-2026-11-04T07-26-34-744Z-complete/summary.json`.
+
+Native Safari on the installed iOS26.4 simulator profiles passes25/25 journeys
+across the SE3 compact profile, iPhone17, iPhone17 Pro Max, iPad A16 and iPad
+Pro13-inch M5. The iPad Pro result is a separate resumed run after an owner
+pause; the interrupted attempt remains preserved and is not counted. Android
+35 emulator browser reliability passes20/20 checks across small, large and
+tablet profiles. Its separate PWA standalone-launch check is explicitly
+`BLOCKED` because the private loopback HTTPS origin cannot produce a verifiable
+WebAPK/Home Screen target. Physical devices, human assistive technology,
+native zoom and a suitable hosted PWA launch remain external gates. Evidence:
+`docs/roadmap/evidence/P8-final-certification-c3a20c5.json`.
+
+Engineering decision: `ENGINEERING GO / EXTERNAL BLOCKED`. This is local source
+qualification, not production deployment, legal/provider activation, physical
+device acceptance or genuine human approval. Phase8 implementation and local
+engineering checks are complete on this source; owner launch gates remain open.
