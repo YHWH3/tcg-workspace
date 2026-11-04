@@ -96,5 +96,6 @@ export const requiredCases=[
   'CSV export: visible filtered rows, formula-safe download and keyboard dialog',
   'Bulk edit: select filtered rows, apply field, undo and clear selection',
   'CSV import: map, preview, import and accessible error recovery',
+  'Page and record export: Markdown download and print stylesheet',
 ];
 export const requiredProjects=['chromium','firefox','webkit'].flatMap(e=>['compact','tablet','desktop'].flatMap(v=>['light','dark'].map(t=>`${e}-${v}-${t}`)));

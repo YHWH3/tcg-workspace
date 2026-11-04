@@ -883,3 +883,20 @@ The focused UX run `npm run qa:ux -- --grep 'CSV import'` passes18/18 cells
 across Chromium, Firefox and WebKit with no skips, failures or host pause. No
 server, migration, permission, provider or contract changes. Phase 9.3 page
 export is next.
+
+### 9.3 Page and record export
+
+Status: implementation complete locally on `sol/p9-everyday`; commit follows
+after this checkpoint is verified. Page and record menus now offer Markdown
+download and Print / Save as PDF. Markdown resolves mentions, replaces local
+file markers with filenames, renders embedded database rows as capped tables,
+and can include sub-pages with heading separators. Record exports put typed
+properties above the body. The global print stylesheet hides the shell,
+toolbars and comment affordances, expands content and uses a light print theme.
+
+Evidence: `npx vitest run tests/phase9-page-export.test.ts` passes2/2;
+`npm run typecheck`, `npm run build` and `git diff --check` pass. The focused
+UX run `npm run qa:ux -- --grep 'Page and record export'` passes18/18 cells
+across Chromium, Firefox and WebKit with no skips, failures or host pause. No
+server, migration, permission, provider or contract changes. Phase 9.4
+resolved comments is next.

@@ -207,3 +207,15 @@ test('CSV import: map, preview, import and accessible error recovery',async({pag
   await expect(dialog).toContainText(/Import complete/);
   await health(page,'CSV import wizard',info);
 });
+test('Page and record export: Markdown download and print stylesheet',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='page'));
+  const menu=page.getByRole('button',{name:'Page menu',exact:true});await menu.focus();await menu.press('Enter');
+  await page.getByRole('button',{name:'Export Markdown…',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Export page',exact:true});await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('textbox',{name:'Markdown preview',exact:true})).toHaveCount(0);
+  const preview=dialog.locator('pre[aria-label="Markdown preview"]');await expect(preview).toContainText('#');
+  const [download]=await Promise.all([page.waitForEvent('download'),dialog.getByRole('button',{name:'Download Markdown',exact:true}).click()]);
+  expect(download.suggestedFilename()).toMatch(/\.md$/);
+  await health(page,'page Markdown export',info);
+  await page.emulateMedia({media:'print'});await info.attach('page-print',{body:await page.screenshot({fullPage:true}),contentType:'image/png'});await page.emulateMedia({media:'screen'});
+});
