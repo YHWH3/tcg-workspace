@@ -42,9 +42,9 @@ test('unsafe fixture/prod configuration fails even when the same values enter th
 test('missing or modified migration cannot satisfy the immutable ledger',t=>{
   const {root}=fixture(t);
   writeFileSync(join(root,'migrations/0001_init.sql'),'-- tampered fixture');
-  assert.ok(failed(root,'36 immutable migration hashes'));
+  assert.ok(failed(root,'38 immutable migration hashes'));
   rmSync(join(root,'migrations/0032_assistant_conversations.sql'));
-  assert.ok(failed(root,'36 immutable migration hashes'));
+  assert.ok(failed(root,'38 immutable migration hashes'));
 });
 
 test('an extra hash-matched migration still requires review of the release count',t=>{
@@ -53,7 +53,7 @@ test('an extra hash-matched migration still requires review of the release count
   const file=join(root,'scripts/certification/migrations.json'),manifest=JSON.parse(readFileSync(file,'utf8'));
   manifest.push({name,sha256:createHash('sha256').update(sql).digest('hex')});
   writeFileSync(file,JSON.stringify(manifest));
-  assert.ok(failed(root,'36 immutable migration hashes'));
+  assert.ok(failed(root,'38 immutable migration hashes'));
 });
 
 test('stale generated target or missing client package fails release packaging',t=>{

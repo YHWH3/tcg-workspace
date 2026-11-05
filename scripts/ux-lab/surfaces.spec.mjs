@@ -35,6 +35,31 @@ test('opened search: focus, empty results and recovery',async({page},info)=>{
   await trigger.press('Enter');await input.fill('UX journal');await expect(page.getByRole('option').filter({hasText:'UX journal'})).toBeVisible();
   await health(page,'search-recovered',info);
 });
+test('Search date filters: keyboard chip selection, custom bounds and announced scope',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='page'));
+  const trigger=page.getByRole('button',{name:/^Search/}).first();await trigger.focus();await trigger.press('Enter');
+  const input=page.getByRole('combobox',{name:'Search workspace',exact:true});await expect(input).toBeVisible();await input.fill('UX journal');
+  const filters=page.getByRole('button',{name:/^Filters/});if(await filters.isVisible())await filters.click();
+  const updated=page.getByRole('combobox',{name:'Updated date filter',exact:true});await expect(updated).toBeVisible();await updated.focus();await expect(updated).toBeFocused();await updated.selectOption('7');await expect(updated).toHaveValue('7');
+  await expect(page.getByRole('status')).toContainText('Filters: updated in the last 7 days');
+  await updated.selectOption('custom');
+  const today=new Date().toISOString().slice(0,10);
+  await page.getByLabel('Updated from',{exact:true}).fill(today);
+  await page.getByLabel('Updated to',{exact:true}).fill(today);
+  await expect(page.getByRole('status')).toContainText(`Filters: updated ${today} to ${today}`);
+  await health(page,'search date filters',info);
+});
+test('Public shares: expiry selection, visible expiry and guarded token rotation',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='page'));
+  const share=page.getByRole('button',{name:'Share',exact:true});await share.focus();await share.press('Enter');
+  const popover=page.getByTestId('share-popover');await expect(popover).toBeVisible();
+  await popover.getByLabel('Link expiry',{exact:true}).selectOption('7');
+  const publish=popover.getByRole('switch',{name:'Publish link',exact:true});await publish.focus();await expect(publish).toBeFocused();await publish.press('Space');
+  const link=popover.locator('input[readonly]');await expect(link).toBeVisible();const first=await link.inputValue();await expect(popover).toContainText('Expires on');
+  page.once('dialog',dialog=>dialog.accept());await popover.getByRole('button',{name:'Replace link',exact:true}).click();await expect.poll(()=>link.inputValue()).not.toBe(first);
+  await publish.press('Space');await expect(link).toBeHidden();
+  await health(page,'public share expiry and rotation',info);
+});
 test('approvals network failure and recovery',async({page,context},info)=>{
   await context.route('**/api/approvals**',route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"synthetic_unavailable"}'}));
   await open(page,surfaces.find(s=>s.id==='approvals-empty'));
@@ -161,4 +186,72 @@ test('task draft: focus, cross-field edits and responsive recovery',async({page,
   await expect.poll(async()=>{const r=await readRecord(taskId);return {title:r?.data.title,description:r?.data.description};},{timeout:20_000}).toEqual({title:draft,description:body});
   await page.reload();await expect(title).toHaveValue(draft);await expect(description).toHaveValue(body);
   await health(page,'draft recovery',info);
+});
+test('CSV export: visible filtered rows, formula-safe download and keyboard dialog',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='records-table'));
+  const menu=page.getByRole('button',{name:'Database menu',exact:true});await menu.focus();await menu.press('Enter');
+  await page.getByRole('button',{name:'Export CSV…',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Export CSV',exact:true});await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Exports the records synced to this device that you can see');
+  await expect(dialog).toContainText(/rows · \d+ columns/);
+  const [download]=await Promise.all([page.waitForEvent('download'),dialog.getByRole('button',{name:'Download CSV',exact:true}).click()]);
+  expect(download.suggestedFilename()).toMatch(/^ux-records-table-\d{4}-\d{2}-\d{2}\.csv$/);
+  const stream=await download.createReadStream();let body='';if(stream)for await(const chunk of stream)body+=chunk.toString();
+  expect(body.startsWith('\uFEFF')).toBe(true);expect(body).toContain('Unicode');expect(body).toContain('Email');
+  await page.keyboard.press('Escape');await expect(dialog).toBeHidden();await expect(menu).toBeFocused();
+  await health(page,'CSV export dialog and download',info);
+});
+test('Bulk edit: select filtered rows, apply field, undo and clear selection',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='records-table'));
+  const table=page.getByTestId('record-table');
+  const checkbox=await table.count()
+    ? table.locator('tbody input[type="checkbox"]').first()
+    : page.getByRole('checkbox',{name:/^Select /}).first();
+  await expect(checkbox).toBeVisible();
+  await checkbox.check();
+  const bar=page.getByRole('region',{name:'Bulk actions',exact:true});await expect(bar).toContainText('1 selected');
+  await bar.getByRole('combobox',{name:'Bulk field',exact:true}).selectOption('date');
+  await bar.getByLabel('Bulk Date',{exact:true}).fill('2026-11-10');
+  await bar.getByRole('button',{name:'Apply field',exact:true}).click();
+  await expect(page.getByText(/1 updated date/i)).toBeVisible();
+  await bar.getByRole('button',{name:'Undo',exact:true}).click();
+  await expect(page.getByText(/Undo restored 1/)).toBeVisible();
+  await health(page,'bulk edit and undo',info);
+});
+test('CSV import: map, preview, import and accessible error recovery',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='records-table'));
+  const menu=page.getByRole('button',{name:'Database menu',exact:true});await menu.focus();await menu.press('Enter');
+  await page.getByRole('button',{name:'Import CSV…',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Import CSV',exact:true});await expect(dialog).toBeVisible();
+  await dialog.locator('input[type="file"]').setInputFiles({name:'phase9-import.csv',mimeType:'text/csv',buffer:Buffer.from('Title,Date\nImported from QA,2026-11-10\n')});
+  await expect(dialog).toContainText('2 columns');
+  await dialog.getByRole('button',{name:'Next: options',exact:true}).click();
+  await dialog.getByRole('button',{name:'Preview import',exact:true}).click();
+  await expect(dialog).toContainText(/Preview: 1 create/);
+  await dialog.getByRole('button',{name:'Import 1 rows',exact:true}).click();
+  await expect(dialog).toContainText(/Import complete/);
+  await health(page,'CSV import wizard',info);
+});
+test('Page and record export: Markdown download and print stylesheet',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='page'));
+  const menu=page.getByRole('button',{name:'Page menu',exact:true});await menu.focus();await menu.press('Enter');
+  await page.getByRole('button',{name:'Export Markdown…',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Export page',exact:true});await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('textbox',{name:'Markdown preview',exact:true})).toHaveCount(0);
+  const preview=dialog.locator('pre[aria-label="Markdown preview"]');await expect(preview).toContainText('#');
+  const [download]=await Promise.all([page.waitForEvent('download'),dialog.getByRole('button',{name:'Download Markdown',exact:true}).click()]);
+  expect(download.suggestedFilename()).toMatch(/\.md$/);
+  await health(page,'page Markdown export',info);
+  await page.emulateMedia({media:'print'});await info.attach('page-print',{body:await page.screenshot({fullPage:true}),contentType:'image/png'});await page.emulateMedia({media:'screen'});
+});
+test('Resolved comments: unresolved count, resolve, show resolved and reopen',async({page},info)=>{
+  await open(page,surfaces.find(s=>s.id==='task-detail'));
+  await expect(page.getByRole('button',{name:'Resolve thread',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Resolve thread',exact:true}).click();
+  await expect(page.getByText('No unresolved comments',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Show resolved (1)',exact:true}).click();
+  await expect(page.getByText('Synthetic unresolved comment',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Reopen thread',exact:true}).click();
+  await expect(page.getByText('No comments yet',{exact:true})).toHaveCount(0);
+  await health(page,'resolved comments',info);
 });

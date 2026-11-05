@@ -74,6 +74,21 @@ textarea {
   field-sizing: content;
 }
 
+/* Print exports are intentionally light and content-first. The app shell,
+ * navigation, toolbars and interactive affordances do not belong in a PDF. */
+@media print {
+  :root, .dark { color-scheme: light; }
+  html, body, #root { height: auto; min-height: 0; background: #fff !important; color: #111 !important; }
+  body { overflow: visible !important; }
+  nav, aside, header, [role='banner'], [role='toolbar'], button, input, textarea, select,
+  .ws-shell-sidebar, .ws-record-detail > div:first-child, [data-comment-badge], [data-print-hide] { display: none !important; }
+  main, .overflow-y-auto, .overflow-auto { overflow: visible !important; height: auto !important; max-height: none !important; }
+  #root { display: block !important; }
+  img, pre, table, blockquote { break-inside: avoid; }
+  a[href^='http']::after { content: ' (' attr(href) ')'; font-size: .8em; overflow-wrap: anywhere; }
+  .ws-record-properties { break-inside: avoid; }
+}
+
 /* Safe-area insets on all four edges, applied once at the owning edge. */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);

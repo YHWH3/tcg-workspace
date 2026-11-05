@@ -304,3 +304,25 @@ AI review snapshots are account/session/access/source bound; a snapshot is
 not mutation authority or proof an approval was made. The updater does not
 replace a team's existing Home or change permissions. Local feature evidence
 remains distinct from final merged-source certification and deployment.
+
+## Phase 9 release additions
+
+The Phase 9 source line adds migrations `0037_phase9_search_dates.sql` and
+`0038_phase9_share_expiry.sql`, in that order after `0036_form_operations_index.sql`.
+Both are pinned in `scripts/certification/migrations.json`; preserve their
+contents and rehearse them on a disposable/restored D1 before any separately
+authorized remote migration. Back up the target before applying either
+migration. Rollback is a forward source rollback plus the owner-reviewed D1
+restore procedure; do not edit or delete an already-applied migration.
+
+Search date bounds are workspace-timezone-aware and do not add secrets or
+provider calls. Public-share expiry is optional, enforced on every public
+read, and token rotation retains the share row's creation history. Configure
+no new production variables for these features. Monitor search index-pending
+rows, cursor/source-version conflicts, expired-link 404s, and rotation errors
+without logging answer bodies or share tokens.
+
+Phase 9 remains review-only until the complete local certification and the
+cross-platform matrix finish on the exact pushed source. Physical devices,
+manual assistive technology, production/provider activation, remote
+migrations, and genuine human approval remain separate owner gates.

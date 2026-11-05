@@ -11,7 +11,7 @@ import {createCertificationReporter} from './certification-report.mjs';
 import {fingerprint} from './certification/core.mjs';
 
 const ROOT=fileURLToPath(new URL('../',import.meta.url));
-export const RELEASE_MIGRATION_COUNT=36;
+export const RELEASE_MIGRATION_COUNT=38;
 const LEGACY_SHA='fb6e203081359b1846694cb1e0c3e5ac9a4a1104';
 export const releaseRehearsalCases=[
  'registered migration hashes and shipped mainline migrations match',
