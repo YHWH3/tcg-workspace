@@ -142,5 +142,13 @@
   {
     "name": "0036_form_operations_index.sql",
     "sha256": "74816c6254de707dccafaf8b13f4f1056ba4fa3464b2777d3ab711011602acdc"
+  },
+  {
+    "name": "0037_phase9_search_dates.sql",
+    "sha256": "1bc114b664abe29afea40df72629c7847865af05a7817b2855a3bac01cb1756d"
+  },
+  {
+    "name": "0038_phase9_share_expiry.sql",
+    "sha256": "09f91af683dc77f3d9c83c0eac1c7bf4d76205518df90131fa8513d1aebc7eb3"
   }
 ]
