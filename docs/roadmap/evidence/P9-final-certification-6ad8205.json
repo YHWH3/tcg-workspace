@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "phase": "9",
+  "decision": "HOLD",
+  "source": {
+    "branch": "sol/p9-everyday",
+    "sha": "6ad8205f0a6fbb8c57ae22778832a93265ec0f85",
+    "tree": "fc327ac22825e73e73f85bd78cab97aac3258b9a",
+    "fingerprint": "1107d698de74f09c0cd3481f606c68745775ce822f8a29d25d54a0c65bc325b3",
+    "remote": "origin/sol/p9-everyday",
+    "pushed": true,
+    "cleanAtCheckpoint": true
+  },
+  "implementationCommits": {
+    "pageAndRecordExport": "813fe776dd5ad2bfb4d89f81c3df2caea2720439",
+    "resolvedComments": "5d8861d2815b70618e508c7a1b44ad1516d5416d",
+    "searchAndShares": "d1f7630748402211350a4efad3199752f72e1123",
+    "bulkAndWebkitA11y": "f94e270be5c0ee6315e98aa7811ef4a4fa47aa9c",
+    "migrationLedger": "6ad8205f0a6fbb8c57ae22778832a93265ec0f85"
+  },
+  "migrations": [
+    "0037_phase9_search_dates.sql",
+    "0038_phase9_share_expiry.sql"
+  ],
+  "checks": [
+    {
+      "name": "typecheck",
+      "status": "PASS",
+      "command": "npm run typecheck"
+    },
+    {
+      "name": "build",
+      "status": "PASS",
+      "command": "npm run build",
+      "notes": "Existing ineffective-dynamic-import and large-chunk warnings remain."
+    },
+    {
+      "name": "release-preflight-and-rehearsal-selftests",
+      "status": "PASS",
+      "pass": 13,
+      "fail": 0,
+      "command": "node --test scripts/certification/release-preflight.test.mjs scripts/certification/release-rehearsal.test.mjs"
+    },
+    {
+      "name": "phase9-regression-set",
+      "status": "PARTIAL",
+      "pass": 58,
+      "fail": 1,
+      "command": "npm test -- --run tests/phase9-engine.test.ts tests/phase9-csv.test.ts tests/phase9-bulk.test.ts tests/phase9-csv-import.test.ts tests/phase9-page-export.test.ts tests/phase9-comments.test.ts tests/phase9-search-dates-d1.test.ts tests/phase9-shares-d1.test.ts tests/phase5-writes-d1.test.ts",
+      "notes": "The only failure was a 30-second Phase 5 Miniflare beforeEach setup timeout under host swap pressure; the Phase 9 files themselves passed."
+    },
+    {
+      "name": "ux-full-matrix",
+      "status": "INCOMPLETE",
+      "expectedBeforeStop": 1728,
+      "passed": 1240,
+      "failed": 4,
+      "profilesPassed": 12,
+      "profilesRequested": 18,
+      "artifact": ".artifacts/ux-lab/2026-11-04T16-25-09.546Z/summary.json",
+      "notes": "Chromium and Firefox completed 1152/1152 assertions. WebKit compact-light stopped with four preserved failures; later reruns showed host memory/swap and suspension-related navigation/context failures."
+    },
+    {
+      "name": "ux-targeted-final-source",
+      "status": "PASS_WITH_HOST_FLAKES",
+      "passedJourneys": [
+        "Search date filters",
+        "Public shares",
+        "opened view controls",
+        "Bulk edit"
+      ],
+      "artifacts": [
+        ".artifacts/ux-lab/2026-11-05T01-45-22.778Z/summary.json",
+        ".artifacts/ux-lab/2026-11-05T02-32-39.235Z/summary.json",
+        ".artifacts/ux-lab/2026-11-05T02-16-50.647Z/summary.json"
+      ],
+      "notes": "All four journeys passed in source-bound individual/partial runs; the combined run also preserved one WebKit sort-dialog timeout under host pressure."
+    },
+    {
+      "name": "certify-ai-f94e270",
+      "status": "INTERRUPTED",
+      "artifact": ".artifacts/certification/f94e270be5c0ee6315e98aa7811ef4a4fa47aa9c-2026-11-04T23-29-41-745Z-complete/report.md",
+      "notes": "Initial run correctly failed the migration ledger before the manifest fix and was interrupted during the long unit gate."
+    },
+    {
+      "name": "certify-ai-6ad8205",
+      "status": "INTERRUPTED",
+      "artifact": ".artifacts/certification/6ad8205f0a6fbb8c57ae22778832a93265ec0f85-2026-11-05T01-00-23-882Z-complete/report.md",
+      "notes": "Follow-up run was interrupted in prerequisites after a measured 903-second host-suspension gap; no gate was relabelled PASS."
+    }
+  ],
+  "externalGates": [
+    "Mac must remain awake for the resumable mandatory certification",
+    "Physical iPhone/iPad Safari",
+    "Physical Android",
+    "Manual assistive technology",
+    "Native 400% browser zoom",
+    "Production/provider activation, remote migrations, and genuine human approval"
+  ],
+  "productionDeployment": false
+}

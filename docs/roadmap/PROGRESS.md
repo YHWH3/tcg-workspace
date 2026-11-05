@@ -857,6 +857,10 @@ approval requests rather than being applied optimistically. Bulk writes use
 `mutateMany`; a seven-day Dexie journal supports revision-safe undo from the
 action bar and Settings → Recent bulk edits.
 
+Follow-up reliability fix: `f94e270be5c0ee6315e98aa7811ef4a4fa47aa9c` keeps the
+action bar hidden until a row is selected, preserves it for an available undo,
+and prevents the compact controls from shrinking below the touch target gate.
+
 Evidence: `npx vitest run tests/phase9-bulk.test.ts tests/phase9-csv.test.ts
 tests/phase9-engine.test.ts` passes11/11; `npm run typecheck`, `npm run build`
 and `git diff --check` pass. The focused UX run
@@ -886,8 +890,8 @@ export is next.
 
 ### 9.3 Page and record export
 
-Status: implementation complete locally on `sol/p9-everyday`; commit follows
-after this checkpoint is verified. Page and record menus now offer Markdown
+Status: done on `sol/p9-everyday` at `813fe776dd5ad2bfb4d89f81c3df2caea2720439`.
+Page and record menus now offer Markdown
 download and Print / Save as PDF. Markdown resolves mentions, replaces local
 file markers with filenames, renders embedded database rows as capped tables,
 and can include sub-pages with heading separators. Record exports put typed
@@ -903,8 +907,8 @@ resolved comments is next.
 
 ### 9.4 Resolved comments
 
-Status: implementation complete locally on `sol/p9-everyday`; commit follows
-after this checkpoint is verified. Comment records now carry `resolvedAt` and
+Status: done on `sol/p9-everyday` at `5d8861d2815b70618e508c7a1b44ad1516d5416d`.
+Comment records now carry `resolvedAt` and
 `resolvedBy`; commenter-level access can resolve or reopen a thread without
 editing its body, author or target. The server clamps resolution timestamps,
 derives a notification event for thread participants, and exposes the
@@ -920,3 +924,69 @@ tests/phase5-writes-d1.test.ts` passes39/39; `npm run typecheck` and
 Chromium, Firefox and WebKit with no skips, failures or host pause. No schema,
 migration, provider or contract change. Phase 9.6 search date/scope filters
 is next (9.6 follows 9.4 per the roadmap; 9.5 and 9.2 are already complete).
+
+### 9.6 Search date and scope filters
+
+Status: done in the source line carried by `6ad8205f0a6fbb8c57ae22778832a93265ec0f85`.
+Search documents now retain `created_at` and `updated_at` metadata, with
+workspace-timezone-aware absolute and relative bounds (`today`, `today-N`,
+`today+N`). The MCP and HTTP search paths apply the same date bounds, include
+them in cursor fingerprints, and keep pending index rows explicit. The client
+adds keyboard-accessible Updated filters (Any time, Last 7 days, Last 30 days,
+or custom From/To dates) with a live status announcement and the same local
+timezone semantics.
+
+Evidence: `npm run typecheck`, `npm run build`, and the Phase 9 D1 regression
+set were run on the source line. A source-bound WebKit compact-light targeted
+run passed the Search date filters journey (artifact
+`.artifacts/ux-lab/2026-11-05T02-16-50.647Z`). Full 18-profile UX certification
+is not claimed; the last complete matrix was interrupted by host suspension
+and later WebKit resource pressure.
+
+### 9.7 Public-share expiry and rotation
+
+Status: done in the source line carried by
+`6ad8205f0a6fbb8c57ae22778832a93265ec0f85`. Public share rows now support
+optional 7-, 30- and 90-day expiry, enforce expiry on every public page,
+canvas and file read, expose expiry in Settings, and rotate tokens in place
+while retaining creation history. The share popover presents the expiry,
+focusable publish switch, and a guarded Replace link flow. MCP share tools
+accept the same expiry options and return the resulting expiry metadata.
+
+Evidence: migration `0038_phase9_share_expiry.sql` is registered with its
+immutable hash; `node --test scripts/certification/release-preflight.test.mjs
+scripts/certification/release-rehearsal.test.mjs` passes 13/13. A source-bound
+WebKit compact-light Public shares journey passes 1/1 at
+`.artifacts/ux-lab/2026-11-05T01-45-22.778Z`.
+
+### Phase 9 certification checkpoint
+
+The pushed branch is `sol/p9-everyday` at
+`6ad8205f0a6fbb8c57ae22778832a93265ec0f85` (tree
+`fc327ac22825e73e73f85bd78cab97aac3258b9a`; source fingerprint
+`1107d698de74f09c0cd3481f606c68745775ce822f8a29d25d54a0c65bc325b3`). The
+branch is clean and the remote is up to date. Migrations `0037` and `0038` are
+in `scripts/certification/migrations.json` and the release self-tests pass.
+
+The full UX matrix remains incomplete. The first complete attempt reached
+Chromium 6/6 and Firefox 6/6 profiles (1,152/1,152 assertions) before the
+first WebKit profile exposed an axe-core dialog traversal hang; the harness
+now bounds WebKit axe runs only while dialogs are visible. Subsequent WebKit
+runs produced preserved navigation/context timeouts under host memory/swap
+pressure, so they are evidence of an interrupted environment, not a pass.
+Artifacts: `.artifacts/ux-lab/2026-11-04T16-25-09.546Z/summary.json`,
+`.artifacts/ux-lab/2026-11-04T18-04-23.106Z/summary.json`, and the later
+source-bound targeted artifacts under `.artifacts/ux-lab/2026-11-05T01-45-22.778Z`
+and `.artifacts/ux-lab/2026-11-05T02-32-39.235Z`.
+
+`npm run certify:ai` on `f94e270` failed closed on the unregistered 0037/0038
+migrations and was interrupted during the unit gate after a host pause. The
+follow-up run on `6ad8205` was interrupted in prerequisites after a measured
+903-second host-suspension gap. Its checkpoint is
+`.artifacts/certification/6ad8205f0a6fbb8c57ae22778832a93265ec0f85-2026-11-05T01-00-23-882Z-complete/`.
+
+Engineering decision: **HOLD** until the mandatory certification can complete
+on this exact source with the Mac kept awake. This is local source evidence
+only: no deployment, remote migration, production/provider activation,
+physical-device acceptance, manual assistive-technology review, or genuine
+human approval is claimed.
