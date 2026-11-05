@@ -961,12 +961,13 @@ WebKit compact-light Public shares journey passes 1/1 at
 
 ### Phase 9 certification checkpoint
 
-The pushed branch is `sol/p9-everyday` at
+The pushed code source checkpoint is `sol/p9-everyday` at
 `6ad8205f0a6fbb8c57ae22778832a93265ec0f85` (tree
 `fc327ac22825e73e73f85bd78cab97aac3258b9a`; source fingerprint
 `1107d698de74f09c0cd3481f606c68745775ce822f8a29d25d54a0c65bc325b3`). The
-branch is clean and the remote is up to date. Migrations `0037` and `0038` are
-in `scripts/certification/migrations.json` and the release self-tests pass.
+docs/evidence follow-up is pushed after that source checkpoint. The branch was
+clean at the source checkpoint and migrations `0037` and `0038` are in
+`scripts/certification/migrations.json`; the release self-tests pass.
 
 The full UX matrix remains incomplete. The first complete attempt reached
 Chromium 6/6 and Firefox 6/6 profiles (1,152/1,152 assertions) before the
