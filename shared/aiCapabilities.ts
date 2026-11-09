@@ -64,7 +64,7 @@ export const CAPABILITIES: readonly Capability[] = [
   // Files
   R('list_attachments', 'files'),
   // Comments
-  W('add_comment', 'comments'), R('list_comments', 'comments'),
+  W('add_comment', 'comments'), W('resolve_comments', 'comments'), R('list_comments', 'comments'),
   // Approvals (human decisions only)
   R('list_approvals', 'approvals'), H('request_approval', 'approvals'), H('decide_approval', 'approvals'),
   // People

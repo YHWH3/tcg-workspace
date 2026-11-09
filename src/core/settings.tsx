@@ -23,6 +23,10 @@ import { AdaptiveDialog, Avatar, Button, Field, Input, Spinner } from './ui';
 import { cn } from './utils';
 import { Sessions } from './Sessions';
 import { AssistantSettings } from './assistant/AssistantSettings';
+import { listBulkJournals, undoBulkJournal, type BulkJournal } from './views/bulk';
+import { listCsvImportJournals, undoCsvImportJournal, type CsvImportJournal } from './csvImport';
+import { useWorkspaceLocale, workspaceTimeZone } from './workspaceLocale';
+import { toDateOnlyInZone } from '../../shared/dates';
 
 interface InviteRow {
   code: string;
@@ -57,11 +61,42 @@ export function SettingsPage() {
         <Section title="Usage and retention"><Usage/></Section>
         <NotificationsSection />
         <LocalDataSection user={user} />
+        <ActiveSharesSection />
+        <RecentBulkEditsSection />
+        <RecentImportsSection />
         <PasswordSection />
         <Section title="Signed-in devices"><Sessions /></Section>
         {user?.role === 'admin' && <AdminSection />}
       </div>
     </div>
+  );
+}
+
+interface ActiveShareRow {
+  token: string;
+  page_id: string;
+  target_type?: string;
+  expires_at?: number | null;
+}
+
+function ActiveSharesSection() {
+  const [shares, setShares] = useState<ActiveShareRow[] | null>(null);
+  const locale = useWorkspaceLocale();
+  useEffect(() => {
+    void api<ActiveShareRow[]>('/api/shares').then(setShares).catch(() => setShares([]));
+  }, []);
+  const zone = locale.settings?.timeZone ?? workspaceTimeZone();
+  return (
+    <Section title="Active public shares">
+      {shares === null ? <p role="status" className="text-sm text-neutral-600 dark:text-neutral-400">Loading public links…</p> : shares.length === 0 ? <p className="text-sm text-neutral-600 dark:text-neutral-400">No active public links.</p> : <ul className="space-y-2">
+        {shares.map((share) => {
+          const canvas = share.target_type === 'moodboard';
+          const url = `${location.origin}${canvas ? '/s/canvas/' : '/s/'}${share.token}`;
+          const expires = share.expires_at ? toDateOnlyInZone(share.expires_at, zone) : null;
+          return <li key={`${share.target_type ?? 'page'}:${share.page_id}`} className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700"><a className="min-w-0 flex-1 break-all underline" href={url}>{canvas ? 'Mood board' : 'Page'} · {share.page_id}</a><span className="text-xs text-neutral-600 dark:text-neutral-400">{expires ? `expires ${expires}` : 'never expires'}</span></li>;
+        })}
+      </ul>}
+    </Section>
   );
 }
 
@@ -224,6 +259,52 @@ function LocalDataSection({ user }: { user: PublicUser | null }) {
         </div>
       )}
       </div>}
+    </Section>
+  );
+}
+
+function RecentBulkEditsSection() {
+  const [journals, setJournals] = useState<BulkJournal[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const reload = useCallback(async () => setJournals(await listBulkJournals()), []);
+  useEffect(() => { void reload(); }, [reload]);
+  if (!journals.length) return null;
+  return (
+    <Section title="Recent bulk edits">
+      <p className="mb-3 text-xs text-neutral-600 dark:text-neutral-400">Undo is available for seven days. Records changed after an edit are left untouched.</p>
+      <ul className="space-y-2">
+        {journals.slice(0, 20).map((journal) => (
+          <li key={journal.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700">
+            <span className="min-w-0 flex-1">{journal.summary} · {journal.items.length} records</span>
+            <Button size="sm" variant="outline" disabled={busy === journal.id} onClick={() => { setBusy(journal.id); void undoBulkJournal(journal).then((result) => { toast(`Undo restored ${result.restored}${result.skipped ? ` · ${result.skipped} changed since` : ''}`); return reload(); }).finally(() => setBusy(null)); }}>
+              <Undo2 size={13} /> Undo
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+function RecentImportsSection() {
+  const [journals, setJournals] = useState<CsvImportJournal[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const reload = useCallback(async () => setJournals(await listCsvImportJournals()), []);
+  useEffect(() => { void reload(); }, [reload]);
+  if (!journals.length) return null;
+  return (
+    <Section title="Recent imports">
+      <p className="mb-3 text-xs text-neutral-600 dark:text-neutral-400">Undo is available for seven days. Records changed after an import are left untouched.</p>
+      <ul className="space-y-2">
+        {journals.slice(0, 20).map((journal) => (
+          <li key={journal.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700">
+            <span className="min-w-0 flex-1">{journal.created.length + journal.updates.length} rows · {new Date(journal.createdAt).toLocaleString()}</span>
+            <Button size="sm" variant="outline" disabled={busy === journal.id} onClick={() => { setBusy(journal.id); void undoCsvImportJournal(journal).then((result) => { toast(`Undo restored ${result.restored}${result.skipped ? ` · ${result.skipped} changed since` : ''}`); return reload(); }).finally(() => setBusy(null)); }}>
+              <Undo2 size={13} /> Undo
+            </Button>
+          </li>
+        ))}
+      </ul>
     </Section>
   );
 }

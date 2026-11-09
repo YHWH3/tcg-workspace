@@ -20,6 +20,7 @@ export interface SemanticEvent {
     | 'record.field_changed'
     | 'record.assigned'
     | 'comment.created'
+    | 'comment.resolved'
     | 'mention.created'
     | 'form.submitted';
   snapshot?:Record<string,unknown>;
@@ -66,6 +67,14 @@ export function deriveEvents(applied: AppliedLike[]): SemanticEvent[] {
         collection,
         targetType: typeof after.targetType === 'string' ? (after.targetType as string) : undefined,
         targetId: typeof after.targetId === 'string' ? (after.targetId as string) : undefined,
+      });
+    } else if (collection === 'comments' && !ch.created && changed.has('resolvedAt') && changed.has('resolvedBy') && after.resolvedAt !== before.resolvedAt && after.resolvedAt !== null) {
+      events.push({
+        kind: 'comment.resolved',
+        recordId: id,
+        collection,
+        targetType: typeof after.targetType === 'string' ? after.targetType : undefined,
+        targetId: typeof after.targetId === 'string' ? after.targetId : undefined,
       });
     } else if (collection === 'tasks' && ch.created) {
       events.push({

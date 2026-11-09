@@ -103,6 +103,42 @@ export function toDateOnlyInZone(ms: number, timeZone = 'UTC'): string | null {
   } catch { return null; }
 }
 
+/** Convert a calendar day to the instant at local midnight in an IANA zone.
+ * Date-only filters are calendar filters, so using `Date.parse(`${day}T00:00Z`)`
+ * would shift the boundary for workspaces east or west of UTC. The small
+ * fixed-point adjustment below uses the platform's timezone database and also
+ * handles daylight-saving transitions without shipping a second date library. */
+export function dateOnlyStartInZone(date: string, timeZone = 'UTC'): number | null {
+  const parsed = parseDateOnly(date);
+  if (!parsed) return null;
+  const target = toMs(parsed);
+  let guess = target;
+  try {
+    for (let i = 0; i < 4; i += 1) {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        calendar: 'gregory',
+        numberingSystem: 'latn',
+        hourCycle: 'h23',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }).formatToParts(guess);
+      const value = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? NaN);
+      const localAsUtc = Date.UTC(value('year'), value('month') - 1, value('day'), value('hour'), value('minute'), value('second'));
+      const next = guess + (target - localAsUtc);
+      if (next === guess) return guess;
+      guess = next;
+    }
+    return guess;
+  } catch {
+    return null;
+  }
+}
+
 /** Whole days from a to b (b − a). Null when either input is invalid. */
 export function daysBetween(a: string, b: string): number | null {
   const pa = parseDateOnly(a);

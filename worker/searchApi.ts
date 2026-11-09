@@ -6,6 +6,8 @@ import { Hono } from 'hono';
 import { requireAuth, type AuthUser, type Env } from './auth';
 import { withReadGate } from './readAccess';
 import { SEARCH_MAX_LIMIT, SearchError, type SearchType } from './search';
+import { serverDateContext } from './workspaceSettings';
+import { parseSearchDateBounds } from './searchDates';
 
 export const searchApi = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 searchApi.use('*', requireAuth);
@@ -21,8 +23,11 @@ searchApi.get('/', async (c) => {
   const q = c.req.query('q') ?? '', type = c.req.query('type'), limit = Number(c.req.query('limit') ?? 20);
   if (q.length > 200 || (type && !TYPES.has(type)) || !Number.isFinite(limit) || limit < 1 || limit > SEARCH_MAX_LIMIT) return c.json({ error: 'invalid_query' }, 400);
   try {
+    const dateContext = await serverDateContext(c.env);
+    const dates = parseSearchDateBounds({ updatedFrom: c.req.query('updatedFrom'), updatedTo: c.req.query('updatedTo'), createdFrom: c.req.query('createdFrom'), createdTo: c.req.query('createdTo') }, dateContext.today, dateContext.timeZone);
+    if (!dates) return c.json({ error: 'invalid_query' }, 400);
     const mode=c.req.query('mode')??'keyword';if(!['keyword','semantic','hybrid'].includes(mode))return c.json({error:'invalid_mode'},400);
-    const out = await hybridSearch(withReadGate(c.env, user.id), user.id, { q, spaceId:c.req.query('space') || undefined, type: type as SearchType | undefined, databaseId: c.req.query('database') || undefined, cursor: c.req.query('cursor') || null, limit },mode as 'keyword'|'semantic'|'hybrid');
+    const out = await hybridSearch(withReadGate(c.env, user.id), user.id, { q, spaceId:c.req.query('space') || undefined, type: type as SearchType | undefined, databaseId: c.req.query('database') || undefined, ...dates, cursor: c.req.query('cursor') || null, limit },mode as 'keyword'|'semantic'|'hybrid');
     return c.json({ ...out, results: out.results.map((r) => ({ id: r.docId, type: r.type, title: r.title, url: r.url ?? URL_OF[r.type](r.docId, r.databaseId), snippet: r.snippet })) });
   } catch (error) {
     if (error instanceof SearchError) return c.json({ error: error.code }, 400);

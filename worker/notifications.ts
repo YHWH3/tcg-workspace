@@ -20,6 +20,7 @@ export interface NewNotification {
     | 'mention'
     | 'assigned'
     | 'comment_on_mine'
+    | 'comment_resolved'
     | 'due_soon'
     | 'overdue'
     | 'approval_requested'
@@ -247,6 +248,27 @@ export async function notificationsForEvent(
           groupKey: `comment:${ev.targetId}`,
           dedupeKey,
         });
+      } else if (ev.kind === 'comment.resolved') {
+        if (!ev.targetId || !ev.targetType) continue;
+        const target = await fetchRec(env.DB, ev.targetId, recCache);
+        const title = titleOf(target);
+        const participants = await env.DB.prepare(`SELECT DISTINCT json_extract(data,'$.authorId') AS author_id FROM records WHERE collection='comments' AND json_extract(data,'$.targetId')=? AND COALESCE(json_extract(data,'$.deleted'),0) != 1`).bind(ev.targetId).all<{ author_id: string | null }>();
+        for (const participant of participants.results) {
+          const uid = participant.author_id;
+          if (typeof uid !== 'string' || !uid || uid === actorId) continue;
+          await notify(env, {
+            userId: uid,
+            kind: 'comment_resolved',
+            actorId,
+            targetType: ev.targetType,
+            targetId: ev.targetId,
+            title: `${await actor()} resolved comments${title ? ` on "${title}"` : ''}`,
+            body: title || undefined,
+            url: urlFor(target, ev.targetId),
+            groupKey: `comment-resolved:${ev.targetId}`,
+            dedupeKey,
+          });
+        }
       } else if (ev.kind === 'mention.created') {
         const uid = typeof ev.to === 'string' ? ev.to : '';
         if (!uid || uid === actorId) continue;

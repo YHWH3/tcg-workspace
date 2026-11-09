@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { MessageSquare, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Check, MessageSquare, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { authStore } from '../../core/auth';
 import { logActivity } from '../../core/activity';
 import { db, type LocalRow } from '../../core/db';
 import { useIsMobile } from '../../core/mobile';
 import { commentTargetStore } from '../../core/commentui';
 import { useStore } from '../../core/store';
-import { mutate } from '../../core/sync/engine';
+import { mutate, mutateMany } from '../../core/sync/engine';
 import { Avatar, IconButton, Menu, Popover, Sheet, Textarea } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { cn, relTime, uuid } from '../../core/utils';
@@ -22,12 +22,14 @@ export interface CommentRow extends LocalRow {
   authorId?: string;
   createdAt?: number;
   editedAt?: number;
+  resolvedAt?: number | null;
+  resolvedBy?: string | null;
   deleted?: boolean;
 }
 
 /** Non-deleted comment count for any target (badges on blocks/mood items). */
 export function useCommentCount(targetId: string | undefined): number {
-  return useLiveQuery(() => (targetId ? db.comments.where('targetId').equals(targetId).filter((c) => !c.deleted).count() : Promise.resolve(0)), [targetId], 0) ?? 0;
+  return useLiveQuery(() => (targetId ? db.comments.where('targetId').equals(targetId).filter((c) => !c.deleted && c.resolvedAt == null).count() : Promise.resolve(0)), [targetId], 0) ?? 0;
 }
 
 async function targetTitle(targetType: CommentTarget, targetId: string): Promise<string> {
@@ -57,8 +59,12 @@ export function CommentThread({ targetType, targetId, compact }: { targetType: C
   const raw = useLiveQuery(() => db.comments.where('targetId').equals(targetId).toArray(), [targetId], []);
   const comments = ((raw ?? []) as CommentRow[]).filter((c) => !c.deleted && c.targetType === targetType).sort((a, b) => Number(a.createdAt ?? 0) - Number(b.createdAt ?? 0));
   const [draft, setDraft] = useState('');
+  const [showResolved, setShowResolved] = useState(false);
+  const [busy, setBusy] = useState(false);
   const me = authStore.get().user;
   const users = useUsers();
+  const resolved = comments.filter((comment) => comment.resolvedAt != null);
+  const visibleComments = showResolved ? comments : comments.filter((comment) => comment.resolvedAt == null);
 
   const submit = async () => {
     const body = draft.trim();
@@ -68,16 +74,31 @@ export function CommentThread({ targetType, targetId, compact }: { targetType: C
     await mutate('comments', id, { targetType, targetId, body, authorId: me.id, createdAt: Date.now() });
     logActivity('commented', targetType, targetId, await targetTitle(targetType, targetId));
   };
+  const setResolved = async (reopen: boolean) => {
+    const targets = (reopen ? resolved : comments.filter((comment) => comment.resolvedAt == null)).slice(0, 500);
+    if (!targets.length || !me || busy) return;
+    setBusy(true);
+    try {
+      for (let i = 0; i < targets.length; i += 200) await mutateMany('comments', targets.slice(i, i + 200).map((comment) => ({ id: comment.id, patch: { resolvedAt: reopen ? null : Date.now(), resolvedBy: reopen ? null : me.id } })));
+      logActivity('resolved', targetType, targetId, await targetTitle(targetType, targetId));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className={cn('flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto', compact ? 'px-4 py-3' : 'py-1')}>
-        {comments.length === 0 && <p className="py-4 text-center text-xs text-neutral-500 dark:text-neutral-400">No comments yet</p>}
-        {comments.map((c) => {
+        {visibleComments.length === 0 && <p className="py-4 text-center text-xs text-neutral-500 dark:text-neutral-400">{comments.length ? 'No unresolved comments' : 'No comments yet'}</p>}
+        {visibleComments.map((c) => {
           const author = resolveUser(c.authorId ?? null, users, me);
           return <CommentItem key={c.id} comment={c} isOwn={c.authorId === me?.id} authorName={author?.name ?? 'Someone'} authorColor={author?.color} />;
         })}
       </div>
+      {(resolved.length > 0 || comments.some((comment) => comment.resolvedAt == null)) && <div className="flex flex-wrap items-center gap-2 border-t border-neutral-100 px-4 py-2 text-xs dark:border-neutral-800">
+        {resolved.length > 0 && <button className="min-h-8 rounded-md px-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => setShowResolved((value) => !value)}>{showResolved ? 'Hide' : 'Show'} resolved ({resolved.length})</button>}
+        {!!me && <button className="inline-flex min-h-8 items-center gap-1 rounded-md px-2 font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800" disabled={busy} onClick={() => void setResolved(showResolved && resolved.length > 0)}><Check size={13} /> {showResolved && resolved.length > 0 ? 'Reopen thread' : 'Resolve thread'}</button>}
+      </div>}
       <div className={cn('flex shrink-0 items-center gap-2.5 border-t border-neutral-100 pt-3 dark:border-neutral-800', compact && 'mx-4 pb-3')}>
         {me && <Avatar name={me.name} color={me.color} size={26} />}
         <input
@@ -149,7 +170,7 @@ function CommentItem({ comment, isOwn, authorName, authorColor }: { comment: Com
               <span className="font-semibold text-neutral-900 dark:text-white">{authorName}</span>{' '}
               <span className="whitespace-pre-wrap">{String(comment.body ?? '')}</span>
             </p>
-            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-neutral-400">
+            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
               {relTime(Number(comment.createdAt ?? 0))}
               {comment.editedAt ? '· edited' : ''}
               {isOwn && (

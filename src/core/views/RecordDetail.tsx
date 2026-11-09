@@ -11,7 +11,7 @@ import {HistoryButton} from '../History';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Archive, ArchiveRestore, ArrowRight, Calendar, ChevronDown, ChevronRight, CornerDownRight, Link2, MoreHorizontal, Plus, Trash2, Users, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowRight, Calendar, ChevronDown, ChevronRight, CornerDownRight, Download, Link2, MoreHorizontal, Plus, Trash2, Users, X } from 'lucide-react';
 import { db } from '../db';
 import { renderPlain } from '../mentions';
 import { useTokenResolver } from '../resolveMentions';
@@ -37,6 +37,7 @@ import { RecordAttachments } from './attachments';
 import { ItemPicker, RelationPicker, type PickItem } from './picker';
 import { MoveRecordDialog } from './move';
 import { archivePatch, isArchived } from '../../../shared/archive';
+import { RecordExportDialog } from './RecordExport';
 
 export function RecordDetail({ recordId, board: boardProp, onClose }: { recordId: string; board?: BoardRow; onClose: () => void }) {
   const rec = useLiveQuery(() => db.tasks.get(recordId), [recordId]) as TaskRow | undefined;
@@ -75,6 +76,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rec.id]);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(true);
 
   const cols = stagesOf(board);
@@ -131,6 +133,9 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
                 }}
               >
                 <CornerDownRight size={14} /> Move {noun.toLowerCase()}…
+              </button>
+              <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); setExportOpen(true); }}>
+                <Download size={14} /> Export Markdown…
               </button>
               <button
                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
@@ -329,6 +334,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
       </div>
 
       {moveOpen && <MoveRecordDialog rec={rec} board={board} tasks={tasks} onClose={() => setMoveOpen(false)} />}
+      {exportOpen && <RecordExportDialog record={rec} board={board} onClose={() => setExportOpen(false)} />}
     </div>
   );
 }

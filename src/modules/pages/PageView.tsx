@@ -5,11 +5,11 @@ import {HistoryButton} from '../../core/History';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, Navigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Archive, ArchiveRestore, FilePlus2, FileText, LayoutTemplate, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Download, FilePlus2, FileText, LayoutTemplate, MoreHorizontal, Printer, Trash2 } from 'lucide-react';
 import { db } from '../../core/db';
 import { mutate } from '../../core/sync/engine';
 import { archivePatch, isArchived } from '../../../shared/archive';
-import { IconButton, Menu, Popover, EmptyState } from '../../core/ui';
+import { Dialog, IconButton, Menu, Popover, EmptyState, Button } from '../../core/ui';
 import { cn, cmpOrder, debounce } from '../../core/utils';
 import { PAGE_ICONS } from '../../core/config';
 import { modules } from '..';
@@ -22,6 +22,10 @@ import { BlockEditor } from './BlockEditor';
 import { SelectionAskAi } from './SelectionAskAi';
 import { AskAiMenu } from '../../core/assistant/AskAiMenu';
 import { useAssistantContext } from '../../core/assistant/store';
+import { pageToMarkdown } from '../../core/pageExport';
+import { fieldsOf, propKey } from '../../../shared/fields';
+import { useUsers } from '../../core/users';
+import type { BoardRow, TaskRow } from '../boards/api';
 
 export function PagesHome() {
   const pages = usePages();
@@ -71,6 +75,7 @@ export function PageView() {
   const page = useLiveQuery(async () => pageId ? (await db.pages.get(pageId)) ?? null : null, [pageId]) as PageRow | null | undefined;
   const [title, setTitle] = useState('');
   const [focused, setFocused] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const debouncedRename = useRef(debounce((id: string, t: string) => void renamePage(id, t), 400));
   const editorRef = useRef<HTMLDivElement>(null);
   const isDashboard = useLiveQuery(
@@ -133,6 +138,16 @@ export function PageView() {
                   label: page.isTemplate ? 'Remove template' : 'Use as template',
                   icon: LayoutTemplate,
                   onClick: () => void mutate('pages', page.id, { isTemplate: !page.isTemplate }),
+                },
+                {
+                  label: 'Export Markdown…',
+                  icon: Download,
+                  onClick: () => setExportOpen(true),
+                },
+                {
+                  label: 'Print / Save as PDF',
+                  icon: Printer,
+                  onClick: () => window.print(),
                 },
                 {
                   label: isArchived(page) ? 'Unarchive' : 'Archive',
@@ -217,8 +232,50 @@ export function PageView() {
 
       <Backlinks pageId={page.id} />
       <Slot modules={modules} kind="pageFooter" props={{ pageId: page.id }} />
+      {exportOpen && <PageExportDialog page={page} onClose={() => setExportOpen(false)} />}
     </div>
   );
+}
+
+function PageExportDialog({ page, onClose }: { page: PageRow; onClose: () => void }) {
+  const [includeSubPages, setIncludeSubPages] = useState(false);
+  const pages = (useLiveQuery(() => db.pages.toArray(), [], []) ?? []) as PageRow[];
+  const blocks = useLiveQuery(() => db.blocks.toArray(), [], []) ?? [];
+  const tasks = (useLiveQuery(() => db.tasks.toArray(), [], []) ?? []) as TaskRow[];
+  const boards = (useLiveQuery(() => db.boards.toArray(), [], []) ?? []) as BoardRow[];
+  const files = useLiveQuery(() => db.files.toArray(), [], []) ?? [];
+  const users = useUsers();
+  const markdown = useMemo(() => pageToMarkdown(page, pages.filter((row) => !row.deleted), blocks.filter((row) => !row.deleted) as never[], {
+    includeSubPages,
+    files: files.filter((row) => !row.deleted) as never[],
+    databases: boards.filter((board) => !board.deleted).map((board) => {
+      const fields = fieldsOf(board as BoardRow);
+      return {
+        id: board.id,
+        name: String(board.name ?? 'Database'),
+        columns: [{ id: 'title', name: 'Title' }, ...(board.columns?.length ? [{ id: 'status', name: 'Stage' }] : []), ...fields.filter((field) => field.type !== 'relation').map((field) => ({ id: propKey(field.id), name: field.name }))],
+        records: tasks.filter((task) => !task.deleted && task.boardId === board.id).map((task) => ({ ...task, title: String(task.title ?? '') })),
+      };
+    }),
+    resolvers: {
+      userName: (id) => users.find((user) => user.id === id)?.name,
+      pageTitle: (id) => pages.find((row) => row.id === id)?.title,
+      recordTitle: (id) => { const title = tasks.find((task) => task.id === id)?.title; return title === undefined ? undefined : String(title); },
+    },
+  }), [blocks, boards, files, includeSubPages, page, pages, tasks, users]);
+  const filename = `${String(page.title ?? 'page').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'page'}.md`;
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }));
+    const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+  return <Dialog title="Export page" onClose={onClose}>
+    <div className="space-y-3">
+      <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={includeSubPages} onChange={(event) => setIncludeSubPages(event.target.checked)} /> Include sub-pages</label>
+      <pre aria-label="Markdown preview" className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs dark:border-neutral-700 dark:bg-neutral-950">{markdown}</pre>
+      <div className="flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={download}><Download size={14} /> Download Markdown</Button><Button variant="outline" onClick={() => window.print()}><Printer size={14} /> Print / PDF</Button></div>
+    </div>
+  </Dialog>;
 }
 
 function Breadcrumbs({ page }: { page: PageRow }) {

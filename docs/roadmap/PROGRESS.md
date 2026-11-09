@@ -808,3 +808,213 @@ Engineering decision: `ENGINEERING GO / EXTERNAL BLOCKED`. This is local source
 qualification, not production deployment, legal/provider activation, physical
 device acceptance or genuine human approval. Phase8 implementation and local
 engineering checks are complete on this source; owner launch gates remain open.
+
+## Phase 9 — Everyday conveniences
+
+### 9.0 Engine helper `mutateMany`
+
+Status: done on `sol/p9-everyday` at `ad28998f27855b9f55ad79cb66d7bd041a11f32e`.
+`src/core/sync/engine.ts` now exposes `mutateMany(collection,
+items)` with the existing 500-item cap. A batch uses one Dexie transaction for
+local rows, per-field timestamps and outbox entries, then performs one pending
+refresh and one sync schedule. `mutate()` uses the same internal path, preserving
+mutation guards and single-write behavior.
+
+Focused evidence: `npx vitest run tests/phase9-engine.test.ts` passes4/4;
+`npm run typecheck` passes; `git diff --check` passes. The tests cover cap
+enforcement, per-item HLC timestamps, outbox patches, mid-batch rollback and
+equivalence to sequential `mutate()` writes. No schema, migration, server,
+permission, contract or provider changes. Phase 9.1 CSV export is next.
+
+### 9.1 CSV export
+
+Status: done on `sol/p9-everyday` at `5c5152d7c83b02c076a397a36fa14cef1bbcc041`.
+`shared/csv.ts` provides BOM, CRLF, RFC 4180 quoting
+and formula-injection guards. `exportView` serializes evaluated view rows and
+visible columns, including labels, currency-code companions, people/relation
+names and typed checkbox/date/select values. The database menu opens an
+accessible export dialog with row/column counts and the device-sync note.
+Desktop downloads use a Blob; mobile uses Web Share with a file when available
+and falls back to download. Website inbox exports remain typed-field-only and
+omit paid/token references unless explicitly selected.
+
+Evidence: `npx vitest run tests/phase9-csv.test.ts` passes3/3;
+`npm run typecheck` and `npm run build` pass; the focused UX run
+`npm run qa:ux -- --grep 'CSV export'` passes18/18 cells across Chromium,
+Firefox and WebKit. No server endpoint, migration, MCP tool, provider or
+permission change. The bounded parser and import planning helpers are now
+present as the 9.2 foundation; the user-facing wizard remains to be wired.
+
+### 9.5 Bulk edit
+
+Status: done on `sol/p9-everyday` at `c5d361923875fb4682ea8096e064adc5e2e11ee0`.
+Table and list views now share a capped
+selection model (500 rows), with shift-range selection, select-all-filtered,
+keyboard arrow extension and touch long-press entry. The action bar supports
+stage, non-relation field, assignee, due date, archive, soft delete and clear
+selection. Approval-gated stage transitions are withheld and surfaced as
+approval requests rather than being applied optimistically. Bulk writes use
+`mutateMany`; a seven-day Dexie journal supports revision-safe undo from the
+action bar and Settings → Recent bulk edits.
+
+Follow-up reliability fix: `f94e270be5c0ee6315e98aa7811ef4a4fa47aa9c` keeps the
+action bar hidden until a row is selected, preserves it for an available undo,
+and prevents the compact controls from shrinking below the touch target gate.
+
+Evidence: `npx vitest run tests/phase9-bulk.test.ts tests/phase9-csv.test.ts
+tests/phase9-engine.test.ts` passes11/11; `npm run typecheck`, `npm run build`
+and `git diff --check` pass. The focused UX run
+`npm run qa:ux -- --grep 'Bulk edit'` passes18/18 cells across Chromium,
+Firefox and WebKit with no skips, failures or host pause. No server, migration,
+permission, provider or contract changes. Phase 9.2 CSV import wizard is next.
+
+### 9.2 CSV import
+
+Status: done on `sol/p9-everyday` at `55a5fd8e19dfe835ac76047705458462fa327a97`; the bounded parser accepts
+comma, semicolon
+and tab files with quoted newlines, strips BOMs and enforces 5 MB/5,000-row
+limits. The database menu opens a file/map/options/preview/import wizard with
+explicit date formats, select-option policy, person matching and exact relation
+title matching. Preview errors can be downloaded as `errors.csv`; writes use
+`mutateMany` in 200-row chunks. Created records, mapped updates and relation
+links receive a seven-day local undo journal; expired journals are pruned and
+Settings exposes recent imports.
+
+Evidence: `npx vitest run tests/phase9-csv-import.test.ts
+tests/phase9-csv.test.ts tests/phase9-bulk.test.ts tests/phase9-engine.test.ts`
+passes14/14; `npm run typecheck`, `npm run build` and `git diff --check` pass.
+The focused UX run `npm run qa:ux -- --grep 'CSV import'` passes18/18 cells
+across Chromium, Firefox and WebKit with no skips, failures or host pause. No
+server, migration, permission, provider or contract changes. Phase 9.3 page
+export is next.
+
+### 9.3 Page and record export
+
+Status: done on `sol/p9-everyday` at `813fe776dd5ad2bfb4d89f81c3df2caea2720439`.
+Page and record menus now offer Markdown
+download and Print / Save as PDF. Markdown resolves mentions, replaces local
+file markers with filenames, renders embedded database rows as capped tables,
+and can include sub-pages with heading separators. Record exports put typed
+properties above the body. The global print stylesheet hides the shell,
+toolbars and comment affordances, expands content and uses a light print theme.
+
+Evidence: `npx vitest run tests/phase9-page-export.test.ts` passes2/2;
+`npm run typecheck`, `npm run build` and `git diff --check` pass. The focused
+UX run `npm run qa:ux -- --grep 'Page and record export'` passes18/18 cells
+across Chromium, Firefox and WebKit with no skips, failures or host pause. No
+server, migration, permission, provider or contract changes. Phase 9.4
+resolved comments is next.
+
+### 9.4 Resolved comments
+
+Status: done on `sol/p9-everyday` at `5d8861d2815b70618e508c7a1b44ad1516d5416d`.
+Comment records now carry `resolvedAt` and
+`resolvedBy`; commenter-level access can resolve or reopen a thread without
+editing its body, author or target. The server clamps resolution timestamps,
+derives a notification event for thread participants, and exposes the
+`resolve_comments` MCP tool. The client count excludes resolved comments and
+offers resolve/reopen plus a Show resolved toggle; new comments remain
+unresolved. The activity surface records the resolution and the notification
+preference is independently disable-able.
+
+Evidence: `npx vitest run tests/phase9-comments.test.ts
+tests/phase5-writes-d1.test.ts` passes39/39; `npm run typecheck` and
+`git diff --check` pass. The focused UX run
+`npm run qa:ux -- --grep 'Resolved comments'` passes18/18 cells across
+Chromium, Firefox and WebKit with no skips, failures or host pause. No schema,
+migration, provider or contract change. Phase 9.6 search date/scope filters
+is next (9.6 follows 9.4 per the roadmap; 9.5 and 9.2 are already complete).
+
+### 9.6 Search date and scope filters
+
+Status: done in the source line carried by `6ad8205f0a6fbb8c57ae22778832a93265ec0f85`.
+Search documents now retain `created_at` and `updated_at` metadata, with
+workspace-timezone-aware absolute and relative bounds (`today`, `today-N`,
+`today+N`). The MCP and HTTP search paths apply the same date bounds, include
+them in cursor fingerprints, and keep pending index rows explicit. The client
+adds keyboard-accessible Updated filters (Any time, Last 7 days, Last 30 days,
+or custom From/To dates) with a live status announcement and the same local
+timezone semantics.
+
+Evidence: `npm run typecheck`, `npm run build`, and the Phase 9 D1 regression
+set were run on the source line. A source-bound WebKit compact-light targeted
+run passed the Search date filters journey (artifact
+`.artifacts/ux-lab/2026-11-05T02-16-50.647Z`). Full 18-profile UX certification
+is not claimed; the last complete matrix was interrupted by host suspension
+and later WebKit resource pressure.
+
+### 9.7 Public-share expiry and rotation
+
+Status: done in the source line carried by
+`6ad8205f0a6fbb8c57ae22778832a93265ec0f85`. Public share rows now support
+optional 7-, 30- and 90-day expiry, enforce expiry on every public page,
+canvas and file read, expose expiry in Settings, and rotate tokens in place
+while retaining creation history. The share popover presents the expiry,
+focusable publish switch, and a guarded Replace link flow. MCP share tools
+accept the same expiry options and return the resulting expiry metadata.
+
+Evidence: migration `0038_phase9_share_expiry.sql` is registered with its
+immutable hash; `node --test scripts/certification/release-preflight.test.mjs
+scripts/certification/release-rehearsal.test.mjs` passes 13/13. A source-bound
+WebKit compact-light Public shares journey passes 1/1 at
+`.artifacts/ux-lab/2026-11-05T01-45-22.778Z`.
+
+### Phase 9 certification checkpoint (historical interrupted attempt)
+
+The pushed code source checkpoint is `sol/p9-everyday` at
+`6ad8205f0a6fbb8c57ae22778832a93265ec0f85` (tree
+`fc327ac22825e73e73f85bd78cab97aac3258b9a`; source fingerprint
+`1107d698de74f09c0cd3481f606c68745775ce822f8a29d25d54a0c65bc325b3`). The
+docs/evidence follow-up is pushed after that source checkpoint. The branch was
+clean at the source checkpoint and migrations `0037` and `0038` are in
+`scripts/certification/migrations.json`; the release self-tests pass.
+
+The full UX matrix remains incomplete. The first complete attempt reached
+Chromium 6/6 and Firefox 6/6 profiles (1,152/1,152 assertions) before the
+first WebKit profile exposed an axe-core dialog traversal hang; the harness
+now bounds WebKit axe runs only while dialogs are visible. Subsequent WebKit
+runs produced preserved navigation/context timeouts under host memory/swap
+pressure, so they are evidence of an interrupted environment, not a pass.
+Artifacts: `.artifacts/ux-lab/2026-11-04T16-25-09.546Z/summary.json`,
+`.artifacts/ux-lab/2026-11-04T18-04-23.106Z/summary.json`, and the later
+source-bound targeted artifacts under `.artifacts/ux-lab/2026-11-05T01-45-22.778Z`
+and `.artifacts/ux-lab/2026-11-05T02-32-39.235Z`.
+
+`npm run certify:ai` on `f94e270` failed closed on the unregistered 0037/0038
+migrations and was interrupted during the unit gate after a host pause. The
+follow-up run on `6ad8205` was interrupted in prerequisites after a measured
+903-second host-suspension gap. Its checkpoint is
+`.artifacts/certification/6ad8205f0a6fbb8c57ae22778832a93265ec0f85-2026-11-05T01-00-23-882Z-complete/`.
+
+Engineering decision for that historical checkpoint: **HOLD**. It remains
+retained and is not relabelled.
+
+### Phase 9 current source-bound certification
+
+The corrected, pushed source checkpoint is `sol/p9-everyday` at
+`fa54a099430d5b8d0839044e8244d1f880f49a67` (tree
+`39a4f6b72ce2dd68b40ffaea8f3355b7d59d6d0d`; source fingerprint
+`be0a00845b77a4444de6d82417c5c43d92a5f69b0c573ab2bf57b89474509ba7`). The
+source was clean and matched `origin/sol/p9-everyday` before this documentation
+follow-up. Migrations `0037` and `0038` remain manifest-pinned and the release
+self-tests pass 13/13.
+
+The fresh mandatory certificate now passes all 34/34 gates with no reuse,
+failures, not-run gates or host pauses. Its report is
+`.artifacts/certification/fa54a099430d5b8d0839044e8244d1f880f49a67-2026-11-09T06-41-26-130Z-complete/report.md`.
+
+The complete UX matrix also passes 1,728/1,728 required cases with zero
+skips, failures or flakiness across Chromium, Firefox and WebKit; 18 isolated
+profiles cover compact, tablet and desktop viewports in light and dark themes.
+The source-bound summary and HTML report are
+`.artifacts/ux-lab/2026-11-09T07-28-35.531Z/summary.json` and
+`.artifacts/ux-lab/2026-11-09T07-28-35.531Z/html/index.html`.
+
+Engineering decision: **ENGINEERING GO / EXTERNAL BLOCKED**. Local engineering
+checks are complete for this source and ready for review. Physical devices,
+manual assistive technology, native 400% zoom/text scaling, production/provider
+activation, remote migrations, legal/owner acceptance and genuine human
+approval remain external gates. This evidence is not a production deployment
+or a claim of live provider behavior.
+
+Evidence: `docs/roadmap/evidence/P9-final-certification-fa54a09.json`.

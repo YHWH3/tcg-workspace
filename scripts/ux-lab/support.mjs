@@ -3,6 +3,7 @@ import {navigateReady} from '../navigation-ready.mjs';
 import {readFileSync} from 'node:fs';
 import {test as base,expect} from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import axeCore from 'axe-core';
 import {WCAG_AA_TAGS} from '../accessibility-tags.mjs';
 import {assertControlGeometry} from '../control-geometry.mjs';
 import {assertPlaceholderContrast} from '../placeholder-contrast.mjs';
@@ -10,6 +11,8 @@ export {expect};
 export const fixture=JSON.parse(readFileSync(process.env.UX_FIXTURE,'utf8'));
 const origin=new URL(fixture.base);
 if(origin.protocol!=='https:'||!['127.0.0.1','localhost'].includes(origin.hostname)||fixture.disposable!==true)throw new Error('UX lab requires its owned disposable loopback HTTPS fixture');
+const WCAG_RULE_IDS=[...new Set(axeCore.getRules(WCAG_AA_TAGS).map(rule=>rule.ruleId))];
+const AXE_WEBKIT_BATCH_SIZE=32;
 export async function request(path,body,method='POST'){
   const response=await fetch(fixture.base+path,{method,headers:{'Content-Type':'application/json',Authorization:'Bearer '+fixture.admin.token},...(body?{body:JSON.stringify(body)}:{})});
   const data=await response.json();expect(response.status,JSON.stringify(data)).toBe(200);return data;
@@ -102,8 +105,21 @@ export async function health(page,label,info,{axe=true}={}){
   expect(layout.scroll,`${label}: root overflow`).toBeLessThanOrEqual(layout.width+1);
   expect(layout.positiveTabs,`${label}: positive tabindex`).toBe(0);
   if(axe){
-    const result=await new AxeBuilder({page}).withTags(WCAG_AA_TAGS).analyze();
-    await info.attach(`${label}-axe`,{body:JSON.stringify(result.violations,null,2),contentType:'application/json'});
-    expect(result.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})),label+' whole-page accessibility').toEqual([]);
+    // WebKit 26.6 can loop inside axe when every WCAG rule traverses an open
+    // dialog. Keep the same rule set, but bound that traversal only for the
+    // dialog states that trigger it; ordinary page audits stay one pass.
+    const visibleDialogCount=info.project.name.startsWith('webkit-')?await page.locator('[role="dialog"]:visible').count():0;
+    const batches=visibleDialogCount>0
+      ? Array.from({length:Math.ceil(WCAG_RULE_IDS.length/AXE_WEBKIT_BATCH_SIZE)},(_,i)=>WCAG_RULE_IDS.slice(i*AXE_WEBKIT_BATCH_SIZE,(i+1)*AXE_WEBKIT_BATCH_SIZE))
+      : [null];
+    const violations=[];
+    for(const rules of batches){
+      const builder=new AxeBuilder({page}).withTags(WCAG_AA_TAGS);
+      if(rules)builder.options({runOnly:{type:'rule',values:rules}});
+      violations.push(...(await builder.analyze()).violations);
+    }
+    const unique=[...new Map(violations.map(v=>[v.id,v])).values()];
+    await info.attach(`${label}-axe`,{body:JSON.stringify(unique,null,2),contentType:'application/json'});
+    expect(unique.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})),label+' whole-page accessibility').toEqual([]);
   }
 }

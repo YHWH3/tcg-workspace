@@ -195,9 +195,9 @@ admin.delete('/users/:id', requireAdmin, async (c) => {
   await revokeAllGrants(c.env,target);pokeLive(c.env,c.executionCtx);return c.json({ok:true});
 });
 
-// Phase 5 search index recovery: mark a keyset page of documents dirty and rebuild one chunk.
-// Repeat with `?after=<next>` until `next` is null; the cron drains the rest. The index is
-// derived data: rebuilding never changes records.
+// Phase 5/9 search index recovery: mark a keyset page of documents dirty and rebuild one
+// chunk. Repeat with `?after=<next>` until `next` is null; the cron drains the rest. The
+// derived date metadata used by date-filtered search is refreshed by the same rebuild.
 admin.post('/admin/reindex-search', requireAdmin, async (c) => {
   const { enqueueSearchRebuild, processSearchDirty } = await import('./search');
   const queued = await enqueueSearchRebuild(c.env, c.req.query('after') ?? '');

@@ -1,4 +1,4 @@
-import {workspaceTimeZone} from './workspaceLocale';
+import {workspaceCurrency, workspaceTimeZone} from './workspaceLocale';
 /**
  * Records + views client helpers. A "record" is a `tasks` row inside a
  * `boards` row acting as a database (`board.kind`). Views live in the
@@ -14,10 +14,12 @@ import { db, type LocalRow } from './db';
 import { mutate } from './sync/engine';
 import { cmpOrder, orderBetween, uuid } from './utils';
 import { columnIdFor, columnsOf, firstColumnId, lastColumnId, taskBoardId, type BoardColumn, type BoardRow, type TaskRow } from '../modules/boards/api';
-import { fieldsOf, propKey, type FieldDef } from '../../shared/fields';
+import { fieldsOf, formatFieldValue, propKey, type FieldDef } from '../../shared/fields';
 import { applyView as applyViewShared, type FieldKey, type ViewConfig, type ViewCtx, type ViewRow as SharedViewRow, type ViewType } from '../../shared/views';
 import { checkReparent, descendants, MAX_DEPTH } from '../../shared/tree';
 import { isRelationField, type RelationFieldDef } from './links';
+import { toCsv } from '../../shared/csv';
+import { WEBSITE_INBOX_ID, WI_FIELD } from '../../shared/websiteInbox';
 
 export { isRelationField, type RelationFieldDef } from './links';
 export { evalFilter, fieldValue, sortRecords } from '../../shared/views';
@@ -274,6 +276,84 @@ export function viewCtx(board: BoardRow | undefined | null, tasks: readonly Task
 export function applyView(records: readonly TaskRow[], config: ViewConfig | undefined, ctx: ViewCtx): { rows: TaskRow[]; groups?: { key: string; rows: TaskRow[] }[] } {
   const r = applyViewShared(records, config ?? {}, ctx);
   return { rows: r.rows as TaskRow[], groups: r.groups?.map((g) => ({ key: g.key, rows: g.rows as TaskRow[] })) };
+}
+
+export interface ExportViewOptions {
+  includeId?: boolean;
+  includePaymentReferences?: boolean;
+  userName?: (id: string) => string | undefined;
+}
+
+export interface ExportViewResult {
+  csv: string;
+  rows: number;
+  columns: number;
+  headers: string[];
+}
+
+/** Serialize exactly the rows and columns represented by a database view. */
+export function exportView(
+  board: BoardRow,
+  config: ViewConfig | undefined,
+  records: readonly TaskRow[],
+  ctx: ViewCtx,
+  options: ExportViewOptions = {},
+): ExportViewResult {
+  const visible = config?.visible?.length ? config.visible : defaultVisibleKeys(board);
+  const keys = board.id === WEBSITE_INBOX_ID && !options.includePaymentReferences
+    ? visible.filter(key => key !== `p_${WI_FIELD.token}` && key !== `p_${WI_FIELD.paid}`)
+    : visible;
+  const columns = keys.flatMap(key => {
+    const field = key.startsWith('p_') ? fieldsOf(board).find(f => f.id === key.slice(2)) : undefined;
+    return field?.format === 'currency' ? [key, `${key}:currency`] : [key];
+  });
+  if (options.includeId !== false) columns.push('id');
+  const { rows } = applyView(records, config, ctx);
+  const headers = columns.map(key => key === 'id' ? 'id' : key.endsWith(':currency') ? `${fieldKeyLabel(board, key.slice(0, -9) as FieldKey)} currency` : fieldKeyLabel(board, key as FieldKey));
+  const data = rows.map(record => columns.map(key => {
+    if (key === 'id') return record.id;
+    if (key.endsWith(':currency')) {
+      const field = fieldsOf(board).find(f => `p_${f.id}` === key.slice(0, -9));
+      return field?.currency ?? workspaceCurrency();
+    }
+    return exportValue(board, record, key as FieldKey, ctx, options.userName);
+  }));
+  return { csv: toCsv([headers, ...data]), rows: data.length, columns: headers.length, headers };
+}
+
+function exportValue(board: BoardRow, record: TaskRow, key: FieldKey, ctx: ViewCtx, userName?: (id: string) => string | undefined): string | number | boolean {
+  if (key === 'title') return recordTitle(record);
+  if (key === 'status') return stagesOf(board).find(column => column.id === columnIdFor(record, board))?.name ?? '';
+  if (key === 'assigneeId' || key === 'createdBy') {
+    const id = String(record[key] ?? '');
+    return id ? userName?.(id) ?? id : '';
+  }
+  if (key === 'dueDate') return String(record.dueDate ?? '');
+  if (key === 'createdAt') return record.createdAt ? dateOnly(Number(record.createdAt), ctx.timeZone ?? workspaceTimeZone()) : '';
+  if (key === 'priority') return PRIORITY_LABELS[String(record.priority ?? 'none')] ?? '';
+  if (key.startsWith('rel_')) return (ctx.relationTitles?.(record.id, key.slice(4)) ?? []).join('; ');
+  if (!key.startsWith('p_')) return '';
+  const field = fieldsOf(board).find(f => f.id === key.slice(2));
+  if (!field) return '';
+  const raw = record[key];
+  if (field.type === 'checkbox') return raw === true ? 'TRUE' : 'FALSE';
+  if (field.type === 'number') return typeof raw === 'number' && Number.isFinite(raw) ? raw : '';
+  if (field.type === 'date' || field.type === 'text' || field.type === 'url') return raw == null ? '' : String(raw);
+  if (field.type === 'select') return formatFieldValue(field, raw) ?? '';
+  if (field.type === 'multi_select') return formatFieldValue(field, raw)?.replaceAll(', ', '; ') ?? '';
+  if (field.type === 'person') {
+    const id = typeof raw === 'string' ? raw : '';
+    return id ? userName?.(id) ?? id : '';
+  }
+  return formatFieldValue(field, raw) ?? '';
+}
+
+const PRIORITY_LABELS: Record<string, string> = { none: 'None', low: 'Low', medium: 'Medium', high: 'High', urgent: 'Urgent' };
+
+function dateOnly(value: number, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(value);
+  const byType = new Map(parts.map(part => [part.type, part.value]));
+  return `${byType.get('year')}-${byType.get('month')}-${byType.get('day')}`;
 }
 
 /* ---------- records ---------- */

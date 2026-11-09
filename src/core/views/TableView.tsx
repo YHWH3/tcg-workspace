@@ -16,6 +16,7 @@ import { CellEditor, CellValue, subProgress } from './cells';
 import { useLinks } from '../links';
 import { EmptyState } from '../ui';
 import { Table2 } from 'lucide-react';
+import { BulkRowCheckbox, useBulkSelection } from './bulk';
 
 const ROW_H = 36;
 const WINDOW_AT = 300;
@@ -30,6 +31,7 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
   const [scrollTop, setScrollTop] = useState(0);
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const selection = useBulkSelection();
 
   const cfg = view.config ?? {};
   const visible = cfg.visible?.length ? cfg.visible : defaultVisibleKeys(board);
@@ -107,26 +109,28 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
           {rows.map((r) => {
             const kids = subProgress(r, tasks, board);
             return (
-              <button
-                key={r.id}
-                onClick={() => navigate(`/boards/${board.id}/views/${view.id}/records/${r.id}`)}
-                className="flex w-full items-center gap-3 border-b border-neutral-100 px-3 py-3 text-left text-sm last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
-                style={{ minHeight: 44 }}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{recordTitle(r)}</span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-neutral-400">
-                    {visible
-                      .filter((k) => k !== 'title')
-                      .slice(0, 4)
-                      .map((k) => (
-                        <CellValue key={k} board={board} rec={r} keyName={k} />
-                      ))}
+              <div key={r.id} className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2.5 last:border-0 dark:border-neutral-800" onPointerDown={() => selection?.startLongPress(r.id)} onPointerUp={selection?.cancelLongPress} onPointerCancel={selection?.cancelLongPress}>
+                <BulkRowCheckbox id={r.id} label={`Select ${recordTitle(r) || 'record'}`} />
+                <button
+                  onClick={() => navigate(`/boards/${board.id}/views/${view.id}/records/${r.id}`)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
+                  style={{ minHeight: 44 }}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{recordTitle(r)}</span>
+                    <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-neutral-400">
+                      {visible
+                        .filter((k) => k !== 'title')
+                        .slice(0, 4)
+                        .map((k) => (
+                          <CellValue key={k} board={board} rec={r} keyName={k} />
+                        ))}
+                    </span>
                   </span>
-                </span>
-                {kids.total > 0 && <span className="text-[11px] text-neutral-400">{kids.done}/{kids.total}</span>}
-                <ChevronRight size={14} className="shrink-0 text-neutral-300" />
-              </button>
+                  {kids.total > 0 && <span className="text-[11px] text-neutral-400">{kids.done}/{kids.total}</span>}
+                  <ChevronRight size={14} className="shrink-0 text-neutral-300" />
+                </button>
+              </div>
             );
           })}
         </div>
@@ -149,6 +153,15 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
       <table className="w-full border-collapse text-sm" style={{ minWidth: 'max(100%, 480px)' }}>
         <thead className="sticky top-0 z-10 bg-white dark:bg-neutral-950">
           <tr className="border-b border-neutral-200/80 text-left dark:border-neutral-800">
+            <th className="sticky left-0 z-20 w-10 bg-white px-2 py-2 dark:bg-neutral-950">
+              <input
+                type="checkbox"
+                aria-label="Select all filtered records"
+                checked={flat.length > 0 && flat.slice(0, 500).every(({ rec }) => selection?.selectedIds.has(rec.id))}
+                onChange={(event) => event.target.checked ? selection?.selectAll() : selection?.clear()}
+                className="h-4 w-4 accent-neutral-900 dark:accent-neutral-200"
+              />
+            </th>
             {visible.map((key, ci) => (
               <th
                 key={key}
@@ -187,7 +200,7 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
         <tbody>
           {windowed && winStart > 0 && (
             <tr>
-              <td colSpan={visible.length} style={{ height: winStart * ROW_H }} />
+              <td colSpan={visible.length + 1} style={{ height: winStart * ROW_H }} />
             </tr>
           )}
           {flat.slice(winStart, winEnd).map(({ rec, depth }) => {
@@ -198,7 +211,13 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
                 key={rec.id}
                 className="group/row border-b border-neutral-100 hover:bg-neutral-50/60 dark:border-neutral-800/70 dark:hover:bg-neutral-900/40"
                 onDoubleClick={() => navigate(`/boards/${board.id}/views/${view.id}/records/${rec.id}`)}
+                onPointerDown={() => selection?.startLongPress(rec.id)}
+                onPointerUp={selection?.cancelLongPress}
+                onPointerCancel={selection?.cancelLongPress}
               >
+                <td className="sticky left-0 z-[5] bg-white px-2 py-0.5 dark:bg-neutral-950">
+                  <BulkRowCheckbox id={rec.id} label={`Select ${recordTitle(rec) || 'record'}`} />
+                </td>
                 {visible.map((key, ci) => (
                   <td
                     key={key}
@@ -241,7 +260,7 @@ export function TableView({ board, view, records }: { board: BoardRow; view: Vie
           })}
           {windowed && winEnd < flat.length && (
             <tr>
-              <td colSpan={visible.length} style={{ height: (flat.length - winEnd) * ROW_H }} />
+              <td colSpan={visible.length + 1} style={{ height: (flat.length - winEnd) * ROW_H }} />
             </tr>
           )}
         </tbody>

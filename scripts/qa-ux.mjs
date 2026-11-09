@@ -45,6 +45,7 @@ try{
     {id:'ux-records',collection:'boards',patch:{name:'UX records',kind:'records',recordNoun:'Record',columns:[{id:'todo',name:'To do',color:'gray'},{id:'done',name:'Done',color:'green'}],fields:[{id:'date',name:'Date',type:'date'},{id:'email',name:'Email',type:'email'}],defaultViewId:'ux-table',order:'a0'}},
     {id:'ux-tasks',collection:'boards',patch:{name:'UX tasks',kind:'tasks',columns:[{id:'todo',name:'To do',color:'gray'},{id:'done',name:'Done',color:'green'}],fields:[],order:'a1'}},
     {id:'ux-task',collection:'tasks',patch:{boardId:'ux-tasks',title:'UX task for input geometry',status:'todo',order:'a0'}},
+    {id:'ux-comment',collection:'comments',patch:{targetType:'task',targetId:'ux-task',authorId:admin.user.id,body:'Synthetic unresolved comment',createdAt:Date.now()}},
     {id:'ux-retired-approval-target',collection:'tasks',patch:{boardId:'ux-tasks',title:'Disposable retired approval target',status:'todo',order:'z0'}},
     {id:'ux-activity',collection:'activity',patch:{actorId:admin.user.id,verb:'updated',targetType:'task',targetId:'ux-task',targetTitle:'UX task for input geometry',meta:{via:'Synthetic UX fixture',assigneeId:admin.user.id},createdAt:Date.now()}},
     // Protocol 3 deliberately does not create legacy client seeds. Configure
