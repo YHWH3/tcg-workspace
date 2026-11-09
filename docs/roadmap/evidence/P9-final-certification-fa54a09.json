@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "phase": "9",
+  "decision": "ENGINEERING GO / EXTERNAL BLOCKED",
+  "source": {
+    "branch": "sol/p9-everyday",
+    "sha": "fa54a099430d5b8d0839044e8244d1f880f49a67",
+    "tree": "39a4f6b72ce2dd68b40ffaea8f3355b7d59d6d0d",
+    "fingerprint": "be0a00845b77a4444de6d82417c5c43d92a5f69b0c573ab2bf57b89474509ba7",
+    "remote": "origin/sol/p9-everyday",
+    "pushed": true,
+    "cleanAtCheckpoint": true
+  },
+  "migrations": {
+    "manifest": "scripts/certification/migrations.json",
+    "ordered": [
+      "0037_phase9_search_dates.sql",
+      "0038_phase9_share_expiry.sql"
+    ],
+    "manifestSelfTests": {
+      "status": "PASS",
+      "passed": 13,
+      "failed": 0,
+      "command": "node --test scripts/certification/release-preflight.test.mjs scripts/certification/release-rehearsal.test.mjs"
+    }
+  },
+  "mandatoryCertificate": {
+    "command": "caffeinate -dimsu npm run certify:ai -- --keep-awake",
+    "status": "PASS",
+    "gates": 34,
+    "passed": 34,
+    "failed": 0,
+    "notRun": 0,
+    "reused": 0,
+    "hostPauses": [],
+    "reportedSuiteAssertions": 3539,
+    "keySuiteCounts": {
+      "unit": 1165,
+      "d1": 928,
+      "harness": 147,
+      "releaseUi": 21,
+      "assistantE2e": 27
+    },
+    "artifact": ".artifacts/certification/fa54a099430d5b8d0839044e8244d1f880f49a67-2026-11-09T06-41-26-130Z-complete/summary.json",
+    "report": ".artifacts/certification/fa54a099430d5b8d0839044e8244d1f880f49a67-2026-11-09T06-41-26-130Z-complete/report.md",
+    "sourceFingerprint": "be0a00845b77a4444de6d82417c5c43d92a5f69b0c573ab2bf57b89474509ba7"
+  },
+  "browserMatrix": {
+    "command": "npm run qa:ux",
+    "status": "PASS",
+    "cases": 1728,
+    "passed": 1728,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "profiles": 18,
+    "engines": ["Chromium", "Firefox", "WebKit"],
+    "viewports": ["compact", "tablet", "desktop"],
+    "themes": ["light", "dark"],
+    "projectIsolation": "fresh_disposable_fixture_per_project",
+    "artifact": ".artifacts/ux-lab/2026-11-09T07-28-35.531Z/summary.json",
+    "report": ".artifacts/ux-lab/2026-11-09T07-28-35.531Z/html/index.html",
+    "hostPauseDetected": false,
+    "sourceUnchanged": true
+  },
+  "limitations": [
+    "Physical iPhone/iPad and physical Android were not run",
+    "Manual VoiceOver, TalkBack, NVDA and other assistive-technology acceptance was not run",
+    "Native 400% browser zoom and OS text scaling were not run; automated 200%/responsive checks are not equivalent",
+    "Production/provider activation, remote migrations, real email, payment, token minting, paid inference and genuine human approval were not run"
+  ],
+  "boundaries": [
+    "Permissions and approvals used only disposable fixtures; fixture approvals are not human decisions",
+    "No deployment, remote migration, production/provider operation or external side effect was performed",
+    "No applicant payloads or secrets are included in this evidence"
+  ]
+}

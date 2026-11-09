@@ -959,7 +959,7 @@ scripts/certification/release-rehearsal.test.mjs` passes 13/13. A source-bound
 WebKit compact-light Public shares journey passes 1/1 at
 `.artifacts/ux-lab/2026-11-05T01-45-22.778Z`.
 
-### Phase 9 certification checkpoint
+### Phase 9 certification checkpoint (historical interrupted attempt)
 
 The pushed code source checkpoint is `sol/p9-everyday` at
 `6ad8205f0a6fbb8c57ae22778832a93265ec0f85` (tree
@@ -986,8 +986,35 @@ follow-up run on `6ad8205` was interrupted in prerequisites after a measured
 903-second host-suspension gap. Its checkpoint is
 `.artifacts/certification/6ad8205f0a6fbb8c57ae22778832a93265ec0f85-2026-11-05T01-00-23-882Z-complete/`.
 
-Engineering decision: **HOLD** until the mandatory certification can complete
-on this exact source with the Mac kept awake. This is local source evidence
-only: no deployment, remote migration, production/provider activation,
-physical-device acceptance, manual assistive-technology review, or genuine
-human approval is claimed.
+Engineering decision for that historical checkpoint: **HOLD**. It remains
+retained and is not relabelled.
+
+### Phase 9 current source-bound certification
+
+The corrected, pushed source checkpoint is `sol/p9-everyday` at
+`fa54a099430d5b8d0839044e8244d1f880f49a67` (tree
+`39a4f6b72ce2dd68b40ffaea8f3355b7d59d6d0d`; source fingerprint
+`be0a00845b77a4444de6d82417c5c43d92a5f69b0c573ab2bf57b89474509ba7`). The
+source was clean and matched `origin/sol/p9-everyday` before this documentation
+follow-up. Migrations `0037` and `0038` remain manifest-pinned and the release
+self-tests pass 13/13.
+
+The fresh mandatory certificate now passes all 34/34 gates with no reuse,
+failures, not-run gates or host pauses. Its report is
+`.artifacts/certification/fa54a099430d5b8d0839044e8244d1f880f49a67-2026-11-09T06-41-26-130Z-complete/report.md`.
+
+The complete UX matrix also passes 1,728/1,728 required cases with zero
+skips, failures or flakiness across Chromium, Firefox and WebKit; 18 isolated
+profiles cover compact, tablet and desktop viewports in light and dark themes.
+The source-bound summary and HTML report are
+`.artifacts/ux-lab/2026-11-09T07-28-35.531Z/summary.json` and
+`.artifacts/ux-lab/2026-11-09T07-28-35.531Z/html/index.html`.
+
+Engineering decision: **ENGINEERING GO / EXTERNAL BLOCKED**. Local engineering
+checks are complete for this source and ready for review. Physical devices,
+manual assistive technology, native 400% zoom/text scaling, production/provider
+activation, remote migrations, legal/owner acceptance and genuine human
+approval remain external gates. This evidence is not a production deployment
+or a claim of live provider behavior.
+
+Evidence: `docs/roadmap/evidence/P9-final-certification-fa54a09.json`.

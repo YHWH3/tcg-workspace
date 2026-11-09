@@ -322,7 +322,12 @@ no new production variables for these features. Monitor search index-pending
 rows, cursor/source-version conflicts, expired-link 404s, and rotation errors
 without logging answer bodies or share tokens.
 
-Phase 9 remains review-only until the complete local certification and the
-cross-platform matrix finish on the exact pushed source. Physical devices,
-manual assistive technology, production/provider activation, remote
-migrations, and genuine human approval remain separate owner gates.
+The current pushed Phase 9 source has completed the local engineering gates:
+the mandatory certificate is 34/34 PASS with no host pauses, and the complete
+18-profile Chromium/Firefox/WebKit matrix is 1,728/1,728 PASS. The source-bound
+reports are recorded in `docs/roadmap/evidence/P9-final-certification-fa54a09.json`.
+This moves Phase 9 to **ENGINEERING GO / EXTERNAL BLOCKED** for review. Physical
+devices, manual assistive technology, native 400% zoom/text scaling,
+production/provider activation, remote migrations, and genuine human approval
+remain separate owner gates. These local results are not a production
+deployment or live-provider acceptance.
