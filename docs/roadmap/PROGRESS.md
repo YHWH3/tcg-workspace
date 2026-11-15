@@ -1405,3 +1405,12 @@ small rename benchmark does not establish savings for this roadmap.
 
 Owner decision D13 is recorded as existing spaces for group mentions.
 Phase 13 implementation follows Phase 12 verification.
+
+### Phase 12 feature matrix acceptance
+
+Committed source `59b3c25b7980aec2f501f3cc82bdb9215c37662a` passed all 54
+feature checks across 18 browser/viewport/theme profiles, with no skips,
+unexpected results or retries. The source fingerprint stayed unchanged.
+Evidence is recorded in `docs/roadmap/evidence/P12-feature-matrix.json`.
+The features are locally qualified. The mandatory phase certificate is next
+and the phase remains HOLD until it finishes. Draft PR #21 carries the source.
