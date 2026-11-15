@@ -1056,5 +1056,17 @@ retries can detect changes. Signed unsubscribe links affect the verified address
 version and preserve Inbox delivery. The setting and per-kind channel choices are
 available through Workspace and Notifications settings.
 
-Focused checks are in progress. Digest delivery, web push, live provisioning
-and final Phase 10 certification remain pending.
+Focused checks passed on `797fc7efee41339fe34e8ebe4735e82beee53580` (tree
+`0977125c4246d72423d9a9e738f37a7d604d6ad9`). Typecheck and build passed, along
+with 42 targeted tests, the selected cron rotation test, 13 release harness
+self-tests and all 15 built release preflight checks. Disposable D1 and the
+simulated provider exercised atomic enqueue, access revocation, idempotency,
+retry limits and unsubscribe.
+
+The focused browser test passed 18/18 profiles across Chromium, Firefox and
+WebKit, exit 0, with no skips or flakes. It used a stubbed API contract. The
+clean-source fingerprint and results are in
+`.artifacts/ux-lab/2026-11-15T05-12-55.091Z/summary.json`
+(SHA-256 `b573247f724293d85311b5fdc557cd5699b79b9954613121be806af5ccddb46a`).
+Digest delivery, web push, live provisioning and final Phase 10 certification
+remain pending.
