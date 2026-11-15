@@ -1364,3 +1364,44 @@ passed the workflow. These interrupted reports are retained.
 
 The feature matrix across 18 engine/viewport/theme profiles and the complete
 phase-end certificate are still required.
+
+### Phase 12 reflow corrections and Turnpack adoption
+
+The first matrix passed six Chromium profiles, then stopped on compact Firefox.
+Firefox found an enlarged-text navigation target obscured by the capture
+button. Its image decoder also rejected the synthetic test PNG, while the
+other engines accepted it. The fixture now uses a CRC-valid generated image.
+Visual review separately found clipped branch names and selected captions
+inside nested editor padding, although the geometry gate had passed.
+The editor uses full rows and bounded padding. A new caption-width assertion
+checks every selected caption at 200% text. The capture button keeps a fixed
+48-pixel visual diameter and a reserved 56-pixel column.
+
+The corrected compact WebKit and Firefox profiles passed all six workflows
+in .artifacts/ux-lab/2026-11-15T11-36-09.276Z/. A subsequent small export text
+change preserves grapheme boundaries and prefers word wrapping. All 34 export
+and sanitizer tests passed after that change. A final committed-source
+18-profile matrix is next. Draft PR #21 is open.
+
+The owner requested OnlyTerp/turnpack for the remaining work. Version 0.2.0
+is pinned outside the application at
+/Users/trinity/.codex/tools/turnpack-0.2.0. The published package git head is
+5eeda36c7947be5fef897f19c89c98f20024db00. The repository reviewed at adoption
+was b14330d766479811f11d6ab8cb3caf7398bcade8. Local doctor passed its seven
+checks, including MCP handshake, workspace confinement and read-only batch.
+The disposable demo passed all five steps, including failed-test rollback.
+The local MCP bridge at that tool directory's invoke.mjs accepts a tool name
+and explicit worktree root, then JSON arguments on stdin. It pins the
+server to that worktree and writes metadata-only logs under
+.artifacts/tooling/turnpack.jsonl. It has already used pack and ship on this
+phase.
+
+Use pack for grouped context, ship for coupled edits with the narrow relevant
+check and batch for multi-file summaries. Retain the existing phase-end
+certification runner for mandatory long checks. The application adds no
+Turnpack runtime dependency. Tool installation and invocation require no
+change to the user's application-wide MCP configuration. The README's
+small rename benchmark does not establish savings for this roadmap.
+
+Owner decision D13 is recorded as existing spaces for group mentions.
+Phase 13 implementation follows Phase 12 verification.

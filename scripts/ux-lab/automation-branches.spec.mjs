@@ -42,6 +42,19 @@ test('Automation branches: preserve legacy actions, reorder by keyboard and relo
 
     await page.addStyleTag({ content: 'html{font-size:200%!important}' });
     await second.getByRole('textbox', { name: 'Branch 2 name' }).scrollIntoViewIfNeeded();
+    const captions = await second.getByRole('combobox').evaluateAll(elements => elements.map(el => {
+      const style = getComputedStyle(el), probe = document.createElement('span');
+      Object.assign(probe.style, { position: 'fixed', visibility: 'hidden', whiteSpace: 'pre', font: style.font });
+      probe.textContent = el.selectedOptions[0]?.text ?? '';
+      document.body.append(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return { caption: el.selectedOptions[0]?.text, width,
+        available: el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) };
+    }));
+    expect(captions.filter(caption => caption.width > caption.available + 1), 'Selected captions fit at 200% text').toEqual([]);
+    const name = second.getByRole('textbox', { name: 'Branch 2 name' });
+    expect(await name.evaluate(el => el.clientWidth - parseFloat(getComputedStyle(el).paddingLeft) - parseFloat(getComputedStyle(el).paddingRight))).toBeGreaterThan(160);
     await health(page, 'automation branch editor at enlarged text', info);
     await info.attach('automation branches', { body: await page.screenshot(), contentType: 'image/png' });
   } finally {

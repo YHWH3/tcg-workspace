@@ -164,4 +164,4 @@ Add new findings as N54+ with the same columns.
 | D10 | Share link default expiry | 9.7 | None by default; optional 7/30/90 days |
 | D11 | Permission activation go-ahead, space structure, guest policy | Track A | After release is stable |
 | D12 | Delivered-body retention (website relay), CA sign-off for terms/refunds/delivery pages, sample Patron cards | Release | Owner/CA |
-| D13 | Group mentions: use spaces as groups, or separate mention groups | 13.3 | Spaces |
+| D13 | Group mentions: use spaces as groups, or separate mention groups | 13.3 | Owner selected existing spaces in this chat, 2026-11-15. |

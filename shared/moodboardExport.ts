@@ -22,13 +22,20 @@ function textLines(value: string, bounds: Rect, size: number, bold = false) {
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
   for (const paragraph of value.slice(0, 12_000).split('\n')) {
     const characters = Array.from(segmenter.segment(paragraph), entry => entry.segment);
-    for (let start = 0; start < Math.max(1, characters.length); start += columns) {
+    let start = 0;
+    do {
       if (lines.length >= rows) { overflow = true; break; }
-      lines.push(characters.slice(start, start + columns).join(''));
-    }
+      let end = Math.min(characters.length, start + columns);
+      if (end < characters.length) {
+        const space = characters.slice(start, end).findLastIndex(character => /\s/u.test(character));
+        if (space > 0) end = start + space + 1;
+      }
+      lines.push(characters.slice(start, end).join(''));
+      start = end;
+    } while (start < characters.length);
     if (overflow) break;
   }
-  if (overflow && lines.length) lines[lines.length - 1] = Array.from(lines[lines.length - 1]).slice(0, -1).join('') + '…';
+  if (overflow && lines.length) lines[lines.length - 1] = Array.from(segmenter.segment(lines[lines.length - 1]), entry => entry.segment).slice(0, -1).join('') + '…';
   return lines.map((line, i) =>
     `<text x="${bounds.x + 8}" y="${bounds.y + 8 + size + i * size * 1.25}" font-size="${size}" font-family="sans-serif" font-weight="${bold ? 'bold' : 'normal'}" fill="#18181b" xml:space="preserve">${escape(line)}</text>`).join('');
 }

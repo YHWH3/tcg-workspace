@@ -15,7 +15,7 @@ test('Moodboard export: standalone images, missing media, SVG, PNG, selection an
   ];
   const push = rows => request('/api/sync/push', { protocol: 3, changes: rows.map(row => ({ ...row, ts: Date.now() })) });
   expect((await push(changes)).rejectedItems).toEqual([]);
-  const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII=', 'base64');
+  const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP41SDyHwAGlAKOQLhsEQAAAABJRU5ErkJggg==', 'base64');
   const response = await fetch(fixture.base + '/api/files/' + file + '/chunks/0', {
     method: 'PUT', headers: { Authorization: 'Bearer ' + fixture.admin.token }, body: bytes,
   });

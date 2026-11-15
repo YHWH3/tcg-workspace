@@ -147,20 +147,20 @@ function ConditionRow({ board, keys, filter, onChange }: {
   const structuredDate=isDate&&DATE_VALUE_OPERATORS.includes(filter.op);
   return (
     <div className="mb-1">
-    <div className={isDate ? 'grid grid-cols-[minmax(0,1fr)_2rem] gap-1' : 'flex items-center gap-1'}>
-      <Select density="compact" value={filter.key} onChange={(e) => {const key=e.target.value as FieldKey;onChange({...filter,key,...(filter.op==='within'&&!isDateFilterKey(key,fields)?{op:'is',value:''}:{})});}} className={isDate ? 'col-span-2 w-full' : selectCls} aria-label="Condition field">
+    <div className="grid grid-cols-[minmax(0,1fr)_2rem] gap-1">
+      <Select density="compact" value={filter.key} onChange={(e) => {const key=e.target.value as FieldKey;onChange({...filter,key,...(filter.op==='within'&&!isDateFilterKey(key,fields)?{op:'is',value:''}:{})});}} className="col-span-2 w-full" aria-label="Condition field">
         {keys.map((k) => (
           <option key={k} value={k}>{fieldKeyLabel(board, k)}</option>
         ))}
       </Select>
-      <Select density="compact" value={filter.op} onChange={(e) => onChange(changeFilterOperator(filter,e.target.value as FilterOp))} className={isDate ? 'col-span-2 w-full' : 'w-24 shrink-0'} aria-label="Condition operator">
+      <Select density="compact" value={filter.op} onChange={(e) => onChange(changeFilterOperator(filter,e.target.value as FilterOp))} className="col-span-2 w-full" aria-label="Condition operator">
         {FILTER_OPS.filter(o=>o.id===filter.op||(isDate?['is','is_not','empty','not_empty',...DATE_VALUE_OPERATORS].includes(o.id):o.id!=='within')).map((o) => (
           <option key={o.id} value={o.id}>{o.label}</option>
         ))}
       </Select>
       {!noValue && (structuredDate ? <div className="col-span-2 min-w-0"><DateFilterControl filter={filter} onChange={onChange} label="Condition" fields={fields}/></div>
         : <input value={String(filter.value ?? '')} placeholder="value" onChange={e=>onChange({...filter,value:e.target.value})}
-          className={`h-8 shrink-0 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700 ${isDate?'col-span-2 w-full min-w-0':'w-20'}`} aria-label="Condition value"/>)}
+          className="col-span-2 h-8 w-full min-w-0 rounded-md border border-neutral-200 bg-transparent px-1.5 text-xs dark:border-neutral-700" aria-label="Condition value"/>)}
       <button className="min-h-8 min-w-8 shrink-0 rounded-md text-neutral-400 hover:text-red-500 focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => onChange(null)} aria-label="Remove condition">
         <Trash2 size={12} />
       </button>
@@ -228,8 +228,8 @@ function ActionEditor({ board, allBoards, action, onChange, onMove, onDelete, fi
   const targetBoard = allBoards.find((b) => b.id === a.databaseId);
   return (
     <div className="mb-1.5 rounded-lg border border-neutral-200/70 p-2 dark:border-neutral-800">
-      <div className="mb-1.5 flex items-center gap-1">
-        <Select density="compact" value={a.type} className="min-w-0 flex-1" onChange={(e) => onChange({ type: e.target.value as AutomationAction['type'] })} aria-label="Action type">
+      <div className="mb-1.5 flex flex-wrap items-center gap-1">
+        <Select density="compact" value={a.type} className="w-full min-w-0 basis-full" onChange={(e) => onChange({ type: e.target.value as AutomationAction['type'] })} aria-label="Action type">
           {ACTION_TYPES.map((t) => (
             <option key={t.id} value={t.id}>{t.label}</option>
           ))}
@@ -275,14 +275,14 @@ function ActionEditor({ board, allBoards, action, onChange, onMove, onDelete, fi
       {a.type === 'ai_classify' && <div className="space-y-2"><p className="text-xs">Optional; creates a suggestion only. Requires operator configuration and budget.</p><Select value={a.fieldKey??''} aria-label="Classification field" onChange={e=>onChange({...a,fieldKey:e.target.value})}><option value="">Choose field</option>{availableFieldKeys(board).filter(k=>!k.startsWith('rel_')).map(k=><option key={k} value={k}>{fieldKeyLabel(board,k)}</option>)}</Select><Input value={(a.options??[]).join(', ')} aria-label="Classification options" placeholder="Comma-separated labels" onChange={e=>onChange({...a,options:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})}/></div>}
 
       {a.type === 'set_field' && (
-        <div className="flex items-center gap-1.5">
+        <div className="grid min-w-0 gap-1.5">
           <Select density="compact" value={a.fieldKey ?? ''} className={selectCls} onChange={(e) => onChange({ ...a, fieldKey: e.target.value || undefined })} aria-label="Field to set">
             <option value="">field…</option>
             {availableFieldKeys(board).map((k) => (
               <option key={k} value={k}>{fieldKeyLabel(board, k)}</option>
             ))}
           </Select>
-          <Input density="compact" value={typeof a.value === 'string' ? a.value : String(a.value ?? '')} placeholder="value" className="w-24 shrink-0" onChange={(e) => onChange({ ...a, value: e.target.value })} aria-label="Value" />
+          <Input density="compact" value={typeof a.value === 'string' ? a.value : String(a.value ?? '')} placeholder="value" className="w-full min-w-0" onChange={(e) => onChange({ ...a, value: e.target.value })} aria-label="Value" />
         </div>
       )}
 
@@ -450,7 +450,7 @@ function AutomationCard({ row, board, allBoards, allForms }: {
   };
 
   return (
-    <section className="mb-3 rounded-xl border border-neutral-200/70 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+    <section className="mb-3 rounded-xl border border-neutral-200/70 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mb-2 flex items-center gap-2">
         <Input density="compact" value={row.name ?? ''} placeholder="Automation name" className="min-w-0 flex-1 border-transparent px-0 text-sm font-semibold focus:border-neutral-200 dark:focus:border-neutral-700" onChange={(e) => patch({ name: e.target.value })} aria-label="Automation name" />
         <button
@@ -477,10 +477,10 @@ function AutomationCard({ row, board, allBoards, allForms }: {
           <SectionLabel>Branches</SectionLabel>
           <p className="text-xs text-neutral-600 dark:text-neutral-400">The first matching branch runs. Otherwise runs if no branch matches.</p>
           {branches.map((branch, index) => (
-            <fieldset key={index} className="min-w-0 rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
+            <fieldset key={index} className="min-w-0 rounded-lg border border-neutral-200 p-[8px] dark:border-neutral-700">
               <legend className="px-1 text-sm font-medium">Branch {index + 1}</legend>
               <div className="flex flex-wrap items-center gap-2">
-                <Input className="min-w-0 flex-1" aria-label={`Branch ${index + 1} name`} placeholder="Branch name" value={branch.name ?? ''} onChange={e => setBranch(index, { name: e.target.value })} />
+                <Input className="w-full min-w-0 basis-full" aria-label={`Branch ${index + 1} name`} placeholder="Branch name" value={branch.name ?? ''} onChange={e => setBranch(index, { name: e.target.value })} />
                 <Button type="button" size="sm" disabled={index === 0} aria-label={`Move branch ${index + 1} up`} onClick={() => moveBranch(index, -1)}><ArrowUp size={14} aria-hidden="true" /></Button>
                 <Button type="button" size="sm" disabled={index === branches.length - 1} aria-label={`Move branch ${index + 1} down`} onClick={() => moveBranch(index, 1)}><ArrowDown size={14} aria-hidden="true" /></Button>
                 <Button type="button" size="sm" disabled={branches.length === 1} aria-label={`Remove branch ${index + 1}`} onClick={() => patch({ branches: branches.filter((_, i) => i !== index) })}><Trash2 size={14} aria-hidden="true" /></Button>
@@ -494,7 +494,7 @@ function AutomationCard({ row, board, allBoards, allForms }: {
             {!row.otherwise && <Button type="button" size="sm" onClick={() => patch({ otherwise: [newAction()] })}><Plus size={14} aria-hidden="true" /> Add Otherwise</Button>}
           </div>
           {row.otherwise && (
-            <fieldset className="min-w-0 rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
+            <fieldset className="min-w-0 rounded-lg border border-neutral-200 p-[8px] dark:border-neutral-700">
               <legend className="px-1 text-sm font-medium">Otherwise</legend>
               <AutomationPathEditor board={board} allBoards={allBoards} actions={row.otherwise} maximum={10} onActions={otherwise => patch({ otherwise })} />
               <Button type="button" size="sm" className="mt-2" onClick={() => patch({ otherwise: null })}>Remove Otherwise</Button>
@@ -543,7 +543,7 @@ export function AutomationsEditor() {
     });
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-4">
+    <div className="mx-auto w-full max-w-2xl px-[12px] py-4">
       <header className="mb-4 flex items-center gap-2">
         <button className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => navigate(-1)} aria-label="Back">
           <ArrowLeft size={17} />
