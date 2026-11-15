@@ -19,6 +19,9 @@
       "migrations_dir": "migrations"
     }
   ],
+  // Owner enables this only after creating and backing up the private bucket.
+  // "r2_buckets": [{"binding":"FILES","bucket_name":"tcg-workspace-files"}],
+  "vars": {"FILE_STORAGE":"d1","FILE_QUOTA_MB":"450"},
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",

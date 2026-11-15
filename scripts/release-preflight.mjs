@@ -13,9 +13,9 @@ export const releasePreflightNames=[
   'explicit production target','D1 binding','OAuth KV binding','LiveRoom binding and migration',
   'asset and OAuth routing','fifteen-minute Cron','local bindings have no remote access',
   'fixture bypasses absent','optional AI disabled','secret values absent from config',
-  'permission activation defaults off','41 immutable migration hashes','lockfile and pinned Wrangler',
+  'permission activation defaults off','42 immutable migration hashes','lockfile and pinned Wrangler',
   'built package matches deployment contract',
-  'optional notifications disabled',
+  'optional notifications disabled','optional storage configured safely',
 ];
 const project=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const json=path=>JSON.parse(readFileSync(path,'utf8'));
@@ -24,7 +24,7 @@ function config(path){return JSON5.parse(readFileSync(path,'utf8'));}
 function invariant(condition,message){if(!condition)throw new Error(message);}
 function hasRemote(value){return value&&typeof value==='object'&&(value.remote===true||Object.values(value).some(hasRemote));}
 const oauthRoutes=['/api/*','/mcp','/mcp/*','/oauth/*','/token','/register','/.well-known/*'];
-function contract(c){return {name:c.name,compatibility_date:c.compatibility_date,compatibility_flags:c.compatibility_flags,vars:c.vars??{},durable_objects:c.durable_objects,migrations:c.migrations,kv_namespaces:c.kv_namespaces,ai:c.ai,triggers:c.triggers,d1:(c.d1_databases??[]).map(({binding,database_name,database_id})=>({binding,database_name,database_id})),assets:{not_found_handling:c.assets?.not_found_handling,run_worker_first:c.assets?.run_worker_first}};}
+function contract(c){return {name:c.name,compatibility_date:c.compatibility_date,compatibility_flags:c.compatibility_flags,vars:c.vars??{},durable_objects:c.durable_objects,migrations:c.migrations,kv_namespaces:c.kv_namespaces,ai:c.ai,triggers:c.triggers,d1:(c.d1_databases??[]).map(({binding,database_name,database_id})=>({binding,database_name,database_id})),r2:(c.r2_buckets??[]).map(({binding,bucket_name})=>({binding,bucket_name})),assets:{not_found_handling:c.assets?.not_found_handling,run_worker_first:c.assets?.run_worker_first}};}
 
 /** Exported for local harness tests; accepting a path never grants remote access. */
 export function inspectRelease(root=project){
@@ -46,7 +46,7 @@ export function inspectRelease(root=project){
   check(releasePreflightNames[10],()=>invariant(/INSERT\s+INTO\s+access_state\(id,generation,enabled\)\s+VALUES\(1,1,0\)/i.test(readFileSync(join(root,'migrations/0012_phase5_access_foundation.sql'),'utf8')),'Access foundation no longer defaults to disabled'));
   check(releasePreflightNames[11],()=>{
     const manifest=json(join(root,'scripts/certification/migrations.json')),files=readdirSync(join(root,'migrations')).filter(name=>name.endsWith('.sql')).sort();
-    invariant(manifest.length===41&&files.length===41,'Expected exactly 41 registered migrations; review additive migration changes');
+    invariant(manifest.length===42&&files.length===42,'Expected exactly 42 registered migrations; review additive migration changes');
     invariant(manifest.every((entry,index)=>entry.name===files[index]&&entry.name.startsWith(String(index+1).padStart(4,'0')+'_')&&entry.sha256===createHash('sha256').update(readFileSync(join(root,'migrations',entry.name))).digest('hex')),'Migration name/order/hash differs from immutable manifest');
   });
   check(releasePreflightNames[12],()=>{
@@ -67,6 +67,11 @@ export function inspectRelease(root=project){
     !c.vars?.VAPID_PRIVATE_KEY&&!c.vars?.VAPID_SUBJECT&&
     !(c.services??[]).some(service=>['EMAIL_TEST_SINK','PUSH_TEST_SINK'].includes(service.binding)),
     'Optional notification delivery or a disposable notification sink is enabled in release configuration'));
+  check(releasePreflightNames[15],()=>invariant(
+    ['d1','r2'].includes(c.vars?.FILE_STORAGE??'d1')&&
+    ((c.vars?.FILE_STORAGE??'d1')!=='r2'||(c.r2_buckets??[]).some(b=>b.binding==='FILES'&&b.bucket_name))&&
+    Number.isSafeInteger(Number(c.vars?.FILE_QUOTA_MB??450))&&Number(c.vars?.FILE_QUOTA_MB??450)>0&&Number(c.vars?.FILE_QUOTA_MB??450)<=1024*1024,
+    'File storage mode, private bucket binding or quota is invalid'));
   return results;
 }
 
@@ -76,7 +81,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
   reporter.setMetadata('scope','Local static contract and built-package checks only; never authorizes deployment');
   reporter.setMetadata('productionReleaseCertified',false);
   reporter.setMetadata('productionTargetWarning','Default config targets existing production workspace/DB/KV. Do not deploy or migrate without separate approval.');
-  reporter.setMetadata('operatorConfiguration',{secretNames:['TURNSTILE_SECRET'],publicVariableNames:['TURNSTILE_SITE_KEY','TURNSTILE_HOSTNAMES'],optionalDisabled:['AI_PROVIDER','AI_DAILY_UNITS','AI_CLASSIFICATION','AI_CHAT_MODEL','AI_BYOK_PROVIDERS','AI_CREDENTIAL_KEY','OPENAI_CHATGPT_HOSTED_APPROVAL','REMOTE_IMPORT_HOSTS','EMAIL_PROVIDER','EMAIL_FROM','EMAIL_APP_ORIGIN','EMAIL_LINK_KEY','RESEND_API_KEY','WEB_PUSH','VAPID_PUBLIC_KEY','VAPID_PRIVATE_KEY','VAPID_SUBJECT'],valuesIncluded:false});
+  reporter.setMetadata('operatorConfiguration',{secretNames:['TURNSTILE_SECRET'],publicVariableNames:['TURNSTILE_SITE_KEY','TURNSTILE_HOSTNAMES'],optionalDisabled:['AI_PROVIDER','AI_DAILY_UNITS','AI_CLASSIFICATION','AI_CHAT_MODEL','AI_BYOK_PROVIDERS','AI_CREDENTIAL_KEY','OPENAI_CHATGPT_HOSTED_APPROVAL','REMOTE_IMPORT_HOSTS','EMAIL_PROVIDER','EMAIL_FROM','EMAIL_APP_ORIGIN','EMAIL_LINK_KEY','RESEND_API_KEY','WEB_PUSH','VAPID_PUBLIC_KEY','VAPID_PRIVATE_KEY','VAPID_SUBJECT','FILE_STORAGE','FILE_QUOTA_MB'],valuesIncluded:false});
   reporter.setMetadata('externalReleaseGates',['Live remote variables/secrets and target settings','Approved production backup/restore','Real Turnstile and hostname','Physical devices and assistive technology','Real third-party MCP host','Real optional AI provider'].map(test=>({test,status:'NOT VERIFIED'})));
   if(process.argv.length>2)reporter.record('node','none','arguments','FAIL','This read-only local preflight accepts no command-line arguments');
   else for(const result of inspectRelease()){reporter.record('node','none',result.test,result.status,result.error);console.log(`${result.status}: ${result.test}`);}

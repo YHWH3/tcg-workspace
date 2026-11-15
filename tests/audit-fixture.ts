@@ -20,10 +20,11 @@ export interface AuditFixture {
 
 export const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
 
-export async function openAuditFixture(users: { id: string; role?: 'admin' | 'member' }[] = [{ id: 'alice', role: 'admin' }, { id: 'bob' }, { id: 'carol' }], extraEnv: Partial<Env> = {}, workerScript?: string): Promise<AuditFixture> {
+export async function openAuditFixture(users: { id: string; role?: 'admin' | 'member' }[] = [{ id: 'alice', role: 'admin' }, { id: 'bob' }, { id: 'carol' }], extraEnv: Partial<Env> = {}, workerScript?: string, r2 = false): Promise<AuditFixture> {
   const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{
     name: 'audit', modules: true,
     script: workerScript ?? 'export default {fetch(){return new Response("audit fixture")}}',
+    ...(r2?{r2Buckets:{FILES:'disposable-files'}}:{}),
     compatibilityDate: '2026-09-25', d1Databases: { DB: 'disposable-audit' },
   }] }));
   const db = (await mf.getD1Database('DB')) as D1Database;
@@ -41,7 +42,7 @@ export async function openAuditFixture(users: { id: string; role?: 'admin' | 'me
   }
   return {
     mf, db, ctx,
-    env: { DB: db, ...extraEnv } as Env,
+    env: { DB: db, ...(r2?{FILES:await mf.getR2Bucket('FILES')}:{}), ...extraEnv } as Env,
     token,
     auth: (id) => ({ authorization: `Bearer ${token(id)}`, 'content-type': 'application/json' }),
     dispose: () => mf.dispose(),

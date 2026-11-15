@@ -1200,3 +1200,81 @@ physical iPhone/iPad and Android, manual assistive technology and native 400%
 zoom remain unverified external acceptance gates. No production deployment,
 remote migration or real delivery occurred. Phase 11 local implementation may
 now begin on its own stacked branch.
+
+## Phase 11 — Optional completed-file storage
+
+Started on `sol/p11-storage`, stacked on Phase 10 evidence head `cce9d2d`.
+The Phase 10 mandatory certificate is complete before this branch starts.
+First isolate byte storage and serving policy without changing the D1 upload
+protocol. Then add migration 0042, local R2 promotion/read/reclamation and
+a bounded admin backfill. Keep default D1, 20 MB files and 450 MB quota.
+
+Source inspection corrects the handoff: migration 0011 has permanent deletion
+reservations and immediate metadata/chunk reclamation, rather than a later
+consumer. A new BEFORE DELETE hook must preserve external deletion work.
+Promotion must retain its intent before external writes; late writes after
+deletion require bounded orphan reconciliation in the existing retention
+phase. Preserve all old migration bytes and the ten-phase cron rotation.
+
+Acceptance: actual local D1/R2 failure, acknowledgement-loss, deletion-race,
+backfill, authorization and budget tests; existing affected file/form/public
+checks; three-engine upload/share/offline workflows; then one complete
+phase-end certificate. Owner R2 creation/billing/backup/activation stays external.
+
+The first D1 isolation check reported 33 PASS / 2 FAIL. Both failures were
+race-injection hooks tied to the original `SELECT idx, data` SQL spelling.
+The equivalent moved query now keeps that spelling, so those tests still
+exercise the original commit boundary rather than silently skipping injection.
+The other chunk/form/security suites passed. Affected permission checks are
+being rerun; no assertion or permission fence was removed.
+
+D1 storage isolation now passes the 17/17 affected permission checks. The
+other two suites passed 18/18 in the first run; their source is unchanged
+except for restored SQL spacing. Typecheck and whitespace validation run
+before this checkpoint commit. R2 is not implemented or certified yet.
+
+### Phase 11 implementation and verification checkpoint
+
+The storage Worker uses migration 0042, with D1 staging and verified promotion
+to private R2. The recovery queue survives lost put/delete acknowledgements and
+permanent file deletion reservations allow bounded cleanup of late objects.
+Admin backfill uses a numeric storage cursor and checks current session and
+record access. The owner runbook covers paired D1 and R2 backups and retention.
+
+Focused evidence is in `.artifacts/phase11/`. The initial 9 PASS / 1 FAIL
+run over-specified how many rows fit the binding budget. The corrected test
+follows continuation and checks all seven migrations. The staged storage,
+file security, permissions and form suites passed 45 checks at the earlier
+working-tree checkpoint. The expanded storage suite passed 14 checks after
+the final application changes, including enabled-mode revocation, concurrent
+deletion, simulated transcription and paired restore. Typecheck, whitespace,
+the build, seven preflight self-tests and all 16 configured preflight checks
+passed in their recorded working-tree runs.
+
+The first browser runner failed before opening pages because the async
+reporter helper was not awaited. The second passed six Chromium and Firefox
+cases and failed all three WebKit cases before byte upload. An isolated
+WebKit probe found that offline emulation makes even a plain local file input
+unreadable (`NotReadableError`). The WebKit test therefore injects a Worker
+API outage with service workers blocked, while Chromium and Firefox keep the
+offline context. The repro and failed reports remain evidence. A final
+committed-source browser matrix and mandatory certificate are required.
+
+### Phase 11 acceptance
+
+ENGINEERING GO / EXTERNAL BLOCKED. The committed source
+`6673d6f1df1b3d8a3781f20d3b7ebda65961a8e4` passed the complete mandatory
+certificate, 34/34, from 09:56:23 to 10:42:30 UTC on 15 November 2026.
+Starting and ending source matched, the starting tree was clean and no host
+pause was recorded. The unit gate passed 1,185 checks and actual D1 passed
+973. Full details and hashes are in `docs/roadmap/evidence/P11-certification.json`.
+
+The committed-source attachment workflow passed 9/9 engine and viewport
+combinations. Browser output is in
+`.artifacts/phase11/browser-final-6673d6f/results.json`.
+WebKit uses the documented API transport outage after its isolated file-input
+offline limitation. This evidence covers local browser emulation.
+Physical iPhone/iPad and Android, manual assistive technology, native 400%
+browser zoom, owner R2 account checkout/provisioning and paired live backup
+acceptance remain external. Owner setup is described in
+`docs/roadmap/11-storage-runbook.md`. Draft PR #20 carries this phase.

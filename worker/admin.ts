@@ -1,3 +1,5 @@
+import {migrateFiles} from './fileStore';
+import {FileAccessError} from './fileAccess';
 import { Hono } from 'hono';
 import { inviteCode, requireAdmin, requireAuth, MAX_USERS } from './auth';
 import type { Env, AuthUser } from './auth';
@@ -20,6 +22,23 @@ function adminSessionFence(env:Env,user:AuthUser,spaceId?:string){
  ${spaceId?`AND ${levelSql('?','?')}>=3`:''} THEN 1 ELSE json_extract('{','$') END`)
  .bind(user.tokenHash,user.id,Date.now(),...(spaceId?[spaceId,user.id]:[]));
 }
+
+admin.post('/admin/files/migrate', requireAdmin, async c => {
+  const cursor = c.req.query('after') ?? '0';
+  const after = Number(cursor);
+  const dryRun = c.req.query('dryRun');
+  if (!/^\d+$/.test(cursor) || !Number.isSafeInteger(after) || (dryRun !== undefined && dryRun !== '1')) {
+    return c.json({ error: 'invalid_migration_parameters' }, 400);
+  }
+  if (c.env.FILE_STORAGE !== 'r2' || !c.env.FILES) return c.json({ error: 'storage_not_configured' }, 503);
+  try {
+    return c.json(await migrateFiles(c.env, after, dryRun === '1', () => adminSessionFence(c.env, c.get('user')), c.get('user')));
+  } catch (error) {
+    if (error instanceof FileAccessError) return c.json({ error: error.message }, error.status);
+    if (/malformed JSON/i.test(String(error))) return c.json({ error: 'authority_changed' }, 409);
+    throw error;
+  }
+});
 
 admin.get('/admin/website-ingest',requireAdmin,async c=>{
  const grant=await c.env.DB.prepare('SELECT * FROM website_ingest_grant WHERE id=1').first<{space_id:string}>();

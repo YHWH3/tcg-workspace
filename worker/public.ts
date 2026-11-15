@@ -1,6 +1,7 @@
+import {readBytes} from './fileStore';
 import { Hono } from 'hono';
 import type { Env } from './auth';
-import { ID_RE, concatRows, servedFile, type FileRow } from './files';
+import { ID_RE, servedFile, type FileRow } from './files';
 import {
   allowedCanvasFiles,
   allowedFileIds,
@@ -248,10 +249,18 @@ publicApi.get('/:token/files/:fileId', async (c) => {
   const { tree } = await pageTree(c.env.DB, share.page_id);
   const { allowed, files } = await allowedFiles(c.env.DB, tree, scope);
   if (!canServeFile(fileId, allowed, files)) return c.json({ error: 'not found' }, 404);
-  const meta = await c.env.DB.prepare('SELECT mime, complete FROM files WHERE id = ?').bind(fileId).first<FileRow>();
+  const meta = await c.env.DB.prepare('SELECT * FROM files WHERE id = ?').bind(fileId).first<FileRow>();
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
-  const { results } = await c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(fileId).all<{ data: unknown }>();
-  const served = servedFile(meta.mime, concatRows(results));
+  const bytes=await readBytes(c.env,meta);
+  if(!bytes)return c.json({error:'not found'},404);
+  if(c.env.FILES){
+    const current=await activeShare(c.env.DB,c.req.param('token'),'page');
+    if(!current)return c.json({error:'inactive'},404);
+    const latest=await pageTree(c.env.DB,current.share.page_id);
+    const access=await allowedFiles(c.env.DB,latest.tree,current.scope);
+    if(!canServeFile(fileId,access.allowed,access.files))return c.json({error:'not found'},404);
+  }
+  const served=servedFile(meta.mime,bytes);
   return new Response(served.body, {
     headers: {
       'Content-Length': String(served.body.byteLength),
@@ -376,10 +385,21 @@ publicApi.get('/canvas/:token/files/:fileId', async (c) => {
   const pubItems = items.map((i) => ({ id: i.row.id, ...i.data } as PubMoodItem));
   const allowed = await pinnedFiles(c.env.DB, scope, allowedCanvasFiles(pubItems, share.page_id, files), files);
   if (!canServeFile(fileId, allowed, files)) return c.json({ error: 'not found' }, 404);
-  const meta = await c.env.DB.prepare('SELECT mime, complete FROM files WHERE id = ?').bind(fileId).first<FileRow>();
+  const meta = await c.env.DB.prepare('SELECT * FROM files WHERE id = ?').bind(fileId).first<FileRow>();
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
-  const { results } = await c.env.DB.prepare('SELECT data FROM file_chunks WHERE file_id = ? ORDER BY idx').bind(fileId).all<{ data: unknown }>();
-  const served = servedFile(meta.mime, concatRows(results));
+  const bytes=await readBytes(c.env,meta);
+  if(!bytes)return c.json({error:'not found'},404);
+  if(c.env.FILES){
+    const current=await activeShare(c.env.DB,c.req.param('token'),'moodboard');
+    if(!current||!canServeBoardShare(current.share,current.share.page_id))return c.json({error:'inactive'},404);
+    const activeBoard=await c.env.DB.prepare("SELECT 1 FROM records WHERE id=? AND collection='moodboards' AND COALESCE(json_extract(data,'$.deleted'),0)=0").bind(current.share.page_id).first();
+    if(!activeBoard)return c.json({error:'inactive'},404);
+    const latest=await canvasItems(c.env.DB,current.share.page_id);
+    const peers=await c.env.DB.prepare("SELECT id,json_extract(data,'$.thumbId') AS thumbId FROM records WHERE collection='files'").all<PubFileMeta>();
+    const access=await pinnedFiles(c.env.DB,current.scope,allowedCanvasFiles(latest.map(i=>({id:i.row.id,...i.data} as PubMoodItem)),current.share.page_id,peers.results),peers.results);
+    if(!canServeFile(fileId,access,peers.results))return c.json({error:'not found'},404);
+  }
+  const served=servedFile(meta.mime,bytes);
   return new Response(served.body, {
     headers: {
       'Content-Length': String(served.body.byteLength),

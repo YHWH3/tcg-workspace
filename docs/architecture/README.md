@@ -137,3 +137,5 @@ Release preparation includes a local SQL-copy rehearsal and an ordered owner run
 
 Phase 10 notification channels, queue ownership and device session guards are
 documented in `phase-10-notifications.md`.
+
+Optional completed file storage is specified in [Phase 11 storage](../roadmap/11-storage.md), with activation and paired backup/restore in its [operator runbook](../roadmap/11-storage-runbook.md).
