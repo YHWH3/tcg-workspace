@@ -1,6 +1,6 @@
 import {servedFile} from './fileServing';
 export {SVG_HEADERS,svgHeaders,servedFileHeaders,servedFile} from './fileServing';
-import {usageBytes,QUOTA_BYTES,ID_RE,MAX_FILE_SIZE,readBytes,putChunk,completeUpload,reclaimChunkStatement} from './fileStore';
+import {usageBytes,quotaBytes,ID_RE,MAX_FILE_SIZE,readBytes,putChunk,completeUpload,reclaimChunkStatement} from './fileStore';
 import type {FileRow} from './fileStore';
 export {UNFINISHED_UPLOAD_WINDOW_MS,heldBytes,MAX_FILE_SIZE,QUOTA_BYTES,D1_MAX_ROW_BYTES,FILE_CHUNK_BYTES,fileChunkSlices,ID_RE,concatRows,type FileRow} from './fileStore';
 
@@ -22,7 +22,7 @@ files.onError((error, c) => {
 
 files.get('/usage', async (c) => {
   const scoped = await readableFileUsage(c.env.DB, c.get('user'));
-  return c.json({ used: scoped ?? await usageBytes(c.env.DB), limit: QUOTA_BYTES, ...(scoped !== null ? { scope: 'readable', quotaShared: true } : {}) });
+  return c.json({ used: scoped ?? await usageBytes(c.env.DB), limit: quotaBytes(c.env), ...(scoped !== null ? { scope: 'readable', quotaShared: true } : {}) });
 });
 
 /** Idempotent chunk upsert. Body is the raw chunk bytes. */

@@ -253,6 +253,13 @@ publicApi.get('/:token/files/:fileId', async (c) => {
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
   const bytes=await readBytes(c.env,meta);
   if(!bytes)return c.json({error:'not found'},404);
+  if(c.env.FILES){
+    const current=await activeShare(c.env.DB,c.req.param('token'),'page');
+    if(!current)return c.json({error:'inactive'},404);
+    const latest=await pageTree(c.env.DB,current.share.page_id);
+    const access=await allowedFiles(c.env.DB,latest.tree,current.scope);
+    if(!canServeFile(fileId,access.allowed,access.files))return c.json({error:'not found'},404);
+  }
   const served=servedFile(meta.mime,bytes);
   return new Response(served.body, {
     headers: {
@@ -382,6 +389,16 @@ publicApi.get('/canvas/:token/files/:fileId', async (c) => {
   if (!meta || !meta.complete) return c.json({ error: 'not found' }, 404);
   const bytes=await readBytes(c.env,meta);
   if(!bytes)return c.json({error:'not found'},404);
+  if(c.env.FILES){
+    const current=await activeShare(c.env.DB,c.req.param('token'),'moodboard');
+    if(!current||!canServeBoardShare(current.share,current.share.page_id))return c.json({error:'inactive'},404);
+    const activeBoard=await c.env.DB.prepare("SELECT 1 FROM records WHERE id=? AND collection='moodboards' AND COALESCE(json_extract(data,'$.deleted'),0)=0").bind(current.share.page_id).first();
+    if(!activeBoard)return c.json({error:'inactive'},404);
+    const latest=await canvasItems(c.env.DB,current.share.page_id);
+    const peers=await c.env.DB.prepare("SELECT id,json_extract(data,'$.thumbId') AS thumbId FROM records WHERE collection='files'").all<PubFileMeta>();
+    const access=await pinnedFiles(c.env.DB,current.scope,allowedCanvasFiles(latest.map(i=>({id:i.row.id,...i.data} as PubMoodItem)),current.share.page_id,peers.results),peers.results);
+    if(!canServeFile(fileId,access,peers.results))return c.json({error:'not found'},404);
+  }
   const served=servedFile(meta.mime,bytes);
   return new Response(served.body, {
     headers: {

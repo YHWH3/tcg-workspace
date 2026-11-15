@@ -162,5 +162,9 @@
   {
     "name": "0041_web_push.sql",
     "sha256": "1e1a5c486654b5ae53ab4f2ef6ef4a61a4efe95a55d18785bd7cc48daecf12e9"
+  },
+  {
+    "name": "0042_file_storage.sql",
+    "sha256": "2a685450e39d4a0c1f70c07f45f50646d7fc3410b78ced74102b2283dc620e5d"
   }
 ]

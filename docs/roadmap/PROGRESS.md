@@ -1232,3 +1232,30 @@ D1 storage isolation now passes the 17/17 affected permission checks. The
 other two suites passed 18/18 in the first run; their source is unchanged
 except for restored SQL spacing. Typecheck and whitespace validation run
 before this checkpoint commit. R2 is not implemented or certified yet.
+
+### Phase 11 implementation and verification checkpoint
+
+The storage Worker uses migration 0042, with D1 staging and verified promotion
+to private R2. The recovery queue survives lost put/delete acknowledgements and
+permanent file deletion reservations allow bounded cleanup of late objects.
+Admin backfill uses a numeric storage cursor and checks current session and
+record access. The owner runbook covers paired D1 and R2 backups and retention.
+
+Focused evidence is in `.artifacts/phase11/`. The initial 9 PASS / 1 FAIL
+run over-specified how many rows fit the binding budget. The corrected test
+follows continuation and checks all seven migrations. The staged storage,
+file security, permissions and form suites passed 45 checks at the earlier
+working-tree checkpoint. The expanded storage suite passed 14 checks after
+the final application changes, including enabled-mode revocation, concurrent
+deletion, simulated transcription and paired restore. Typecheck, whitespace,
+the build, seven preflight self-tests and all 16 configured preflight checks
+passed in their recorded working-tree runs.
+
+The first browser runner failed before opening pages because the async
+reporter helper was not awaited. The second passed six Chromium and Firefox
+cases and failed all three WebKit cases before byte upload. An isolated
+WebKit probe found that offline emulation makes even a plain local file input
+unreadable (`NotReadableError`). The WebKit test therefore injects a Worker
+API outage with service workers blocked, while Chromium and Firefox keep the
+offline context. The repro and failed reports remain evidence. A final
+committed-source browser matrix and mandatory certificate are required.

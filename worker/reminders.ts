@@ -1,4 +1,4 @@
-import {abandonedChunkStatement,deleteChunkStatement} from './fileStore';
+import {abandonedChunkStatement,recoverFileStorage,orphanFormChunkStatement} from './fileStore';
 import {serverToday,withWorkspaceContext} from './workspaceSettings';
 // Phase 4 — reminders/deadlines/recurrence + cron sweeps (Workstream B).
 // Contract signature is FIXED; the outbox sweep below is the shared
@@ -275,20 +275,13 @@ async function runRetention(env: { DB: D1Database }, now: number): Promise<void>
         AND NOT EXISTS(SELECT 1 FROM records r WHERE r.id=files.id)`).bind(now - RETENTION.incompleteUploadMs),
   ]).catch(() => {});
 
-  // Orphan public-form uploads: 'form-pending' file records abandoned >24h.
-  const { results: orphans } = await db
-    .prepare(`SELECT id FROM records WHERE collection = 'files' AND json_extract(data, '$.parentType') = 'form-pending' AND updated_at < ?`)
-    .bind(now - RETENTION.orphanFormFileMs)
-    .all<{ id: string }>();
-  for (const o of orphans) {
-    await db
-      .batch([
-        db.prepare(`DELETE FROM records WHERE id = ?`).bind(o.id),
-        db.prepare(`DELETE FROM files WHERE id = ?`).bind(o.id),
-        deleteChunkStatement(db,o.id),
-      ])
-      .catch(() => {});
-  }
+  // Bound legacy orphan cleanup; deleting metadata preserves R2 intent through 0042.
+  await db.batch([
+    orphanFormChunkStatement(db,now-RETENTION.orphanFormFileMs),
+    db.prepare(`DELETE FROM files WHERE id IN (SELECT id FROM records WHERE collection='files' AND json_extract(data,'$.parentType')='form-pending' AND updated_at<? ORDER BY id LIMIT 50)`).bind(now-RETENTION.orphanFormFileMs),
+    db.prepare(`DELETE FROM records WHERE id IN (SELECT id FROM records WHERE collection='files' AND json_extract(data,'$.parentType')='form-pending' AND updated_at<? ORDER BY id LIMIT 50)`).bind(now-RETENTION.orphanFormFileMs),
+  ]);
+  await recoverFileStorage(env,now);
 }
 
 /** Called by the cron scheduled() handler every 15 min:

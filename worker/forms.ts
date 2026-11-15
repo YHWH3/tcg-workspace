@@ -1,4 +1,4 @@
-import {stageBytes,deleteChunkStatement} from './fileStore';
+import {stageBytes,deleteChunkStatement,finalize} from './fileStore';
 // Phase 4 — public forms platform (Workstream C). Contract mounts are FIXED
 // in worker/index.ts; this file implements the bodies.
 //
@@ -34,7 +34,6 @@ import { clientAddress, rateLimitHit } from './ratelimit';
 import { completedRecords, executionOptions, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
 import type { ChangesetCtx } from './changesets';
 import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
-import { D1_MAX_ROW_BYTES, fileChunkSlices } from './files';
 import { sanitizeSvg } from '../shared/svgSanitize';
 
 type Bindings = Env;
@@ -759,8 +758,6 @@ publicFormsApi.post('/:token/files', async (c) => {
     if (!svg.ok) return c.json({ error: 'unsupported_image' }, 415);
     bytes = new TextEncoder().encode(svg.svg);
   }
-  const parts = fileChunkSlices(bytes);
-  if (parts.some((part) => part.byteLength >= D1_MAX_ROW_BYTES)) return c.json({ error: 'too_large' }, 413);
   const now = Date.now();
   const db = c.env.DB;
   const dropFile = () => db.batch([
@@ -793,6 +790,7 @@ publicFormsApi.post('/:token/files', async (c) => {
     await dropFile().catch(() => {});
     return c.json({error:'temporary_failure'},503);
   }
+  await finalize(c.env,id);
   pokeLive(c.env, c.executionCtx);
   return c.json({ id,claim });
 });

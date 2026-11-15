@@ -22,6 +22,9 @@ export interface Env {
   EMAIL_LINK_KEY?: string;
   /** Disposable local fixture only. */
   EMAIL_TEST_SINK?: Pick<Fetcher, 'fetch'>;
+  FILE_STORAGE?: 'd1'|'r2';
+  FILE_QUOTA_MB?: string;
+  FILES?: R2Bucket;
   WEB_PUSH?: 'off' | 'on' | 'simulated';
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;

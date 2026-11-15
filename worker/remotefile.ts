@@ -1,7 +1,6 @@
-import {stageBytes,deleteChunkStatement} from './fileStore';
+import {stageBytes,deleteChunkStatement,finalize,MAX_FILE_SIZE} from './fileStore';
 import {approvedRemoteUrl} from './remotePolicy';
 import type { Env } from './auth';
-import { MAX_FILE_SIZE, QUOTA_BYTES } from './files';
 import { uuid } from '../shared/order';
 import { kindOf } from '../shared/filekinds';
 import { applyChanges } from './sync';
@@ -16,11 +15,6 @@ export class RemoteFileError extends Error {
   ) {
     super(message);
   }
-}
-
-async function usageBytes(db: D1Database): Promise<number> {
-  const row = await db.prepare('SELECT COALESCE(SUM(size), 0) AS used FROM files WHERE complete = 1').first<{ used: number }>();
-  return row?.used ?? 0;
 }
 
 /**
@@ -74,8 +68,6 @@ export async function importFileFromUrl(
     if (!svg.ok) throw new RemoteFileError(400, `svg failed sanitization: ${svg.reasons.join(', ')}`);
     bytes = new TextEncoder().encode(svg.svg);
   }
-  if ((await usageBytes(env.DB)) + bytes.length > QUOTA_BYTES) throw new RemoteFileError(507, 'storage quota exceeded');
-
   const fileId = uuid();
   if(!await stageBytes(env,fileId,mime,bytes,opts.userId))throw new RemoteFileError(507,'storage quota exceeded');
 
@@ -98,5 +90,6 @@ export async function importFileFromUrl(
     },
   ]);
   if (r.conflict||r.rejected||r.partialError){await env.DB.batch([deleteChunkStatement(env.DB,fileId),env.DB.prepare('DELETE FROM files WHERE id=?').bind(fileId)]);throw new RemoteFileError(409,'attachment authorization or state changed');}
+  await finalize(env,fileId);
   return { fileId, mime, size: bytes.length };
 }

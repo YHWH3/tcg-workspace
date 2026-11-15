@@ -1,4 +1,5 @@
 import test from 'node:test';
+import JSON5 from 'json5';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {cpSync,copyFileSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
@@ -14,7 +15,7 @@ function fixture(t){
   for(const dir of ['scripts/certification','.wrangler/deploy','dist/workspace','dist/client','node_modules/wrangler'])mkdirSync(join(root,dir),{recursive:true});
   for(const file of ['wrangler.jsonc','package.json','package-lock.json','scripts/certification/migrations.json','node_modules/wrangler/package.json'])copyFileSync(join(project,file),join(root,file));
   cpSync(join(project,'migrations'),join(root,'migrations'),{recursive:true});
-  const source=JSON.parse(readFileSync(join(root,'wrangler.jsonc'),'utf8'));
+  const source=JSON5.parse(readFileSync(join(root,'wrangler.jsonc'),'utf8'));
   const built={...structuredClone(source),main:'index.js',assets:{...source.assets,directory:'../client'}};
   writeFileSync(join(root,'dist/workspace/wrangler.json'),JSON.stringify(built));
   writeFileSync(join(root,'.wrangler/deploy/config.json'),JSON.stringify({configPath:'../../dist/workspace/wrangler.json'}));
@@ -42,9 +43,9 @@ test('unsafe fixture/prod configuration fails even when the same values enter th
 test('missing or modified migration cannot satisfy the immutable ledger',t=>{
   const {root}=fixture(t);
   writeFileSync(join(root,'migrations/0001_init.sql'),'-- tampered fixture');
-  assert.ok(failed(root,'41 immutable migration hashes'));
+  assert.ok(failed(root,'42 immutable migration hashes'));
   rmSync(join(root,'migrations/0032_assistant_conversations.sql'));
-  assert.ok(failed(root,'41 immutable migration hashes'));
+  assert.ok(failed(root,'42 immutable migration hashes'));
 });
 
 test('an extra hash-matched migration still requires review of the release count',t=>{
@@ -53,7 +54,7 @@ test('an extra hash-matched migration still requires review of the release count
   const file=join(root,'scripts/certification/migrations.json'),manifest=JSON.parse(readFileSync(file,'utf8'));
   manifest.push({name,sha256:createHash('sha256').update(sql).digest('hex')});
   writeFileSync(file,JSON.stringify(manifest));
-  assert.ok(failed(root,'41 immutable migration hashes'));
+  assert.ok(failed(root,'42 immutable migration hashes'));
 });
 
 test('stale generated target or missing client package fails release packaging',t=>{
@@ -69,4 +70,20 @@ test('malformed configuration fails every planned local check',t=>{
   const {root}=fixture(t);writeFileSync(join(root,'wrangler.jsonc'),'{ malformed');
   const results=inspectRelease(root);assert.equal(results.length,releasePreflightNames.length);
   assert.ok(results.every(row=>row.status==='FAIL'));
+});
+
+
+test('optional R2 requires a matching local binding and valid quota', t => {
+  const {root, source, built} = fixture(t);
+  const check = () => {
+    writeFileSync(join(root,'wrangler.jsonc'), JSON.stringify(source));
+    writeFileSync(join(root,'dist/workspace/wrangler.json'), JSON.stringify(built));
+    return inspectRelease(root);
+  };
+  source.vars.FILE_STORAGE = built.vars.FILE_STORAGE = 'r2';
+  assert.equal(check().find(row => row.test === 'optional storage configured safely')?.status, 'FAIL');
+  source.r2_buckets = built.r2_buckets = [{binding:'FILES',bucket_name:'local-files'}];
+  assert.ok(check().every(row => row.status === 'PASS'));
+  built.r2_buckets = [{binding:'FILES',bucket_name:'another-bucket'}];
+  assert.equal(check().find(row => row.test === 'built package matches deployment contract')?.status, 'FAIL');
 });
