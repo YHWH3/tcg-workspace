@@ -1155,3 +1155,21 @@ The browser journey now includes recovery of this leftover endpoint.
 Engineering acceptance remains HOLD until the recovery browser check and
 fresh final-source certification pass. The earlier successful certificate and
 the new failing regression remain evidence for their respective source.
+
+N53's corrected browser journey passed 18/18 profiles on
+`72e2b31cff9067940b566fef308681300f32e9e7`, exit 0, with no skips or flakes
+and unchanged source. It includes permission, preference persistence, ordinary
+cleanup and leftover-endpoint recovery through the actual UI.
+The platform APIs are simulated.
+Evidence is `.artifacts/ux-lab/2026-11-15T06-43-19.451Z/summary.json`
+(SHA-256 `3946cbd9089bf4d684d497d8a672dce4cf84fd92f3aeaabca2aac0b26ead1a1e`).
+
+The expanded client test was also replayed against the unchanged application
+source at 3259d03 in a disposable worktree. It reports one failing recovery
+case and one passing active-session case. The corrected run passes both client
+cases and all three service-worker cases. Retained JSON evidence is
+`.artifacts/phase10-push-recovery/baseline.json`
+(SHA-256 `780c0c2b7ad4c6312fdd684e7c336003164de5d1a60262bd79a0306af8341e4c`)
+and `corrected.json`
+(SHA-256 `ff6a47e955dbbdc2b270927d25b45af61ae8ee75cd4af4f2988c50a0f7640a0c`).
+Final-source certification is required before advancing to Phase 11.
