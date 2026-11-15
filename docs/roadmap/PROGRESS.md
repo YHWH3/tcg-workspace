@@ -1200,3 +1200,35 @@ physical iPhone/iPad and Android, manual assistive technology and native 400%
 zoom remain unverified external acceptance gates. No production deployment,
 remote migration or real delivery occurred. Phase 11 local implementation may
 now begin on its own stacked branch.
+
+## Phase 11 — Optional completed-file storage
+
+Started on `sol/p11-storage`, stacked on Phase 10 evidence head `cce9d2d`.
+The Phase 10 mandatory certificate is complete before this branch starts.
+First isolate byte storage and serving policy without changing the D1 upload
+protocol. Then add migration 0042, local R2 promotion/read/reclamation and
+a bounded admin backfill. Keep default D1, 20 MB files and 450 MB quota.
+
+Source inspection corrects the handoff: migration 0011 has permanent deletion
+reservations and immediate metadata/chunk reclamation, rather than a later
+consumer. A new BEFORE DELETE hook must preserve external deletion work.
+Promotion must retain its intent before external writes; late writes after
+deletion require bounded orphan reconciliation in the existing retention
+phase. Preserve all old migration bytes and the ten-phase cron rotation.
+
+Acceptance: actual local D1/R2 failure, acknowledgement-loss, deletion-race,
+backfill, authorization and budget tests; existing affected file/form/public
+checks; three-engine upload/share/offline workflows; then one complete
+phase-end certificate. Owner R2 creation/billing/backup/activation stays external.
+
+The first D1 isolation check reported 33 PASS / 2 FAIL. Both failures were
+race-injection hooks tied to the original `SELECT idx, data` SQL spelling.
+The equivalent moved query now keeps that spelling, so those tests still
+exercise the original commit boundary rather than silently skipping injection.
+The other chunk/form/security suites passed. Affected permission checks are
+being rerun; no assertion or permission fence was removed.
+
+D1 storage isolation now passes the 17/17 affected permission checks. The
+other two suites passed 18/18 in the first run; their source is unchanged
+except for restored SQL spacing. Typecheck and whitespace validation run
+before this checkpoint commit. R2 is not implemented or certified yet.

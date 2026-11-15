@@ -1,3 +1,4 @@
+import {stageBytes,deleteChunkStatement} from './fileStore';
 // Phase 4 — public forms platform (Workstream C). Contract mounts are FIXED
 // in worker/index.ts; this file implements the bodies.
 //
@@ -33,7 +34,7 @@ import { clientAddress, rateLimitHit } from './ratelimit';
 import { completedRecords, executionOptions, EXECUTION_LEASE_MS, EXECUTION_MAX_ATTEMPTS, retryDelay } from './execution';
 import type { ChangesetCtx } from './changesets';
 import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase} from './d1budget';
-import { D1_MAX_ROW_BYTES, QUOTA_BYTES, fileChunkSlices } from './files';
+import { D1_MAX_ROW_BYTES, fileChunkSlices } from './files';
 import { sanitizeSvg } from '../shared/svgSanitize';
 
 type Bindings = Env;
@@ -763,31 +764,16 @@ publicFormsApi.post('/:token/files', async (c) => {
   const now = Date.now();
   const db = c.env.DB;
   const dropFile = () => db.batch([
-    db.prepare('DELETE FROM file_chunks WHERE file_id=?').bind(id),
+    deleteChunkStatement(db,id),
     db.prepare('DELETE FROM files WHERE id=?').bind(id),
     db.prepare('DELETE FROM records WHERE id=?').bind(id),
   ]);
   try {
-    await db.batch([
-      db.prepare('INSERT INTO files (id, uploaded_by, created_at, complete, mime, size, chunks) SELECT ?, NULL, ?, 0, ?, ?, ? WHERE (SELECT COALESCE(SUM(size),0) FROM files WHERE complete=1)+?<=?')
-        .bind(id, now, file.type, bytes.byteLength, parts.length, bytes.byteLength, QUOTA_BYTES),
-      ...parts.map((part, idx) => db.prepare('INSERT INTO file_chunks (file_id, idx, data) SELECT ?, ?, ? WHERE EXISTS(SELECT 1 FROM files WHERE id=?)').bind(id, idx, part, id)),
-      db.prepare('UPDATE files SET complete=1 WHERE id=? AND (SELECT COUNT(*) FROM file_chunks WHERE file_id=?)=? AND (SELECT COALESCE(SUM(LENGTH(data)),0) FROM file_chunks WHERE file_id=?)=?')
-        .bind(id, id, parts.length, id, bytes.byteLength),
-    ]);
+    if(!await stageBytes(c.env,id,file.type,bytes,null,now)) {
+      await dropFile();
+      return c.json({error:'workspace_full'},507);
+    }
   } catch {
-    await dropFile().catch(() => {});
-    return c.json({ error: 'temporary_failure' }, 503);
-  }
-  const stored = await db.prepare('SELECT complete FROM files WHERE id=? AND complete=1').bind(id).first<{ complete: number }>();
-  if (!stored) {
-    const exists = await db.prepare('SELECT id FROM files WHERE id=?').bind(id).first();
-    await dropFile().catch(() => {});
-    return c.json({ error: exists ? 'temporary_failure' : 'workspace_full' }, exists ? 503 : 507);
-  }
-  const lens = await db.prepare('SELECT idx, LENGTH(data) AS n FROM file_chunks WHERE file_id=? ORDER BY idx').bind(id).all<{ idx: number; n: number }>();
-  const durable = lens.results.length === parts.length && lens.results.every((row, idx) => row.idx === idx && row.n === parts[idx]!.byteLength && row.n < D1_MAX_ROW_BYTES);
-  if (!durable) {
     await dropFile().catch(() => {});
     return c.json({ error: 'temporary_failure' }, 503);
   }
@@ -1032,7 +1018,7 @@ export async function sweepFormFileOrphans(env: Bindings, ectx: { waitUntil(p: P
   );
   await env.DB.batch(
     stale.flatMap((r) => [
-      env.DB.prepare('DELETE FROM file_chunks WHERE file_id = ?').bind(r.id),
+      deleteChunkStatement(env.DB,r.id),
       env.DB.prepare('DELETE FROM files WHERE id = ?').bind(r.id),
     ]),
   );
