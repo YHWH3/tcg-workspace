@@ -17,6 +17,7 @@ export interface Env {
   WORKSPACE_ENV?: string;
   EMAIL_PROVIDER?: 'none' | 'resend' | 'simulated';
   EMAIL_FROM?: string;
+  EMAIL_APP_ORIGIN?: string;
   RESEND_API_KEY?: string;
   EMAIL_LINK_KEY?: string;
   /** Disposable local fixture only. */
@@ -101,36 +102,48 @@ export const NOTIF_KINDS: readonly NotifKind[] = [
   'automation',
 ];
 
+export type NotificationChannel = 'inbox' | 'email' | 'push';
+export type NotificationDelivery = 'inbox' | 'off' | NotificationChannel[];
 export interface UserPrefs {
-  /** Per-kind delivery: 'inbox' (default) or 'off'. */
-  notifications?: Partial<Record<NotifKind, 'inbox' | 'off'>>;
+  notifications?: Partial<Record<NotifKind, NotificationDelivery>>;
   /** Quiet digest: low-urgency kinds still land in the Inbox but do not
    * count against the nav badge. */
   quietDigest?: boolean;
+  emailDigest?: 'off' | 'daily' | 'weekly';
+  digestHour?: number;
+  pushShowContent?: boolean;
 }
 
 /** Drop every key/value that isn't part of the prefs contract. */
 export function sanitizePrefs(raw: unknown): UserPrefs {
   const out: UserPrefs = {};
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out;
-  const n = (raw as Record<string, unknown>).notifications;
+  const values = raw as Record<string, unknown>;
+  const n = values.notifications;
   if (typeof n === 'object' && n !== null && !Array.isArray(n)) {
-    const notif: Partial<Record<NotifKind, 'inbox' | 'off'>> = {};
+    const notif: Partial<Record<NotifKind, NotificationDelivery>> = {};
     for (const k of NOTIF_KINDS) {
       const v = (n as Record<string, unknown>)[k];
       if (v === 'inbox' || v === 'off') notif[k] = v;
+      if (Array.isArray(v)) {
+        const channels: NotificationChannel[] = ['inbox'];
+        if (v.includes('email')) channels.push('email');
+        if (v.includes('push')) channels.push('push');
+        notif[k] = channels.length === 1 ? 'inbox' : channels;
+      }
     }
     if (Object.keys(notif).length) out.notifications = notif;
   }
-  if (typeof (raw as Record<string, unknown>).quietDigest === 'boolean') {
-    out.quietDigest = (raw as Record<string, unknown>).quietDigest as boolean;
-  }
+  if (typeof values.quietDigest === 'boolean') out.quietDigest = values.quietDigest;
+  if (values.emailDigest === 'off' || values.emailDigest === 'daily' || values.emailDigest === 'weekly') out.emailDigest = values.emailDigest;
+  if (typeof values.digestHour === 'number' && Number.isInteger(values.digestHour) && values.digestHour >= 0 && values.digestHour <= 23) out.digestHour = values.digestHour;
+  if (typeof values.pushShowContent === 'boolean') out.pushShowContent = values.pushShowContent;
   return out;
 }
 
 /** Deep-merge an incoming (already sanitized) prefs patch onto stored prefs. */
 export function mergePrefs(stored: UserPrefs, patch: UserPrefs): UserPrefs {
-  const out: UserPrefs = { ...stored, notifications: { ...(stored.notifications ?? {}) } };
+  const out: UserPrefs = { ...stored, ...patch, notifications: { ...(stored.notifications ?? {}) } };
   if (patch.notifications) {
     for (const k of NOTIF_KINDS) {
       const v = patch.notifications[k];
@@ -140,14 +153,18 @@ export function mergePrefs(stored: UserPrefs, patch: UserPrefs): UserPrefs {
     }
     if (out.notifications && !Object.keys(out.notifications).length) delete out.notifications;
   }
-  if (patch.quietDigest !== undefined) out.quietDigest = patch.quietDigest;
   return out;
 }
 
 /** The server-side delivery gate used by notify(): per-kind inbox|off.
  * Recipient restriction (e.g. form notifyUserIds) is the caller's job. */
 export function kindAllowed(prefs: UserPrefs | null | undefined, kind: NotifKind): boolean {
-  return prefs?.notifications?.[kind] !== 'off';
+  return channelsFor(prefs, kind).has('inbox');
+}
+
+export function channelsFor(prefs: UserPrefs | null | undefined, kind: NotifKind): Set<NotificationChannel> {
+  const value = prefs?.notifications?.[kind];
+  return new Set(value === 'off' ? [] : Array.isArray(value) ? value : ['inbox']);
 }
 
 /** Parse the users.prefs column (NULL/malformed → {}). */
@@ -432,11 +449,14 @@ me.patch('/', async (c) => {
   const color = typeof body.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.color) ? body.color : user.color;
   let prefs: UserPrefs | undefined;
   if (body.prefs !== undefined) {
-    const existing = await loadPrefs(c.env.DB, user.id);
-    prefs = mergePrefs(existing, sanitizePrefs(body.prefs));
-    await c.env.DB.prepare('UPDATE users SET name = ?, color = ?, prefs = ? WHERE id = ?')
-      .bind(name, color, JSON.stringify(prefs), user.id)
-      .run();
+    const row = await c.env.DB.prepare('SELECT prefs FROM users WHERE id=?').bind(user.id).first<{prefs: string | null}>();
+    if (!row) return c.json({error:'unauthenticated'},401);
+    prefs = mergePrefs(parsePrefs(row.prefs), sanitizePrefs(body.prefs));
+    const saved = await c.env.DB.prepare(`
+      UPDATE users SET name=?,color=?,prefs=? WHERE id=? AND prefs IS ? AND disabled_at IS NULL
+      AND EXISTS(SELECT 1 FROM sessions WHERE token_hash=? AND user_id=users.id AND expires_at>?)`
+    ).bind(name,color,JSON.stringify(prefs),user.id,row.prefs,user.tokenHash,Date.now()).run();
+    if (!saved.meta.changes) return c.json({error:'Notification settings changed. Reload and try again.'},409);
   } else {
     await c.env.DB.prepare('UPDATE users SET name = ?, color = ? WHERE id = ?').bind(name, color, user.id).run();
     prefs = await loadPrefs(c.env.DB, user.id);

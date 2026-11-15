@@ -14,24 +14,16 @@ import { resolveUser, useUsers } from '../../core/users';
 import { cn, relTime } from '../../core/utils';
 import type { AppModule } from '../types';
 import { AskAiMenu } from '../../core/assistant/AskAiMenu';
+import type { NotificationChannel, NotifKind, UserPrefs } from '../../../worker/auth';
+export type { NotifKind, UserPrefs } from '../../../worker/auth';
 
 /* ---------- Types (mirrors worker rows + users.prefs) ---------- */
-
-export type NotifKind =
-  | 'mention'
-  | 'assigned'
-  | 'comment_on_mine'
-  | 'due_soon'
-  | 'overdue'
-  | 'approval_requested'
-  | 'approval_decided'
-  | 'form_submission'
-  | 'automation';
 
 const NOTIF_KINDS: NotifKind[] = [
   'mention',
   'assigned',
   'comment_on_mine',
+  'comment_resolved',
   'due_soon',
   'overdue',
   'approval_requested',
@@ -44,6 +36,7 @@ const KIND_LABELS: Record<NotifKind, string> = {
   mention: 'Mentions',
   assigned: 'Assignments',
   comment_on_mine: 'Comments on your records',
+  comment_resolved: 'Resolved comments',
   due_soon: 'Due soon reminders',
   overdue: 'Overdue reminders',
   approval_requested: 'Approval requests',
@@ -51,11 +44,6 @@ const KIND_LABELS: Record<NotifKind, string> = {
   form_submission: 'Form submissions',
   automation: 'Automation notices',
 };
-
-export interface UserPrefs {
-  notifications?: Partial<Record<NotifKind, 'inbox' | 'off'>>;
-  quietDigest?: boolean;
-}
 
 interface GroupItem {
   actorId?: string;
@@ -237,8 +225,16 @@ export function NotificationPrefs() {
   const [saving, setSaving] = useState(false);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [email, setEmail] = useState<{available: boolean; verified: boolean}>();
 
   useEffect(() => {
+    let current = true;
+    const refreshEmail = () => void api<{available: boolean; verified: boolean}>('/api/me/email/delivery').then(result => {
+      if (current) setEmail(result);
+    }, () => { if (current) setEmail(undefined); });
+    refreshEmail();
+    window.addEventListener('notification-email-changed', refreshEmail);
     fetchPrefs()
       .then((p) => {
         setPrefs(p);
@@ -246,21 +242,30 @@ export function NotificationPrefs() {
       })
       .catch(() => setOffline(true));
     return () => {
+      current = false;
+      window.removeEventListener('notification-email-changed', refreshEmail);
       if (savedTimer.current) clearTimeout(savedTimer.current);
     };
   }, []);
 
   const update = useCallback((next: UserPrefs) => {
-    setPrefs(next);
     setSaving(true);
+    setSaved(false);
+    setSaveError('');
     void savePrefs(next)
-      .then(() => {
+      .then((stored) => {
+        setPrefs(stored);
         setOffline(false);
         setSaved(true);
         if (savedTimer.current) clearTimeout(savedTimer.current);
         savedTimer.current = setTimeout(() => setSaved(false), 1500);
       })
-      .catch(() => setOffline(true))
+      .catch(async error => {
+        if (error instanceof ApiError && error.status === 409) {
+          setSaveError('Notification settings changed. Review them and try again.');
+          await fetchPrefs().then(setPrefs, () => setOffline(true));
+        } else setOffline(true);
+      })
       .finally(() => setSaving(false));
   }, []);
 
@@ -275,25 +280,35 @@ export function NotificationPrefs() {
 
   return (
     <div className="space-y-3">
-      {NOTIF_KINDS.map((kind) => (
+      {email?.available && !email.verified && <p className="text-sm">Verify an email address in Profile to receive notification emails.</p>}
+      {NOTIF_KINDS.map((kind) => {
+        const preference = prefs.notifications?.[kind] ?? 'inbox';
+        const hasEmail = Array.isArray(preference) && preference.includes('email');
+        const hasPush = Array.isArray(preference) && preference.includes('push');
+        return (
         <div key={kind} className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <label htmlFor={`pref-${kind}`} className="text-sm text-neutral-700 dark:text-neutral-300">
             {KIND_LABELS[kind]}
           </label>
           <Select
             id={`pref-${kind}`}
-            className="w-28 max-w-full"
-            value={prefs.notifications?.[kind] ?? 'inbox'}
+            className={cn('max-w-full', hasEmail || email?.available ? 'w-44' : 'w-28')}
+            value={hasEmail ? 'email' : preference === 'off' ? 'off' : 'inbox'}
             disabled={saving}
-            onChange={(e) =>
-              update({ ...prefs, notifications: { ...(prefs.notifications ?? {}), [kind]: e.target.value as 'inbox' | 'off' } })
-            }
+            onChange={(e) => {
+              const selected = e.target.value;
+              const channels: NotificationChannel[] = ['inbox'];
+              if (selected === 'email') channels.push('email');
+              if (hasPush) channels.push('push');
+              update({ notifications: { [kind]: selected === 'off' ? 'off' : channels.length === 1 ? 'inbox' : channels } });
+            }}
           >
             <option value="inbox">Inbox</option>
+            {(hasEmail || email?.available) && <option value="email" disabled={!hasEmail && !email?.verified}>Inbox and email</option>}
             <option value="off">Off</option>
           </Select>
         </div>
-      ))}
+      );})}
       <label className="flex items-center justify-between gap-3 pt-1">
         <span className="text-sm text-neutral-700 dark:text-neutral-300">
           Quiet digest
@@ -304,10 +319,11 @@ export function NotificationPrefs() {
           className="h-4 w-4 accent-neutral-900 dark:accent-white"
           checked={!!prefs.quietDigest}
           disabled={saving}
-          onChange={(e) => update({ ...prefs, quietDigest: e.target.checked })}
+          onChange={(e) => update({ quietDigest: e.target.checked })}
         />
       </label>
-      {saved && <p className="text-xs text-green-600 dark:text-green-400">Saved</p>}
+      <p className="text-xs text-green-700 dark:text-green-400" role="status">{saved ? 'Saved' : ''}</p>
+      {saveError && <p className="text-sm" role="alert">{saveError}</p>}
     </div>
   );
 }

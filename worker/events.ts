@@ -57,7 +57,7 @@ export function scheduleOutbox(env: { DB: D1Database }, ctx: CtxLike | undefined
   ctx.waitUntil((async () => {
     for (const id of ids) {
       if(!hasD1Budget(env.DB,18))break;
-      try { await processOutbox(env, id); } catch { /* durable retry by Cron */ }
+      try { await processOutbox(env, id, ctx); } catch { /* durable retry by Cron */ }
     }
   })());
 }
@@ -71,7 +71,7 @@ interface OutboxRow {
 /** Process one outbox event: derive → date index → notify → automations
  * (skipped for automation-sourced events; depth-1 loop guard). Idempotent:
  * downstream writes use deterministic dedupe keys. */
-export async function processOutbox(env: { DB: D1Database }, outboxId: string): Promise<void> {
+export async function processOutbox(env: { DB: D1Database }, outboxId: string, ctx?: CtxLike): Promise<void> {
   const lease=crypto.randomUUID(),now=Date.now();
   const row = await env.DB.prepare(`UPDATE event_outbox SET lease_id=?,lease_until=?,attempts=attempts+1
     WHERE id=? AND processed_at IS NULL AND terminal_at IS NULL AND COALESCE(lease_until,0)<=? AND attempts<8
@@ -90,8 +90,8 @@ export async function processOutbox(env: { DB: D1Database }, outboxId: string): 
   try {
     const semantic = [...deriveEvents(ev.applied), ...(ev.extra ?? [])];
     await maintainDateIndex(env, ev.applied);
-    await notificationsForEvent(env, semantic, { source: ev.source, userId: ev.userId, outboxId });
-    for(const notification of ev.notifications??[]) await notify(env,notification);
+    await notificationsForEvent(env, semantic, { source: ev.source, userId: ev.userId, outboxId, ctx });
+    for(const notification of ev.notifications??[]) await notify(env,notification,[],ctx);
     if (ev.source !== 'automation') {
       await runAutomationsForEvent(env, semantic, { source: ev.source, userId: ev.userId, outboxId });
     }

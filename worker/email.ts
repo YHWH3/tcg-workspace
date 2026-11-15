@@ -9,11 +9,35 @@ const activeSession = `EXISTS (
   WHERE s.user_id=? AND s.token_hash=? AND s.expires_at>? AND u.disabled_at IS NULL
 )`;
 
-function deliveryMode(env: Env) {
+export type EmailEnv = Pick<Env, 'EMAIL_LINK_KEY' | 'EMAIL_PROVIDER' | 'EMAIL_FROM' | 'EMAIL_APP_ORIGIN' | 'RESEND_API_KEY' | 'WORKSPACE_ENV' | 'EMAIL_TEST_SINK'>;
+
+export function deliveryMode(env: EmailEnv) {
   if (!env.EMAIL_LINK_KEY) return null;
   if (env.EMAIL_PROVIDER === 'resend' && env.RESEND_API_KEY && env.EMAIL_FROM) return 'resend';
   if (env.EMAIL_PROVIDER === 'simulated' && env.WORKSPACE_ENV === 'local-test' && env.EMAIL_TEST_SINK) return 'simulated';
   return null;
+}
+
+export function notificationEmailOrigin(env: EmailEnv) {
+  if (!deliveryMode(env) || !env.EMAIL_APP_ORIGIN) return null;
+  const url = URL.parse(env.EMAIL_APP_ORIGIN);
+  return url?.protocol === 'https:' && url.origin === env.EMAIL_APP_ORIGIN ? url.origin : null;
+}
+
+export function requestEmail(env: EmailEnv, mode: 'resend' | 'simulated', id: string, body: string) {
+  const options = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': id },
+    redirect: 'error' as const,
+    signal: AbortSignal.timeout(5_000),
+    body,
+  };
+  return mode === 'simulated'
+    ? env.EMAIL_TEST_SINK!.fetch('https://email-test-sink.invalid/messages', options)
+    : fetch('https://api.resend.com/emails', {
+      ...options,
+      headers: { ...options.headers, Authorization: `Bearer ${env.RESEND_API_KEY}` },
+    });
 }
 
 async function challengeHash(key: string, challenge: string, code: string) {
@@ -28,6 +52,14 @@ emailApi.use('*', requireAuth);
 emailApi.use('*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
   await next();
+});
+
+emailApi.get('/delivery', async c => {
+  const available = Boolean(notificationEmailOrigin(c.env));
+  const verified = available && Boolean(await c.env.DB.prepare(
+    'SELECT 1 FROM users WHERE id=? AND email IS NOT NULL AND email_verified_at IS NOT NULL'
+  ).bind(c.get('user').id).first());
+  return c.json({ available, verified });
 });
 
 emailApi.get('/', async c => {
@@ -73,19 +105,7 @@ emailApi.post('/', async c => {
   };
   let accepted = false;
   try {
-    const request = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': id },
-      redirect: 'error' as const,
-      signal: AbortSignal.timeout(5_000),
-    };
-    const response = mode === 'simulated'
-      ? await env.EMAIL_TEST_SINK!.fetch('https://email-test-sink.invalid/messages', { ...request, body: JSON.stringify(message) })
-      : await fetch('https://api.resend.com/emails', {
-        ...request,
-        headers: { ...request.headers, Authorization: `Bearer ${env.RESEND_API_KEY}` },
-        body: JSON.stringify({ ...message, from: env.EMAIL_FROM }),
-      });
+    const response = await requestEmail(env, mode, id, JSON.stringify({ ...message, from: env.EMAIL_FROM }));
     accepted = response.ok;
     await response.body?.cancel();
   } catch {

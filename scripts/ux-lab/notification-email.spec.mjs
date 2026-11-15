@@ -48,3 +48,29 @@ test('notification email: keyboard verification, failure recovery and removal', 
   await remove.press('Enter');
   await expect(page.getByText('Email removed.', { exact: true })).toBeVisible();
 });
+
+test('notification email preferences: channel choice and admin title opt-in', async ({ page }, info) => {
+  await page.route('**/api/me/email/delivery', route => route.fulfill({json:{available:true,verified:true}}));
+  await open(page, surfaces.find(surface => surface.id === 'settings'));
+  const mentions = page.getByRole('combobox', {name:'Mentions', exact:true});
+  await expect(mentions.locator('option[value="email"]')).toBeEnabled();
+  await mentions.selectOption('email');
+  await expect(mentions).toHaveValue('email');
+  const titles = page.getByRole('checkbox', {name:'Include readable record titles in notification emails'});
+  await expect(titles).not.toBeChecked();
+  await titles.focus();
+  await titles.press('Space');
+  const save = page.getByRole('button', {name:'Save workspace settings'});
+  await save.focus();
+  await save.press('Enter');
+  await expect(page.getByText('Workspace settings saved.')).toBeVisible();
+  await health(page, 'notification email preferences', info);
+  await page.reload();
+  await expect(titles).toBeChecked();
+  await expect(mentions).toHaveValue('email');
+  await mentions.selectOption('inbox');
+  await expect(mentions).toHaveValue('inbox');
+  await titles.uncheck();
+  await save.click();
+  await expect(page.getByText('Workspace settings saved.')).toBeVisible();
+});

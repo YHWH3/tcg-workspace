@@ -10,7 +10,9 @@ import { createReadGate } from './readAccess';
 import { Hono } from 'hono';
 import type { SemanticEvent } from '../shared/events';
 import type { EventSource } from './events';
-import { kindAllowed, loadPrefs, requireAuth, type Env, type AuthUser, type UserPrefs } from './auth';
+import { channelsFor, kindAllowed, loadPrefs, requireAuth, type Env, type AuthUser, type UserPrefs } from './auth';
+import { sendNotificationEmails } from './notificationEmail';
+import { notificationEmailOrigin, type EmailEnv } from './email';
 import { recurrencesForEvent } from './reminders';
 import { fnv1a64hex } from '../shared/linkid';
 
@@ -42,6 +44,7 @@ export interface EventCtx {
   source: EventSource;
   userId: string;
   outboxId?: string;
+  ctx?: Pick<ExecutionContext, 'waitUntil'>;
 }
 
 const GROUP_WINDOW_MS = 30 * 60 * 1000;
@@ -89,7 +92,7 @@ export function reminderKind(date: string, today: string, leadDays: number): 'du
  * Same (user_id, group_key) with an unread row <30min old → UPDATE the
  * existing row (count++, fresh title/body, items append capped at 20) —
  * never a pile of near-identical rows. */
-export async function notify(env: { DB: D1Database }, n: NewNotification, transaction: D1PreparedStatement[] = []): Promise<void> {
+export async function notify(env: { DB: D1Database } & EmailEnv, n: NewNotification, transaction: D1PreparedStatement[] = [], ctx?: Pick<ExecutionContext, 'waitUntil'>): Promise<void> {
   const user=await env.DB.prepare('SELECT id,(SELECT enabled FROM access_state WHERE id=1) enabled FROM users WHERE id=? AND disabled_at IS NULL').bind(n.userId).first<{id:string;enabled:number}>();
   if(!user) return;
   const prefs = await loadPrefs(env.DB, n.userId);
@@ -123,6 +126,7 @@ export async function notify(env: { DB: D1Database }, n: NewNotification, transa
   id ??= n.dedupeKey ? `ntf_${fnv1a64hex(n.userId+'|'+n.dedupeKey)}` : `ntf_${crypto.randomUUID().replace(/-/g,'')}`;
   const key=n.dedupeKey ? n.userId+'|'+n.dedupeKey : crypto.randomUUID();
   const item=JSON.stringify({actorId:n.actorId,at:now,summary:n.body??n.title,targetId:n.targetId});
+  const emailId = notificationEmailOrigin(env) && channelsFor(prefs, n.kind).has('email') ? 'email_' + fnv1a64hex(key) : null;
   await env.DB.batch([
     // Abort the whole batch on a raced authority change: caller checkpoints must
     // never commit when delivery was refused by the insert fence.
@@ -136,8 +140,19 @@ export async function notify(env: { DB: D1Database }, n: NewNotification, transa
        items=(SELECT json_group_array(json(value)) FROM (SELECT value FROM json_each(json_insert(COALESCE(notifications.items,'[]'),'$[#]',json(?))) ORDER BY key DESC LIMIT ${ITEMS_CAP})),
        created_at=excluded.created_at,read_at=NULL`)
     .bind(id,n.userId,n.kind,n.actorId??null,n.targetType??null,n.targetId??null,n.title,n.body??null,n.url??null,n.groupKey??null,item,now,item),
+    ...(emailId ? [env.DB.prepare(`
+      INSERT OR IGNORE INTO email_outbox(id,user_id,kind,notification_id,target_id,verified_at,created_at,next_attempt_at)
+      SELECT ?,id,?,?,?,email_verified_at,?,? FROM users WHERE id=? AND changes()=1 AND disabled_at IS NULL
+        AND email_verified_at IS NOT NULL AND email IS NOT NULL
+        AND EXISTS(SELECT 1 FROM json_each(prefs,?) WHERE value='email')`
+    ).bind(emailId,n.kind,id,n.targetId??null,now,now,n.userId,'$.notifications.'+n.kind)] : []),
     ...transaction,
   ]);
+  if (emailId && ctx && (n.kind === 'mention' || n.kind === 'approval_requested')) {
+    ctx.waitUntil(sendNotificationEmails(env, emailId).catch(() => {
+      console.warn('Immediate notification email deferred to scheduled delivery');
+    }));
+  }
 }
 
 /* ---------- Event → recipient routing ---------- */
@@ -292,7 +307,7 @@ export async function notificationsForEvent(
           url,
           groupKey: ev.targetId ? `mention:${ev.targetId}` : undefined,
           dedupeKey,
-        });
+        }, [], ctx.ctx);
       } else if(ev.kind==='form.submitted' && ev.formId) {
         const form=await fetchRec(env.DB,ev.formId,recCache);
         const rec=await fetchRec(env.DB,ev.recordId,recCache);

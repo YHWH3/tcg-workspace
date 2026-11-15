@@ -100,3 +100,21 @@ in with `WORKSPACE_ENV=local-test`, `EMAIL_PROVIDER=simulated`, a test-only
 requires the owner to configure `EMAIL_PROVIDER=resend`, `EMAIL_FROM`,
 `RESEND_API_KEY` and `EMAIL_LINK_KEY`. Uncertain sends keep the code usable for
 its remaining lifetime and require an explicit new request to resend.
+
+## Phase 10 notification email delivery
+
+Migration 0040 adds `email_outbox` and `workspace_settings.email_show_titles`.
+The same D1 batch that writes the Inbox notification stages opted-in deliveries.
+Urgent requests can attempt delivery immediately. The tenth scheduler phase
+drains pending rows and respects the invocation budget. The sender rechecks the
+verified address version and current channel preference. It rebuilds the
+message from the current readable record when a title is eligible. Generic
+messages link to the Inbox. The title setting defaults off and requires the
+existing versioned administrator change path.
+
+Set a reviewed HTTPS origin in `EMAIL_APP_ORIGIN` before enabling notification
+delivery. This origin supplies Inbox and unsubscribe links. Unsubscribe opens a
+confirmation page and requires POST with a signed expiring token tied to the
+verified address version. Retries reuse the same Resend key and request hash.
+A changed payload or a send past the idempotency window needs operator review.
+Sent rows expire after 30 days and terminal rows after 90.

@@ -154,8 +154,8 @@ Add new findings as N51+ with the same columns.
 | D4 | Who triages the Website inbox (the unassigned queue audience) | 8.3 | **Owner selected all admins in this chat, 2026-10-25.** |
 | D5 | Response-age bands and target first-reply time | 8.3 | **Owner selected 0–2, 3–7, 8+ days; target 3 days, 2026-10-25.** |
 | D6 | Attention queue sources per role | 8.1 | **Owner accepted the proposed sources in 08 §8.1, 2026-10-25.** |
-| D7 | Email provider and sending domain (Resend, same account as relay?), and whether emails may include record titles (titles pass through the provider) | Phase 10 | Resend, `notifications@<domain>`; titles off |
-| D8 | Web push VAPID keys and whether iOS installation is promoted | Phase 10 | Generate keys; promote install in Settings |
+| D7 | Email provider, verified sender, and record title privacy | Phase 10 | Owner selected Resend and an administrator-controlled opt-in for currently readable titles, 2026-11-15. Titles default off. Owner provisions the verified sender. |
+| D8 | Web push VAPID keys and iOS installation guidance | Phase 10 | Owner selected Home Screen installation instructions in Settings, 2026-11-15. Owner provisions VAPID keys for live delivery. |
 | D9 | R2 bucket creation and payment method on the Cloudflare account | Phase 11 | Owner provisions |
 | D10 | Share link default expiry | 9.7 | None by default; optional 7/30/90 days |
 | D11 | Permission activation go-ahead, space structure, guest policy | Track A | After release is stable |

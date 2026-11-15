@@ -126,6 +126,7 @@ Delete its entry from `modules` in `src/modules/index.ts` — nav, routes, sideb
 ## Conventions
 
 - `email_verifications` is server-only. Bind challenges to the requesting account session, keep codes and addresses out of logs, and use disposable email sinks only under the local-test configuration.
+- `email_outbox` is server-only. Keep the Inbox write atomic with its queue entry, recheck current recipient/channel/record access at send time, and retain only payload hashes for retry consistency.
 
 - Writes always go through `mutate(collection, id, patch)` — never `table.put` directly (keeps outbox + field timestamps correct).
 - No module-level mutable state in `worker/` — requests interleave in one isolate; caches that bind request scope (env, ExecutionContext, identity props) must be built per request (the MCP handler is constructed inside `mcpApiHandler.fetch` for exactly this reason).

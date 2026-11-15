@@ -420,7 +420,7 @@ approvalsApi.post('/', async (c) => {
       url: v.meta.url,
       groupKey: `approval:${row.id}`,
       dedupeKey:`approval_requested:${row.id}`,
-    });
+    }, [], c.executionCtx);
   }
   return c.json({ approval: approvalJson(row, { targetTitle: v.meta.title, url: v.meta.url }), replayed }, replayed ? 200 : 201);
 });

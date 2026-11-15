@@ -6,9 +6,12 @@ timezone).
 
 **Owner prerequisites** (Sol prepares; owner executes):
 - D7: Resend account and verified sending domain (SPF/DKIM/DMARC DNS);
-  `RESEND_API_KEY` secret; `EMAIL_FROM`.
+  `RESEND_API_KEY` and `EMAIL_LINK_KEY` secrets; `EMAIL_FROM` and
+  `EMAIL_APP_ORIGIN`. D7 allows administrators to opt in to readable titles.
+  Title inclusion defaults off.
 - D8: VAPID key pair (`npx web-push generate-vapid-keys` or the script in 10.4);
   `VAPID_PRIVATE_KEY` secret, `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` vars.
+  Settings shows Home Screen installation instructions when applicable.
 
 Until then everything runs with `EMAIL_PROVIDER=simulated` / `WEB_PUSH=simulated`
 locally. Results are labelled simulated.

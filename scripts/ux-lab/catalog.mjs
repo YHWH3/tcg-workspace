@@ -83,6 +83,7 @@ export const requiredCases=[
   'pack upgrade: preview, preserve edits and apply',
   'account access: disable, session cutoff, history and restoration',
   'notification email: keyboard verification, failure recovery and removal',
+  'notification email preferences: channel choice and admin title opt-in',
   'workspace locale: settings validation, currency metric and offline cache',
   'visual reference: website inbox',
   'opened search: focus, empty results and recovery',

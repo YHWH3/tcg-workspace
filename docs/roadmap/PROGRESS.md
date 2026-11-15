@@ -1041,5 +1041,20 @@ route with a simulated email sink. The earlier development browser run exited
 
 Browser evidence: `.artifacts/ux-lab/2026-11-15T04-53-40.337Z/summary.json`
 (SHA-256 `7149e8b4e0068665c18d6ee097f1b07e675db253d3c4eaeac4e572940e219577`).
-Draft PR #19 targets `sol/p9-everyday`. Items 10.2–10.4, D7/D8, live provisioning
+Draft PR #19 targets `sol/p9-everyday`.
+
+### 10.2 Email delivery implementation checkpoint
+
+On 2026-11-15 the owner selected Resend and an administrator-controlled opt-in
+for readable record titles (D7), and iPhone/iPad Home Screen instructions (D8).
+Titles default off. Migration `0040_email_outbox.sql` adds the versioned setting
+and a server-only delivery queue. The Inbox transaction enqueues opted-in
+recipients, and immediate urgent delivery and the existing cron share the same
+leased drain. Delivery rebuilds content from current read permissions, checks
+recipient and title authority before egress, and persists the payload hash so
+retries can detect changes. Signed unsubscribe links affect the verified address
+version and preserve Inbox delivery. The setting and per-kind channel choices are
+available through Workspace and Notifications settings.
+
+Focused checks are in progress. Digest delivery, web push, live provisioning
 and final Phase 10 certification remain pending.

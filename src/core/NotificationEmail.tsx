@@ -98,6 +98,7 @@ export function NotificationEmail() {
           void run(async () => {
             const result = await api<{email: string}>(`${endpoint}/verify`, { method: 'POST', body: { code } });
             setState({ ...state, email: result.email, pending: null });
+            window.dispatchEvent(new Event('notification-email-changed'));
             setAddress('');
             setCode('');
             setStatus('Email verified.');
@@ -118,6 +119,7 @@ export function NotificationEmail() {
         <Button disabled={busy} className="min-h-11" onClick={() => void run(async () => {
           await api(endpoint, { method: 'DELETE' });
           setState({ ...state, email: null, pending: null });
+          window.dispatchEvent(new Event('notification-email-changed'));
           setAddress('');
           setCode('');
           setStatus('Email removed.');
