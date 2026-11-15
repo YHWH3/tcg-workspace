@@ -34,6 +34,7 @@ import { AddMenu } from './AddMenu';
 import { Inspector } from './Inspector';
 import { ItemList } from './ItemList';
 import { ConnectFlow } from './ConnectFlow';
+import { MoodboardExport } from './MoodboardExport';
 
 interface View {
   x: number;
@@ -806,6 +807,7 @@ export function MoodCanvas() {
         />
         <PresenceStack path={`/moodboards/${boardId}`} />
         <AskAiMenu modules={['moodboards']} refs={{ moodboard: { kind: 'moodboard', id: boardId } }} compact />
+        {board && <MoodboardExport board={board} items={items} selection={sel} />}
         <SharePopover moodboardId={boardId} />
       </div>
 

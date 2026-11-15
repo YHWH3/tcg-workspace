@@ -1335,3 +1335,32 @@ relative date controls, server persistence, reload and 200% text reflow.
 Report: `.artifacts/ux-lab/2026-11-15T10-28-29.519Z/summary.json` in the Phase 12
 worktree. The full browser matrix and clean-source phase certificate remain
 pending.
+
+### 12.5 moodboard export checkpoint
+
+Whole-board and selected-item exports use the stored canvas bounds, including
+negative coordinates, connectors, notes, shapes, diagrams and linked-item
+titles. Images use the existing authenticated media path and local blobs,
+then rasterize into embedded data. Missing or oversized media gets a labeled
+placeholder. Scope, account, session and access generation are checked during
+preparation and before download. The current space export policy applies.
+
+The export uses a responsive preview and SVG, PNG and print/PDF controls.
+Printing hides the rest of the application. Raster output is limited to
+4096 pixels on its longest edge. A maximum of 600 items, six MiB of embedded
+image data and eight MiB of sanitized SVG bounds local work. These are
+implementation limits chosen for browser memory and encoded-file size.
+Uploaded SVG serving retains the existing sanitizer defaults. The export
+option accepts only embedded raster image data and rejects external URLs.
+
+Export and sanitizer tests passed 34/34. Compact dark WebKit verified actual
+SVG and PNG files, embedded image data, missing-media status, keyboard
+selection, focus restoration, print CSS and enlarged text. Its report is
+`.artifacts/ux-lab/2026-11-15T11-15-17.535Z/summary.json` in this worktree.
+The first browser assertion expected an escaped tag to stay on one wrapped
+line. The revised assertion reads the joined text. The next run found an
+existing print display rule overriding shell hiding. Corrected specificity
+passed the workflow. These interrupted reports are retained.
+
+The feature matrix across 18 engine/viewport/theme profiles and the complete
+phase-end certificate are still required.
