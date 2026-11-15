@@ -12,19 +12,26 @@ test('device push: explicit permission, channel preferences and cleanup',async({
     }});
     Object.defineProperty(window,'PushManager',{configurable:true,value:class {}});
     const subscription={
-      endpoint:'https://fcm.googleapis.com/send/synthetic-browser',
+      get endpoint(){return 'https://fcm.googleapis.com/send/synthetic-browser/'+sessionStorage.getItem('ux-push-generation');},
       toJSON(){return {endpoint:this.endpoint,keys:{p256dh:'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4',auth:'BTBZMqHH6r4Tts7J_aSIgg'}};},
       async unsubscribe(){sessionStorage.removeItem('ux-push-subscribed');return true;},
     };
     const registration={pushManager:{
       async getSubscription(){return sessionStorage.getItem('ux-push-subscribed')==='1'?subscription:null;},
-      async subscribe(){sessionStorage.setItem('ux-push-subscribed','1');return subscription;},
+      async subscribe(){
+        sessionStorage.setItem('ux-push-generation',String(Number(sessionStorage.getItem('ux-push-generation')??'0')+1));
+        sessionStorage.setItem('ux-push-subscribed','1');
+        return subscription;
+      },
     },async getNotifications(){return [];}};
     Object.defineProperty(navigator.serviceWorker,'getRegistration',{configurable:true,value:async()=>registration});
   });
   await page.route('**/api/push/config',route=>route.fulfill({json:{available:true,publicKey:'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4'}}));
-  let registered=0,removed=0;
+  let registered=0,removed=0,orphanEndpoint=null;
   await page.route('**/api/push/subscriptions',route=>{
+    if(route.request().method()==='POST'&&route.request().postDataJSON().endpoint===orphanEndpoint){
+      return route.fulfill({status:409,json:{error:'This device belongs to another session.'}});
+    }
     if(route.request().method()==='POST')registered++;else if(route.request().method()==='DELETE')removed++;
     return route.fulfill({json:{ok:true}});
   });
@@ -49,6 +56,18 @@ test('device push: explicit permission, channel preferences and cleanup',async({
   await expect(enable).toBeVisible();
   expect(removed).toBe(1);
   expect(await page.evaluate(()=>sessionStorage.getItem('ux-push-subscribed'))).toBeNull();
+  // A failed cleanup may leave a browser endpoint after its account marker
+  // was cleared. A new account must replace that endpoint before registering.
+  orphanEndpoint='https://fcm.googleapis.com/send/synthetic-browser/1';
+  await page.evaluate(()=>sessionStorage.setItem('ux-push-subscribed','1'));
+  await enable.click();
+  await expect(disable).toBeVisible();
+  expect(await page.evaluate(()=>sessionStorage.getItem('ux-push-generation'))).toBe('2');
+  expect(registered).toBe(2);
+  await health(page,'device push interrupted cleanup recovery',info);
+  await disable.click();
+  await expect(enable).toBeVisible();
+  expect(removed).toBe(3);
 });
 
 test('device push: iPhone Home Screen instructions',async({page},info)=>{

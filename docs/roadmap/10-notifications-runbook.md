@@ -47,6 +47,7 @@ browser subscription key. VAPID_SUBJECT supplies the owner's mailto or HTTPS
 contact address. Review these values before enabling WEB_PUSH=on.
 
 Users enable each device and choose Push for the desired notification types.
+Registration allows ten devices per account.
 Permission is requested after their button click. On iPhone and iPad, the UI
 explains Safari's Add to Home Screen flow when installation is required.
 pushShowContent defaults off and controls readable titles independently of
@@ -62,6 +63,8 @@ Subscriptions belong to the requesting session. Revocation, expiry, account
 disablement and current channel preferences are checked at send time.
 The browser clears its local notification identity on sign-out and account
 switch, and the service worker withholds notifications for another identity.
+If cleanup was interrupted, enabling push replaces a leftover browser
+subscription before registering the current session.
 Never treat a stubbed browser permission result as real OS delivery.
 
 ## Monitoring, retention and rollback

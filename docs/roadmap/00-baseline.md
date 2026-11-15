@@ -142,7 +142,11 @@ planned work, L = inconsistency.
 
 | N50 | M | Forms processing table at200% compact text crowded the7/30-day headers together and split ordinary state words. | Original frozen f8ad32b capture shows overlapping captions despite passing axe/root geometry. New rendered-caption baseline1FAIL: both headers occupy2lines and spill outside their cells. Matrix stopped at35reportedPASS;595selected cells lack passing evidence after interruption. | Adaptive semantic count cards replace the fixed-width three-column table, retaining separate window labels and values. New caption-range regression passes12/12 three-engine Forms diagnostic cases, with compact normal/enlarged original captures inspected. Fresh72/72 Forms matrix PASS at9dae915, across18projects, with four original captures inspected. |
 
-Add new findings as N51+ with the same columns.
+| N51 | M | Notification checkboxes reverted while saving because the displayed preference changed only after the server response. | First Phase 10 compact browser run failed the native checkbox assertion. | Local preference updates immediately, with pending and conflict feedback retained. Corrected 72/72 affected browser checks passed on e75b0cd. |
+| N52 | M | A late push-service response could delete or complete a subscription renewed with different keys. | Added actual-D1 regressions for key changes during 201 and 410 responses. | Receipt and deletion fences now include the subscription keys. All 11 push D1 tests passed and the 3259d03 mandatory certificate passed 34/34. |
+| N53 | M | Interrupted sign-out cleanup could leave a browser push endpoint for the previous account. A later account kept reusing it and received an ownership conflict on every retry. | New push-client regression failed against 3259d03 with the actual client helpers and local IndexedDB. | Enable now replaces subscriptions without a matching local account/session marker. The focused client and service-worker tests pass. Browser recovery verification and a fresh final certificate are pending. |
+
+Add new findings as N54+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

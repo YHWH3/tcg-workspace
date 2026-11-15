@@ -134,3 +134,6 @@ Every phase has a cross-platform Definition of Done. Record exact engines/device
 The owner-supplied execution roadmap is `../roadmap/README.md`; current progress and decisions are in `../roadmap/PROGRESS.md`. R1 fixes stored `today±N` filters through the shared date evaluator, with MCP UTC context, validation and accessible hints. Existing installs need no data migration. Missing/invalid date context fails closed for relative temporal comparisons. Workspace timezone/currency and created-date conversions remain Phase 7.
 
 Release preparation includes a local SQL-copy rehearsal and an ordered owner runbook (`../roadmap/RELEASE-RUNBOOK.md`). It neither authorizes deployment nor verifies KV grants through D1. Historical base evidence is indexed in `../roadmap/BASE-EVIDENCE.json`; each changed release candidate requires new source-bound verification.
+
+Phase 10 notification channels, queue ownership and device session guards are
+documented in `phase-10-notifications.md`.

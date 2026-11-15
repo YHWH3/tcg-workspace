@@ -1130,3 +1130,28 @@ The receipt race regressions passed (11 push D1 tests). The cryptographic suite
 passed 15 tests, including the published encryption vector executed inside
 Miniflare's actual Worker runtime at compatibility date 2026-09-25. Typecheck
 passed after the server correction.
+
+### 10.4 Final acceptance and interrupted-cleanup recovery
+
+Complete local certification passed 34/34 gates on
+`3259d0352b0231d9cef9ccaf676ee32b736e16ae` (tree
+`2f1d11483592a9678ab9d6bbdc87cd45f2aa8c40`). It included 1,183 unit and
+959 actual-D1 tests, all HTTP/MCP/browser/approval/release groups, and final
+performance and source integrity. No host suspension was recorded.
+Evidence is in
+`.artifacts/certification/3259d0352b0231d9cef9ccaf676ee32b736e16ae-2026-11-15T05-52-04-575Z-complete/`.
+Its summary SHA-256 is
+`c29afeba568e1b1618facf11e8d5f8944cce11defe80a128966924cda37dd3e5`.
+
+An additional failure-recovery check then reproduced N53 on that source.
+After sign-out cleared the local notification marker, a failed browser
+unsubscribe could leave the former account's endpoint. Enable reused it and
+received an ownership conflict indefinitely. The correction replaces a
+subscription whose marker differs from the current account/session, with
+identity checks around asynchronous steps. It preserves the server ownership
+rule. The two client regressions and three service-worker checks pass.
+
+The browser journey now includes recovery of this leftover endpoint.
+Engineering acceptance remains HOLD until the recovery browser check and
+fresh final-source certification pass. The earlier successful certificate and
+the new failing regression remain evidence for their respective source.
