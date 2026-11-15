@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,symlinkSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,symlinkSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {gateEligibility,createPauseMonitor,certificateHeading,hashArtifactPaths,verifyArtifactHashes,copyVerifiedArtifacts,NEVER_REUSE} from './resume.mjs';
@@ -24,4 +24,28 @@ test('keep-awake is process-scoped caffeinate dims and reports lid limitation',a
  const {preventIdleSleep}=await import('./core.mjs');let args,stopped=false;
  const guard=preventIdleSleep({os:'darwin',available:true,ownerPid:42,keepAwake:true,spawnProcess:(_cmd,a)=>{args=a;return {pid:43,on(){},unref(){},kill(){stopped=true;}};}});
  assert.deepEqual(args,['-dims','-w','42']);assert.match(guard.evidence.limitation,/lid/);guard.stop();assert.equal(stopped,true);
+});
+
+test('resume accepts a freshly generated identical selection manifest',()=>{
+ const source=mkdtempSync(join(tmpdir(),'tcg-resume-source-'));
+ const dest=mkdtempSync(join(tmpdir(),'tcg-resume-dest-'));
+ const selection=JSON.stringify({files:['tests/example.test.ts']});
+ writeFileSync(join(source,'unit-selection.json'),selection);
+ writeFileSync(join(source,'unit.log'),'PASS');
+ writeFileSync(join(dest,'unit-selection.json'),selection);
+ const hashes=hashArtifactPaths(source,['unit-selection.json','unit.log']);
+ copyVerifiedArtifacts(source,dest,hashes);
+ assert.equal(verifyArtifactHashes(dest,hashes),true);
+ assert.equal(readFileSync(join(source,'unit-selection.json'),'utf8'),selection);
+});
+test('resume refuses a different existing manifest before copying any other evidence',()=>{
+ const source=mkdtempSync(join(tmpdir(),'tcg-resume-source-'));
+ const dest=mkdtempSync(join(tmpdir(),'tcg-resume-dest-'));
+ writeFileSync(join(source,'unit-selection.json'),'original');
+ writeFileSync(join(source,'unit.log'),'PASS');
+ writeFileSync(join(dest,'unit-selection.json'),'changed');
+ const hashes=hashArtifactPaths(source,['unit-selection.json','unit.log']);
+ assert.throws(()=>copyVerifiedArtifacts(source,dest,hashes),/differs from verified evidence/);
+ assert.equal(existsSync(join(dest,'unit.log')),false);
+ assert.equal(readFileSync(join(dest,'unit-selection.json'),'utf8'),'changed');
 });

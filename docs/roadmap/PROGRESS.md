@@ -1414,3 +1414,25 @@ unexpected results or retries. The source fingerprint stayed unchanged.
 Evidence is recorded in `docs/roadmap/evidence/P12-feature-matrix.json`.
 The features are locally qualified. The mandatory phase certificate is next
 and the phase remains HOLD until it finishes. Draft PR #21 carries the source.
+
+### Phase 12 certification recovery correction
+
+The first certificate startup required local dependency metadata. Installing
+the locked packages in this worktree resolved it. The next run passed nine
+gates, including all 1,195 unit-gate checks and the build. It then stopped
+during D1 after a measured 902,549 ms host pause at 12:12 UTC. Its summary is
+PARTIAL, with no failed engineering assertion and an incomplete D1 gate.
+
+The first resume attempt reproduced a runner defect. The orchestrator writes
+unit-selection.json before artifact reuse, while the copier refused any
+existing destination. Identical generated selection bytes caused EEXIST.
+The correction accepts an existing file only after confined-path and exact
+hash verification. Differing content is refused before copying any file.
+All 43 focused resume tests passed, including both new regressions.
+
+Reports under the df8e2f8 certification directories at 11:47:17, 11:47:52
+and 12:59:10 are retained. Source changed to correct the harness, so a fresh
+certificate is required. It will use a labelled test checkpoint after the
+unit gate to exercise the corrected actual resume path, then continue the
+remaining mandatory gates. The application source from the passing 54-case
+matrix has not changed. The phase remains HOLD pending full certification.
