@@ -1,7 +1,10 @@
 # Next phases progress
 
-Execution started 2026-10-25. Release branch `sol/r1-date-window` is certified at `0888525`; active development
-is `sol/p8-desks`, stacked on Phase 7 documentation head `6586ee1` (draft PR #16). The release branch is based
+Execution started 2026-10-25. Phase 10 on `sol/p10-notifications` has complete
+local engineering certification at `454ee5c` (draft PR #19, stacked on
+`sol/p9-everyday`). Phase 11 is next. Earlier checkpoints below retain their
+original source and status; later entries supersede pending phase decisions.
+Release branch `sol/r1-date-window` is certified at `0888525` and is based
 on plan-only commit `6d02933` (application unchanged from `528b889`). Original
 integration branches and existing PRs remain unchanged.
 
@@ -1173,3 +1176,27 @@ cases and all three service-worker cases. Retained JSON evidence is
 and `corrected.json`
 (SHA-256 `ff6a47e955dbbdc2b270927d25b45af61ae8ee75cd4af4f2988c50a0f7640a0c`).
 Final-source certification is required before advancing to Phase 11.
+
+### Phase 10 final engineering acceptance
+
+**ENGINEERING GO / EXTERNAL BLOCKED.** All 34 mandatory gates passed on
+`454ee5c17e6e55c4083bb16e1122d56c4907316b`, tree
+`60e710a2d5b76d948e4f2fc96b5a110055a452a9`, with clean starting and ending
+source and no host suspensions. `npm run certify:ai -- --keep-awake` exited 0
+on 2026-11-15 (06:49:37 to 07:35:40 UTC). The disjoint groups contain
+1,185 unit tests and 959 actual-D1 tests. All mandatory HTTP, MCP, browser,
+permissions, approval, security-policy, recovery and release groups passed.
+
+The source-bound manifest is `evidence/P10-certification.json`. Raw reports
+remain in `.artifacts/certification/454ee5c17e6e55c4083bb16e1122d56c4907316b-2026-11-15T06-49-37-002Z-complete/`.
+The summary SHA-256 is `2613849c5c8b44857ca5b17dc02387e4f512a3c61c36eda02089dd96cad0fbf9`.
+N51, N52 and N53 are resolved at this source. The earlier failing and passing
+reports remain unchanged. No broader rerun is needed for this evidence-only
+documentation commit.
+
+Draft PR: https://github.com/YHWH3/tcg-workspace/pull/19. Items 10.1–10.4 are
+engineering complete. Owner-only sender/VAPID setup and real provider delivery,
+physical iPhone/iPad and Android, manual assistive technology and native 400%
+zoom remain unverified external acceptance gates. No production deployment,
+remote migration or real delivery occurred. Phase 11 local implementation may
+now begin on its own stacked branch.
