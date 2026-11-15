@@ -1070,3 +1070,18 @@ clean-source fingerprint and results are in
 (SHA-256 `b573247f724293d85311b5fdc557cd5699b79b9954613121be806af5ccddb46a`).
 Digest delivery, web push, live provisioning and final Phase 10 certification
 remain pending.
+
+### 10.3 Digest implementation checkpoint
+
+The implementation now schedules daily and weekly digests in Workspace time,
+deduplicates concurrent scheduling and groups the current gated attention queue.
+The Website section includes new items for configured triagers. Titles follow
+D7, with revision and permission fences before sending. Settings controls allow
+frequency, local hour and a rate-limited test digest. Scheduled empty digests are
+skipped, and signed unsubscribe turns the digest off.
+
+On the isolated source checkpoint `da79b61`, typecheck passed and 36 targeted
+D1 tests passed across digest, notification delivery and the existing attention
+collector. The source was transferred unchanged to `50fc27e`. A focused browser
+test has been added. Its final browser matrix, build and Phase 10 release
+certification remain pending. Local delivery uses the simulated provider.
