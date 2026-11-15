@@ -1030,6 +1030,16 @@ code, verifying and removing an address. Delivery defaults disabled, and the
 release preflight rejects the disposable sink and active email configuration.
 Local verification uses simulated delivery.
 
-Acceptance pending the focused browser matrix and final Phase 10 certification.
-Items 10.2–10.4 remain pending. Owner decisions D7 and D8 and live provisioning
-remain open.
+Focused checks pass on `07c9d61003e7002fe67d03fa795e856fe6cca62c` (tree
+`d9aedd49bd2682690adf0bdf39c7a08645845e4e`). Typecheck/build, 18 targeted
+D1/reminder tests, 13 release harness self-tests, 15 built preflight checks,
+and three disposable Worker HTTP checks passed. The focused browser run passed
+18/18 Chromium, Firefox and WebKit profiles, exit 0, with no skips or flakes.
+The browser uses a stubbed API contract. The D1 suite exercises the actual
+route with a simulated email sink. The earlier development browser run exited
+1 after a source fingerprint change and is retained separately.
+
+Browser evidence: `.artifacts/ux-lab/2026-11-15T04-53-40.337Z/summary.json`
+(SHA-256 `7149e8b4e0068665c18d6ee097f1b07e675db253d3c4eaeac4e572940e219577`).
+Draft PR #19 targets `sol/p9-everyday`. Items 10.2–10.4, D7/D8, live provisioning
+and final Phase 10 certification remain pending.
