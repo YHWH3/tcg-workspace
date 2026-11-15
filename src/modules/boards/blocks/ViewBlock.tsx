@@ -19,6 +19,7 @@ import { boardTasks, type BoardRow, type TaskRow } from '../api';
 import { GroupBoard } from '../../../core/views/GroupBoard';
 import { ListView } from '../../../core/views/ListView';
 import { GalleryView } from '../../../core/views/GalleryView';
+import {ChartView} from '../../../core/views/ChartView';
 import { TableView } from '../../../core/views/TableView';
 import { CalendarView } from '../views/CalendarView';
 import { TimelineView } from '../views/TimelineView';
@@ -75,7 +76,11 @@ function ViewBlockInner({ block }: { block: LocalRow }) {
   const rows = applyView(baseRows, view.config, ctx).rows;
   const sliced = limit ? rows.slice(0, limit) : rows;
 
-  return <div className="dashboard-view -mx-1">{renderBlockView(board, view, sliced)}</div>;
+  return <div className="dashboard-view -mx-1">
+    {view.type === 'chart'
+      ? <ChartView board={board} view={view} records={sliced} context={ctx} />
+      : renderBlockView(board, view, sliced)}
+  </div>;
 }
 
 function ViewBlock({ block }: MediaBlockProps) {

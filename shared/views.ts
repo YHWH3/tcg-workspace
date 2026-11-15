@@ -7,9 +7,9 @@ import { cmpOrder } from './order';
 import { isSelectType, optionByName, type FieldDef } from './fields';
 import { isDateBound, parseDateOnly, relativeDateError, resolveDateBound, resolveRelativeDate, toDateOnlyInZone } from './dates';
 
-export type ViewType = 'board' | 'table' | 'list' | 'gallery' | 'calendar' | 'timeline';
+export type ViewType = 'board' | 'table' | 'list' | 'gallery' | 'calendar' | 'timeline' | 'chart';
 
-export const VIEW_TYPES: readonly ViewType[] = ['board', 'table', 'list', 'gallery', 'calendar', 'timeline'];
+export const VIEW_TYPES: readonly ViewType[] = ['board', 'table', 'list', 'gallery', 'calendar', 'timeline', 'chart'];
 
 /** Date-capable field key: the built-in due date or a custom `date` field. */
 export type DateFieldKey = 'dueDate' | `p_${string}`;
@@ -39,6 +39,15 @@ export interface SortSpec {
   dir: 'asc' | 'desc';
 }
 
+export interface ChartConfig {
+  chartType: 'bar' | 'stacked_bar' | 'line';
+  xKey: FieldKey;
+  xBucket?: 'day' | 'week' | 'month';
+  yAgg: 'count' | 'sum' | 'avg';
+  yKey?: FieldKey;
+  seriesKey?: FieldKey;
+}
+
 export interface ViewConfig {
   filters?: Filter[];            // AND-combined
   sorts?: SortSpec[];
@@ -52,6 +61,7 @@ export interface ViewConfig {
   dateKey?: DateFieldKey;        // primary date field (default 'dueDate')
   endDateKey?: DateFieldKey | null; // timeline bar end; null/absent → 1-day bars
   timelineScale?: 'week' | 'month' | 'quarter';
+  chart?: ChartConfig;
 }
 
 /** The record field calendar/timeline views bucket by — defaults to 'dueDate'. */
@@ -378,10 +388,10 @@ export function applyView(records: readonly ViewRecord[], config: ViewConfig = {
  */
 export function aggregate(
   records: readonly ViewRecord[],
-  spec: { filters?: Filter[]; agg: 'count' | 'sum' | 'avg'; fieldKey?: FieldKey },
+  spec: { filters?: Filter[]; agg: 'count' | 'sum' | 'avg'; fieldKey?: FieldKey; includeArchived?: boolean },
   ctx: ViewCtx = {},
 ): { value: number | null; count: number; numericCount: number; ids: string[] } {
-  const { rows } = applyView(records, { filters: spec.filters }, ctx);
+  const { rows } = applyView(records, { filters: spec.filters, includeArchived: spec.includeArchived }, ctx);
   const ids = rows.map((r) => recordId(r)).filter((id) => id !== '');
   const count = rows.length;
   if (spec.agg === 'count') return { value: count, count, numericCount: count, ids };

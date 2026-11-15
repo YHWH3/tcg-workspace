@@ -1278,3 +1278,35 @@ Physical iPhone/iPad and Android, manual assistive technology, native 400%
 browser zoom, owner R2 account checkout/provisioning and paired live backup
 acceptance remain external. Owner setup is described in
 `docs/roadmap/11-storage-runbook.md`. Draft PR #20 carries this phase.
+
+## Phase 12 — Database power
+
+The independent chart work started in a separate worktree on
+`sol/p12-database-power`, based on Phase 11 application source `6673d6f`.
+Phase 8's completed certificate and draft PR #17 satisfy the chart's local
+predecessor requirement. Phase 11 certification continues in its own worktree.
+
+### 12.1 and 12.2 usage gate
+
+General rollups and formulas remain deferred. The ledger shows that the focused
+project health, budget, product economics and measurement surfaces passed
+local qualification. It has no evidence of two team workflows that require
+general rollups or formulas beyond those focused tools.
+
+### 12.3 chart view checkpoint
+
+Database chart views support bar, stacked bar and line plots, saved native
+controls, keyboard and table drill-down, and embedding through the existing
+view block. Charts share live view and aggregate behavior with MCP
+`query_records`. A saved chart's series summarizes all authorized matching
+root records, before row pagination. The response omits per-point record IDs
+to keep the series bounded. An explicit limit applies above 5,000 source rows.
+Plots show at most 60 horizontal groups and 12 series with a notice when limited.
+
+The build, typecheck, 40 view tests and 41 local MCP assertions passed.
+Compact dark WebKit passed the new chart UI journey. The first runner command
+used a test-title anchor and selected no tests. The expanded journey exposed
+teardown racing creation, then passed after waiting for server acknowledgement.
+The local reports are in this worktree's `.artifacts/ux-lab/` and
+`.artifacts/phase12/mcp-chart-first/`. The full profile matrix and phase-end
+certificate remain pending.

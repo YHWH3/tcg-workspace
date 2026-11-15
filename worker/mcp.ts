@@ -57,7 +57,8 @@ import { parseSearchDateBounds } from './searchDates';
 import { visibleItems, visibleSummaries } from './historyAccess';
 import { levelSql } from './capability';
 import type { Collection } from '../shared/collections';
-import { dateFilterError, FILTER_OPERATORS, type FilterOp } from '../shared/views';
+import { dateFilterError, FILTER_OPERATORS, VIEW_TYPES, type ChartConfig, type ViewConfig, type FilterOp } from '../shared/views';
+import {chartSeries, DEFAULT_CHART, isChartConfig, type ChartResult} from '../shared/charts';
 import {serverDateContext,readWorkspaceSettings,withWorkspaceContext} from './workspaceSettings';
 
 const MAX_WRITE_RECORDS = 500;
@@ -3201,7 +3202,11 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
 
   /* ---------- 21. Phase 1: databases, views, records, links ---------- */
 
-  const VIEW_TYPES = ['table', 'list', 'gallery', 'board', 'calendar', 'timeline'] as const;
+  const chartInput = z.object({
+    chartType: z.enum(['bar', 'stacked_bar', 'line']),
+    xKey: z.string(), xBucket: z.enum(['day', 'week', 'month']).optional(),
+    yAgg: z.enum(['count', 'sum', 'avg']), yKey: z.string().optional(), seriesKey: z.string().optional(),
+  });
   const viewUrl = (dbId: string, viewId: string) => `${ctx.origin}/boards/${dbId}/views/${viewId}`;
   const recordUrl = (dbId: string, recId: string) => ctx.origin+recordHref(dbId,undefined,recId);
 
@@ -3216,6 +3221,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     dateKey: z.string().optional().describe("calendar/timeline: date field name/id ('dueDate' or a date-type field)"),
     endDateKey: z.string().optional().describe('timeline: bar end date field name/id'),
     timelineScale: z.enum(['week', 'month', 'quarter']).optional(),
+    chart: chartInput.optional(),
   });
 
   /** Field name/id → views.ts FieldKey ('title'|'status'|'assigneeId'|'dueDate'|'priority'|'createdAt'|'createdBy'|p_<fid>|rel_<fid>). */
@@ -3225,6 +3231,29 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     if (f) return (f.type === 'relation' ? `rel_${f.id}` : `p_${f.id}`) as import('../shared/views').FieldKey;
     return (BUILTINS[key.toLowerCase()] ?? key) as import('../shared/views').FieldKey;
   };
+
+  function resolveChart(board: Record<string, unknown>, input: z.infer<typeof chartInput>): ChartConfig {
+    const fields = fieldsOf(board);
+    const key = (raw: string) => {
+      const resolved = resolveFieldKey(board, raw);
+      if (['title', 'status', 'assigneeId', 'dueDate', 'priority', 'createdAt', 'createdBy'].includes(resolved)) return resolved;
+      if (!fields.some(field => resolved === (field.type === 'relation' ? `rel_${field.id}` : propKey(field.id)))) {
+        throw new Error('Chart field is unavailable on this database');
+      }
+      return resolved;
+    };
+    const xKey = key(input.xKey);
+    const date = xKey === 'createdAt' || xKey === 'dueDate' || fields.some(field => field.type === 'date' && xKey === propKey(field.id));
+    if (input.xBucket && !date) throw new Error('Choose a date field for date grouping');
+    const yKey = input.yAgg === 'count' || !input.yKey ? undefined : key(input.yKey);
+    if (input.yAgg !== 'count' && !fields.some(field => field.type === 'number' && yKey === propKey(field.id))) {
+      throw new Error('Choose a numeric field for sums and averages');
+    }
+    return {
+      chartType:input.chartType, xKey, xBucket:date ? input.xBucket ?? 'day' : undefined,
+      yAgg:input.yAgg, yKey, seriesKey:input.seriesKey ? key(input.seriesKey) : undefined,
+    };
+  }
 
   const validateFilterDates = (boardData: Record<string, unknown>, filters: { field: string; op: string; value?: unknown }[] = []) => {
     for (const filter of filters) {
@@ -3244,7 +3273,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     return `p_${f.id}`;
   };
 
-  const viewOps = async (dbId: string, views: { name: string; type?: string; filters?: { field: string; op: string; value?: unknown }[]; sorts?: { field: string; dir?: string }[]; groupBy?: string; visible?: string[]; cover?: string; dateKey?: string; endDateKey?: string; timelineScale?: string }[], boardData: Record<string, unknown>): Promise<WriteOp[]> => {
+  const viewOps = async (dbId: string, views: z.infer<typeof viewInput>[], boardData: Record<string, unknown>): Promise<WriteOp[]> => {
     const ops: WriteOp[] = [];
     let prevKey: string | null = null;
     for (const v of views) {
@@ -3267,6 +3296,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
             dateKey: v.dateKey ? resolveDateKeyArg(boardData, v.dateKey) : undefined,
             endDateKey: v.endDateKey ? resolveDateKeyArg(boardData, v.endDateKey) : undefined,
             timelineScale: v.timelineScale ?? undefined,
+            chart: v.type === 'chart' ? v.chart ? resolveChart(boardData,v.chart) : DEFAULT_CHART : undefined,
           },
           order: prevKey,
           createdBy: ctx.userId,
@@ -3373,8 +3403,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   reg(
     'add_view',
     {
-      description: 'Add a view to a database (types: table/list/gallery/board/calendar/timeline). Filter/sort/groupBy/visible take field NAMES (resolved server-side to ids). calendar/timeline take dateKey/endDateKey (date field names) + timelineScale.',
-      inputSchema: z.object({ databaseId: z.string(), name: z.string(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.enum(FILTER_OPERATORS), value: z.unknown().optional().describe("within: {from: yyyy-mm-dd or today±N, to: yyyy-mm-dd or today±N}; inclusive endpoints") })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: z.string().optional(), visible: z.array(z.string()).optional(), cover: z.string().optional(), dateKey: z.string().optional(), endDateKey: z.string().optional(), timelineScale: z.enum(['week', 'month', 'quarter']).optional() }),
+      description: 'Add a view to a database (types: table/list/gallery/board/calendar/timeline/chart). Filter/sort/groupBy/visible take field NAMES (resolved server-side to ids). calendar/timeline take dateKey/endDateKey (date field names) + timelineScale. For chart views, configure the chart fields with chart.',
+      inputSchema: viewInput.extend({ databaseId: z.string() }),
       annotations: { idempotentHint: true },
     },
     async (a) => {
@@ -3385,7 +3415,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const dup = existing.find((v) => String(v.data.name ?? '').toLowerCase() === a.name.toLowerCase());
       if (dup) return txt({ id: dup.id, url: viewUrl(a.databaseId, dup.id), existed: true });
       const id = uuid();
-      const ops = await viewOps(a.databaseId, [{ name: a.name, type: a.type, filters: a.filters, sorts: a.sorts, groupBy: a.groupBy, visible: a.visible, cover: a.cover, dateKey: a.dateKey, endDateKey: a.endDateKey, timelineScale: a.timelineScale }], board.data);
+      const ops = await viewOps(a.databaseId, [a], board.data);
       await write(ctx, ops.map((o) => ({ ...o, id })).concat(activityOp(ctx.userId, ctx.clientName, 'created', 'board', a.databaseId, `view ${a.name}`, ctx.cs?.id)));
       return txt({ id, url: viewUrl(a.databaseId, id) });
     },
@@ -3395,7 +3425,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     'update_view',
     {
       description: 'Update a view name/type/config.',
-      inputSchema: z.object({ viewId: z.string(), name: z.string().optional(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.enum(FILTER_OPERATORS), value: z.unknown().optional().describe("within: {from: yyyy-mm-dd or today±N, to: yyyy-mm-dd or today±N}; inclusive endpoints") })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: z.string().optional(), visible: z.array(z.string()).optional(), cover: z.string().optional(), dateKey: z.string().nullable().optional(), endDateKey: z.string().nullable().optional(), timelineScale: z.enum(['week', 'month', 'quarter']).nullable().optional(), expectedRev: z.number().optional() }),
+      inputSchema: z.object({ viewId: z.string(), name: z.string().optional(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.enum(FILTER_OPERATORS), value: z.unknown().optional().describe("within: {from: yyyy-mm-dd or today±N, to: yyyy-mm-dd or today±N}; inclusive endpoints") })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: z.string().optional(), visible: z.array(z.string()).optional(), cover: z.string().optional(), dateKey: z.string().nullable().optional(), endDateKey: z.string().nullable().optional(), timelineScale: z.enum(['week', 'month', 'quarter']).nullable().optional(), chart: chartInput.optional(), expectedRev: z.number().optional() }),
       annotations: { idempotentHint: true },
     },
     async (a) => {
@@ -3415,6 +3445,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (a.dateKey !== undefined) cfg.dateKey = a.dateKey ? resolveDateKeyArg(board?.data ?? {}, a.dateKey) : undefined;
       if (a.endDateKey !== undefined) cfg.endDateKey = a.endDateKey ? resolveDateKeyArg(board?.data ?? {}, a.endDateKey) : undefined;
       if (a.timelineScale !== undefined) cfg.timelineScale = a.timelineScale ?? undefined;
+      if (a.chart !== undefined) {
+        if ((a.type ?? v.data.type) !== 'chart') return err('Chart configuration requires a chart view');
+        cfg.chart = resolveChart(board?.data ?? {}, a.chart);
+      } else if (a.type === 'chart' && !cfg.chart) cfg.chart = DEFAULT_CHART;
       patch.config = cfg;
       const expect = a.expectedRev !== undefined ? new Map([[a.viewId, a.expectedRev]]) : undefined;
       await write(ctx, [{ collection: 'views', id: a.viewId, patch }], { expect });
@@ -4169,9 +4203,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   server.registerTool(
     'query_records',
     {
-      description: 'Query a database: filters/sorts use field NAMES. Returns rows with named field values + rev, at most `limit` (default 100, max 200) per call; while hasMore is true pass nextCursor back as `cursor`. Without sorts any database size pages in id order; with sorts the database must have at most 5,000 records (otherwise an explicit error).',
+      description: 'Query a database: filters/sorts use field NAMES. Returns rows with named field values + rev, at most `limit` (default 100, max 200) per call; while hasMore is true pass nextCursor back as `cursor`. Without sorts any database size pages in id order; with sorts the database must have at most 5,000 records (otherwise an explicit error). Pass a chart viewId to also get its series across the authorized matching records.',
       inputSchema: z.object({
         databaseId: z.string(),
+        viewId: z.string().optional().describe('Saved chart view in this database'),
         filters: z.array(z.object({ field: z.string(), op: z.enum(FILTER_OPERATORS), value: z.unknown().optional().describe("within: {from: yyyy-mm-dd or today±N, to: yyyy-mm-dd or today±N}; inclusive endpoints") })).optional(),
         sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(),
         limit: z.number().optional(),
@@ -4191,10 +4226,18 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       catch (error) { return err(error instanceof Error ? error.message : 'Invalid date filter.'); }
       await fillCaches(ctx);
       const include = new Set(a.include ?? ['fields']);
+      let saved: ViewConfig | undefined;
+      if (a.viewId) {
+        const selected = await rec(ctx.env, 'views', a.viewId);
+        if (!selected || selected.data.deleted || selected.data.databaseId !== a.databaseId || selected.data.type !== 'chart') return err('chart view not found');
+        saved = (selected.data.config ?? {}) as ViewConfig;
+        if (saved.chart !== undefined && !isChartConfig(saved.chart)) return err('chart view requires valid configuration');
+      }
       const view = {
-        filters: (a.filters ?? []).map((f) => ({ key: resolveFieldKey(board.data, f.field), op: f.op as import('../shared/views').FilterOp, value: f.value })),
-        sorts: (a.sorts ?? []).map((s) => ({ key: resolveFieldKey(board.data, s.field), dir: (s.dir ?? 'asc') as 'asc' | 'desc' })),
-        includeArchived: a.includeArchived === true,
+        filters: [...(saved?.filters ?? []), ...(a.filters ?? []).map((f) => ({ key: resolveFieldKey(board.data, f.field), op: f.op as import('../shared/views').FilterOp, value: f.value }))],
+        sorts: a.sorts?.map((s) => ({ key: resolveFieldKey(board.data, s.field), dir: s.dir ?? 'asc' })) ?? saved?.sorts ?? [],
+        mine: saved?.mine,
+        includeArchived: a.includeArchived ?? saved?.includeArchived ?? false,
       };
       // Relation titles for exactly the rows being evaluated (filters may name relation fields).
       const relLinks: Rec[] = [];
@@ -4211,7 +4254,8 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       const vctx = { meId: ctx.userId, today:dateContext.today,timeZone:dateContext.timeZone, fieldsById: fmap, relationTitles, columnsById: new Map(boardColumns(board).map((c, i) => [c.id, i])) };
       let page: Rec[];
       let next: string | null;
-      if (!view.sorts.length) {
+      let chart: ChartResult | undefined;
+      if (!view.sorts.length && !saved) {
         // Unsorted (the default): a keyset scan in id order, filters applied window by window
         // after the read gate. The cursor is the last SCANNED id, so filtering never skips
         // or repeats rows, and any database size is served in bounded steps. A plain record
@@ -4233,10 +4277,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         const { results: raw } = await ctx.env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection='tasks' AND COALESCE(json_extract(data,'$.deleted'),0)!=1
             AND (json_extract(data,'$.boardId') = ? OR (? = 'board-default' AND json_extract(data,'$.boardId') IS NULL)) LIMIT ?`)
           .bind(a.databaseId, a.databaseId, MAX_SORTED + 1).all<RawRow>();
-        if (raw.length > MAX_SORTED) return err(`sorting needs every record and this database has more than ${MAX_SORTED}; query without sorts (paginated, any size) or split the database`);
+        if (raw.length > MAX_SORTED) return err(saved
+          ? `chart aggregation needs every record and this database has more than ${MAX_SORTED}`
+          : `sorting needs every record and this database has more than ${MAX_SORTED}; query without sorts (paginated, any size) or split the database`);
         const rows = (await gateRows(ctx.env, raw.map(toRow))).map(toRec);
         await loadRelations(rows);
-        const applied = applyView(rows.map((r) => ({ ...r.data, id: r.id })), view, vctx).rows;
+        const viewRows = rows.filter(row => !saved || !row.data.parentId).map(row => ({...row.data, id:row.id}));
+        const applied = applyView(viewRows, view, vctx).rows;
+        if (saved) chart = chartSeries(viewRows, {...view, chart:saved.chart ?? DEFAULT_CHART}, vctx);
         const startIdx = a.cursor ? applied.findIndex((r) => String(r.id) === a.cursor) + 1 : 0;
         const byId = new Map(rows.map((r) => [r.id, r]));
         page = applied.slice(startIdx, startIdx + limit).map((d) => byId.get(String(d.id))!).filter(Boolean);
@@ -4260,7 +4308,13 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
         }
         return row;
       });
-      return txt({ rows: out, count: out.length, nextCursor: next, hasMore: next !== null });
+      return txt({
+        rows: out, count: out.length, nextCursor: next, hasMore: next !== null,
+        ...(chart ? {chart:{...chart, series:chart.series.map(series => ({
+          key:series.key,
+          points:series.points.map(({records: _ids, ...point}) => point),
+        }))}} : {}),
+      });
     },
   );
 

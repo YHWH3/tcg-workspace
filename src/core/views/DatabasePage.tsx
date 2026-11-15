@@ -58,6 +58,8 @@ import {
 import { useLinks } from '../links';
 import { useUsers } from '../users';
 import { TableView } from './TableView';
+import {ChartView} from './ChartView';
+import {DEFAULT_CHART} from '../../../shared/charts';
 import { ListView } from './ListView';
 import { GalleryView } from './GalleryView';
 import { GroupBoard } from './GroupBoard';
@@ -72,7 +74,7 @@ import { archivePatch, isArchived } from '../../../shared/archive';
 import { BulkActionBar, BulkSelectionProvider } from './bulk';
 import { ImportCsvDialog } from './ImportCsv';
 
-const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3 };
+const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3, chart: BarChart3 };
 
 /* ============ dispatcher for the legacy routes ============ */
 
@@ -368,6 +370,9 @@ function renderView(board: BoardRow, view: ViewRow, records: ReturnType<typeof u
   if (type === 'gallery') return <GalleryView board={board} view={view} records={records} />;
   if (type === 'calendar') return <CalendarView board={board} view={view} records={records} />;
   if (type === 'timeline') return <TimelineView board={board} view={view} records={records} />;
+  if (type === 'chart') return <ChartView key={view.id} board={board} view={view} records={records}
+    context={viewCtx(board, deps.tasks, deps.links, deps.meId, todayISO())}
+    onConfig={chart => void persistViewConfig(board, view, {...view.config, chart})} />;
   return <TableView board={board} view={view} records={records} />;
 }
 
@@ -660,7 +665,7 @@ function NewViewMenu({ board, cols, onCreate }: { board: BoardRow; cols: { id: s
   }
   return (
     <div className="w-40 p-1 text-sm">
-      {(['table', 'list', 'gallery', 'board', 'calendar', 'timeline'] as ViewType[])
+      {(['table', 'list', 'gallery', 'board', 'calendar', 'timeline', 'chart'] as ViewType[])
         .filter((t) => t !== 'board' || cols.length > 0)
         .map((t) => {
           const Icon = VIEW_ICONS[t];
@@ -668,7 +673,7 @@ function NewViewMenu({ board, cols, onCreate }: { board: BoardRow; cols: { id: s
             <button
               key={t}
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
-              onClick={() => (t === 'calendar' || t === 'timeline' ? setPending(t) : onCreate(t))}
+              onClick={() => (t === 'calendar' || t === 'timeline' ? setPending(t) : onCreate(t, t === 'chart' ? {chart:DEFAULT_CHART} : undefined))}
             >
               <Icon size={14} className="text-neutral-400" /> {VIEW_TYPE_LABELS[t]}
             </button>

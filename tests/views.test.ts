@@ -1,3 +1,4 @@
+import {chartSeries} from '../shared/charts';
 import { describe, expect, it } from 'vitest';
 import { aggregate, applyView, evalFilter, fieldValue, resolveDateKey, sortRecords, VIEW_TYPES, type Filter, type ViewConfig, type ViewCtx, type ViewRecord, type ViewRow, type ViewType } from '../shared/views';
 import type { FieldDef } from '../shared/fields';
@@ -377,5 +378,45 @@ describe('Phase 2 — calendar/timeline view config', () => {
     );
     expect(rows.map((r) => r.id)).toEqual(['a', 'b']); // sorts still apply; date fields don't break eval
     expect(cfg.timelineScale).toBe('quarter');
+  });
+});
+
+describe('chart series', () => {
+  const rows = [
+    {id:'a', createdAt:Date.parse('2026-11-01T20:00:00Z'), p_kind:'A', p_score:8},
+    {id:'b', createdAt:Date.parse('2026-11-02T02:00:00Z'), p_kind:'A', p_score:4},
+    {id:'c', createdAt:Date.parse('2026-11-05T02:00:00Z'), p_kind:'B', p_score:3},
+    {id:'d', createdAt:Date.parse('2026-11-02T02:00:00Z'), p_kind:'B', p_score:2, archived:true},
+    {id:'e', createdAt:Date.parse('2026-11-02T02:00:00Z'), p_kind:'A', p_score:100, deleted:true},
+  ];
+  const chart = {chartType:'stacked_bar', xKey:'createdAt', xBucket:'week', yAgg:'sum', yKey:'p_score', seriesKey:'p_kind'} as const;
+
+  it('shares the view filters, timezone and archive policy with the record list', () => {
+    const result = chartSeries(rows, {
+      chart, includeArchived:true, filters:[{key:'p_kind', op:'is', value:'A'}],
+    }, {timeZone:'Asia/Kolkata'});
+    expect(result).toEqual({
+      buckets:['2026-11-02'],
+      series:[{key:'A', points:[{x:'2026-11-02', value:12, records:['a','b'], count:2, numericCount:2}]}],
+      matched:2, skipped:0, partial:false,
+    });
+    const archived = chartSeries(rows, {chart, includeArchived:true}, {timeZone:'Asia/Kolkata'});
+    expect(archived.series[1].points[0]).toMatchObject({value:5, records:['c','d']});
+  });
+
+  it('keeps a missing numeric average distinct from zero', () => {
+    const result = chartSeries([{id:'n', status:'open'}, {id:'z', status:'done', p_score:0}], {
+      chart:{chartType:'line', xKey:'status', yAgg:'avg', yKey:'p_score'},
+    });
+    expect(result.series[0].points.map(point => point.value)).toEqual([null, 0]);
+    expect(result.series[0].points[0]).toMatchObject({records:['n'], count:1, numericCount:0});
+  });
+
+  it('makes chart limits explicit while retaining the matched record count', () => {
+    const many = Array.from({length:61}, (_, index) => ({id:'r'+index, p_category:'C'+index}));
+    const result = chartSeries(many, {chart:{chartType:'bar', xKey:'p_category', yAgg:'count'}});
+    expect(result.buckets).toHaveLength(60);
+    expect(result.matched).toBe(61);
+    expect(result.partial).toBe(true);
   });
 });
