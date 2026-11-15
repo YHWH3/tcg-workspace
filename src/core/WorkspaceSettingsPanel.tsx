@@ -20,6 +20,11 @@ export function WorkspaceSettingsPanel(){
   <div><label htmlFor={id+'-currency'} className="mb-1 block text-sm">Currency</label><Input id={id+'-currency'} list={id+'-currencies'} value={draft.currency} maxLength={3} disabled={!state.canEdit||busy} aria-invalid={!validCurrency(draft.currency)} onChange={e=>set({currency:e.target.value.toUpperCase()})}/><datalist id={id+'-currencies'}>{['INR','USD','EUR','GBP','AED','SGD','JPY','AUD','CAD'].map(code=><option key={code} value={code}/>)}</datalist><p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">Choose a common code or enter a valid three-letter ISO currency code.</p></div>
   <div><label htmlFor={id+'-week'} className="mb-1 block text-sm">Week starts on</label><Select id={id+'-week'} value={draft.weekStart} disabled={!state.canEdit||busy} onChange={e=>set({weekStart:Number(e.target.value)})}>{weekdays.map((day,i)=><option key={day} value={i}>{day}</option>)}</Select></div>
   {preview&&<p className="text-sm" data-testid="workspace-date-preview">Today in this workspace is {preview}.</p>}
+  <label className="flex min-h-11 items-center gap-3 text-sm">
+   <input type="checkbox" checked={draft.emailShowTitles===true} disabled={!state.canEdit||busy} onChange={e=>set({emailShowTitles:e.target.checked})}/>
+   <span>Include readable record titles in notification emails</span>
+  </label>
+  <p className="text-xs text-neutral-600 dark:text-neutral-400">Email delivery passes these titles through Resend.</p>
   {dirty&&state.settings&&state.settings.version!==draft.version&&<p role="alert">Settings changed elsewhere. Reload the latest version before saving.<Button type="button" onClick={()=>{setDirty(false);setDraft(state.settings);}}>Reload latest settings</Button></p>}
   {state.canEdit&&<Button type="submit" variant="primary" disabled={!dirty||!valid||busy||state.offline}>{busy?'Saving…':'Save workspace settings'}</Button>}
   {!valid&&<p role="alert">Enter a valid timezone and ISO currency code.</p>}

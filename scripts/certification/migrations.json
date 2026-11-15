@@ -150,5 +150,17 @@
   {
     "name": "0038_phase9_share_expiry.sql",
     "sha256": "09f91af683dc77f3d9c83c0eac1c7bf4d76205518df90131fa8513d1aebc7eb3"
+  },
+  {
+    "name": "0039_user_email.sql",
+    "sha256": "01f0e5e23b64de58bce17c194296afbaa6ed6f1881f43e7d4e5a618b23057c10"
+  },
+  {
+    "name": "0040_email_outbox.sql",
+    "sha256": "d761b4dbc9d0c4cd52fce8f0c2b20b240b392a0be583b2b76bc51e917848a6fe"
+  },
+  {
+    "name": "0041_web_push.sql",
+    "sha256": "1e1a5c486654b5ae53ab4f2ef6ef4a61a4efe95a55d18785bd7cc48daecf12e9"
   }
 ]

@@ -84,3 +84,37 @@ People get timely, deduplicated Inbox items they can control; outsiders submit f
 - Automation When/If/Then form works as stacked controls, searchable record/database pickers and ordered action rows with button reorder. Run failure detail and change-set preview/undo reuse Phase 0 compact review; no graph or desktop-only editor dependency.
 
 Definition of Done: three-engine 320/390px, split-tablet and desktop tests plus real iPhone/Android form submission in normal browser tabs with camera denied, text/file alternatives and keyboard open. Test slow/offline network, expired challenge/token, lost receipt/dedupe, no double record, readable validation, no auth/sync initialization on public route, and draft privacy. Browser Inbox with denied/unsupported push, resume after lock, mark-read across devices, reminder dedupe, approval gate UI+MCP and compact automation create/reorder/failure/undo all pass shared keyboard/AT gates. Provisioning test HTTPS/Turnstile configuration remains a separately authorized implementation step.
+
+## Phase 10 account email verification
+
+The signed-in profile uses `/api/me/email` to manage a private notification
+address. Migration 0039 stores verified addresses on users and keeps pending
+codes as keyed hashes in the server-only `email_verifications` table. Challenges
+expire after 15 minutes, permit five attempts, and are bound to the initiating
+session. The scheduled retention sweep removes expired challenges. Notification
+addresses stay outside public user data, sync, and the People directory.
+
+Verification delivery is disabled by default. A disposable local test may opt
+in with `WORKSPACE_ENV=local-test`, `EMAIL_PROVIDER=simulated`, a test-only
+`EMAIL_LINK_KEY` and a private `EMAIL_TEST_SINK` service binding. A live setup
+requires the owner to configure `EMAIL_PROVIDER=resend`, `EMAIL_FROM`,
+`RESEND_API_KEY` and `EMAIL_LINK_KEY`. Uncertain sends keep the code usable for
+its remaining lifetime and require an explicit new request to resend.
+
+## Phase 10 notification email delivery
+
+Migration 0040 adds `email_outbox` and `workspace_settings.email_show_titles`.
+The same D1 batch that writes the Inbox notification stages opted-in deliveries.
+Urgent requests can attempt delivery immediately. The tenth scheduler phase
+drains pending rows and respects the invocation budget. The sender rechecks the
+verified address version and current channel preference. It rebuilds the
+message from the current readable record when a title is eligible. Generic
+messages link to the Inbox. The title setting defaults off and requires the
+existing versioned administrator change path.
+
+Set a reviewed HTTPS origin in `EMAIL_APP_ORIGIN` before enabling notification
+delivery. This origin supplies Inbox and unsubscribe links. Unsubscribe opens a
+confirmation page and requires POST with a signed expiring token tied to the
+verified address version. Retries reuse the same Resend key and request hash.
+A changed payload or a send past the idempotency window needs operator review.
+Sent rows expire after 30 days and terminal rows after 90.

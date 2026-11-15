@@ -46,7 +46,7 @@ const base64=(value:unknown)=>btoa(String.fromCharCode(...new TextEncoder().enco
 function decodeCursor(value:string):Record<string,unknown>{try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(atob(value),c=>c.charCodeAt(0))));}catch{throw new Error('invalid_cursor');}}
 function empty(today:string,now:number,source:string):AttentionPage{return {items:[],nextCursor:null,partial:true,partialSources:[source],today,asOf:now,urgentCount:0,quietDigest:false};}
 
-export async function collectAttention(env:Env,userId:string,query:Query={},now=Date.now()):Promise<AttentionPage> {
+export async function collectAttention(env:Env,userId:string,query:Query={},now=Date.now(),digest?:{includeWebsiteNew:boolean;observe:(decision:ReadDecision)=>void}):Promise<AttentionPage> {
  const limit=query.limit??50;
  if(!Number.isInteger(limit)||limit<1||limit>50||query.cursor!==undefined&&(typeof query.cursor!=='string'||query.cursor.length>2048)||query.kinds!==undefined&&(!Array.isArray(query.kinds)||query.kinds.length>10||query.kinds.some(k=>!isAttentionKind(k)))||query.approvalDatabaseId!==undefined&&(typeof query.approvalDatabaseId!=='string'||!query.approvalDatabaseId.length||query.approvalDatabaseId.length>64))throw new Error('invalid_attention_query');
  env=withReadGate(env,userId);
@@ -80,9 +80,9 @@ export async function collectAttention(env:Env,userId:string,query:Query={},now=
   prepare(`SELECT n.id,n.created_at,${projection} FROM notifications n LEFT JOIN records r ON r.id=n.target_id ${boardJoin} WHERE n.user_id=(SELECT uid FROM caller) AND n.kind='mention' AND n.read_at IS NULL ORDER BY n.created_at,n.id LIMIT ${caps.mention_unread+1}`),
   prepare(`SELECT run.id,run.created_at,${projection} FROM automation_runs run JOIN records r ON r.id=run.automation_id AND r.collection='automations' ${boardJoin} WHERE ?=1 AND run.created_at>=? AND run.status IN('retryable_failure','terminal_failure') AND ${live('r')} AND NOT EXISTS(SELECT 1 FROM automation_runs success WHERE success.automation_id=run.automation_id AND success.status='completed' AND (success.created_at>run.created_at OR success.created_at=run.created_at AND success.id>run.id))${scoped} ORDER BY run.created_at,run.id LIMIT ${caps.automation_failed+1}`,[admin?1:0,now-7*86400000],true),
   prepare(`SELECT r.id,${projection} FROM records r ${boardJoin} WHERE r.collection='tasks' AND b.id=? AND ${live('r')} AND ${live('b')} AND COALESCE(json_extract(r.data,'$.parentId'),'')='' AND ${configured}
-   AND (json_extract(r.data,'$.assigneeId')=(SELECT uid FROM caller) OR ?=1 AND (COALESCE(json_extract(r.data,'$.assigneeId'),'')='' OR json_extract(r.data,'$.p_wi_stage')='refund_needed'))
-   AND (json_extract(r.data,'$.p_wi_stage')='refund_needed' AND COALESCE(json_extract(r.data,'$.status'),'new')!='done' OR COALESCE(json_extract(r.data,'$.status'),'new') IN('new','in_review') AND COALESCE(json_extract(r.data,'$.p_wi_replied'),'')='' AND (CASE WHEN date(json_extract(r.data,'$.p_wi_received'),'+0 days')=json_extract(r.data,'$.p_wi_received') THEN json_extract(r.data,'$.p_wi_received')<date(?,'-'||(${websiteTarget})||' days') ELSE COALESCE(json_extract(r.data,'$.createdAt'),?)<?-((${websiteTarget})-1)*86400000 END))${scoped}
-   ORDER BY CASE WHEN json_extract(r.data,'$.p_wi_stage')='refund_needed' THEN 0 ELSE 1 END,COALESCE(json_extract(r.data,'$.p_wi_received'),''),r.id LIMIT ${caps.website_aging+1}`,[WEBSITE_INBOX_ID,admin?1:0,settings.today,now+86400000,now],true),
+   AND (json_extract(r.data,'$.assigneeId')=(SELECT uid FROM caller) OR ?=1 AND (COALESCE(json_extract(r.data,'$.assigneeId'),'')='' OR json_extract(r.data,'$.p_wi_stage')='refund_needed') OR ?=1 AND json_extract(b.data,'$.attention.triage')=1 AND (json_type(b.data,'$.attention.triagers')='array' AND EXISTS(SELECT 1 FROM json_each(b.data,'$.attention.triagers') triager WHERE triager.value=(SELECT uid FROM caller)) OR COALESCE(json_extract(b.data,'$.attention.triagers'),'admins')='admins' AND ?=1))
+   AND (json_extract(r.data,'$.p_wi_stage')='refund_needed' AND COALESCE(json_extract(r.data,'$.status'),'new')!='done' OR COALESCE(json_extract(r.data,'$.status'),'new') IN('new','in_review') AND COALESCE(json_extract(r.data,'$.p_wi_replied'),'')='' AND (CASE WHEN date(json_extract(r.data,'$.p_wi_received'),'+0 days')=json_extract(r.data,'$.p_wi_received') THEN json_extract(r.data,'$.p_wi_received')<date(?,'-'||(${websiteTarget})||' days') ELSE COALESCE(json_extract(r.data,'$.createdAt'),?)<?-((${websiteTarget})-1)*86400000 END) OR ?=1 AND COALESCE(json_extract(r.data,'$.status'),'new')='new')${scoped}
+   ORDER BY CASE WHEN json_extract(r.data,'$.p_wi_stage')='refund_needed' THEN 0 ELSE 1 END,COALESCE(json_extract(r.data,'$.p_wi_received'),''),r.id LIMIT ${caps.website_aging+1}`,[WEBSITE_INBOX_ID,admin?1:0,digest?.includeWebsiteNew?1:0,admin?1:0,settings.today,now+86400000,now,digest?.includeWebsiteNew?1:0],true),
   prepare('SELECT prefs FROM users WHERE id=(SELECT uid FROM caller) AND disabled_at IS NULL'),
  ]);
  const sources=Object.keys(caps) as (keyof typeof caps)[],partialSources=sources.filter((key,i)=>results[i].results.length>caps[key]);
@@ -134,11 +134,17 @@ export async function collectAttention(env:Env,userId:string,query:Query={},now=
   if(!readable(row.target_id)||!readable(row.board_id))continue;
   const data=nodes.get(row.target_id!)!.data,board=nodes.get(row.board_id!)!.data,config=attentionConfig(board);if(!config?.enabled)continue;
   const refund=data.p_wi_stage==='refund_needed'&&data.status!=='done',owner=typeof data.assigneeId==='string'&&data.assigneeId?data.assigneeId:null,triager=isAttentionTriager(config,userId,currentAdmin);
+  if(digest?.includeWebsiteNew&&triager&&(!data.status||data.status==='new')){
+   items.push({...recordItem(row,'record_unassigned',0,['open']),ownerId:owner});
+   continue;
+  }
   if(owner!==userId&&!(triager&&(!owner||refund)))continue;
   const flat={...data,id:row.target_id!} as FlatRecord,age=responseAge(flat,settings.today,settings.timeZone),target=responseConfig(board).targetDays;
   if(!refund&&(age===null||age<=target))continue;
   items.push({...recordItem(row,'website_aging',2,['open']),ownerId:owner,date:receivedDate(flat,settings.timeZone),...(age===null?{}:{ageDays:age}),reason:refund?'Refund needed':'First reply overdue'});
  }
+ digest?.observe({...decision,revs:new Map([...nodes].map(([id,node])=>[id,node.rev])),
+  graphRevs:new Map([...(decision.graphRevs??[]),...[...nodes].map(([id,node])=>[id,node.rev] as const)])});
  const ranked=rankAttention(items.filter(i=>!kinds.length||kinds.includes(i.kind)),settings.today),remaining=ranked.filter(i=>!after||compareAttention(i,after)>0),page=remaining.slice(0,limit);
  return {items:page,nextCursor:remaining.length>limit?base64({f:fingerprint,...attentionRankKey(page.at(-1)!)}):null,partial:partialSources.length>0,partialSources,asOf:now,today:settings.today,urgentCount:ranked.filter(i=>i.severity>=2).length,quietDigest:parsePrefs((results[8].results[0] as {prefs?:string}|undefined)?.prefs).quietDigest===true};
 }

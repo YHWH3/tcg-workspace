@@ -1,6 +1,7 @@
 import {ReliabilityPanel} from './ReliabilityPanel';
 import {PackUpgradeControl} from './PackUpgradeControl';
 import {WorkspaceSettingsPanel} from './WorkspaceSettingsPanel';
+import {NotificationEmail} from './NotificationEmail';
 import {Usage} from './Usage';
 import {Spaces} from './Spaces';
 import { useCallback, useEffect, useState } from 'react';
@@ -157,6 +158,7 @@ function ProfileSection({ user }: { user: PublicUser | null }) {
         {saved && <span className="text-xs text-emerald-600 dark:text-emerald-400">Saved</span>}
         <span className="text-xs text-neutral-500 dark:text-neutral-400">@{user.username}</span>
       </div>
+      <NotificationEmail key={user.id} />
     </Section>
   );
 }

@@ -7,6 +7,7 @@
  * - POST /share-target stores shared files in IndexedDB → redirects to /capture?shared=1
  */
 import { putShared } from './core/sharedInbox';
+import {readPushDevice} from '../shared/pushDevice';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: { url: string; revision: string | null }[] };
 
@@ -128,6 +129,35 @@ self.addEventListener('fetch', (event: FetchEvent) => {
       }),
     );
   }
+});
+
+self.addEventListener('push',(event:PushEvent)=>{
+  event.waitUntil((async()=>{
+    if(!event.data)return;
+    let payload:unknown;
+    try{payload=event.data.json();}catch{return;}
+    if(!payload||typeof payload!=='object')return;
+    const data=payload as Record<string,unknown>,device=await readPushDevice();
+    if(!device||data.userId!==device.userId||data.session!==device.session)return;
+    const title=typeof data.title==='string'?data.title.slice(0,160):'New activity in TCG Workspace';
+    await self.registration.showNotification(title,{
+      icon:'/icons/icon-192.png',tag:typeof data.tag==='string'?data.tag.slice(0,128):undefined,
+      data:{url:'/inbox',userId:device.userId,session:device.session},
+    });
+  })());
+});
+self.addEventListener('notificationclick',(event:NotificationEvent)=>{
+  event.notification.close();
+  event.waitUntil((async()=>{
+    const device=await readPushDevice(),data=event.notification.data as {url?:string;userId?:string;session?:string}|undefined;
+    if(!device||data?.userId!==device.userId||data?.session!==device.session)return;
+    const url=new URL(data.url??'/inbox',self.location.origin);
+    if(url.origin!==self.location.origin)return;
+    const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+    const existing=windows.find(client=>new URL(client.url).origin===self.location.origin);
+    if(existing){await existing.navigate(url.href);await existing.focus();}
+    else await self.clients.openWindow(url.href);
+  })());
 });
 
 export {};

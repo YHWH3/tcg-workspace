@@ -39,7 +39,7 @@ implementation.
 | 9.7 | Share expiry and rotation | `worker/public.ts:37-46`, `worker/shares.ts`, `Share.tsx` | **M4** `shares.expires_at`, `rotated_at` | `publish_page`, `share_moodboard` param | D1 (all 5 routes) | — | D10 |
 | 10.1 | Verified email | `worker/auth.ts` or new `worker/email.ts`, settings Profile | **M5** `users.email`, `email_verified_at`, `email_verifications` | — | `phase10-email-d1` | 7.3 | D7 |
 | 10.2 | Email channel | `worker/notifications.ts:91`, `worker/reminders.ts` (phase 10), `worker/auth.ts:94` prefs | **M6** `email_outbox` | — | `phase10-email-d1` | 10.1, 8.1 | D7 |
-| 10.3 | Email digest | new `shared/digest.ts` | uses M6 | — | unit, D1 | 10.2, 8.1, 7.2 | — |
+| 10.3 | Email digest | `shared/emailDigest.ts`, `worker/emailDigest.ts` | uses M6 | — | `phase10-digest-d1`, UX lab | 10.2, 8.1, 7.2 | — |
 | 10.4 | Web push | new `worker/webpush.ts`, `src/sw.ts`, settings Notifications | **M7** `push_subscriptions` | — | RFC vectors, D1, browser | 10.2 | D8 |
 | 11 | R2 storage | new `worker/fileStore.ts`; refactor `files.ts`, `forms.ts`, `public.ts`, `reminders.ts`, `remotefile.ts` | **M8** `files.storage`, `r2_key`, `sha256` | — | `phase11-storage-d1` | — | D9 |
 | 12.1 | Rollups | `shared/fields.ts`, `shared/views.ts` (`ctx.computed`), new `shared/rollups.ts`, field editor | none | `query_records`/`get_record`/`dashboard_snapshot` compute | unit, parity | 7.2, 8.x justification | — |
@@ -85,7 +85,7 @@ manifests per README §5.
 | M4 | `0038_share_expiry.sql` | 9.7 |
 | M5 | `0039_user_email.sql` | 10.1 |
 | M6 | `0040_email_outbox.sql` | 10.2 |
-| M7 | `0041_push_subscriptions.sql` | 10.4 |
+| M7 | `0041_web_push.sql` | 10.4 |
 | M8 | `0042_file_storage.sql` | 11 |
 | M9 | `0043_automation_branch.sql` | 12.4 |
 | M10 | `0044_mention_groups.sql` (only if D13 = groups) | 13.3 |

@@ -1,0 +1,338 @@
+{
+  "phase": 10,
+  "decision": "ENGINEERING GO / EXTERNAL BLOCKED",
+  "command": "npm run certify:ai -- --keep-awake",
+  "exitCode": 0,
+  "testedSha": "454ee5c17e6e55c4083bb16e1122d56c4907316b",
+  "tree": "60e710a2d5b76d948e4f2fc96b5a110055a452a9",
+  "sourceFingerprint": "c8655785c68d4c30b841e517aa99824778b1d78274f9dad3f14cd16eba473d1b",
+  "startedAt": "2026-11-15T06:49:37.002Z",
+  "endedAt": "2026-11-15T07:35:40.691Z",
+  "mandatoryPass": 34,
+  "mandatoryFail": 0,
+  "completeLocalCertification": true,
+  "hostPauses": [],
+  "artifactDirectory": ".artifacts/certification/454ee5c17e6e55c4083bb16e1122d56c4907316b-2026-11-15T06-49-37-002Z-complete",
+  "artifactSha256": {
+    "summary.json": "2613849c5c8b44857ca5b17dc02387e4f512a3c61c36eda02089dd96cad0fbf9",
+    "test-results.json": "ce135a5c34430c4b08067be8b71846acb5c3c32b1c9ee263b1b09ec8b4210165",
+    "commands.json": "8a6be841ee9b05e7ee8f7d801c4d55236cf7c2e01e4a169c568c7c536621a615",
+    "report.md": "b7a689ff52d37c2ebed6256226ac7e90fe1c2b834ceec00ff656595ccbf65962"
+  },
+  "versions": {
+    "node": "v26.7.0",
+    "playwright": "1.63.0",
+    "browsers": {
+      "chromium": "153.0.8010.12",
+      "firefox": "155.0",
+      "webkit": "26.6"
+    }
+  },
+  "suites": [
+    {
+      "suiteId": "prerequisites",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 6,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "dependencies",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "lockfile",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 2,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "whitespace",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "migrations",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 41,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "harness",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 147,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "typecheck",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "unit",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1185,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "build",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "d1",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 959,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "security",
+      "status": "PASS",
+      "exitCode": 1,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "browsers",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 3,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "smoke",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 46,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "mcp-base",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 94,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "mcp-multiuser",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 61,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "mcp-phase1",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 37,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "mcp-phase2",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 113,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "mcp-phase3",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 64,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "mcp-phase4",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 46,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "v4",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 33,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "v6",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 150,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "v7",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 114,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "v8",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 140,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "v9",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 75,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "phase5-sync",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 33,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "phase5-workflows",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 36,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "phase5-mcp",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 15,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "phase6-workflows",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 42,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "release-preflight",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 15,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "release-rehearsal",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 12,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "release-ui",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 21,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "assistant-e2e",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 27,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "performance-evidence",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 71,
+      "fail": 0,
+      "notRun": 0
+    },
+    {
+      "suiteId": "source-integrity",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0
+    }
+  ],
+  "externalGates": [
+    {
+      "name": "Physical iPhone/iPad Safari",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Physical Android",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Manual assistive technology",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Native 400% browser zoom",
+      "status": "NOT RUN",
+      "reason": "320px reflow equivalent is automated; not native zoom"
+    },
+    {
+      "name": "Live Resend sender and delivery",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Owner VAPID provisioning and real OS push delivery",
+      "status": "NOT RUN"
+    }
+  ],
+  "productionReleaseCertified": false,
+  "notes": [
+    "Provider and browser platform APIs use labelled simulated fixtures.",
+    "Security gate preserves the raw npm audit exit and applies the mandatory severity policy; it is not a claim of zero advisories.",
+    "Later evidence-only documentation commits do not replace this tested source SHA."
+  ]
+}

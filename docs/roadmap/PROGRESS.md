@@ -1,7 +1,10 @@
 # Next phases progress
 
-Execution started 2026-10-25. Release branch `sol/r1-date-window` is certified at `0888525`; active development
-is `sol/p8-desks`, stacked on Phase 7 documentation head `6586ee1` (draft PR #16). The release branch is based
+Execution started 2026-10-25. Phase 10 on `sol/p10-notifications` has complete
+local engineering certification at `454ee5c` (draft PR #19, stacked on
+`sol/p9-everyday`). Phase 11 is next. Earlier checkpoints below retain their
+original source and status; later entries supersede pending phase decisions.
+Release branch `sol/r1-date-window` is certified at `0888525` and is based
 on plan-only commit `6d02933` (application unchanged from `528b889`). Original
 integration branches and existing PRs remain unchanged.
 
@@ -1018,3 +1021,182 @@ approval remain external gates. This evidence is not a production deployment
 or a claim of live provider behavior.
 
 Evidence: `docs/roadmap/evidence/P9-final-certification-fa54a09.json`.
+
+## Phase 10 — Notifications outside the app
+
+### 10.1 Verified email implementation checkpoint
+
+Branch `sol/p10-notifications` starts at Phase 9's pushed documentation head
+`a8c55ed`. Migration `0039_user_email.sql` adds private verified addresses and
+session-bound verification challenges. Profile settings support requesting a
+code, verifying and removing an address. Delivery defaults disabled, and the
+release preflight rejects the disposable sink and active email configuration.
+Local verification uses simulated delivery.
+
+Focused checks pass on `07c9d61003e7002fe67d03fa795e856fe6cca62c` (tree
+`d9aedd49bd2682690adf0bdf39c7a08645845e4e`). Typecheck/build, 18 targeted
+D1/reminder tests, 13 release harness self-tests, 15 built preflight checks,
+and three disposable Worker HTTP checks passed. The focused browser run passed
+18/18 Chromium, Firefox and WebKit profiles, exit 0, with no skips or flakes.
+The browser uses a stubbed API contract. The D1 suite exercises the actual
+route with a simulated email sink. The earlier development browser run exited
+1 after a source fingerprint change and is retained separately.
+
+Browser evidence: `.artifacts/ux-lab/2026-11-15T04-53-40.337Z/summary.json`
+(SHA-256 `7149e8b4e0068665c18d6ee097f1b07e675db253d3c4eaeac4e572940e219577`).
+Draft PR #19 targets `sol/p9-everyday`.
+
+### 10.2 Email delivery implementation checkpoint
+
+On 2026-11-15 the owner selected Resend and an administrator-controlled opt-in
+for readable record titles (D7), and iPhone/iPad Home Screen instructions (D8).
+Titles default off. Migration `0040_email_outbox.sql` adds the versioned setting
+and a server-only delivery queue. The Inbox transaction enqueues opted-in
+recipients, and immediate urgent delivery and the existing cron share the same
+leased drain. Delivery rebuilds content from current read permissions, checks
+recipient and title authority before egress, and persists the payload hash so
+retries can detect changes. Signed unsubscribe links affect the verified address
+version and preserve Inbox delivery. The setting and per-kind channel choices are
+available through Workspace and Notifications settings.
+
+Focused checks passed on `797fc7efee41339fe34e8ebe4735e82beee53580` (tree
+`0977125c4246d72423d9a9e738f37a7d604d6ad9`). Typecheck and build passed, along
+with 42 targeted tests, the selected cron rotation test, 13 release harness
+self-tests and all 15 built release preflight checks. Disposable D1 and the
+simulated provider exercised atomic enqueue, access revocation, idempotency,
+retry limits and unsubscribe.
+
+The focused browser test passed 18/18 profiles across Chromium, Firefox and
+WebKit, exit 0, with no skips or flakes. It used a stubbed API contract. The
+clean-source fingerprint and results are in
+`.artifacts/ux-lab/2026-11-15T05-12-55.091Z/summary.json`
+(SHA-256 `b573247f724293d85311b5fdc557cd5699b79b9954613121be806af5ccddb46a`).
+Digest delivery, web push, live provisioning and final Phase 10 certification
+remain pending.
+
+### 10.3 Digest implementation checkpoint
+
+The implementation now schedules daily and weekly digests in Workspace time,
+deduplicates concurrent scheduling and groups the current gated attention queue.
+The Website section includes new items for configured triagers. Titles follow
+D7, with revision and permission fences before sending. Settings controls allow
+frequency, local hour and a rate-limited test digest. Scheduled empty digests are
+skipped, and signed unsubscribe turns the digest off.
+
+On the isolated source checkpoint `da79b61`, typecheck passed and 36 targeted
+D1 tests passed across digest, notification delivery and the existing attention
+collector. The source was transferred unchanged to `50fc27e`. A focused browser
+test has been added. Its final browser matrix, build and Phase 10 release
+certification remain pending. Local delivery uses the simulated provider.
+
+### 10.4 Push implementation checkpoint
+
+The local implementation adds session-bound device subscriptions, atomic
+notification enqueue, per-device leased delivery, WebCrypto encryption and VAPID
+authentication. Device settings include explicit permission, channel selection,
+default-off readable titles and the approved iPhone/iPad Home Screen guidance.
+The service worker checks the device's current account and session before
+displaying or opening a push. The owner activation and rollback runbook is
+`10-notifications-runbook.md`.
+
+Typecheck and build passed. The focused run passed 47 tests covering the RFC
+encryption vector, VAPID signature, endpoint policy, actual D1 delivery, digest,
+notification privacy and the service worker's account guard. Local browser
+fixtures for device controls and Home Screen instructions are added. Browser
+verification and the final mandatory Phase 10 certificate remain pending.
+No real provider delivery or physical-device acceptance is claimed.
+
+The first focused browser matrix on `fb996d5` stopped in Chromium compact light
+with three passing cases and one failed checkbox interaction. The checkbox
+reverted until the server returned the saved preference. The correction updates
+the displayed preference immediately while retaining pending, success, conflict
+and connection feedback. The failing assertion remains in the regression.
+Evidence is retained at
+`.artifacts/ux-lab/2026-11-15T05-42-31.450Z/summary.json`. A new matrix on the
+corrected committed source is required.
+
+The corrected focused browser matrix passed 72/72 checks across all 18 engine,
+layout and theme profiles on `e75b0cdd763e58c96def5cfcfb606e445300a147`,
+exit 0, with no skips or flakes. Both source integrity checks passed.
+The browser APIs are stubbed contract fixtures, including WebKit push.
+The report is
+`.artifacts/ux-lab/2026-11-15T05-43-45.087Z/summary.json`
+(SHA-256 `2d5a6ef34aa8eaa06bc3a7402f0e299506d31037a608729f5a55a24b9e217b52`).
+
+Final server review added receipt fencing so a late push-service response
+cannot delete or mark complete a subscription whose keys changed during
+delivery. This changes server delivery only. The verified browser controls and
+service worker are unchanged. New actual-D1 regressions cover late success and
+410 responses. Final mandatory certification is still pending.
+
+The receipt race regressions passed (11 push D1 tests). The cryptographic suite
+passed 15 tests, including the published encryption vector executed inside
+Miniflare's actual Worker runtime at compatibility date 2026-09-25. Typecheck
+passed after the server correction.
+
+### 10.4 Final acceptance and interrupted-cleanup recovery
+
+Complete local certification passed 34/34 gates on
+`3259d0352b0231d9cef9ccaf676ee32b736e16ae` (tree
+`2f1d11483592a9678ab9d6bbdc87cd45f2aa8c40`). It included 1,183 unit and
+959 actual-D1 tests, all HTTP/MCP/browser/approval/release groups, and final
+performance and source integrity. No host suspension was recorded.
+Evidence is in
+`.artifacts/certification/3259d0352b0231d9cef9ccaf676ee32b736e16ae-2026-11-15T05-52-04-575Z-complete/`.
+Its summary SHA-256 is
+`c29afeba568e1b1618facf11e8d5f8944cce11defe80a128966924cda37dd3e5`.
+
+An additional failure-recovery check then reproduced N53 on that source.
+After sign-out cleared the local notification marker, a failed browser
+unsubscribe could leave the former account's endpoint. Enable reused it and
+received an ownership conflict indefinitely. The correction replaces a
+subscription whose marker differs from the current account/session, with
+identity checks around asynchronous steps. It preserves the server ownership
+rule. The two client regressions and three service-worker checks pass.
+
+The browser journey now includes recovery of this leftover endpoint.
+Engineering acceptance remains HOLD until the recovery browser check and
+fresh final-source certification pass. The earlier successful certificate and
+the new failing regression remain evidence for their respective source.
+
+N53's corrected browser journey passed 18/18 profiles on
+`72e2b31cff9067940b566fef308681300f32e9e7`, exit 0, with no skips or flakes
+and unchanged source. It includes permission, preference persistence, ordinary
+cleanup and leftover-endpoint recovery through the actual UI.
+The platform APIs are simulated.
+Evidence is `.artifacts/ux-lab/2026-11-15T06-43-19.451Z/summary.json`
+(SHA-256 `3946cbd9089bf4d684d497d8a672dce4cf84fd92f3aeaabca2aac0b26ead1a1e`).
+
+The expanded client test was also replayed against the unchanged application
+source at 3259d03 in a disposable worktree. It reports one failing recovery
+case and one passing active-session case. The corrected run passes both client
+cases and all three service-worker cases. Retained JSON evidence is
+`.artifacts/phase10-push-recovery/baseline.json`
+(SHA-256 `780c0c2b7ad4c6312fdd684e7c336003164de5d1a60262bd79a0306af8341e4c`)
+and `corrected.json`
+(SHA-256 `ff6a47e955dbbdc2b270927d25b45af61ae8ee75cd4af4f2988c50a0f7640a0c`).
+Final-source certification is required before advancing to Phase 11.
+
+### Phase 10 final engineering acceptance
+
+**ENGINEERING GO / EXTERNAL BLOCKED.** All 34 mandatory gates passed on
+`454ee5c17e6e55c4083bb16e1122d56c4907316b`, tree
+`60e710a2d5b76d948e4f2fc96b5a110055a452a9`, with clean starting and ending
+source and no host suspensions. `npm run certify:ai -- --keep-awake` exited 0
+on 2026-11-15 (06:49:37 to 07:35:40 UTC). The disjoint groups contain
+1,185 unit tests and 959 actual-D1 tests. All mandatory HTTP, MCP, browser,
+permissions, approval, security-policy, recovery and release groups passed.
+
+The source-bound manifest is `evidence/P10-certification.json`. Raw reports
+remain in `.artifacts/certification/454ee5c17e6e55c4083bb16e1122d56c4907316b-2026-11-15T06-49-37-002Z-complete/`.
+The summary SHA-256 is `2613849c5c8b44857ca5b17dc02387e4f512a3c61c36eda02089dd96cad0fbf9`.
+N51, N52 and N53 are resolved at this source. The earlier failing and passing
+reports remain unchanged. No broader rerun is needed for this evidence-only
+documentation commit.
+
+Draft PR: https://github.com/YHWH3/tcg-workspace/pull/19. Items 10.1–10.4 are
+engineering complete. Owner-only sender/VAPID setup and real provider delivery,
+physical iPhone/iPad and Android, manual assistive technology and native 400%
+zoom remain unverified external acceptance gates. No production deployment,
+remote migration or real delivery occurred. Phase 11 local implementation may
+now begin on its own stacked branch.

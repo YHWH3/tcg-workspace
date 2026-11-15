@@ -6,9 +6,12 @@ timezone).
 
 **Owner prerequisites** (Sol prepares; owner executes):
 - D7: Resend account and verified sending domain (SPF/DKIM/DMARC DNS);
-  `RESEND_API_KEY` secret; `EMAIL_FROM`.
+  `RESEND_API_KEY` and `EMAIL_LINK_KEY` secrets; `EMAIL_FROM` and
+  `EMAIL_APP_ORIGIN`. D7 allows administrators to opt in to readable titles.
+  Title inclusion defaults off.
 - D8: VAPID key pair (`npx web-push generate-vapid-keys` or the script in 10.4);
   `VAPID_PRIVATE_KEY` secret, `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` vars.
+  Settings shows Home Screen installation instructions when applicable.
 
 Until then everything runs with `EMAIL_PROVIDER=simulated` / `WEB_PUSH=simulated`
 locally. Results are labelled simulated.
@@ -125,7 +128,7 @@ gets its own small client.
 
 ## 10.3 Email digest
 
-- `shared/digest.ts` `buildDigest(attentionItems, unread, today)` returns
+- `shared/emailDigest.ts` `buildEmailDigest(attentionItems, today)` returns
   sections:
   - "Needs you" (severity ≥2);
   - "Due today";
@@ -145,7 +148,29 @@ gets its own small client.
 - **Tests:** unit for sections; D1 for once-per-day dedupe across rotating
   phases and the timezone boundary.
 
+Implemented in the notification email scheduler. Weekly keys identify the
+Monday date in Workspace time. A bounded collector supplies current sections,
+with a link to Workspace when more items remain. Record titles follow D7 and
+default off. When enabled, record and ancestor revisions, permission mode and
+current space access fence the delivery commit. The test action is authenticated
+and limited to two requests per 15 minutes. Empty scheduled digests are retained
+as skipped outcomes and explicit test digests explain an empty queue.
+
 ## 10.4 Web push (installed app enhancement)
+
+Implemented with `0041_web_push.sql`. Push uses the existing server-only
+`email_outbox`, with `push:` kinds and one row per subscription. Both channels
+enqueue in the Inbox transaction. Each subscription is bound to a live session,
+and session deletion cascades through subscriptions and their deliveries.
+The shared email/push scheduler alternates channel priority on successive
+rotations. The service worker checks an origin-local account and session marker
+before displaying or opening a notification. Cleanup compares the previous
+session so a delayed cleanup cannot erase a replacement identity.
+
+Client controls request permission only on a click. Per-kind Push checkboxes,
+the default-off title preference and iPhone/iPad Home Screen guidance are in
+Notifications settings. Local browser checks stub the platform APIs. Actual
+push service delivery and physical devices require owner acceptance.
 
 - **Migration:**
   ```sql
@@ -199,6 +224,9 @@ gets its own small client.
   stub; WebKit marked NOT RUN for real push (state it).
 - **Owner script:** `scripts/generate-vapid-keys.mjs` prints a key pair locally
   (no network).
+
+The owner activation and rollback procedure is in
+`docs/roadmap/10-notifications-runbook.md`.
 
 ## 10.5 Out of scope
 

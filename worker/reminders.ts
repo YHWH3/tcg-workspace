@@ -19,7 +19,7 @@ import { fnv1a64hex } from '../shared/linkid';
 import {hasD1Budget,d1BudgetRemaining,D1BudgetExhausted} from './d1budget';
 
 /** Keep the rotation-bound regression synchronized with the phase inventory below. */
-export const SCHEDULED_PHASE_COUNT=9;
+export const SCHEDULED_PHASE_COUNT=10;
 const OUTBOX_BATCH = 20;
 const OUTBOX_STALE_MS = 60_000;
 
@@ -246,6 +246,8 @@ function titleOf(data: Record<string, unknown>): string {
 async function runRetention(env: { DB: D1Database }, now: number): Promise<void> {
   const db = env.DB;
   const stmts = [
+    db.prepare('DELETE FROM email_verifications WHERE expires_at<=?').bind(now),
+    db.prepare('DELETE FROM email_outbox WHERE sent_at<? OR terminal_at<?').bind(now - 30 * DAY, now - 90 * DAY),
     db.prepare("DELETE FROM form_submissions WHERE state IN ('accepted','rejected') AND created_at < ?").bind(now - RETENTION.formSubmissionMs),
     db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?').bind(now - RETENTION.readNotificationMs),
     db.prepare('DELETE FROM reminder_sent WHERE created_at < ?').bind(now - RETENTION.reminderSentMs),
@@ -328,6 +330,19 @@ export async function runScheduled(env: { DB: D1Database }, scheduledTime = Date
     {minimum:28,run:async()=>{const {runWeeklyDigests}=await import('./aiDigest');await runWeeklyDigests(env as Env);}},
     {minimum:12,run:async()=>{const {processEmbeddings}=await import('./aiSemantic');await processEmbeddings(env as Env);}},
     {minimum:8,run:async()=>{const {processSearchBacklog}=await import('./search');await processSearchBacklog(env);}},
+    {minimum:12,run:async()=>{
+      if(hasD1Budget(env.DB,28)){
+        const {enqueueEmailDigests}=await import('./emailDigest');
+        await enqueueEmailDigests(env);
+      }
+      // Alternate channel priority so an email backlog cannot starve push.
+      const {sendNotificationEmails}=await import('./notificationEmail');
+      const {sendPushNotifications}=await import('./push');
+      const channels=Math.floor(scheduledTime/(15*60_000))%2
+        ? [()=>sendPushNotifications(env),()=>sendNotificationEmails(env)]
+        : [()=>sendNotificationEmails(env),()=>sendPushNotifications(env)];
+      for(const channel of channels)await channel();
+    }},
   ];
   // Each scheduled invocation has its own budget. Rotate the first phase
   // every scheduled 15-minute slot so a sustained event backlog cannot starve receipts,

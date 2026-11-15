@@ -2,6 +2,7 @@ import type { PublicUser } from '../../shared/types';
 import { api, ApiError, getToken } from './api';
 import { createStore } from './store';
 import { accountSwitchStore, runAccountSwitch, type SwitchDeps } from './accountSwitch';
+import {clearDevicePush} from './push';
 
 interface AuthState {
   status: 'loading' | 'authed' | 'unauthed';
@@ -26,6 +27,7 @@ function cacheUser(user: PublicUser | null) {
 
 /** Drop the session but keep all local data + outbox (e.g. on 401). */
 export function dropSession() {
+  void clearDevicePush().catch(()=>console.warn('Device push cleanup could not finish'));
   localStorage.removeItem('ws_token');
   cacheUser(null);
   authStore.set({ status: 'unauthed', user: null });
@@ -91,6 +93,7 @@ const switchDeps: SwitchDeps = {
     return saveBackupFile(await buildLocalBackup(db, prevId, listDrafts));
   },
   closeLocal: async () => {
+    await clearDevicePush().catch(()=>console.warn('Device push cleanup could not finish'));
     const { db } = await import('./db');
     db.close();
   },
@@ -129,6 +132,7 @@ async function finishLogin(token: string, user: PublicUser) {
     // identity commits (R3); A's per-account database stays quarantined on
     // disk, B opens workspace-<B> after reload.
     const { db } = await import('./db');
+    await clearDevicePush().catch(()=>console.warn('Device push cleanup could not finish'));
     db.close();
     applyIdentity(token, user);
     location.reload();
@@ -158,6 +162,7 @@ export async function signIn(input: { username: string; password: string }) {
 
 export async function signOut() {
   const token = getToken(), uid = localStorage.getItem('ws_uid');
+  await clearDevicePush(token).catch(()=>console.warn('Device push cleanup could not finish'));
   try {
     await api('/api/auth/logout', { method: 'POST' });
   } catch {
