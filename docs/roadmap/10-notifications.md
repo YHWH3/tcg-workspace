@@ -128,7 +128,7 @@ gets its own small client.
 
 ## 10.3 Email digest
 
-- `shared/digest.ts` `buildDigest(attentionItems, unread, today)` returns
+- `shared/emailDigest.ts` `buildEmailDigest(attentionItems, today)` returns
   sections:
   - "Needs you" (severity ≥2);
   - "Due today";
@@ -147,6 +147,14 @@ gets its own small client.
   configures the provider).
 - **Tests:** unit for sections; D1 for once-per-day dedupe across rotating
   phases and the timezone boundary.
+
+Implemented in the notification email scheduler. Weekly keys identify the
+Monday date in Workspace time. A bounded collector supplies current sections,
+with a link to Workspace when more items remain. Record titles follow D7 and
+default off. When enabled, record and ancestor revisions, permission mode and
+current space access fence the delivery commit. The test action is authenticated
+and limited to two requests per 15 minutes. Empty scheduled digests are retained
+as skipped outcomes and explicit test digests explain an empty queue.
 
 ## 10.4 Web push (installed app enhancement)
 

@@ -74,3 +74,34 @@ test('notification email preferences: channel choice and admin title opt-in', as
   await save.click();
   await expect(page.getByText('Workspace settings saved.')).toBeVisible();
 });
+
+test('email digest: schedule persists and test delivery recovers', async ({page}, info) => {
+  await page.route('**/api/me/email/delivery', route => route.fulfill({json:{available:true,verified:true}}));
+  let attempts = 0;
+  await page.route('**/api/email/digest/test', route => {
+    attempts++;
+    return route.fulfill(attempts === 1
+      ? {status:429,json:{error:'Too many test digests.'}}
+      : {status:202,json:{queued:true}});
+  });
+  await open(page, surfaces.find(surface => surface.id === 'settings'));
+  const frequency = page.getByRole('combobox', {name:'Frequency',exact:true});
+  const hour = page.getByRole('combobox', {name:'Send after (Workspace time)',exact:true});
+  await expect(frequency).toHaveValue('off');
+  await frequency.selectOption('daily');
+  await expect(hour).toBeEnabled();
+  await hour.selectOption('19');
+  await expect(page.getByText('Saved',{exact:true})).toBeVisible();
+  await page.reload();
+  await expect(frequency).toHaveValue('daily');
+  await expect(hour).toHaveValue('19');
+  const send = page.getByRole('button',{name:'Send me a test digest',exact:true});
+  await send.focus();
+  await send.press('Enter');
+  await expect(page.getByText('Too many test digests. Wait 15 minutes and try again.')).toBeVisible();
+  await send.press('Enter');
+  await expect(page.getByText('Test digest queued.',{exact:true})).toBeVisible();
+  await health(page,'email digest settings',info);
+  await frequency.selectOption('off');
+  await expect(hour).toHaveCount(0);
+});

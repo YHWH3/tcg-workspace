@@ -330,7 +330,13 @@ export async function runScheduled(env: { DB: D1Database }, scheduledTime = Date
     {minimum:28,run:async()=>{const {runWeeklyDigests}=await import('./aiDigest');await runWeeklyDigests(env as Env);}},
     {minimum:12,run:async()=>{const {processEmbeddings}=await import('./aiSemantic');await processEmbeddings(env as Env);}},
     {minimum:8,run:async()=>{const {processSearchBacklog}=await import('./search');await processSearchBacklog(env);}},
-    {minimum:12,run:async()=>{const {sendNotificationEmails}=await import('./notificationEmail');await sendNotificationEmails(env);}},
+    {minimum:12,run:async()=>{
+      if(hasD1Budget(env.DB,28)){
+        const {enqueueEmailDigests}=await import('./emailDigest');
+        await enqueueEmailDigests(env);
+      }
+      const {sendNotificationEmails}=await import('./notificationEmail');await sendNotificationEmails(env);
+    }},
   ];
   // Each scheduled invocation has its own budget. Rotate the first phase
   // every scheduled 15-minute slot so a sustained event backlog cannot starve receipts,

@@ -227,6 +227,9 @@ export function NotificationPrefs() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [email, setEmail] = useState<{available: boolean; verified: boolean}>();
+  const [sendingDigest, setSendingDigest] = useState(false);
+  const [digestStatus, setDigestStatus] = useState('');
+  const [digestError, setDigestError] = useState('');
 
   useEffect(() => {
     let current = true;
@@ -309,6 +312,54 @@ export function NotificationPrefs() {
           </Select>
         </div>
       );})}
+      {(email?.available || (prefs.emailDigest && prefs.emailDigest !== 'off')) && (
+        <fieldset className="space-y-2 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+          <legend className="text-sm font-medium">Email digest</legend>
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="digest-frequency" className="text-sm">Frequency</label>
+            <Select
+              id="digest-frequency"
+              value={prefs.emailDigest ?? 'off'}
+              disabled={saving}
+              onChange={e => update({emailDigest: e.target.value as UserPrefs['emailDigest']})}
+            >
+              <option value="off">Off</option>
+              <option value="daily" disabled={!email?.verified}>Daily</option>
+              <option value="weekly" disabled={!email?.verified}>Weekly</option>
+            </Select>
+          </div>
+          {prefs.emailDigest && prefs.emailDigest !== 'off' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="digest-hour" className="text-sm">Send after (Workspace time)</label>
+              <Select id="digest-hour" value={prefs.digestHour ?? 7} disabled={saving || !email?.verified}
+                onChange={e => update({digestHour: Number(e.target.value)})}>
+                {Array.from({length: 24}, (_, hour) => (
+                  <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>
+                ))}
+              </Select>
+            </div>
+          )}
+          {email?.available && email.verified && (
+            <Button disabled={sendingDigest} onClick={async () => {
+              setSendingDigest(true);
+              setDigestStatus('');
+              setDigestError('');
+              try {
+                await api('/api/email/digest/test', {method:'POST'});
+                setDigestStatus('Test digest queued.');
+              } catch (error) {
+                setDigestError(error instanceof ApiError && error.status === 429
+                  ? 'Too many test digests. Wait 15 minutes and try again.'
+                  : 'Could not queue the test digest. Try again.');
+              } finally {
+                setSendingDigest(false);
+              }
+            }}>{sendingDigest ? 'Queuing…' : 'Send me a test digest'}</Button>
+          )}
+          <p className="text-xs text-green-700 dark:text-green-400" role="status">{digestStatus}</p>
+          {digestError && <p className="text-sm" role="alert">{digestError}</p>}
+        </fieldset>
+      )}
       <label className="flex items-center justify-between gap-3 pt-1">
         <span className="text-sm text-neutral-700 dark:text-neutral-300">
           Quiet digest
