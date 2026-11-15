@@ -1259,3 +1259,22 @@ unreadable (`NotReadableError`). The WebKit test therefore injects a Worker
 API outage with service workers blocked, while Chromium and Firefox keep the
 offline context. The repro and failed reports remain evidence. A final
 committed-source browser matrix and mandatory certificate are required.
+
+### Phase 11 acceptance
+
+ENGINEERING GO / EXTERNAL BLOCKED. The committed source
+`6673d6f1df1b3d8a3781f20d3b7ebda65961a8e4` passed the complete mandatory
+certificate, 34/34, from 09:56:23 to 10:42:30 UTC on 15 November 2026.
+Starting and ending source matched, the starting tree was clean and no host
+pause was recorded. The unit gate passed 1,185 checks and actual D1 passed
+973. Full details and hashes are in `docs/roadmap/evidence/P11-certification.json`.
+
+The committed-source attachment workflow passed 9/9 engine and viewport
+combinations. Browser output is in
+`.artifacts/phase11/browser-final-6673d6f/results.json`.
+WebKit uses the documented API transport outage after its isolated file-input
+offline limitation. This evidence covers local browser emulation.
+Physical iPhone/iPad and Android, manual assistive technology, native 400%
+browser zoom, owner R2 account checkout/provisioning and paired live backup
+acceptance remain external. Owner setup is described in
+`docs/roadmap/11-storage-runbook.md`. Draft PR #20 carries this phase.
