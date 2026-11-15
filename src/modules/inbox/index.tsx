@@ -257,6 +257,7 @@ export function NotificationPrefs() {
   }, []);
 
   const update = useCallback((next: UserPrefs) => {
+    setPrefs({...prefs,...next,notifications:{...prefs?.notifications,...next.notifications}});
     setSaving(true);
     setSaved(false);
     setSaveError('');
@@ -275,7 +276,7 @@ export function NotificationPrefs() {
         } else setOffline(true);
       })
       .finally(() => setSaving(false));
-  }, []);
+  }, [prefs]);
 
   if (offline) {
     return (

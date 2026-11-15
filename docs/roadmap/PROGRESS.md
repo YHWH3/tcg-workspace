@@ -1102,3 +1102,12 @@ notification privacy and the service worker's account guard. Local browser
 fixtures for device controls and Home Screen instructions are added. Browser
 verification and the final mandatory Phase 10 certificate remain pending.
 No real provider delivery or physical-device acceptance is claimed.
+
+The first focused browser matrix on `fb996d5` stopped in Chromium compact light
+with three passing cases and one failed checkbox interaction. The checkbox
+reverted until the server returned the saved preference. The correction updates
+the displayed preference immediately while retaining pending, success, conflict
+and connection feedback. The failing assertion remains in the regression.
+Evidence is retained at
+`.artifacts/ux-lab/2026-11-15T05-42-31.450Z/summary.json`. A new matrix on the
+corrected committed source is required.
