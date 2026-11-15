@@ -122,3 +122,18 @@ it('bounds failures and cascades session revocation through subscriptions and pe
   expect(await f.db.prepare('SELECT COUNT(*) FROM push_subscriptions').first('COUNT(*)')).toBe(0);
   expect(await f.db.prepare('SELECT COUNT(*) FROM email_outbox WHERE push_subscription_id IS NOT NULL').first('COUNT(*)')).toBe(0);
 });
+
+it.each([201,410])('holds a late %s response after subscription keys change',async status=>{
+  await register();await notify(f.env,notice);
+  sink.mockImplementationOnce(async()=>{
+    await f.db.prepare('UPDATE push_subscriptions SET auth=?').bind(pushBase64(new Uint8Array(16).fill(7))).run();
+    return new Response(null,{status});
+  });
+  await drain();
+  expect(await f.db.prepare('SELECT COUNT(*) FROM push_subscriptions').first('COUNT(*)')).toBe(1);
+  expect(await f.db.prepare("SELECT last_error FROM email_outbox WHERE push_subscription_id IS NOT NULL").first('last_error')).toBe('subscription_changed');
+  await f.db.prepare('UPDATE email_outbox SET next_attempt_at=0 WHERE push_subscription_id IS NOT NULL').run();
+  await drain();
+  expect(sink).toHaveBeenCalledTimes(2);
+  expect(await f.db.prepare('SELECT COUNT(*) FROM email_outbox WHERE push_subscription_id IS NOT NULL AND sent_at IS NOT NULL').first('COUNT(*)')).toBe(1);
+});

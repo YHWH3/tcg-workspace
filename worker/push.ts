@@ -139,16 +139,19 @@ export async function sendPushNotifications(env:{DB:D1Database}&PushEnv) {
       // The durable row and notification tag retain an uncertain delivery.
     }
     if(status!==undefined&&status>=200&&status<300){
-      await db.batch([
-        db.prepare('UPDATE email_outbox SET sent_at=?,last_error=NULL,lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?').bind(Date.now(),row.id,lease),
-        db.prepare('UPDATE push_subscriptions SET failures=0,last_ok_at=? WHERE id=? AND session_hash=?').bind(Date.now(),row.push_subscription_id,row.session_hash),
+      const completed=await db.batch([
+        db.prepare('UPDATE push_subscriptions SET failures=0,last_ok_at=? WHERE id=? AND session_hash=? AND endpoint=? AND p256dh=? AND auth=?')
+          .bind(Date.now(),row.push_subscription_id,row.session_hash,row.endpoint,row.p256dh,row.auth),
+        db.prepare('UPDATE email_outbox SET sent_at=?,last_error=NULL,lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=? AND changes()=1').bind(Date.now(),row.id,lease),
       ]);
+      if(!completed[1].meta.changes)await finish('subscription_changed',true);
     }else{
-      await db.prepare('UPDATE push_subscriptions SET failures=failures+1 WHERE id=? AND session_hash=?')
-        .bind(row.push_subscription_id,row.session_hash).run();
+      const failed=await db.prepare('UPDATE push_subscriptions SET failures=failures+1 WHERE id=? AND session_hash=? AND endpoint=? AND p256dh=? AND auth=?')
+        .bind(row.push_subscription_id,row.session_hash,row.endpoint,row.p256dh,row.auth).run();
+      if(!failed.meta.changes){await finish('subscription_changed',true);continue;}
       await finish(status===undefined?'push_unconfirmed':'push_'+status,row.attempts+1<5&&(status===undefined||status===429||status>=500));
-      await db.prepare('DELETE FROM push_subscriptions WHERE id=? AND session_hash=? AND (? IN(404,410) OR failures>=5)')
-        .bind(row.push_subscription_id,row.session_hash,status??0).run();
+      await db.prepare('DELETE FROM push_subscriptions WHERE id=? AND session_hash=? AND endpoint=? AND p256dh=? AND auth=? AND (? IN(404,410) OR failures>=5)')
+        .bind(row.push_subscription_id,row.session_hash,row.endpoint,row.p256dh,row.auth,status??0).run();
     }
   }
 }

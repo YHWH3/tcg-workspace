@@ -1111,3 +1111,22 @@ and connection feedback. The failing assertion remains in the regression.
 Evidence is retained at
 `.artifacts/ux-lab/2026-11-15T05-42-31.450Z/summary.json`. A new matrix on the
 corrected committed source is required.
+
+The corrected focused browser matrix passed 72/72 checks across all 18 engine,
+layout and theme profiles on `e75b0cdd763e58c96def5cfcfb606e445300a147`,
+exit 0, with no skips or flakes. Both source integrity checks passed.
+The browser APIs are stubbed contract fixtures, including WebKit push.
+The report is
+`.artifacts/ux-lab/2026-11-15T05-43-45.087Z/summary.json`
+(SHA-256 `2d5a6ef34aa8eaa06bc3a7402f0e299506d31037a608729f5a55a24b9e217b52`).
+
+Final server review added receipt fencing so a late push-service response
+cannot delete or mark complete a subscription whose keys changed during
+delivery. This changes server delivery only. The verified browser controls and
+service worker are unchanged. New actual-D1 regressions cover late success and
+410 responses. Final mandatory certification is still pending.
+
+The receipt race regressions passed (11 push D1 tests). The cryptographic suite
+passed 15 tests, including the published encryption vector executed inside
+Miniflare's actual Worker runtime at compatibility date 2026-09-25. Typecheck
+passed after the server correction.

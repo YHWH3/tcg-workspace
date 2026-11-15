@@ -1,10 +1,12 @@
 import {expect,it} from 'vitest';
+import {buildSync} from 'esbuild';
+import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
+import {fileURLToPath} from 'node:url';
 import {encryptPush,isPushEndpoint,pushBase64,pushBytes,pushMode,vapidAuthorization} from '../worker/webpush';
 
 // Published RFC 8291 Section 5 / Appendix A inputs, never operational keys.
-export const receiverPublic='BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4';
-export const receiverPrivate='q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94';
-export const authSecret='BTBZMqHH6r4Tts7J_aSIgg';
+const receiverPublic='BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4';
+const authSecret='BTBZMqHH6r4Tts7J_aSIgg';
 const senderPublic='BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8';
 
 it('matches the RFC 8291 encrypted record and header byte for byte',async()=>{
@@ -45,4 +47,33 @@ it.each(['https://fcm.googleapis.com/p','https://updates.push.services.mozilla.c
 it('keeps simulated egress confined to a disposable sink',()=>{
   expect(pushMode({WEB_PUSH:'simulated',PUSH_TEST_SINK:{fetch:async()=>new Response()}})).toBeNull();
   expect(pushMode({WEB_PUSH:'off'})).toBeNull();
+});
+
+it('runs the encryption vector inside the configured Worker runtime',async()=>{
+  const bundle=buildSync({
+    stdin:{resolveDir:fileURLToPath(new URL('../',import.meta.url)),contents:`
+      import {encryptPush,pushBytes,pushBase64} from './worker/webpush';
+      export default {async fetch(){
+        const raw=pushBytes(${JSON.stringify(senderPublic)});
+        const privateKey=await crypto.subtle.importKey('jwk',{
+          kty:'EC',crv:'P-256',x:pushBase64(raw.slice(1,33)),y:pushBase64(raw.slice(33)),
+          d:'yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw'
+        },{name:'ECDH',namedCurve:'P-256'},false,['deriveBits']);
+        const publicKey=await crypto.subtle.importKey('raw',raw,{name:'ECDH',namedCurve:'P-256'},true,[]);
+        const result=await encryptPush(${JSON.stringify(receiverPublic)},${JSON.stringify(authSecret)},
+          new TextEncoder().encode('When I grow up, I want to be a watermelon'),{
+            keyPair:{privateKey,publicKey},salt:pushBytes('DGv6ra1nlYgDCS1FRnbzlw')
+          });
+        return new Response(pushBase64(result.slice(86)));
+      }};
+    `},bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',
+  }).outputFiles[0].text;
+  const runtime=new Miniflare(convertV4MiniflareOptions({workers:[{
+    name:'crypto-fixture',modules:true,script:bundle,compatibilityDate:'2026-09-25',
+  }]}));
+  try{
+    const response=await runtime.dispatchFetch('http://crypto-fixture.test/');
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('8pfeW0KbunFT06SuDKoJH9Ql87S1QUrdirN6GcG7sFz1y1sqLgVi1VhjVkHsUoEsbI_0LpXMuGvnzQ');
+  }finally{await runtime.dispose();}
 });
