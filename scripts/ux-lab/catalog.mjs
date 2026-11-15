@@ -82,6 +82,7 @@ export const requiredCases=[
   'Editorial desk: enlarged text, keyboard configuration and unavailable scope recovery',
   'pack upgrade: preview, preserve edits and apply',
   'account access: disable, session cutoff, history and restoration',
+  'notification email: keyboard verification, failure recovery and removal',
   'workspace locale: settings validation, currency metric and offline cache',
   'visual reference: website inbox',
   'opened search: focus, empty results and recovery',

@@ -1018,3 +1018,18 @@ approval remain external gates. This evidence is not a production deployment
 or a claim of live provider behavior.
 
 Evidence: `docs/roadmap/evidence/P9-final-certification-fa54a09.json`.
+
+## Phase 10 — Notifications outside the app
+
+### 10.1 Verified email implementation checkpoint
+
+Branch `sol/p10-notifications` starts at Phase 9's pushed documentation head
+`a8c55ed`. Migration `0039_user_email.sql` adds private verified addresses and
+session-bound verification challenges. Profile settings support requesting a
+code, verifying and removing an address. Delivery defaults disabled, and the
+release preflight rejects the disposable sink and active email configuration.
+Local verification uses simulated delivery.
+
+Acceptance pending the focused browser matrix and final Phase 10 certification.
+Items 10.2–10.4 remain pending. Owner decisions D7 and D8 and live provisioning
+remain open.

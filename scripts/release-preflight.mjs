@@ -13,8 +13,9 @@ export const releasePreflightNames=[
   'explicit production target','D1 binding','OAuth KV binding','LiveRoom binding and migration',
   'asset and OAuth routing','fifteen-minute Cron','local bindings have no remote access',
   'fixture bypasses absent','optional AI disabled','secret values absent from config',
-  'permission activation defaults off','38 immutable migration hashes','lockfile and pinned Wrangler',
+  'permission activation defaults off','39 immutable migration hashes','lockfile and pinned Wrangler',
   'built package matches deployment contract',
+  'optional email disabled',
 ];
 const project=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const json=path=>JSON.parse(readFileSync(path,'utf8'));
@@ -45,7 +46,7 @@ export function inspectRelease(root=project){
   check(releasePreflightNames[10],()=>invariant(/INSERT\s+INTO\s+access_state\(id,generation,enabled\)\s+VALUES\(1,1,0\)/i.test(readFileSync(join(root,'migrations/0012_phase5_access_foundation.sql'),'utf8')),'Access foundation no longer defaults to disabled'));
   check(releasePreflightNames[11],()=>{
     const manifest=json(join(root,'scripts/certification/migrations.json')),files=readdirSync(join(root,'migrations')).filter(name=>name.endsWith('.sql')).sort();
-    invariant(manifest.length===38&&files.length===38,'Expected exactly 38 registered migrations; review additive migration changes');
+    invariant(manifest.length===39&&files.length===39,'Expected exactly 39 registered migrations; review additive migration changes');
     invariant(manifest.every((entry,index)=>entry.name===files[index]&&entry.name.startsWith(String(index+1).padStart(4,'0')+'_')&&entry.sha256===createHash('sha256').update(readFileSync(join(root,'migrations',entry.name))).digest('hex')),'Migration name/order/hash differs from immutable manifest');
   });
   check(releasePreflightNames[12],()=>{
@@ -60,6 +61,10 @@ export function inspectRelease(root=project){
     invariant(existsSync(resolve(dirname(generatedPath),built.main))&&existsSync(resolve(dirname(generatedPath),built.assets.directory,'index.html')),'Built Worker or client index missing; run npm run build');
     invariant(resolve(dirname(generatedPath),built.assets.directory)===join(root,'dist/client'),'Generated package points outside intended local client assets');
   });
+  check(releasePreflightNames[14],()=>invariant(
+    (!c.vars?.EMAIL_PROVIDER||c.vars.EMAIL_PROVIDER==='none')&&!c.vars?.EMAIL_FROM&&!c.vars?.EMAIL_LINK_KEY&&
+    !c.vars?.RESEND_API_KEY&&!(c.services??[]).some(service=>service.binding==='EMAIL_TEST_SINK'),
+    'Optional email delivery or a disposable email sink is enabled in release configuration'));
   return results;
 }
 
@@ -69,7 +74,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
   reporter.setMetadata('scope','Local static contract and built-package checks only; never authorizes deployment');
   reporter.setMetadata('productionReleaseCertified',false);
   reporter.setMetadata('productionTargetWarning','Default config targets existing production workspace/DB/KV. Do not deploy or migrate without separate approval.');
-  reporter.setMetadata('operatorConfiguration',{secretNames:['TURNSTILE_SECRET'],publicVariableNames:['TURNSTILE_SITE_KEY','TURNSTILE_HOSTNAMES'],optionalDisabled:['AI_PROVIDER','AI_DAILY_UNITS','AI_CLASSIFICATION','AI_CHAT_MODEL','AI_BYOK_PROVIDERS','AI_CREDENTIAL_KEY','OPENAI_CHATGPT_HOSTED_APPROVAL','REMOTE_IMPORT_HOSTS'],valuesIncluded:false});
+  reporter.setMetadata('operatorConfiguration',{secretNames:['TURNSTILE_SECRET'],publicVariableNames:['TURNSTILE_SITE_KEY','TURNSTILE_HOSTNAMES'],optionalDisabled:['AI_PROVIDER','AI_DAILY_UNITS','AI_CLASSIFICATION','AI_CHAT_MODEL','AI_BYOK_PROVIDERS','AI_CREDENTIAL_KEY','OPENAI_CHATGPT_HOSTED_APPROVAL','REMOTE_IMPORT_HOSTS','EMAIL_PROVIDER','EMAIL_FROM','EMAIL_LINK_KEY','RESEND_API_KEY'],valuesIncluded:false});
   reporter.setMetadata('externalReleaseGates',['Live remote variables/secrets and target settings','Approved production backup/restore','Real Turnstile and hostname','Physical devices and assistive technology','Real third-party MCP host','Real optional AI provider'].map(test=>({test,status:'NOT VERIFIED'})));
   if(process.argv.length>2)reporter.record('node','none','arguments','FAIL','This read-only local preflight accepts no command-line arguments');
   else for(const result of inspectRelease()){reporter.record('node','none',result.test,result.status,result.error);console.log(`${result.status}: ${result.test}`);}

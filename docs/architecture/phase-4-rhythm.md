@@ -84,3 +84,19 @@ People get timely, deduplicated Inbox items they can control; outsiders submit f
 - Automation When/If/Then form works as stacked controls, searchable record/database pickers and ordered action rows with button reorder. Run failure detail and change-set preview/undo reuse Phase 0 compact review; no graph or desktop-only editor dependency.
 
 Definition of Done: three-engine 320/390px, split-tablet and desktop tests plus real iPhone/Android form submission in normal browser tabs with camera denied, text/file alternatives and keyboard open. Test slow/offline network, expired challenge/token, lost receipt/dedupe, no double record, readable validation, no auth/sync initialization on public route, and draft privacy. Browser Inbox with denied/unsupported push, resume after lock, mark-read across devices, reminder dedupe, approval gate UI+MCP and compact automation create/reorder/failure/undo all pass shared keyboard/AT gates. Provisioning test HTTPS/Turnstile configuration remains a separately authorized implementation step.
+
+## Phase 10 account email verification
+
+The signed-in profile uses `/api/me/email` to manage a private notification
+address. Migration 0039 stores verified addresses on users and keeps pending
+codes as keyed hashes in the server-only `email_verifications` table. Challenges
+expire after 15 minutes, permit five attempts, and are bound to the initiating
+session. The scheduled retention sweep removes expired challenges. Notification
+addresses stay outside public user data, sync, and the People directory.
+
+Verification delivery is disabled by default. A disposable local test may opt
+in with `WORKSPACE_ENV=local-test`, `EMAIL_PROVIDER=simulated`, a test-only
+`EMAIL_LINK_KEY` and a private `EMAIL_TEST_SINK` service binding. A live setup
+requires the owner to configure `EMAIL_PROVIDER=resend`, `EMAIL_FROM`,
+`RESEND_API_KEY` and `EMAIL_LINK_KEY`. Uncertain sends keep the code usable for
+its remaining lifetime and require an explicit new request to resend.

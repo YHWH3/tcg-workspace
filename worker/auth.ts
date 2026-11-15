@@ -15,6 +15,12 @@ export interface Env {
   TURNSTILE_HOSTNAMES?: string;
   /** Disposable loopback HTTP fixtures only; omitted in deployed config. */
   WORKSPACE_ENV?: string;
+  EMAIL_PROVIDER?: 'none' | 'resend' | 'simulated';
+  EMAIL_FROM?: string;
+  RESEND_API_KEY?: string;
+  EMAIL_LINK_KEY?: string;
+  /** Disposable local fixture only. */
+  EMAIL_TEST_SINK?: Pick<Fetcher, 'fetch'>;
   /** MCP write tool calls per user per 10 minutes (default 300; 0 disables). */
   MCP_WRITE_LIMIT?: string;
   /** Exact trusted media hosts; no remote network imports unless explicitly configured. */

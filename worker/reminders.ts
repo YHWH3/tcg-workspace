@@ -246,6 +246,7 @@ function titleOf(data: Record<string, unknown>): string {
 async function runRetention(env: { DB: D1Database }, now: number): Promise<void> {
   const db = env.DB;
   const stmts = [
+    db.prepare('DELETE FROM email_verifications WHERE expires_at<=?').bind(now),
     db.prepare("DELETE FROM form_submissions WHERE state IN ('accepted','rejected') AND created_at < ?").bind(now - RETENTION.formSubmissionMs),
     db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?').bind(now - RETENTION.readNotificationMs),
     db.prepare('DELETE FROM reminder_sent WHERE created_at < ?').bind(now - RETENTION.reminderSentMs),

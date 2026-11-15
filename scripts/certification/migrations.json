@@ -150,5 +150,9 @@
   {
     "name": "0038_phase9_share_expiry.sql",
     "sha256": "09f91af683dc77f3d9c83c0eac1c7bf4d76205518df90131fa8513d1aebc7eb3"
+  },
+  {
+    "name": "0039_user_email.sql",
+    "sha256": "01f0e5e23b64de58bce17c194296afbaa6ed6f1881f43e7d4e5a618b23057c10"
   }
 ]
