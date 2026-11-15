@@ -13,11 +13,13 @@ import { useBoard, type BoardRow } from '../boards/api';
 import { availableFieldKeys, fieldKeyLabel } from '../../core/records';
 import { useUsers } from '../../core/users';
 import { Button, EmptyState, Input, Select, Textarea } from '../../core/ui';
+import { automationBranchLabel } from '../../../shared/automationHealth';
 import { fieldsOf, type FieldDef } from '../../../shared/fields';
 import {
   ACTION_TYPES,
   TRIGGER_KINDS,
   type AutomationAction,
+  type AutomationBranch,
   type AutomationConfig,
   type AutomationTrigger,
 } from '../../../shared/automations';
@@ -318,6 +320,7 @@ interface RunRow {
   error: string | null;
   changeset_id: string | null;
   created_at: number;
+  branch: number | null;
 }
 
 const RUN_STATUS_LABELS: Record<RunRow['status'], string> = {
@@ -357,8 +360,9 @@ function RunHistory({ autoId }: { autoId: string }) {
       {undoMsg && <p className="mb-1 text-neutral-500">{undoMsg}</p>}
       <div role="list" aria-label="Automation runs">
       {(runs ?? []).map((r) => (
-        <div key={r.id} role="listitem" className="mb-1 flex min-h-8 items-center gap-2">
+        <div key={r.id} role="listitem" className="mb-1 flex min-h-8 flex-wrap items-center gap-2">
           <span className={runStatusClass(r.status)}>{runStatusLabel(r.status)}</span>
+          {r.branch != null && <span>{automationBranchLabel(r.branch)}</span>}
           <span className="text-neutral-400">{new Date(r.created_at).toLocaleString()}</span>
           {r.error && <span className="min-w-0 flex-1 truncate text-neutral-500" title={r.error}>{r.error}</span>}
           {r.status === 'completed' && r.changeset_id && (
@@ -376,6 +380,55 @@ function RunHistory({ autoId }: { autoId: string }) {
   );
 }
 
+const newAction = (): AutomationAction => ({ type: 'notify', userIds: [], message: '' });
+
+function AutomationPathEditor({ board, allBoards, conditions, actions, maximum, onConditions, onActions }: {
+  board: BoardRow | undefined;
+  allBoards: BoardRow[];
+  conditions?: Filter[];
+  actions: AutomationAction[];
+  maximum: number;
+  onConditions?: (conditions: Filter[]) => void;
+  onActions: (actions: AutomationAction[]) => void;
+}) {
+  const keys = availableFieldKeys(board);
+  return (
+    <>
+      {conditions && onConditions && (
+        <div className="mt-3">
+          <SectionLabel>If all of these match</SectionLabel>
+          {conditions.map((filter, index) => (
+            <ConditionRow key={index} board={board} keys={keys} filter={filter}
+              onChange={next => onConditions(next ? conditions.map((entry, i) => i === index ? next : entry) : conditions.filter((_, i) => i !== index))} />
+          ))}
+          <Button type="button" size="sm" onClick={() => onConditions([...conditions, { key: keys[0] ?? 'title', op: 'is', value: '' }])}>
+            <Plus size={12} aria-hidden="true" /> Add condition
+          </Button>
+        </div>
+      )}
+      <div className="mt-3">
+        <SectionLabel>Then</SectionLabel>
+        {actions.map((action, index) => (
+          <ActionEditor key={index} board={board} allBoards={allBoards} action={action}
+            first={index === 0} last={index === actions.length - 1}
+            onChange={next => onActions(actions.map((entry, i) => i === index ? next : entry))}
+            onDelete={() => onActions(actions.filter((_, i) => i !== index))}
+            onMove={dir => {
+              const next = [...actions];
+              const target = index + dir;
+              [next[index], next[target]] = [next[target], next[index]];
+              onActions(next);
+            }}
+          />
+        ))}
+        <Button type="button" size="sm" disabled={actions.length >= maximum} onClick={() => onActions([...actions, newAction()])}>
+          <Plus size={12} aria-hidden="true" /> Add action
+        </Button>
+      </div>
+    </>
+  );
+}
+
 function AutomationCard({ row, board, allBoards, allForms }: {
   row: AutomationRow;
   board: BoardRow | undefined;
@@ -386,9 +439,15 @@ function AutomationCard({ row, board, allBoards, allForms }: {
   const patch = (p: Partial<AutomationConfig>) => void mutate('automations', row.id, p);
   const conditions = row.conditions ?? [];
   const actions = row.actions ?? [];
-  const keys = availableFieldKeys(board);
-  const setAction = (i: number, a: AutomationAction | null) =>
-    patch({ actions: a === null ? actions.filter((_, j) => j !== i) : actions.map((x, j) => (j === i ? a : x)) });
+  const branches = row.branches;
+  const setBranch = (index: number, updates: Partial<AutomationBranch>) =>
+    patch({ branches: branches?.map((branch, i) => i === index ? { ...branch, ...updates } : branch) });
+  const moveBranch = (index: number, offset: number) => {
+    const next = [...(branches ?? [])];
+    const target = index + offset;
+    [next[index], next[target]] = [next[target], next[index]];
+    patch({ branches: next });
+  };
 
   return (
     <section className="mb-3 rounded-xl border border-neutral-200/70 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
@@ -410,43 +469,47 @@ function AutomationCard({ row, board, allBoards, allForms }: {
       <SectionLabel>When</SectionLabel>
       <TriggerEditor board={board} allForms={allForms} trigger={row.trigger} onChange={(t) => patch({ trigger: t })} />
 
-      <div className="mt-3">
-        <SectionLabel>If all of these match</SectionLabel>
-        {row.trigger?.kind === 'date_offset' && (
-          <p className="mb-1 text-[11px] text-neutral-400">Checked again until this date window ends. A miss does not skip a later match.</p>
-        )}
-        {conditions.map((f, i) => (
-          <ConditionRow key={i} board={board} keys={keys} filter={f} onChange={(nf) => patch({ conditions: nf ? conditions.map((x, j) => (j === i ? nf : x)) : conditions.filter((_, j) => j !== i) })} />
-        ))}
-        <button className="flex items-center gap-1 rounded-md px-1.5 py-1.5 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40" onClick={() => patch({ conditions: [...conditions, { key: keys[0] ?? 'title', op: 'is', value: '' }] })}>
-          <Plus size={12} /> Add condition
-        </button>
-      </div>
-
-      <div className="mt-3">
-        <SectionLabel>Then</SectionLabel>
-        {actions.map((a, i) => (
-          <ActionEditor
-            key={i}
-            board={board}
-            allBoards={allBoards}
-            action={a}
-            first={i === 0}
-            last={i === actions.length - 1}
-            onChange={(na) => setAction(i, na)}
-            onDelete={() => setAction(i, null)}
-            onMove={(dir) => {
-              const j = i + dir;
-              const next = [...actions];
-              [next[i], next[j]] = [next[j], next[i]];
-              patch({ actions: next });
-            }}
-          />
-        ))}
-        <button className="flex items-center gap-1 rounded-md px-1.5 py-1.5 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40" onClick={() => patch({ actions: [...actions, { type: 'notify', userIds: [], message: '' }] })}>
-          <Plus size={12} /> Add action
-        </button>
-      </div>
+      {row.trigger?.kind === 'date_offset' && (
+        <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">Checked again until this date window ends. A miss does not skip a later match.</p>
+      )}
+      {branches ? (
+        <div className="mt-3 space-y-3">
+          <SectionLabel>Branches</SectionLabel>
+          <p className="text-xs text-neutral-600 dark:text-neutral-400">The first matching branch runs. Otherwise runs if no branch matches.</p>
+          {branches.map((branch, index) => (
+            <fieldset key={index} className="min-w-0 rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
+              <legend className="px-1 text-sm font-medium">Branch {index + 1}</legend>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input className="min-w-0 flex-1" aria-label={`Branch ${index + 1} name`} placeholder="Branch name" value={branch.name ?? ''} onChange={e => setBranch(index, { name: e.target.value })} />
+                <Button type="button" size="sm" disabled={index === 0} aria-label={`Move branch ${index + 1} up`} onClick={() => moveBranch(index, -1)}><ArrowUp size={14} aria-hidden="true" /></Button>
+                <Button type="button" size="sm" disabled={index === branches.length - 1} aria-label={`Move branch ${index + 1} down`} onClick={() => moveBranch(index, 1)}><ArrowDown size={14} aria-hidden="true" /></Button>
+                <Button type="button" size="sm" disabled={branches.length === 1} aria-label={`Remove branch ${index + 1}`} onClick={() => patch({ branches: branches.filter((_, i) => i !== index) })}><Trash2 size={14} aria-hidden="true" /></Button>
+              </div>
+              <AutomationPathEditor board={board} allBoards={allBoards} conditions={branch.conditions} actions={branch.actions}
+                maximum={10} onConditions={conditions => setBranch(index, { conditions })} onActions={actions => setBranch(index, { actions })} />
+            </fieldset>
+          ))}
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" disabled={branches.length >= 5} onClick={() => patch({ branches: [...branches, { conditions: [], actions: [newAction()] }] })}><Plus size={14} aria-hidden="true" /> Add branch</Button>
+            {!row.otherwise && <Button type="button" size="sm" onClick={() => patch({ otherwise: [newAction()] })}><Plus size={14} aria-hidden="true" /> Add Otherwise</Button>}
+          </div>
+          {row.otherwise && (
+            <fieldset className="min-w-0 rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
+              <legend className="px-1 text-sm font-medium">Otherwise</legend>
+              <AutomationPathEditor board={board} allBoards={allBoards} actions={row.otherwise} maximum={10} onActions={otherwise => patch({ otherwise })} />
+              <Button type="button" size="sm" className="mt-2" onClick={() => patch({ otherwise: null })}>Remove Otherwise</Button>
+            </fieldset>
+          )}
+        </div>
+      ) : (
+        <>
+          <AutomationPathEditor board={board} allBoards={allBoards} conditions={conditions} actions={actions} maximum={20}
+            onConditions={conditions => patch({ conditions })} onActions={actions => patch({ actions })} />
+          <Button type="button" className="mt-2" size="sm" disabled={actions.length > 10}
+            onClick={() => patch({ branches: [{ conditions, actions }] })}>Use conditional branches</Button>
+          {actions.length > 10 && <p className="mt-1 text-xs">A branch can hold up to 10 actions.</p>}
+        </>
+      )}
 
       <button className="mt-2 flex min-h-8 items-center gap-1 rounded-md px-1 text-xs text-neutral-600 dark:text-neutral-400 hover:text-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-2 dark:hover:text-neutral-300" aria-expanded={showRuns} onClick={() => setShowRuns((s) => !s)}>
         {showRuns ? <ChevronDown size={12} /> : <ChevronRight size={12} />} <History size={12} /> Run history

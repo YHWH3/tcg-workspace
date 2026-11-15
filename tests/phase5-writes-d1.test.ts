@@ -187,6 +187,22 @@ describe('Phase 5 actual applyChanges and sync write enforcement', () => {
     expect(allowed.changed).toBe(1); expect(allowed.rejected).toBe(0);
   });
 
+  it('checks references in both conditional branches and Otherwise before saving a rule', async () => {
+    await put('destination', 'boards', { name: 'Private destination' }, 'other');
+    await put('template', 'pages', { title: 'Private template', isTemplate: true }, 'other');
+    const fallback = [{ type: 'set_field', fieldKey: 'title', value: 'Matched' }];
+    for (const patch of [
+      { branches: [{ conditions: [], actions: [{ type: 'create_record', databaseId: 'destination' }] }] },
+      { branches: [{ conditions: [], actions: fallback }], otherwise: [{ type: 'create_from_template', templateId: 'template' }] },
+    ]) {
+      const result = await applyChanges(env, 'editor', [change('branch-rule', 'automations', {
+        databaseId: 'board', trigger: { kind: 'record.created' }, ...patch,
+      })]);
+      expect(result.changed).toBe(0);
+      expect(result.rejectedItems).toContainEqual(expect.objectContaining({ reason: 'reference_unavailable' }));
+    }
+  });
+
   it.each(['viewer', 'commenter', 'outsider'])('%s cannot edit a known private record through the shared write kernel', async actor => {
     const result = await applyChanges(env, actor, [change('record', 'tasks', { title: 'Unauthorized' })], { serverTs: true, event: { source: 'client' } });
     expect(result.changed).toBe(0); expect(result.rejected).toBeGreaterThan(0);

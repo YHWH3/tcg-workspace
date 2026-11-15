@@ -1310,3 +1310,28 @@ teardown racing creation, then passed after waiting for server acknowledgement.
 The local reports are in this worktree's `.artifacts/ux-lab/` and
 `.artifacts/phase12/mcp-chart-first/`. The full profile matrix and phase-end
 certificate remain pending.
+
+### 12.4 automation branches checkpoint
+
+Conditional rules run the first matching branch or the Otherwise actions.
+Legacy rules keep their previous shape and behavior. The editor copies the
+existing path into Branch 1 on conversion and supports keyboard ordering.
+The run journal freezes the index and event payload at first insertion,
+including when an outbox replay follows a rule edit before planning. Run
+history, administrator health and the read-only MCP inventory expose the
+selected path. Branch and Otherwise references use the existing canonical
+mutation authorization.
+
+Migration `0043_automation_branches.sql` is additive. NULL represents a legacy
+run, 0–4 are the branch positions at execution, and -1 identifies Otherwise.
+The migration hash is registered. Packaging preflight passed 16/16 and its
+self-tests passed 7/7.
+
+The four focused suites initially passed 85 of 86 tests. The remaining test
+used an event-outbox retry column that does not exist. It passed after that
+fixture statement was removed, together with the new branch-reference access
+regression. Compact dark WebKit passed keyboard conversion and ordering,
+relative date controls, server persistence, reload and 200% text reflow.
+Report: `.artifacts/ux-lab/2026-11-15T10-28-29.519Z/summary.json` in the Phase 12
+worktree. The full browser matrix and clean-source phase certificate remain
+pending.

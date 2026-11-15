@@ -6,6 +6,7 @@
  * copied databases, links whose both ends are inside the copied set, record
  * parentId + record body blocks, and remaps @[page:]/@[rec:] mention tokens. */
 
+import { automationActions, type AutomationAction } from './automations';
 import { cmpOrder, orderBetween } from './order';
 import { fnv1a64hex, linkId } from './linkid';
 import type { FieldDef } from './fields';
@@ -388,7 +389,9 @@ export function planTemplateInstantiation(
         if (t.databaseId !== undefined) t.databaseId = remapDb(t.databaseId);
         if (t.formId !== undefined) t.formId = formMap.get(String(t.formId)) ?? t.formId;
       }
-      for (const act of (cfg.actions as Record<string, unknown>[] | undefined) ?? []) {
+      const actions = automationActions(cfg);
+      if (Array.isArray(cfg.branches) && Array.isArray(cfg.actions)) actions.push(...cfg.actions as AutomationAction[]);
+      for (const act of actions as unknown as Record<string, unknown>[]) {
         if (!act || typeof act !== 'object') continue;
         if (act.databaseId !== undefined) act.databaseId = remapDb(act.databaseId);
         if (act.templateId !== undefined) act.templateId = remapCfgRef(act.templateId);

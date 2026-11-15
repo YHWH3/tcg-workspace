@@ -79,6 +79,12 @@ export interface AutomationAction {
   options?:string[];
 }
 
+export interface AutomationBranch {
+  name?: string;
+  conditions: Filter[];
+  actions: AutomationAction[];
+}
+
 export interface AutomationConfig {
   databaseId?: string;
   name?: string;
@@ -86,6 +92,8 @@ export interface AutomationConfig {
   trigger?: AutomationTrigger;
   conditions?: Filter[];
   actions?: AutomationAction[];
+  branches?: AutomationBranch[];
+  otherwise?: AutomationAction[] | null;
   deleted?: boolean;
   [k: string]: unknown;
 }
@@ -189,6 +197,25 @@ export function conditionsMatch(conditions: Filter[] | undefined, record: ViewRe
   return conditions.every((f) => evalFilter(record, f, ctx));
 }
 
+/**
+ * Select exactly one path from the event snapshot. A null branch is legacy,
+ * -1 is Otherwise, and undefined means the event has no matching actions.
+ */
+export function selectAutomationBranch(auto: AutomationConfig, record: ViewRecord, ctx: ViewCtx = {}): number | null | undefined {
+  if (auto.branches === undefined) return conditionsMatch(auto.conditions, record, ctx) ? null : undefined;
+  if (!Array.isArray(auto.branches) || !auto.branches.length || auto.branches.length > 5) return undefined;
+  const index = auto.branches.findIndex(branch => branch && Array.isArray(branch.conditions) && conditionsMatch(branch.conditions, record, ctx));
+  if (index >= 0) return index;
+  if (Array.isArray(auto.otherwise) && auto.otherwise.length) return -1;
+}
+
+/** Every active action destination, used by configuration validation and its permission fence. */
+export function automationActions(auto: AutomationConfig): AutomationAction[] {
+  if (!Array.isArray(auto.branches)) return Array.isArray(auto.actions) ? auto.actions : [];
+  return auto.branches.flatMap(branch => Array.isArray(branch?.actions) ? branch.actions : [])
+    .concat(Array.isArray(auto.otherwise) ? auto.otherwise : []);
+}
+
 /** Deterministic run dedupe key: one per (outbox batch, automation, event).
  * The outboxId scopes replay vs. fresh fires — re-processing the same outbox
  * row produces the same key, while a later identical edit gets a new outbox
@@ -288,80 +315,109 @@ export function validateAutomation(auto: AutomationConfig, ctx: ValidationCtx = 
   // These rows are member-editable through generic sync. Runtime validation
   // must return errors for malformed JSON instead of aborting the Cron sweep
   // before independent rules can run.
-  const conditions = auto.conditions ?? [];
-  if (!Array.isArray(conditions)) errors.push('conditions must be an array');
-  for (const [i, c] of (Array.isArray(conditions) ? conditions : []).entries()) {
-    if (!c || typeof c.key !== 'string' || !FILTER_OPS.has(c.op)) errors.push(`condition ${i + 1} is invalid`);
-    else {
-      const error = dateFilterError(c,fieldsOf(board));
-      if (error) errors.push(`condition ${i + 1}: ${error}`);
+  const validateConditions = (conditions: Filter[], prefix: string) => {
+    if (!Array.isArray(conditions)) {
+      errors.push(prefix+'conditions must be an array');
+      return;
     }
-  }
+    for (const [i, condition] of conditions.entries()) {
+      const label = `${prefix}condition ${i+1}`;
+      if (!condition || typeof condition.key !== 'string' || !FILTER_OPS.has(condition.op)) errors.push(`${label} is invalid`);
+      else {
+        const error = dateFilterError(condition, fieldsOf(board));
+        if (error) errors.push(`${label}: ${error}`);
+      }
+    }
+  };
 
-  const actions = auto.actions ?? [];
-  if(!Array.isArray(actions)) return [...errors,'actions must be an array'];
-  if(actions.length>20) errors.push('at most 20 actions');
-  if (!actions.length) errors.push('at least one action is required');
-  for (const [i, a] of actions.entries()) {
-    const at = `action ${i + 1}`;
-    if (!a || typeof a.type !== 'string') {
-      errors.push(`${at} is invalid`);
-      continue;
+  const validateActions = (actions: AutomationAction[], maximum: number, prefix: string) => {
+    if (!Array.isArray(actions)) {
+      errors.push(prefix+'actions must be an array');
+      return;
     }
-    switch (a.type) {
-      case 'create_record': {
-        if (!a.databaseId) errors.push(`${at}: databaseId is required`);
-        else if (ctx.boardsById && !boardOf(ctx, a.databaseId)) errors.push(`${at}: database ${a.databaseId} not found`);
-        if (!a.title || !String(a.title).trim()) errors.push(`${at}: title is required`);
-        const target=boardOf(ctx,a.databaseId);
-        if (a.fields !== undefined && (a.fields === null || typeof a.fields !== 'object' || Array.isArray(a.fields))) errors.push(`${at}: fields must be an object`);
-        for(const key of Object.keys(a.fields??{})) if(!ACTION_FIELD_KEYS.has(key)&&(!fieldDefByKey(target,key)||fieldDefByKey(target,key)?.type==='relation')) errors.push(`${at}: field ${key} is not writable on target database`);
-        if(a.link?.fieldId) {
-          const relation=fieldsOf(target).find(f=>f.id===a.link!.fieldId);
-          if(ctx.boardsById&&(!relation||relation.type!=='relation'||relation.relation?.target!==dbId)) errors.push(`${at}: relation field cannot link to the trigger database`);
+    if (actions.length > maximum) errors.push(`${prefix}at most ${maximum} actions`);
+    if (!actions.length) errors.push(prefix+'at least one action is required');
+    for (const [i, a] of actions.entries()) {
+      const at = `${prefix}action ${i+1}`;
+      if (!a || typeof a.type !== 'string') {
+        errors.push(`${at} is invalid`);
+        continue;
+      }
+      switch (a.type) {
+        case 'create_record': {
+          if (!a.databaseId) errors.push(`${at}: databaseId is required`);
+          else if (ctx.boardsById && !boardOf(ctx, a.databaseId)) errors.push(`${at}: database ${a.databaseId} not found`);
+          if (!a.title || !String(a.title).trim()) errors.push(`${at}: title is required`);
+          const target=boardOf(ctx,a.databaseId);
+          if (a.fields !== undefined && (a.fields === null || typeof a.fields !== 'object' || Array.isArray(a.fields))) errors.push(`${at}: fields must be an object`);
+          for(const key of Object.keys(a.fields??{})) if(!ACTION_FIELD_KEYS.has(key)&&(!fieldDefByKey(target,key)||fieldDefByKey(target,key)?.type==='relation')) errors.push(`${at}: field ${key} is not writable on target database`);
+          if(a.link?.fieldId) {
+            const relation=fieldsOf(target).find(f=>f.id===a.link!.fieldId);
+            if(ctx.boardsById&&(!relation||relation.type!=='relation'||relation.relation?.target!==dbId)) errors.push(`${at}: relation field cannot link to the trigger database`);
+          }
+          break;
         }
-        break;
-      }
-      case 'create_from_template': {
-        if (!a.templateId) errors.push(`${at}: templateId is required`);
-        else if (!inSet(ctx.templateIds, a.templateId)) errors.push(`${at}: template ${a.templateId} not found`);
-        break;
-      }
-      case 'set_field': {
-        if (!a.fieldKey || !String(a.fieldKey).trim()) errors.push(`${at}: fieldKey is required`);
-        else if(ctx.boardsById&&!ACTION_FIELD_KEYS.has(a.fieldKey)&&(!fieldDefByKey(board,a.fieldKey)||fieldDefByKey(board,a.fieldKey)?.type==='relation')) errors.push(`${at}: field ${a.fieldKey} is not writable`);
-        break;
-      }
-      case 'notify': {
-        if (!a.userField && !(a.userIds && a.userIds.length)) errors.push(`${at}: a recipient is required`);
-        if (a.userIds !== undefined && !Array.isArray(a.userIds)) errors.push(`${at}: userIds must be an array`);
-        for (const uid of Array.isArray(a.userIds) ? a.userIds : []) {
-          if (typeof uid !== 'string' || !uid) errors.push(`${at}: recipient must be a user id`);
-          else if (!inSet(ctx.memberIds, uid)) errors.push(`${at}: user ${uid} is not a member`);
+        case 'create_from_template': {
+          if (!a.templateId) errors.push(`${at}: templateId is required`);
+          else if (!inSet(ctx.templateIds, a.templateId)) errors.push(`${at}: template ${a.templateId} not found`);
+          break;
         }
-        if (!a.message || !String(a.message).trim()) errors.push(`${at}: message is required`);
-        if(a.userField&&ctx.boardsById&&a.userField!=='assigneeId'&&fieldsOf(board).find(f=>f.id===a.userField)?.type!=='person') errors.push(`${at}: userField must be a person field`);
-        break;
+        case 'set_field': {
+          if (!a.fieldKey || !String(a.fieldKey).trim()) errors.push(`${at}: fieldKey is required`);
+          else if(ctx.boardsById&&!ACTION_FIELD_KEYS.has(a.fieldKey)&&(!fieldDefByKey(board,a.fieldKey)||fieldDefByKey(board,a.fieldKey)?.type==='relation')) errors.push(`${at}: field ${a.fieldKey} is not writable`);
+          break;
+        }
+        case 'notify': {
+          if (!a.userField && !(a.userIds && a.userIds.length)) errors.push(`${at}: a recipient is required`);
+          if (a.userIds !== undefined && !Array.isArray(a.userIds)) errors.push(`${at}: userIds must be an array`);
+          for (const uid of Array.isArray(a.userIds) ? a.userIds : []) {
+            if (typeof uid !== 'string' || !uid) errors.push(`${at}: recipient must be a user id`);
+            else if (!inSet(ctx.memberIds, uid)) errors.push(`${at}: user ${uid} is not a member`);
+          }
+          if (!a.message || !String(a.message).trim()) errors.push(`${at}: message is required`);
+          if(a.userField&&ctx.boardsById&&a.userField!=='assigneeId'&&fieldsOf(board).find(f=>f.id===a.userField)?.type!=='person') errors.push(`${at}: userField must be a person field`);
+          break;
+        }
+        case 'request_approval': {
+          if (!a.approverField && !a.approverId) errors.push(`${at}: an approver is required`);
+          if (a.approverId && !inSet(ctx.memberIds, a.approverId)) errors.push(`${at}: user ${a.approverId} is not a member`);
+          if(a.approverField&&ctx.boardsById&&a.approverField!=='assigneeId'&&fieldsOf(board).find(f=>f.id===a.approverField)?.type!=='person') errors.push(`${at}: approverField must be a person field`);
+          break;
+        }
+        case 'ai_classify': {
+          if(!a.fieldKey||(!ACTION_FIELD_KEYS.has(a.fieldKey)&&!fieldDefByKey(board,a.fieldKey)))errors.push(`${at}: writable fieldKey required`);
+          if(!Array.isArray(a.options)||!a.options.length||a.options.length>20||a.options.some(v=>typeof v!=='string'||!v||v.length>100))errors.push(`${at}: 1–20 bounded classification options required`);
+          break;
+        }
+        case 'add_subrecords': {
+          if (!Array.isArray(a.titles) || !a.titles.length) errors.push(`${at}: at least one title is required`);
+          else if (a.titles.length > 20) errors.push(`${at}: at most 20 titles`);
+          break;
+        }
+        default:
+          errors.push(`${at}: unknown action type ${String(a.type)}`);
       }
-      case 'request_approval': {
-        if (!a.approverField && !a.approverId) errors.push(`${at}: an approver is required`);
-        if (a.approverId && !inSet(ctx.memberIds, a.approverId)) errors.push(`${at}: user ${a.approverId} is not a member`);
-        if(a.approverField&&ctx.boardsById&&a.approverField!=='assigneeId'&&fieldsOf(board).find(f=>f.id===a.approverField)?.type!=='person') errors.push(`${at}: approverField must be a person field`);
-        break;
-      }
-      case 'ai_classify': {
-        if(!a.fieldKey||(!ACTION_FIELD_KEYS.has(a.fieldKey)&&!fieldDefByKey(board,a.fieldKey)))errors.push(`${at}: writable fieldKey required`);
-        if(!Array.isArray(a.options)||!a.options.length||a.options.length>20||a.options.some(v=>typeof v!=='string'||!v||v.length>100))errors.push(`${at}: 1–20 bounded classification options required`);
-        break;
-      }
-      case 'add_subrecords': {
-        if (!Array.isArray(a.titles) || !a.titles.length) errors.push(`${at}: at least one title is required`);
-        else if (a.titles.length > 20) errors.push(`${at}: at most 20 titles`);
-        break;
-      }
-      default:
-        errors.push(`${at}: unknown action type ${String(a.type)}`);
     }
+  };
+
+  if (auto.branches === undefined) {
+    if (auto.otherwise != null) errors.push('Otherwise requires a conditional branch');
+    validateConditions(auto.conditions ?? [], '');
+    validateActions(auto.actions ?? [], 20, '');
+  } else if (!Array.isArray(auto.branches) || !auto.branches.length || auto.branches.length > 5) {
+    errors.push('Add one to five branches');
+  } else {
+    for (const [index, branch] of auto.branches.entries()) {
+      const prefix = `Branch ${index+1}: `;
+      if (!branch || typeof branch !== 'object') {
+        errors.push(prefix+'invalid branch');
+        continue;
+      }
+      if (branch.name !== undefined && typeof branch.name !== 'string') errors.push(prefix+'name must be text');
+      validateConditions(branch.conditions, prefix);
+      validateActions(branch.actions, 10, prefix);
+    }
+    if (auto.otherwise != null) validateActions(auto.otherwise, 10, 'Otherwise: ');
   }
   return errors;
 }

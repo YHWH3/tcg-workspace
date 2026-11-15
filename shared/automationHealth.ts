@@ -10,9 +10,12 @@ export function healthErrorClass(value:string|null):HealthErrorClass{
 export function recoveryLabel(state:RecoveryState,attempts:number):string{
  return state==='automatic'?'Will retry automatically':state==='stopped'?(attempts>=8?'Gave up after 8 attempts':'Stopped; review required'):'Recovery data unavailable; review required';
 }
+export function automationBranchLabel(branch: number): string {
+ return branch === -1 ? 'Otherwise' : `Branch ${branch + 1}`;
+}
 export interface AutomationHealthReport{
  asOf:number;
- automations:{id:string;name:string;databaseId:string|null;failedCount:number;lastFailedAt:number;lastRunId:string;attempts:number;retryAt:number;recovery:RecoveryState;errorClass:HealthErrorClass}[];
+ automations:{id:string;name:string;databaseId:string|null;failedCount:number;lastFailedAt:number;lastRunId:string;branch:number|null;attempts:number;retryAt:number;recovery:RecoveryState;errorClass:HealthErrorClass}[];
  events:{id:string;createdAt:number;attempts:number;recovery:RecoveryState;errorClass:HealthErrorClass;sources:{id:string;title:string;url:string|null}[]}[];
  forms:{id:string;title:string;databaseId:string;databaseName:string;failed7Days:number;failed30Days:number;failures:FormOperationsFailure[]}[];
  approvals:{id:string;targetId:string;title:string;createdAt:number;url:string|null}[];

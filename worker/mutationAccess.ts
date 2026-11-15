@@ -1,5 +1,6 @@
 /** Central write authorization. Never uses source labels, client identity,
  * execution checkpoints or a changeset as a grant. */
+import { automationActions } from '../shared/automations';
 import { canComment, canEdit, canEditComment, canRead, isActivePrincipal } from '../shared/access';
 import { scopeParentIds, scopeResolver, ScopeError, type RecordScope, type ScopeRecord } from '../shared/recordScope';
 import type { Mutation } from '../shared/types';
@@ -37,8 +38,8 @@ const isRoot = (record: ScopeRecord) => record.collection === 'boards' || record
 const plain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 function configurationReferences(record: ScopeRecord): { id: string; edit: boolean }[] {
-  if (record.collection !== 'automations' || !Array.isArray(record.data.actions)) return [];
-  return record.data.actions.filter(plain).flatMap(action => [
+  if (record.collection !== 'automations') return [];
+  return automationActions(record.data).filter(plain).flatMap(action => [
     ...(typeof action.databaseId === 'string' ? [{ id: action.databaseId, edit: true }] : []),
     ...(typeof action.templateId === 'string' ? [{ id: action.templateId, edit: false }] : []),
   ]);
