@@ -22,6 +22,11 @@ export interface Env {
   EMAIL_LINK_KEY?: string;
   /** Disposable local fixture only. */
   EMAIL_TEST_SINK?: Pick<Fetcher, 'fetch'>;
+  WEB_PUSH?: 'off' | 'on' | 'simulated';
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
+  PUSH_TEST_SINK?: Pick<Fetcher,'fetch'>;
   /** MCP write tool calls per user per 10 minutes (default 300; 0 disables). */
   MCP_WRITE_LIMIT?: string;
   /** Exact trusted media hosts; no remote network imports unless explicitly configured. */

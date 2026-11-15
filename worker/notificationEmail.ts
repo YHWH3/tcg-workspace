@@ -69,7 +69,7 @@ export async function sendNotificationEmails(env: DeliveryEnv, onlyId?: string) 
     const row = await db.prepare(`
       UPDATE email_outbox SET lease_id=?,lease_until=?
       WHERE id=(SELECT id FROM email_outbox WHERE sent_at IS NULL AND terminal_at IS NULL
-        AND (digest_key IS NULL OR ?=1) AND next_attempt_at<=? AND COALESCE(lease_until,0)<=? AND (? IS NULL OR id=?)
+        AND push_subscription_id IS NULL AND (digest_key IS NULL OR ?=1) AND next_attempt_at<=? AND COALESCE(lease_until,0)<=? AND (? IS NULL OR id=?)
         ORDER BY next_attempt_at, created_at, id LIMIT 1)
       RETURNING id,user_id,kind,target_id,verified_at,created_at,attempts,payload_hash,digest_key`
     ).bind(lease, now + 30_000, hasD1Budget(db,28)?1:0, now, now, onlyId ?? null, onlyId ?? null).first<Outbox>();

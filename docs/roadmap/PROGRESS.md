@@ -1085,3 +1085,20 @@ D1 tests passed across digest, notification delivery and the existing attention
 collector. The source was transferred unchanged to `50fc27e`. A focused browser
 test has been added. Its final browser matrix, build and Phase 10 release
 certification remain pending. Local delivery uses the simulated provider.
+
+### 10.4 Push implementation checkpoint
+
+The local implementation adds session-bound device subscriptions, atomic
+notification enqueue, per-device leased delivery, WebCrypto encryption and VAPID
+authentication. Device settings include explicit permission, channel selection,
+default-off readable titles and the approved iPhone/iPad Home Screen guidance.
+The service worker checks the device's current account and session before
+displaying or opening a push. The owner activation and rollback runbook is
+`10-notifications-runbook.md`.
+
+Typecheck and build passed. The focused run passed 47 tests covering the RFC
+encryption vector, VAPID signature, endpoint policy, actual D1 delivery, digest,
+notification privacy and the service worker's account guard. Local browser
+fixtures for device controls and Home Screen instructions are added. Browser
+verification and the final mandatory Phase 10 certificate remain pending.
+No real provider delivery or physical-device acceptance is claimed.

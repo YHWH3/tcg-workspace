@@ -12,6 +12,7 @@ import { authStore } from '../../core/auth';
 import { Avatar, Button, EmptyState, Select } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
 import { cn, relTime } from '../../core/utils';
+import {PushSettings,type PushConfig} from '../../core/PushSettings';
 import type { AppModule } from '../types';
 import { AskAiMenu } from '../../core/assistant/AskAiMenu';
 import type { NotificationChannel, NotifKind, UserPrefs } from '../../../worker/auth';
@@ -227,6 +228,7 @@ export function NotificationPrefs() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [email, setEmail] = useState<{available: boolean; verified: boolean}>();
+  const [push,setPush]=useState<PushConfig>();
   const [sendingDigest, setSendingDigest] = useState(false);
   const [digestStatus, setDigestStatus] = useState('');
   const [digestError, setDigestError] = useState('');
@@ -237,6 +239,9 @@ export function NotificationPrefs() {
       if (current) setEmail(result);
     }, () => { if (current) setEmail(undefined); });
     refreshEmail();
+    void api<PushConfig>('/api/push/config').then(result=>{
+      if(current)setPush(result);
+    },()=>{if(current)setPush(undefined);});
     window.addEventListener('notification-email-changed', refreshEmail);
     fetchPrefs()
       .then((p) => {
@@ -310,6 +315,18 @@ export function NotificationPrefs() {
             {(hasEmail || email?.available) && <option value="email" disabled={!hasEmail && !email?.verified}>Inbox and email</option>}
             <option value="off">Off</option>
           </Select>
+          {(push?.available || hasPush) && <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-neutral-900 dark:accent-white"
+              aria-label={`Push notifications for ${KIND_LABELS[kind].toLowerCase()}`}
+              checked={hasPush} disabled={saving || preference==='off'}
+              onChange={e=>{
+                const channels:NotificationChannel[]=['inbox'];
+                if(hasEmail)channels.push('email');
+                if(e.target.checked)channels.push('push');
+                update({notifications:{[kind]:channels.length===1?'inbox':channels}});
+              }} />
+            Push
+          </label>}
         </div>
       );})}
       {(email?.available || (prefs.emailDigest && prefs.emailDigest !== 'off')) && (
@@ -360,6 +377,13 @@ export function NotificationPrefs() {
           {digestError && <p className="text-sm" role="alert">{digestError}</p>}
         </fieldset>
       )}
+      <PushSettings config={push} />
+      {push?.available && <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1 h-4 w-4 accent-neutral-900 dark:accent-white"
+          checked={!!prefs.pushShowContent} disabled={saving}
+          onChange={e=>update({pushShowContent:e.target.checked})} />
+        Include readable record titles in device notifications
+      </label>}
       <label className="flex items-center justify-between gap-3 pt-1">
         <span className="text-sm text-neutral-700 dark:text-neutral-300">
           Quiet digest

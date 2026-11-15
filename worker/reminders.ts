@@ -335,7 +335,13 @@ export async function runScheduled(env: { DB: D1Database }, scheduledTime = Date
         const {enqueueEmailDigests}=await import('./emailDigest');
         await enqueueEmailDigests(env);
       }
-      const {sendNotificationEmails}=await import('./notificationEmail');await sendNotificationEmails(env);
+      // Alternate channel priority so an email backlog cannot starve push.
+      const {sendNotificationEmails}=await import('./notificationEmail');
+      const {sendPushNotifications}=await import('./push');
+      const channels=Math.floor(scheduledTime/(15*60_000))%2
+        ? [()=>sendPushNotifications(env),()=>sendNotificationEmails(env)]
+        : [()=>sendNotificationEmails(env),()=>sendPushNotifications(env)];
+      for(const channel of channels)await channel();
     }},
   ];
   // Each scheduled invocation has its own budget. Rotate the first phase

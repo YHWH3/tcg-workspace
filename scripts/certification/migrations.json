@@ -158,5 +158,9 @@
   {
     "name": "0040_email_outbox.sql",
     "sha256": "d761b4dbc9d0c4cd52fce8f0c2b20b240b392a0be583b2b76bc51e917848a6fe"
+  },
+  {
+    "name": "0041_web_push.sql",
+    "sha256": "1e1a5c486654b5ae53ab4f2ef6ef4a61a4efe95a55d18785bd7cc48daecf12e9"
   }
 ]

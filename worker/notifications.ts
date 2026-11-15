@@ -15,6 +15,7 @@ import { sendNotificationEmails } from './notificationEmail';
 import { notificationEmailOrigin, type EmailEnv } from './email';
 import { recurrencesForEvent } from './reminders';
 import { fnv1a64hex } from '../shared/linkid';
+import {pushMode,type PushEnv} from './webpush';
 
 export interface NewNotification {
   userId: string;
@@ -92,7 +93,7 @@ export function reminderKind(date: string, today: string, leadDays: number): 'du
  * Same (user_id, group_key) with an unread row <30min old → UPDATE the
  * existing row (count++, fresh title/body, items append capped at 20) —
  * never a pile of near-identical rows. */
-export async function notify(env: { DB: D1Database } & EmailEnv, n: NewNotification, transaction: D1PreparedStatement[] = [], ctx?: Pick<ExecutionContext, 'waitUntil'>): Promise<void> {
+export async function notify(env: { DB: D1Database } & EmailEnv & PushEnv, n: NewNotification, transaction: D1PreparedStatement[] = [], ctx?: Pick<ExecutionContext, 'waitUntil'>): Promise<void> {
   const user=await env.DB.prepare('SELECT id,(SELECT enabled FROM access_state WHERE id=1) enabled FROM users WHERE id=? AND disabled_at IS NULL').bind(n.userId).first<{id:string;enabled:number}>();
   if(!user) return;
   const prefs = await loadPrefs(env.DB, n.userId);
@@ -127,6 +128,7 @@ export async function notify(env: { DB: D1Database } & EmailEnv, n: NewNotificat
   const key=n.dedupeKey ? n.userId+'|'+n.dedupeKey : crypto.randomUUID();
   const item=JSON.stringify({actorId:n.actorId,at:now,summary:n.body??n.title,targetId:n.targetId});
   const emailId = notificationEmailOrigin(env) && channelsFor(prefs, n.kind).has('email') ? 'email_' + fnv1a64hex(key) : null;
+  const pushId = pushMode(env) && channelsFor(prefs,n.kind).has('push') ? 'push_' + fnv1a64hex(key) : null;
   await env.DB.batch([
     // Abort the whole batch on a raced authority change: caller checkpoints must
     // never commit when delivery was refused by the insert fence.
@@ -140,12 +142,19 @@ export async function notify(env: { DB: D1Database } & EmailEnv, n: NewNotificat
        items=(SELECT json_group_array(json(value)) FROM (SELECT value FROM json_each(json_insert(COALESCE(notifications.items,'[]'),'$[#]',json(?))) ORDER BY key DESC LIMIT ${ITEMS_CAP})),
        created_at=excluded.created_at,read_at=NULL`)
     .bind(id,n.userId,n.kind,n.actorId??null,n.targetType??null,n.targetId??null,n.title,n.body??null,n.url??null,n.groupKey??null,item,now,item),
-    ...(emailId ? [env.DB.prepare(`
-      INSERT OR IGNORE INTO email_outbox(id,user_id,kind,notification_id,target_id,verified_at,created_at,next_attempt_at)
-      SELECT ?,id,?,?,?,email_verified_at,?,? FROM users WHERE id=? AND changes()=1 AND disabled_at IS NULL
+    ...(emailId || pushId ? [env.DB.prepare(`
+      INSERT OR IGNORE INTO email_outbox(id,user_id,kind,notification_id,target_id,verified_at,created_at,next_attempt_at,push_subscription_id)
+      SELECT ?,id,?,?,?,email_verified_at,?,?,NULL FROM users WHERE id=? AND changes()=1 AND disabled_at IS NULL
+        AND ? IS NOT NULL
         AND email_verified_at IS NOT NULL AND email IS NOT NULL
-        AND EXISTS(SELECT 1 FROM json_each(prefs,?) WHERE value='email')`
-    ).bind(emailId,n.kind,id,n.targetId??null,now,now,n.userId,'$.notifications.'+n.kind)] : []),
+        AND EXISTS(SELECT 1 FROM json_each(prefs,?) WHERE value='email')
+      UNION ALL
+      SELECT ?||'_'||p.id,u.id,?,?,?,0,?,?,p.id FROM push_subscriptions p JOIN users u ON u.id=p.user_id
+      JOIN sessions s ON s.token_hash=p.session_hash AND s.user_id=u.id
+      WHERE ? IS NOT NULL AND u.id=? AND u.disabled_at IS NULL AND s.expires_at>? AND changes()=1
+        AND EXISTS(SELECT 1 FROM json_each(u.prefs,?) WHERE value='push')`
+    ).bind(emailId,n.kind,id,n.targetId??null,now,now,n.userId,emailId,'$.notifications.'+n.kind,
+      pushId,'push:'+n.kind,id,n.targetId??null,now,now,pushId,n.userId,now,'$.notifications.'+n.kind)] : []),
     ...transaction,
   ]);
   if (emailId && ctx && (n.kind === 'mention' || n.kind === 'approval_requested')) {

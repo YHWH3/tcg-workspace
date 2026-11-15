@@ -85,7 +85,7 @@ manifests per README §5.
 | M4 | `0038_share_expiry.sql` | 9.7 |
 | M5 | `0039_user_email.sql` | 10.1 |
 | M6 | `0040_email_outbox.sql` | 10.2 |
-| M7 | `0041_push_subscriptions.sql` | 10.4 |
+| M7 | `0041_web_push.sql` | 10.4 |
 | M8 | `0042_file_storage.sql` | 11 |
 | M9 | `0043_automation_branch.sql` | 12.4 |
 | M10 | `0044_mention_groups.sql` (only if D13 = groups) | 13.3 |

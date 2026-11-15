@@ -158,6 +158,20 @@ as skipped outcomes and explicit test digests explain an empty queue.
 
 ## 10.4 Web push (installed app enhancement)
 
+Implemented with `0041_web_push.sql`. Push uses the existing server-only
+`email_outbox`, with `push:` kinds and one row per subscription. Both channels
+enqueue in the Inbox transaction. Each subscription is bound to a live session,
+and session deletion cascades through subscriptions and their deliveries.
+The shared email/push scheduler alternates channel priority on successive
+rotations. The service worker checks an origin-local account and session marker
+before displaying or opening a notification. Cleanup compares the previous
+session so a delayed cleanup cannot erase a replacement identity.
+
+Client controls request permission only on a click. Per-kind Push checkboxes,
+the default-off title preference and iPhone/iPad Home Screen guidance are in
+Notifications settings. Local browser checks stub the platform APIs. Actual
+push service delivery and physical devices require owner acceptance.
+
 - **Migration:**
   ```sql
   CREATE TABLE push_subscriptions (
@@ -210,6 +224,9 @@ as skipped outcomes and explicit test digests explain an empty queue.
   stub; WebKit marked NOT RUN for real push (state it).
 - **Owner script:** `scripts/generate-vapid-keys.mjs` prints a key pair locally
   (no network).
+
+The owner activation and rollback procedure is in
+`docs/roadmap/10-notifications-runbook.md`.
 
 ## 10.5 Out of scope
 
