@@ -1449,3 +1449,32 @@ the assertion finishes. The application and TLS renewal policy are unchanged.
 The failed report at 2026-11-18T10-19-48-555Z is retained. The run was stopped
 early to avoid continuing long gates after a known harness failure. A fresh
 committed-source certificate and actual resume-path check remain required.
+
+### Phase 12 security blocker on 18 November
+
+Source168939307893cc59858d8a304de669c40b25be6c completed all1,195 unit
+checks and all976 D1 checks. The labelled unit checkpoint resumed successfully,
+verifying and reusing five gates and saving6.19 minutes. No actual host pause
+was detected in either18 November run. The resumed certificate then failed
+the current npm security assessment. The remaining run was stopped after that
+known failure. Its partial MCP Phase2 output and raw failure statuses are retained
+as interrupted evidence, not claimed as completed compatibility coverage.
+
+The newly reviewed GHSA-fc5q-39xc-vjpf affects picomatch<=4.0.7. The advisory
+currently lists no patched release, and npm's latest is4.0.7. Fourteen high
+package entries propagate this one advisory through the build/test dependency
+chain. No security exception, threshold change, forced downgrade or hidden
+replacement is introduced. Phase12 remains HOLD and Phase13 cannot start
+under README section4 while this mandatory gate is failing.
+
+Available compatible patches update hono4.13.13 to4.13.19 and the transitive
+@hono/node-server2.1.3 to2.1.6, with exact pins and the lockfile updated.
+Typecheck and build pass; all150 certification harness checks pass. The new
+audit retains14 high and2 moderate package entries. The moderate roots are
+glob and minimatch. See docs/reviews/phase-12-dependency-security.md.
+
+Certification now runs security immediately after dependency/lockfile checks
+and stops on failure, before unit/D1/build/workflows. Every unexecuted mandatory
+gate remains NOT RUN. Actual early-stop proof and focused router compatibility
+checks follow on the committed source; no long suite is scheduled while the
+known security blocker remains.

@@ -141,7 +141,7 @@ async function integration(id,script,{smoke=false,selfFixture=false,skipBuild=tr
   finally {if(fixture)await fixture.stop();seal(id);activeGate=null;}
 }
 
-try {
+async function executeCertification() {
   if(!existsSync(join(cwd,'node_modules/.bin/wrangler')))await stage('dependency-install',['npm','ci','--no-audit','--no-fund']);
   ({chromium,firefox,webkit}=await import('playwright'));environment.playwright=JSON.parse(readFileSync(join(cwd,'node_modules/playwright/package.json'))).version;json(join(directory,'environment.json'),environment);
   // Resolve exact engine versions before deciding whether a heavy gate may be
@@ -174,6 +174,9 @@ try {
     for(const kind of ['dependencies','devDependencies'])if(Object.keys({...manifest[kind],...locked[kind]}).some(key=>manifest[kind]?.[key]!==locked[kind]?.[key]))throw new Error(`Lockfile ${kind} mismatch`);
     return {pass:2,fail:0,notRun:0,allMandatoryAssertionsExecuted:true};
   }});
+  const security = await stage('security',['npm','audit','--json'],{adapter:(output,result)=>{const report=JSON.parse(output);json(join(directory,'security-audit.json'),report);const assessment=assessSecurityAudit(report,{auditExitCode:result.exitCode,project:cwd});json(join(directory,'security-decisions.json'),assessment);return {pass:assessment.verdict==='PASS'?1:0,fail:assessment.verdict==='FAIL'?1:0,notRun:0,allMandatoryAssertionsExecuted:true,...(assessment.verdict==='PASS'?{acceptedExitCode:result.exitCode}:{}),securityAssessment:assessment};}});
+  // Preserve the failed audit and let finalization label every unexecuted gate.
+  if(security.status!=='PASS')return;
   await stage('whitespace',['git','diff','--check','HEAD']);
   await internal('migrations',()=>{const manifest=migrationsManifest(cwd);const files=readdirSync(join(cwd,'migrations')).filter(f=>f.endsWith('.sql')).sort();if(files.length!==manifest.length)throw new Error('Register new migrations in certification/migrations.json');json(join(directory,'migrations.json'),{manifest,validation:'Hashes + actual-D1 migration tests + per-fixture SQLite schema'});return {pass:manifest.length,fail:0,notRun:0,allMandatoryAssertionsExecuted:true};});
   await stage('harness',['node','--test','--test-reporter=tap',...readdirSync(join(cwd,'scripts/certification')).filter(f=>f.endsWith('.test.mjs')).map(f=>'scripts/certification/'+f)],{adapter:output=>{const number=key=>Number(output.match(new RegExp(`^# ${key} (\\d+)$`,'m'))?.[1]??NaN);const total=number('tests'),pass=number('pass'),fail=number('fail'),notRun=number('cancelled')+number('skipped');if(!total||!Number.isFinite(pass)||total!==pass+fail+notRun)throw new Error('Incomplete harness TAP report');return {pass,fail,notRun,allMandatoryAssertionsExecuted:notRun===0};}});
@@ -187,7 +190,6 @@ try {
   buildOkay=(await stage('build',['npm','run','build'])).status==='PASS';
   const d1Path=join(directory,'d1-results.json');
   await stage('d1',['npm','test','--',...d1Files,'--reporter=default','--reporter=json',`--outputFile=${d1Path}`],{adapter:()=>validateVitest(readJson(d1Path),d1Files)});
-  await stage('security',['npm','audit','--json'],{adapter:(output,result)=>{const report=JSON.parse(output);json(join(directory,'security-audit.json'),report);const assessment=assessSecurityAudit(report,{auditExitCode:result.exitCode,project:cwd});json(join(directory,'security-decisions.json'),assessment);return {pass:assessment.verdict==='PASS'?1:0,fail:assessment.verdict==='FAIL'?1:0,notRun:0,allMandatoryAssertionsExecuted:true,...(assessment.verdict==='PASS'?{acceptedExitCode:result.exitCode}:{}),securityAssessment:assessment};}});
   if(mode!=='quick') {
     await internal('browsers',async()=>{
       const versions={};for(const [name,type]of Object.entries({chromium,firefox,webkit})) {
@@ -235,7 +237,9 @@ try {
     if(sha()!==startingSha||fingerprint(cwd)!==sourceFingerprint)throw new Error('Source changed during certification; rerun the complete matrix on final source');
     return {pass:1,fail:0,notRun:0,allMandatoryAssertionsExecuted:true};
   });
-}catch(e){record('orchestrator',{command:['node','scripts/certify-phase4.mjs'],startedAt,endedAt:new Date().toISOString(),durationMs:0,exitCode:1,error:String(e.stack??e)},{pass:0,fail:1,notRun:0,allMandatoryAssertionsExecuted:false});}
+}
+
+try { await executeCertification(); } catch(e){record('orchestrator',{command:['node','scripts/certify-phase4.mjs'],startedAt,endedAt:new Date().toISOString(),durationMs:0,exitCode:1,error:String(e.stack??e)},{pass:0,fail:1,notRun:0,allMandatoryAssertionsExecuted:false});}
 finally {
   clearInterval(heartbeat);pauseMonitor.stop();sleepGuard.stop();
   for(const id of expectedIds)if(!results.some(r=>r.suiteId===id))record(id,{command:[],startedAt,endedAt:new Date().toISOString(),durationMs:0,exitCode:null,error:interrupted?'Run interrupted':'Mandatory suite did not execute'},{pass:0,fail:0,notRun:1,allMandatoryAssertionsExecuted:false},{status:'NOT RUN'});
