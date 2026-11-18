@@ -1490,3 +1490,18 @@ security fix” instead of starting Phase 13 while certification remains HOLD.
 Keep Phase 13 at preflight only. After a compatible security fix is available,
 verify the audit first, then complete certification on the updated committed
 source. Phase 13 begins only after Phase 12 acceptance. Release remains HOLD.
+
+### Phase 12 dependency remediation on resume
+
+The fresh audit on `74e5d14` still reported 14 high and two moderate package
+entries. A Workbox-only override now resolves `glob` to `14.0.6`, which brings
+in `minimatch` `11.0.9`. Workbox uses `globSync` to enumerate precache assets.
+The production build succeeds and emits byte-identical `dist/client/sw.js`
+before and after the update, with 38 precache entries. The installed
+dependency tree and npm lockfile dry run both pass.
+
+The updated audit reports zero moderate or critical entries. Its 14 high
+entries still trace to the same `picomatch` advisory, GHSA-fc5q-39xc-vjpf.
+GitHub lists no patched version, npm still publishes `4.0.7` as latest, and
+the proposed upstream fixes checked on resume are unmerged. Phase 12 stays
+HOLD and Phase 13 remains at preflight under the recorded owner decision.
