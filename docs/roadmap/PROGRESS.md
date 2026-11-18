@@ -1436,3 +1436,16 @@ certificate is required. It will use a labelled test checkpoint after the
 unit gate to exercise the corrected actual resume path, then continue the
 remaining mandatory gates. The application source from the passing 54-case
 matrix has not changed. The phase remains HOLD pending full certification.
+
+### Phase 12 certification restart on 18 November
+
+The 15 November checkpoint is outside the runner's 24-hour reuse window.
+A fresh run on 98764a4 exposed a timing-dependent TLS harness assertion,
+with 149/150 harness checks passing. The one-day certificate fixture was
+checked in its creation second, when OpenSSL can still accept equality at
+its 86,400-second threshold. The renewal test now crosses the one-second
+boundary before checking. Its asynchronous fixture retains cleanup until
+the assertion finishes. The application and TLS renewal policy are unchanged.
+The failed report at 2026-11-18T10-19-48-555Z is retained. The run was stopped
+early to avoid continuing long gates after a known harness failure. A fresh
+committed-source certificate and actual resume-path check remain required.
