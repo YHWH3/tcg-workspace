@@ -1,9 +1,12 @@
 # Next phases progress
 
-Execution started 2026-10-25. Phase 10 on `sol/p10-notifications` has complete
-local engineering certification at `454ee5c` (draft PR #19, stacked on
-`sol/p9-everyday`). Phase 11 is next. Earlier checkpoints below retain their
-original source and status; later entries supersede pending phase decisions.
+Execution started 2026-10-25. Phase 11 has a complete local certificate at
+`6673d6f` and draft PR #20. Phase 12 is implemented on `sol/p12-database-power`
+in draft PR #21, but remains **HOLD** on an unpatched dependency advisory.
+The 18 November source, passing checks and early security stop are indexed in
+`evidence/P12-certification-hold.json`. Phase 13 has a saved preflight and has
+not started under the roadmap's phase gate. Earlier checkpoints below retain
+their original source and status; later entries supersede pending decisions.
 Release branch `sol/r1-date-window` is certified at `0888525` and is based
 on plan-only commit `6d02933` (application unchanged from `528b889`). Original
 integration branches and existing PRs remain unchanged.
@@ -1452,29 +1455,30 @@ committed-source certificate and actual resume-path check remain required.
 
 ### Phase 12 security blocker on 18 November
 
-Source168939307893cc59858d8a304de669c40b25be6c completed all1,195 unit
-checks and all976 D1 checks. The labelled unit checkpoint resumed successfully,
-verifying and reusing five gates and saving6.19 minutes. No actual host pause
-was detected in either18 November run. The resumed certificate then failed
-the current npm security assessment. The remaining run was stopped after that
-known failure. Its partial MCP Phase2 output and raw failure statuses are retained
-as interrupted evidence, not claimed as completed compatibility coverage.
+Source `168939307893cc59858d8a304de669c40b25be6c` passed all 1,195 unit
+checks and 976 D1 checks. Its labelled unit checkpoint resumed successfully,
+verifying five reused gates and saving about 6.19 minutes. No actual host pause
+was detected. The resumed certificate then failed the current security gate.
+The remaining run was stopped. Its partial MCP Phase 2 output and raw failure
+statuses are retained as interrupted evidence.
 
-The newly reviewed GHSA-fc5q-39xc-vjpf affects picomatch<=4.0.7. The advisory
-currently lists no patched release, and npm's latest is4.0.7. Fourteen high
-package entries propagate this one advisory through the build/test dependency
-chain. No security exception, threshold change, forced downgrade or hidden
-replacement is introduced. Phase12 remains HOLD and Phase13 cannot start
-under README section4 while this mandatory gate is failing.
+The advisory GHSA-fc5q-39xc-vjpf affects `picomatch <=4.0.7`, currently the
+latest published version, and lists no patched release. Fourteen high package
+entries propagate this one advisory. No exception or threshold change is made.
+Phase 12 remains HOLD. Phase 13 cannot start under README section 4 while this
+mandatory gate fails. Its implementation preflight is saved in
+`13-polish-preflight.md`, including the existing-spaces decision D13.
 
-Available compatible patches update hono4.13.13 to4.13.19 and the transitive
-@hono/node-server2.1.3 to2.1.6, with exact pins and the lockfile updated.
-Typecheck and build pass; all150 certification harness checks pass. The new
-audit retains14 high and2 moderate package entries. The moderate roots are
-glob and minimatch. See docs/reviews/phase-12-dependency-security.md.
+Compatible patches update Hono from 4.13.13 to 4.13.19 and the transitive
+Node server from 2.1.3 to 2.1.6 with exact pins. Typechecking, build, dependency
+tree validation and all 150 harness checks pass. On committed source `c6c4c9e`,
+focused MCP checks pass 94/94 and canvas MCP checks pass 113/113. These are
+compatibility checks rather than full certification.
 
-Certification now runs security immediately after dependency/lockfile checks
-and stops on failure, before unit/D1/build/workflows. Every unexecuted mandatory
-gate remains NOT RUN. Actual early-stop proof and focused router compatibility
-checks follow on the committed source; no long suite is scheduled while the
-known security blocker remains.
+Certification now checks security immediately after dependency and lockfile
+validation. Actual committed-source proof on `c6c4c9e` exits 1 after security,
+with three prerequisite gates PASS and all 30 later gates NOT RUN. No unit or
+D1 result was generated. The audit retains 14 high and two moderate package
+entries. Evidence and hashes are in `evidence/P12-certification-hold.json`;
+review and continuation are in `../reviews/phase-12-dependency-security.md`.
+No long suite will be rerun while this known security blocker remains.
