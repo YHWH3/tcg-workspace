@@ -1482,3 +1482,11 @@ D1 result was generated. The audit retains 14 high and two moderate package
 entries. Evidence and hashes are in `evidence/P12-certification-hold.json`;
 review and continuation are in `../reviews/phase-12-dependency-security.md`.
 No long suite will be rerun while this known security blocker remains.
+
+### Owner decision: retain the Phase 12 gate
+
+On 18 November 2026, the owner explicitly chose “Wait for the Phase 12
+security fix” instead of starting Phase 13 while certification remains HOLD.
+Keep Phase 13 at preflight only. After a compatible security fix is available,
+verify the audit first, then complete certification on the updated committed
+source. Phase 13 begins only after Phase 12 acceptance. Release remains HOLD.

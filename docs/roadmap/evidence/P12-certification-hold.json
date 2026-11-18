@@ -132,5 +132,11 @@
     "Physical iOS and Android",
     "Manual assistive technology",
     "Production deployment and provider activation"
-  ]
+  ],
+  "ownerDecision": {
+    "date": "2026-11-18",
+    "choice": "Wait for the Phase 12 security fix",
+    "phase13": "Do not start implementation before Phase 12 passes its mandatory security gate and complete certification.",
+    "release": "HOLD"
+  }
 }

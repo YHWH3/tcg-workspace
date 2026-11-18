@@ -3,6 +3,8 @@
 Read-only preparation on 18 November 2026. Implementation has not started.
 The roadmap requires the preceding phase to pass before the next phase starts.
 Phase 12 currently remains HOLD on a mandatory dependency security finding.
+On 18 November 2026, the owner explicitly chose to wait for that security fix.
+Retain the phase gate; do not start Phase 13 implementation while it is blocked.
 
 ## 13.1 History diff
 
