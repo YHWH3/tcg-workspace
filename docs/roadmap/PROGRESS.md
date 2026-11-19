@@ -1580,3 +1580,29 @@ Failed fixture attempts and browser reports remain in local artifacts.
 Draft PR22 is open at https://github.com/YHWH3/tcg-workspace/pull/22.
 Phase13 remains HOLD until Space mentions, the affected full browser matrix
 and final-source mandatory certification are complete. Next: item13.3.
+
+### Phase 13.3 Space mentions and source freeze
+
+Implemented D13 using existing Spaces and `@[group:ID]` tokens. Editor, plain-text,
+markdown, assistant chips and MCP render current authorized names. Fan-out caps at
+20 recipients, excludes the author and disabled users, honors preferences, and
+deduplicates overlapping direct/Space mentions. Four binding calls cover a
+25-member synthetic limit fixture. Source and target revisions plus current rights,
+membership, preference and activation checks fence the atomic write. Ordinary
+notification grouping and channel outboxes use one shared statement builder.
+Legacy direct receipt positions are preserved when new Space events are appended.
+
+Focused mention/notification tests passed52/52, the additional ordering and existing
+event recovery run passed38/38, and MCP private-name/connector checks passed2/2.
+Typecheck passed. The first picker probe found a decorative icon in its accessible
+name; fixed with hidden decorative semantics, label contrast and larger tap rows.
+The next probe exposed a test assertion using the SQL name instead of the public
+API's targetId. Corrected without changing the API. Corrected editor workflow
+passes3/3 on Chromium compact/light, Firefox tablet/dark and WebKit desktop/light:
+`.artifacts/ux-lab/2026-11-19T06-50-40.348Z/summary.json`.
+
+No user-facing optional item has been silently enabled. Share passwords and Google
+sign-in remain unrequested. External connector/tunnel acceptance is NOT RUN.
+Track A remains owner-gated. Phase13 remains HOLD pending the final committed-source
+54-cell affected feature matrix and mandatory34-gate certificate. The next action
+is source commit/publication, matrix, then one full certificate with keep-awake.

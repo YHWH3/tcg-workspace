@@ -26,6 +26,7 @@ export const notCovered = [
 ];
 export const requiredCases=[
   'History diff: selected fields, body movement, restore, keyboard and enlarged text',
+  'Space mentions: keyboard picker, Unicode chip, recipient inbox and reload',
   'Sync conflicts: two offline devices, retained value, guarded recovery and dismissal',
   'Chart view: configure, drill down by keyboard, show data table and reflow',
   'Command center: four sections, owned projects, merged dates and keyboard source navigation',

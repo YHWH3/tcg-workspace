@@ -47,3 +47,35 @@ preserves the review. Values exceeding the existing guard limit remain selectabl
 for manual recovery, with an explicit explanation. Dismiss only removes the exact
 reviewed token. The dialog stays open after the final action so its confirmation
 can be read. Account, session and access-epoch barriers hide stale responses.
+
+## Existing Spaces as mention groups
+
+The approved D13 model uses `@[group:ID]`, with no new group tables.
+The editor's Space picker and chip resolver use the current access manifest.
+Assistant chips and markdown preserve inaccessible tokens without disclosing
+Space names. MCP loads only named IDs and intersects current canonical access
+with the connector's currently approved scope. Copying a token grants no access.
+
+Semantic derivation adds only newly introduced group tokens. New group events
+follow the historical sequence, including synthetic extras, so existing direct
+receipt identities survive queued-event replay. Group and direct mentions from
+one source are deduplicated per recipient. A shared statement builder retains
+existing notification grouping, delivery receipts and email/push outboxes.
+Group channel delivery uses scheduled recovery, not per-recipient send bursts.
+
+Fan-out caps eligible recipients at 20 and uses four binding calls: source graph,
+batched state/member/content reads, grouped notification lookup and atomic writes.
+Both target and source graph revisions, current membership, recipient preferences
+and activation mode are fenced in the write transaction. Removed tokens and moved
+or deleted sources do not broadcast obsolete text. The canonical Space role kernel
+includes default member access and explicit denials. Disabled recipients are excluded.
+The limit test uses 25 labelled synthetic fixture members; it grants no real seats.
+
+## Completion gates
+
+All three requested feature items are implemented. Optional share passwords and
+Google sign-in remain request-gated. Additional external MCP host acceptance is
+NOT RUN without an approved public tunnel. Track A remains gated on owner R3
+production release and merged item7.3. No deployment or permission activation is
+part of local Phase13 certification. Final browser and mandatory evidence must
+name the exact committed source.

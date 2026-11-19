@@ -3,6 +3,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useNavigate } from 'react-router';
 import { AtSign, FilePlus2 } from 'lucide-react';
 import { db } from '../../core/db';
+import {useStore} from '../../core/store';
+import {accessClientStore} from '../../core/accessClient';
 import { authStore } from '../../core/auth';
 import { Avatar } from '../../core/ui';
 import { resolveUser, useUsers } from '../../core/users';
@@ -32,8 +34,8 @@ function esc(s: string): string {
 }
 
 function chipHtml(kind: MentionKind, id: string, label: string): string {
-  const label2 = label || (kind === 'user' ? 'someone' : 'Untitled');
-  return `<span class="mention ${CHIP_CLS}" contenteditable="false" data-mk="${kind}" data-mid="${id}">${kind === 'user' ? '@' : ''}${esc(label2)}</span>`;
+  const label2 = label || (kind === 'user' ? 'someone' : kind === 'group' ? 'Unavailable Space' : 'Untitled');
+  return `<span class="mention ${CHIP_CLS}" contenteditable="false" data-mk="${kind}" data-mid="${id}">${kind === 'user' || kind === 'group' ? '@' : ''}${esc(label2)}</span>`;
 }
 
 /** Serialize a DOM node tree back to token text. Chips → tokens, <br> → \n. */
@@ -125,6 +127,8 @@ export const RichInput = forwardRef<
   const [menu, setMenu] = useState<{ query: string } | null>(null);
   const [menuSel, setMenuSel] = useState(0);
   const users = useUsers();
+  const access = useStore(accessClientStore);
+  const spaces = useMemo(() => (access.status === 'ready' || access.status === 'offline') && access.manifest?.protocol === 3 ? access.manifest.spaces : [], [access]);
   const me = authStore.get().user;
   const nav = useNavigate();
   const pages = useLiveQuery(() => db.pages.toArray(), [], []) ?? [];
@@ -133,6 +137,7 @@ export const RichInput = forwardRef<
 
   const resolve = useCallback(
     (kind: MentionKind, id: string): string | undefined => {
+      if (kind === 'group') return spaces.find(space => space.id === id)?.name ?? 'Unavailable Space';
       if (kind === 'user') return resolveUser(id, users, me)?.name;
       if (kind === 'rec') {
         const t = recs.find((x) => x.id === id);
@@ -141,7 +146,7 @@ export const RichInput = forwardRef<
       const p = pages.find((x) => x.id === id) as PageRow | undefined;
       return p ? String(p.title ?? '') || 'Untitled' : undefined;
     },
-    [users, me, pages, recs],
+    [users, me, pages, recs, spaces],
   );
 
   const buildHtml = useCallback(
@@ -173,7 +178,7 @@ export const RichInput = forwardRef<
     el.querySelectorAll<HTMLElement>('.mention').forEach((chip) => {
       const kind = chip.dataset.mk as MentionKind;
       const label = resolve(kind, chip.dataset.mid ?? '');
-      const next = `${kind === 'user' ? '@' : ''}${label ?? (kind === 'user' ? 'someone' : 'Untitled')}`;
+      const next = `${kind === 'user' || kind === 'group' ? '@' : ''}${label ?? (kind === 'user' ? 'someone' : kind === 'group' ? 'Unavailable Space' : 'Untitled')}`;
       if (chip.textContent !== next) chip.textContent = next;
     });
   }, [resolve]);
@@ -245,7 +250,7 @@ export const RichInput = forwardRef<
         chip.contentEditable = 'false';
         chip.dataset.mk = kind;
         chip.dataset.mid = id;
-        chip.textContent = `${kind === 'user' ? '@' : ''}${resolve(kind, id) ?? ''}`;
+        chip.textContent = `${kind === 'user' || kind === 'group' ? '@' : ''}${resolve(kind, id) ?? ''}`;
         range.insertNode(chip);
         chip.after(' ');
         const sel = window.getSelection();
@@ -265,8 +270,9 @@ export const RichInput = forwardRef<
     const livePages = (pages as PageRow[]).filter((p) => !p.deleted);
     const ph = livePages.filter((p) => !q || String(p.title ?? '').toLowerCase().includes(q)).slice(0, 5).map((p) => ({ kind: 'page' as const, id: p.id, label: String(p.title ?? '') || 'Untitled', icon: String(p.icon ?? '📄') }));
     const uh = users.filter((u) => !u.disabled && (!q || u.name.toLowerCase().includes(q) || u.username.includes(q))).slice(0, 4).map((u) => ({ kind: 'user' as const, id: u.id, label: u.name, user: u }));
-    return [...ph, ...uh];
-  }, [menu, pages, users]);
+    const gh = spaces.filter(space => !q || space.name.toLowerCase().includes(q)).slice(0,4).map(space => ({kind:'group' as const,id:space.id,label:space.name,icon:'👥'}));
+    return [...ph, ...uh, ...gh];
+  }, [menu, pages, users, spaces]);
   const createLabel = menu?.query.trim() ?? '';
   const rowCount = hits.length + (menu ? 1 : 0);
 
@@ -395,16 +401,16 @@ export const RichInput = forwardRef<
           {hits.map((h, i) => (
             <button
               key={`${h.kind}:${h.id}`}
-              className={cn('flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm', i === menuSel % Math.max(rowCount, 1) && 'bg-neutral-100 dark:bg-neutral-800')}
+              className={cn('flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm', i === menuSel % Math.max(rowCount, 1) && 'bg-neutral-100 dark:bg-neutral-800')}
               onMouseDown={(e) => {
                 e.preventDefault();
                 pickMention(h.kind, h.id);
               }}
               onMouseEnter={() => setMenuSel(i)}
             >
-              {h.kind === 'page' ? <span className="text-base leading-none">{h.icon}</span> : <Avatar name={h.label} color={h.user?.color} size={20} />}
+              {h.kind !== 'user' ? <span aria-hidden="true" className="text-base leading-none">{h.icon}</span> : <Avatar name={h.label} color={h.user?.color} size={20} />}
               <span className="min-w-0 flex-1 truncate">{h.label}</span>
-              <span className="text-[10px] uppercase tracking-wide text-neutral-400">{h.kind}</span>
+              <span className="text-[10px] uppercase tracking-wide text-neutral-600 dark:text-neutral-400">{h.kind === 'group' ? 'Space' : h.kind}</span>
             </button>
           ))}
           <button

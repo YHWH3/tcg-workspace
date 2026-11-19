@@ -234,7 +234,14 @@ async function mentionResolvers(c: Ctx, texts: unknown[] = []) {
   const ids = new Set<string>();
   for (const text of texts) for (const m of String(text ?? '').matchAll(/@\[(?:page|rec):([^\]]+)\]/g)) ids.add(m[1]);
   await loadTitleIds(c, [...ids]);
+  const groupIds = [...new Set(texts.flatMap(text => [...String(text??'').matchAll(/@\[group:([A-Za-z0-9_-]{1,64})\]/g)].map(match=>match[1])))];
+  if (groupIds.length > 200) throw new Error('Too many Space mentions for one read');
+  const groups = groupIds.length ? (await c.env.DB.prepare(`SELECT s.id,s.name FROM spaces s WHERE s.id IN (SELECT value FROM json_each(?))
+    AND ${levelSql('?', 's.id')}>=1 ${c.env.CONNECTOR ? `AND EXISTS(SELECT 1 FROM ai_connections g,json_each(g.spaces_json) a WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>? AND a.value=s.id)` : ''}`)
+    .bind(JSON.stringify(groupIds),c.userId,...(c.env.CONNECTOR ? [c.env.CONNECTOR.id,c.userId,Date.now()] : [])).all<{id:string;name:string}>()).results : [];
+  const groupNames = new Map(groups.map(group => [group.id,group.name]));
   return {
+    groupName: (id: string) => groupNames.get(id),
     resolveUser: resolverFor(c, 'user'),
     resolvePage: resolverFor(c, 'page'),
     resolveRecord: resolverFor(c, 'record'),
@@ -565,7 +572,7 @@ Data model:
 - Boards have named columns (stages) and custom fields (text, number, select, multi_select, person, date, url, checkbox). Tasks live in a board column; custom values are per-field properties.
 - Mood boards are spatial canvases with image/note/text/color items.
 - Page templates are pages flagged isTemplate; instantiate them with create_from_template, which also copies embedded task boards.
-- Mentions: block text accepts [[Page Title]] and @username; stored as tokens and rendered as names.
+- Mentions: block text accepts [[Page Title]] and @username; stored as tokens and rendered as names. Space mentions use @[group:SPACE_ID] with a known authorized Space ID; display names do not grant membership or record access.
 - For multi-part structures prefer create_project (pages + board + tasks + moodboard in one call). Look up ids first with workspace_overview, search or get_board.
 - markdown? arguments accept standard markdown plus [[Page Title]] and @handle mentions and ![caption](url) image imports (https only).
 - Date filters accept yyyy-mm-dd, today, today+N and today-N (0–3650 days, case-sensitive, no spaces). within uses inclusive {from,to} bounds. createdAt calendar comparisons use the context timezone while numeric comparisons and sorting retain milliseconds. query_records, dashboards, reminders and digests use the configured workspace timezone. Read workspace_overview.workspace for timeZone, currency and today.

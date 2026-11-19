@@ -16,6 +16,7 @@ import { aiAction, actionsFor, type ActionModule } from '../../../shared/aiActio
 import { previewImpactText } from '../../../shared/previewImpact';
 import { MAX_CONTEXT_REFS, MAX_MESSAGE_CHARS, type ApprovalView, type AssistantMessage, type ContextRef, type ProviderStatus, type SourceRef, type ToolCallView } from '../../../shared/assistantProtocol';
 import { db } from '../db';
+import {accessClientStore} from '../accessClient';
 import { useLayoutMode } from '../mobile';
 import { useStore } from '../store';
 import { onlineStore } from '../sync/engine';
@@ -549,12 +550,14 @@ function Inlines({ nodes }: { nodes: Inline[] }) {
   );
 }
 
-function MentionChip({ kind, id }: { kind: 'page' | 'user' | 'rec'; id: string }) {
+function MentionChip({ kind, id }: { kind: 'page' | 'user' | 'rec' | 'group'; id: string }) {
+  const access = useStore(accessClientStore);
   const title = useLiveQuery(async () => {
     if (kind === 'page') return (await db.pages.get(id))?.title;
     if (kind === 'rec') return (await db.tasks.get(id))?.title;
     return undefined;
   }, [kind, id]);
+  if (kind === 'group') return <span className="rounded bg-blue-50 px-1 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">@{(access.status === 'ready' || access.status === 'offline') && access.manifest?.protocol === 3 ? access.manifest.spaces.find(space=>space.id===id)?.name ?? 'Unavailable Space' : 'Unavailable Space'}</span>;
   if (kind === 'user') return <span className="rounded bg-blue-50 px-1 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">@member</span>;
   const to = kind === 'page' ? `/pages/${encodeURIComponent(id)}` : `/tasks/${encodeURIComponent(id)}`;
   return (
