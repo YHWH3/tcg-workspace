@@ -346,3 +346,14 @@ include auth renewal and the final credential fence; SQL work is separate.
 Do not add a scheduler journal or rerun action by silently changing existing
 recovery budgets/rotation. Full phase certification remains required; incremental
 presentation changes run their affected feature checks per TESTING-SCOPE-AUDIT.md.
+
+## Phase 13 history
+
+`shared/textDiff.ts` segments Unicode words and bounds detailed comparison to
+250,000 cells, retaining complete values in the simplified view. Migration
+0044 adds historical block parent metadata to server-only `record_history`.
+`loadBodyHistory` uses bounded parent indexes, current record/parent gates,
+historical-space access and a final canonical revision/authority batch. Older
+entries without parent metadata cannot establish body ownership. Body context
+commits in the same transaction as the record. Restore keeps the existing
+revision/session-fenced durable jobs and protected-field rules.

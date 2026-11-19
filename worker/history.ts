@@ -7,6 +7,8 @@ import {beginChangeset} from './changesets';
 import {historyField} from './historyPersistence';
 import {sha256Hex} from './password';
 import {stableJson} from '../shared/stablejson';
+import {loadAccessContext, spaceAccess} from './access';
+import {canRead} from '../shared/access';
 export const historyApi=new Hono<{Bindings:Env;Variables:{user:AuthUser}}>();historyApi.use('*',requireAuth);
 const visible=()=>`((SELECT enabled FROM access_state WHERE id=1)=0 OR (${levelSql('viewer.id','h.space_id')}>=1 AND (h.peer_space_id IS NULL OR ${levelSql('viewer.id','h.peer_space_id')}>=1)))`;
 async function allowed(db:D1Database,uid:string,id:string){const d=await createReadGate(db,uid).decide([id]);return !d.enabled||d.readable.has(id);}
@@ -20,6 +22,77 @@ export async function loadHistoryPage(db:D1Database,uid:string,id:string,before=
  const current=await db.prepare('SELECT seq FROM records WHERE id=?').bind(id).first<{seq:number}>();if(!current||!await (gate?gate.canRead(id):allowed(db,uid,id)))throw new HistoryError('not_found',404);
  return {revision:current.seq,entries:results.slice(0,limit).map(r=>({...r,before:JSON.parse(r.before_json),after:JSON.parse(r.after_json),omitted:JSON.parse(r.omitted_json),before_json:undefined,after_json:undefined,omitted_json:undefined})),nextBefore:results.length>limit?results[limit-1].revision:null};
 }
+
+interface BodyHistoryRow {
+  record_id: string;
+  revision: number;
+  actor_name: string | null;
+  source: string;
+  created_at: number;
+  space_id: string;
+  peer_space_id: string | null;
+  before_parent_id: string | null;
+  after_parent_id: string | null;
+  was_created: number;
+  before_json: string;
+  after_json: string;
+  omitted_json: string;
+}
+
+/** Historical parent IDs avoid attributing a moved block to its current page. */
+export async function loadBodyHistory(db: D1Database, uid: string, id: string, before = Number.MAX_SAFE_INTEGER, limit = 20, suppliedGate?: ReadGate, connector?: Env['CONNECTOR']) {
+  if (!Number.isSafeInteger(before) || before < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
+    throw new HistoryError('invalid_cursor', 400);
+  }
+  const gate = suppliedGate ?? createReadGate(db, uid, connector);
+  if (!await gate.canRead(id)) throw new HistoryError('not_found', 404);
+  const {results} = await db.prepare(`SELECT h.*,
+    (SELECT name FROM users WHERE id=h.actor_id) actor_name
+    FROM record_history h WHERE h.collection='blocks' AND h.revision<?
+      AND (h.before_parent_id=? OR h.after_parent_id=?)
+    ORDER BY h.revision DESC LIMIT ?`).bind(before, id, id, limit + 1).all<BodyHistoryRow>();
+  const window = results.slice(0, limit);
+  const ids = [...new Set([id, ...window.flatMap(row => [row.record_id, row.before_parent_id, row.after_parent_id].filter((value): value is string => value !== null))])];
+  const {results: current} = await db.prepare('SELECT id,seq,collection FROM records WHERE id IN(SELECT value FROM json_each(?))')
+    .bind(JSON.stringify(ids)).all<{id: string; seq: number; collection: string}>();
+  const byId = new Map(current.map(row => [row.id, row]));
+  const root = byId.get(id);
+  if (!root || !['pages', 'tasks'].includes(root.collection)) throw new HistoryError('not_found', 404);
+  const decision = await gate.decideEditable(ids);
+  const spaces = [...new Set([
+    ...[...decision.scopes.values()].flatMap(scope => [...scope.readSpaceIds]),
+    ...window.flatMap(row => [row.space_id, ...(row.peer_space_id ? [row.peer_space_id] : [])]),
+  ])];
+  const context = await loadAccessContext(db, uid, spaces, decision.graphRevs ?? decision.revs, connector);
+  if (!context.principal || context.principal.disabledAt !== null || !context.recordsCurrent) {
+    throw new HistoryError('history_sources_changed', 409);
+  }
+  const enabled = context.enabled || !!connector;
+  const readable = (recordId: string) => {
+    const row = byId.get(recordId);
+    if (!row || decision.revs.get(recordId) !== row.seq) return false;
+    if (!enabled) return true;
+    const scope = decision.scopes.get(recordId);
+    return decision.readable.has(recordId) && !!scope && scope.readSpaceIds.every(space => canRead(spaceAccess(context, space)));
+  };
+  if (!readable(id)) throw new HistoryError('not_found', 404);
+  const entries = window.filter(row => readable(row.record_id)
+    && [row.before_parent_id, row.after_parent_id].every(parent => !parent || readable(parent))
+    && (!enabled || [row.space_id, ...(row.peer_space_id ? [row.peer_space_id] : [])].every(space => canRead(spaceAccess(context, space)))))
+    .map(row => {
+      const previous = JSON.parse(row.before_json) as Record<string, unknown>;
+      const next = JSON.parse(row.after_json) as Record<string, unknown>;
+      const removed = row.after_parent_id !== id || next.deleted === true;
+      const added = !removed && (row.was_created === 1 || row.before_parent_id !== id || previous.deleted === true);
+      return {recordId: row.record_id, revision: row.revision, currentRevision: byId.get(row.record_id)!.seq,
+        actor_name: row.actor_name, source: row.source, created_at: row.created_at,
+        change: removed ? 'removed' : added ? 'added' : 'changed',
+        before: previous, after: next, omitted: JSON.parse(row.omitted_json) as string[]};
+    });
+  return {entries, nextBefore: results.length > limit ? window.at(-1)!.revision : null,
+    coverage: 'Body ownership is retained from migration 0044. Earlier block history cannot be attributed to a page.'};
+}
+
 export async function historicalPatch(db:D1Database,uid:string,id:string,revision:number,fields:string[],side:'before'|'after'){
  if(!Number.isSafeInteger(revision)||!Array.isArray(fields)||!fields.length||fields.length>100||!fields.every(k=>typeof k==='string'&&historyField(k))||!['before','after'].includes(side))throw new HistoryError('invalid_request',400);
  if(!await allowed(db,uid,id))throw new HistoryError('not_found',404);
@@ -28,6 +101,7 @@ export async function historicalPatch(db:D1Database,uid:string,id:string,revisio
  const values=JSON.parse(side==='before'?row.before_json:row.after_json),patch:Record<string,unknown>={};for(const k of fields){if(!Object.hasOwn(values,k))throw new HistoryError('field_not_retained',400);if(k==='deleted')throw new HistoryError('use_existing_restore_or_undo_for_deletions',400);patch[k]=values[k];}return {collection:row.collection,patch};
 }
 historyApi.onError((error,c)=>{if(error instanceof HistoryError)return c.json({error:error.code},error.status);throw error;});
+historyApi.get('/:id/body', async c => c.json(await loadBodyHistory(c.env.DB, c.get('user').id, c.req.param('id'), Number(c.req.query('before') ?? Number.MAX_SAFE_INTEGER), Number(c.req.query('limit') ?? 20))));
 historyApi.get('/:id',async c=>c.json(await loadHistoryPage(c.env.DB,c.get('user').id,c.req.param('id'),Number(c.req.query('before')??Number.MAX_SAFE_INTEGER),Math.min(50,Math.max(1,Number(c.req.query('limit'))||20)))));
 historyApi.post('/:id/restore',async c=>{const u=c.get('user'),id=c.req.param('id'),b=await c.req.json().catch(()=>null);if(!b||!Number.isSafeInteger(b.revision)||!Number.isSafeInteger(b.expectedRev)||typeof b.requestId!=='string'||!b.requestId.length||b.requestId.length>64||!Array.isArray(b.fields)||!b.fields.length||b.fields.length>100||!b.fields.every((k:unknown)=>typeof k==='string'&&historyField(k))||!['before','after'].includes(b.side))return c.json({error:'invalid_request'},400);
  const h=await historicalPatch(c.env.DB,u.id,id,b.revision,b.fields,b.side);const patch=h.patch;

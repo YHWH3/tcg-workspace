@@ -11,7 +11,7 @@ import {isEmbeddedAllowed} from '../shared/aiCapabilities';
 import {proposePreview,executePreview,previewUrl,PreviewError,type PreviewOp} from './aiPreviews';
 import {registerReadTools} from './mcpReadTools';
 import { loadConnection } from './connectorAccess';
-import {loadHistoryPage,historicalPatch,HistoryError} from './history';
+import {loadHistoryPage,loadBodyHistory,historicalPatch,HistoryError} from './history';
 import { McpServer } from '@modelcontextprotocol/server';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler } from 'agents/mcp/server';
@@ -907,7 +907,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
   );
 
-  server.registerTool('get_record_history',{description:'Read authorized per-record field history with bounded revision pagination. Historical values require current record and historical-space access.',inputSchema:z.object({id:z.string(),before:z.number().int().positive().optional(),limit:z.number().int().min(1).max(50).optional()}),annotations:{readOnlyHint:true}},async a=>{try{return txt(await loadHistoryPage(ctx.env.DB,ctx.userId,a.id,a.before,a.limit,ctx.env.READ_GATE,ctx.env.CONNECTOR));}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}});
+  server.registerTool('get_record_history',{description:'Read authorized field history or body changes with body:true and bounded revision pagination. Body ownership starts at migration0044. Historical values require current record and historical-space access.',inputSchema:z.object({id:z.string(),before:z.number().int().positive().optional(),limit:z.number().int().min(1).max(50).optional(),body:z.boolean().optional()}),annotations:{readOnlyHint:true}},async a=>{try{return txt(a.body ? await loadBodyHistory(ctx.env.DB,ctx.userId,a.id,a.before,a.limit,ctx.env.READ_GATE,ctx.env.CONNECTOR) : await loadHistoryPage(ctx.env.DB,ctx.userId,a.id,a.before,a.limit,ctx.env.READ_GATE,ctx.env.CONNECTOR));}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}});
   reg('restore_record_fields',{description:'Restore selected retained fields from one historical revision using an exact current expectedRev. Preview with dryRun first. Deletion recovery uses restore_item or undo_change.',inputSchema:z.object({id:z.string(),revision:z.number().int().positive(),expectedRev:z.number().int().nonnegative(),fields:z.array(z.string()).min(1).max(100),side:z.enum(['before','after']).default('before')}),annotations:{idempotentHint:true}},async a=>{if(!await ctx.env.READ_GATE!.canRead(a.id))return err('not_found');let planned;try{planned=await historicalPatch(ctx.env.DB,ctx.userId,a.id,a.revision,a.fields,a.side);}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}if(ctx.cs)ctx.cs.source='undo';await write(ctx,[{id:a.id,collection:planned.collection as Collection,patch:planned.patch}],{expect:new Map([[a.id,a.expectedRev]]),source:'undo'});return txt({id:a.id,restoredFields:a.fields});});
 
   /* ---------- 3. workspace_overview ---------- */

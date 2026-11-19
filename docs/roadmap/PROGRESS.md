@@ -1526,3 +1526,32 @@ assistive technology, native400%zoom and owner production/provider activation
 remain unavailable external gates. Phase13 implementation may now start under
 the approved sequence. Optional formulas/rollups remain deferred by the usage
 gate, and optional Phase13 features retain their original request conditions.
+
+### Phase 13.1 history diff implementation
+
+Phase 13 starts on `sol/p13-polish`, stacked on accepted Phase 12 source plus
+its evidence commit `1211693`. The managed worktree request did not return
+a path or operation ID. A separate Git checkout was created at
+`.artifacts/worktrees/p13` with a fresh locked dependency installation.
+
+History now offers a selected revision, word-level text changes, selected-field
+restore previews and body-change history. Unicode word segmentation and a
+250,000-cell comparison budget preserve complete source text. Migration 0044
+retains block parent IDs and creation metadata atomically with history. Block
+text also survives deletion and movement. Older entries without parent context
+remain explicitly unavailable for body attribution. The existing MCP history
+tool accepts `body:true` for the same bounded, authorized read.
+
+Focused tests pass 19/19, covering text integrity, body movement, deletion,
+private destinations, revocation during a read, pagination, selected-field
+restore and D1 call bounds in both permission modes. Fourteen migration
+preflight/rehearsal self-tests pass. The first compact browser probe exposed
+an ambiguous wrapped Revision label. Explicit label association fixed it.
+Visual review then reduced crowded explanatory copy at 200% text. The corrected
+three-engine diagnostic passes 3/3 across Chromium compact/light, Firefox
+tablet/dark and WebKit desktop/light, including accessibility, visible diffs,
+selected-field restore and keyboard focus restoration. Its report is
+`.artifacts/ux-lab/2026-11-19T06-16-27.699Z/summary.json`.
+
+The full affected browser matrix and phase-end certificate remain pending.
+Next are 13.2 observed sync conflicts and 13.3 existing-Space mentions.

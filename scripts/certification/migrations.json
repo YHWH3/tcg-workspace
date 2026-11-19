@@ -170,5 +170,9 @@
   {
     "name": "0043_automation_branches.sql",
     "sha256": "9fdaf025436927b61e2ebe1e972858dc9ec096c0dd4da4842889e5eaaff70d5b"
+  },
+  {
+    "name": "0044_history_body_context.sql",
+    "sha256": "851d35efb636a5c286b94784b4b2c2903032e143447d738123b5d51d663ea1f8"
   }
 ]

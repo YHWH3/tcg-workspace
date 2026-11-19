@@ -25,6 +25,7 @@ export const notCovered = [
   'Production/provider/paid inference, email, payment and token behavior',
 ];
 export const requiredCases=[
+  'History diff: selected fields, body movement, restore, keyboard and enlarged text',
   'Chart view: configure, drill down by keyboard, show data table and reflow',
   'Command center: four sections, owned projects, merged dates and keyboard source navigation',
   'Command center: AI review survives a crowded queue, failed reads and offline snapshots',
