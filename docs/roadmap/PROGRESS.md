@@ -1680,3 +1680,11 @@ verification. Track A starts from the Phase 13 stack so the verifier can use
 the attention, digest and email surfaces. Production activation remains an
 owner decision after R3, the Phase 7.3 merge and D11. See the
 [owner runbook](RELEASE-RUNBOOK.md#track-a-permission-activation).
+
+Track A local readiness passed on `2c65e3394ad1f5cdb8d5f19ba84740ef7970f0a9`.
+The disposable copy migrated from 0035 to 0044 and passed manifest and
+backfill checks. The Chromium, Firefox and WebKit sync matrix passed 33/33,
+the restricted-content fixture passed 13/13, and the deliberately broadened
+fixture returned HOLD. The simulated email revocation check passed. Current
+owner backups and hosted staging remain pending.
+[Track A verification](evidence/track-a-local.md).
