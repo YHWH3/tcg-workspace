@@ -1,0 +1,197 @@
+{
+  "scope": "Supplemental local evidence. The release and earlier same-source mandatory certificates retain their own source and results.",
+  "workspaceTree": "2df85cc0a1bd5948f0ddb46527c18e81ac1008d7",
+  "results": {
+    "workspaceLegacy": {
+      "reportPath": ".artifacts/prod-copy-rehearsal/e9417d4d-bae3-42e1-b06b-80a2f8056c73/report.json",
+      "reportSha256": "4a8dd9135836e3163d87cd324f0433bf63d030c8147e8f27b6c47e634a5834b1",
+      "status": "PASS",
+      "sourceSha": "d8ce234d9987b3a21f0723952d615e6664b5e4bd",
+      "sourceFingerprint": "e4c9943fcd631beff7a01f9e76646e60e315e404d1a19dad84bcc8adcec6ffbd",
+      "inputSha256": "d1812bb7919eec546559149240d21f6484346add1f9189624a53fd0b951e816f",
+      "originalRecordCount": 2,
+      "originalMigrationCount": 3,
+      "maxBindingCalls": 8,
+      "remoteOperations": false,
+      "checks": [
+        {
+          "name": "SQL imports into a fresh disposable D1",
+          "status": "PASS"
+        },
+        {
+          "name": "dump migration ledger is an exact registered prefix",
+          "status": "PASS"
+        },
+        {
+          "name": "apply only pending registered migrations",
+          "status": "PASS"
+        },
+        {
+          "name": "record counts, JSON and original values survive",
+          "status": "PASS"
+        },
+        {
+          "name": "permissions remain disabled and integrity holds",
+          "status": "PASS"
+        },
+        {
+          "name": "real bounded search and date backfills complete",
+          "status": "PASS"
+        },
+        {
+          "name": "closed pre-upgrade backup restores original content and bytes",
+          "status": "PASS"
+        }
+      ],
+      "appliedMigrations": {
+        "count": 41,
+        "first": "0004_safe_ai.sql",
+        "last": "0044_history_body_context.sql",
+        "manifestSha256": "f071a49a11ff94f428c8bf400785a58f0c84f9d20cab6ff0afd7d45cb744251a"
+      }
+    },
+    "workspaceIntegrated": {
+      "reportPath": ".artifacts/prod-copy-rehearsal/252676ab-e743-407a-bf7d-c1fe556b6604/report.json",
+      "reportSha256": "4f389cc6f17b2c6f2cf03d8c2d4b31fa869af2918a60c69f436e537a139ca536",
+      "status": "PASS",
+      "sourceSha": "d8ce234d9987b3a21f0723952d615e6664b5e4bd",
+      "sourceFingerprint": "e4c9943fcd631beff7a01f9e76646e60e315e404d1a19dad84bcc8adcec6ffbd",
+      "inputSha256": "32c12347fa944f1fbf3c76de6b2e9b2a7e9658528f9ee5944bc6cd5a3c69ea3c",
+      "originalRecordCount": 2,
+      "originalMigrationCount": 34,
+      "maxBindingCalls": 8,
+      "remoteOperations": false,
+      "checks": [
+        {
+          "name": "SQL imports into a fresh disposable D1",
+          "status": "PASS"
+        },
+        {
+          "name": "dump migration ledger is an exact registered prefix",
+          "status": "PASS"
+        },
+        {
+          "name": "apply only pending registered migrations",
+          "status": "PASS"
+        },
+        {
+          "name": "record counts, JSON and original values survive",
+          "status": "PASS"
+        },
+        {
+          "name": "permissions remain disabled and integrity holds",
+          "status": "PASS"
+        },
+        {
+          "name": "real bounded search and date backfills complete",
+          "status": "PASS"
+        },
+        {
+          "name": "closed pre-upgrade backup restores original content and bytes",
+          "status": "PASS"
+        }
+      ],
+      "appliedMigrations": {
+        "count": 10,
+        "first": "0035_workspace_settings.sql",
+        "last": "0044_history_body_context.sql",
+        "manifestSha256": "f071a49a11ff94f428c8bf400785a58f0c84f9d20cab6ff0afd7d45cb744251a"
+      }
+    },
+    "relay": {
+      "reportPath": ".artifacts/roadmap-local-rehearsal/relay/run-ovOjYz/report.json",
+      "reportSha256": "2f66c0f1b9bb1a6af729126d72a79be62f168ef9a2468914a84499c19c40e9b7",
+      "status": "PASS",
+      "sourceSha": "1bbc617da62168bbf094a2ad65b0140867f74fa5",
+      "tree": "3eac9ec0a203205638d1abf024d639ad4b3c7ffa",
+      "migrations": [
+        {
+          "name": "0001_patrons.sql",
+          "sha256": "643963d483cf72f4d51c50c288cfde563591d4f9b98b06040ff10d56dd2a5e7e"
+        },
+        {
+          "name": "0002_privacy.sql",
+          "sha256": "93ed5077c0953ba10512c8c30e6d2ae745706747e096fcbc27d62e246dd5a059"
+        },
+        {
+          "name": "0003_delivery_outbox.sql",
+          "sha256": "bb516ddd6917be4d77da74e5be938b849461270bd6567560e5e122b811b76d06"
+        }
+      ],
+      "remoteOperations": false,
+      "fixture": "Disposable local Miniflare D1, synthetic data, closed-state backup copies",
+      "checks": [
+        {
+          "name": "Restore pre-upgrade backup with exact legacy data and ledger",
+          "status": "PASS"
+        },
+        {
+          "name": "Apply 0003 while preserving application, patron, edition and webhook rows",
+          "status": "PASS"
+        },
+        {
+          "name": "Restore 0003 backup with pending event and accepted email receipt",
+          "status": "PASS"
+        },
+        {
+          "name": "Foreign keys and SQLite integrity after restore",
+          "status": "PASS"
+        }
+      ]
+    },
+    "desktopZoom": {
+      "reportPath": ".artifacts/roadmap-local-rehearsal/native/run-I2APDn/result.json",
+      "reportSha256": "81a0b8ad6800137afdb5e808783dcdb7ddff2a8d4ea3e07d693df8b0666ad161",
+      "status": "PASS",
+      "sourceSha": "d8ce234d9987b3a21f0723952d615e6664b5e4bd",
+      "tree": "2df85cc0a1bd5948f0ddb46527c18e81ac1008d7",
+      "fingerprint": "e4c9943fcd631beff7a01f9e76646e60e315e404d1a19dad84bcc8adcec6ffbd",
+      "mode": "Desktop Chromium, native page zoom via tabs.setZoom",
+      "fixture": "Disposable loopback HTTPS with synthetic data",
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+      "baseline": {
+        "viewport": 1280,
+        "height": 913,
+        "scrollWidth": 1280,
+        "dpr": 1
+      },
+      "zoomed": {
+        "viewport": 320,
+        "height": 228,
+        "scrollWidth": 320,
+        "dpr": 4
+      },
+      "checks": [
+        {
+          "name": "Browser reports 400% and CSS layout width shrinks by 4x",
+          "status": "PASS"
+        },
+        {
+          "name": "Settings reflow and visible controls",
+          "status": "PASS"
+        },
+        {
+          "name": "Keyboard menu opens, closes and restores focus",
+          "status": "PASS"
+        },
+        {
+          "name": "Keyboard search accepts text and closes",
+          "status": "PASS"
+        },
+        {
+          "name": "Populated Website inbox at 400% zoom",
+          "status": "PASS"
+        },
+        {
+          "name": "Notification Inbox at 400% zoom",
+          "status": "PASS"
+        }
+      ]
+    }
+  },
+  "limits": [
+    "Synthetic inputs and loopback only. The Workspace SQL files contain migration SQL and synthetic rows. The relay uses closed local D1 copies.",
+    "Desktop Chromium headless page zoom covers the named views and keyboard actions.",
+    "Owner export, hosted staging, hosted Android PWA launch, additional live connectors, physical mobile devices and human assistive technology remain unverified."
+  ]
+}

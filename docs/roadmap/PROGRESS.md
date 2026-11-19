@@ -1655,3 +1655,20 @@ Tested source `91087d3d715fffa86458e04c5d7a0c962b483190`, tree
 The feature matrix passed 54 of 54 cases across 18 Chromium, Firefox and WebKit profiles, with zero skips or flakes. All child report hashes verified. `npm run certify:ai -- --keep-awake` passed 34 of 34 mandatory gates, including 1,228 unit tests, 998 actual D1 tests, 150 harness checks and 44 migrations. The run completed without a host pause, and all 30 sealed gate artifact sets verified. Evidence files record the tested commit and are added in a later documentation commit.
 
 The earlier runs interrupted for the Space token audit and pending seed correction remain part of the historical evidence. Findings N57–N59 record the fixes. Physical iPhone/iPad Safari, physical Android, manual assistive technology, native 400% zoom and additional live connector acceptance remain NOT RUN. The connector check requires separate authorization for external test exposure. Share passwords and Google sign-in remain request gated. Track A still requires the owner to complete R3 and merge the Phase 7.3 account-disable work in PR #16. Production release and live provider activation remain owner actions.
+
+### Supplemental release and accessibility checks
+
+- R2 local Workspace rehearsal passed seven checks each on synthetic migration
+  prefixes 0003 and 0034, both upgraded to 0044. The local relay restore passed
+  four checks, including preservation of a pending delivery and an accepted email
+  receipt. The owner still needs to rehearse current production exports and
+  verify hosted staging.
+- Native Chromium page zoom at 400% passed six checks on macOS with a disposable
+  desktop browser profile. Settings, the keyboard menu and search, Website inbox
+  and the notification Inbox reflowed at 320 CSS pixels. The earlier Phase 13
+  certificate's recorded native zoom coverage is historical. Other browser zoom
+  modes, physical devices and human assistive technology remain open.
+- R3 is owner-executed. Track A implementation waits for R3 and the merge of the
+  Phase 7.3 account-disable work in [Workspace PR #16](https://github.com/YHWH3/tcg-workspace/pull/16).
+
+[Supplemental source and check evidence](evidence/post-phase-13-local.md).

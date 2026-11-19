@@ -60,9 +60,19 @@ returns HOLD/nonzero and preserves the original input and failed evidence.
 It refuses URLs, symlink input files, truncated SQL and unexpected migration
 ledgers. It is not a generic remote restore tool or a proof of KV/DO recovery.
 
-Only a **synthetic** 0001–0003 export has been tested by this implementation.
-The owner production export, relay restore, staging run and production recovery
-are NOT RUN until their actual results are recorded.
+The synthetic rehearsal now covers an export through 0003 and a locally
+constructed input at the R1 schema through 0034. Both upgraded to the Phase 13
+schema through 0044, preserved source records and attachment bytes, ran the
+bounded search and date backfills, and restored the pre-upgrade copy. A separate
+relay rehearsal upgraded a closed local 0002 backup to 0003 and restored a
+closed 0003 copy with a pending delivery and an accepted email receipt.
+See [the supplemental local evidence](evidence/post-phase-13-local.md).
+
+Use the migration manifest from the exact source selected for release.
+The procedure above lists the integrated R1 baseline through 0034. Migrations
+0035–0044 belong to the later phase stack and require its own reviewed release
+target and rollout. The owner production exports and restore proofs, OAUTH_KV
+reconciliation, hosted staging and production recovery remain pending.
 
 ## Email, privacy and rollback cautions
 
