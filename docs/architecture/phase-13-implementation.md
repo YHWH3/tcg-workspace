@@ -28,3 +28,22 @@ The focused history checks and three-engine browser diagnostic are recorded
 in the roadmap progress ledger. Phase 13 full browser verification and
 certification remain pending, together with the conflict viewer and group
 mentions.
+
+## Conflicts observed by this device
+
+Ordinary acknowledged edits retain their immutable field candidates in account-local
+`meta` before queue deletion. Both legacy and Protocol 3 pulls compare candidates
+and pending edits with the server echo, atomically with record/cursor updates.
+Guarded upgrade edits and refused writes keep their existing recovery paths.
+Seed timestamps are excluded. Each candidate/conflict pool retains at most 200
+fields for 14 days. Pruning runs once per accepted pull page or push batch.
+Access eviction and read-only/revoked access clear retained recovery payloads.
+No new synced collection, remote table or permission grant is introduced.
+
+Reliability and page/record headers open the review. Unknown remote actors remain
+unknown. Review tokens and current field timestamps/value fence stale actions.
+Use mine calls guarded `mutate()` inside the recovery transaction; write failure
+preserves the review. Values exceeding the existing guard limit remain selectable
+for manual recovery, with an explicit explanation. Dismiss only removes the exact
+reviewed token. The dialog stays open after the final action so its confirmation
+can be read. Account, session and access-epoch barriers hide stale responses.

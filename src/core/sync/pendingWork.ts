@@ -15,6 +15,7 @@ import type { AccessQuarantineRow, BlobRow, LocalDB, LocalRow, OutboxEntry } fro
 import {storedBlobRow} from '../blobCodec';
 import type { ClientAccessManifest } from './feedState';
 import { rebaseRecord } from './rebase';
+import {clearRecovery} from './conflicts';
 
 /** A row as the planner sees it: staged or local, with its owning spaces. */
 export interface SourceRow {
@@ -90,6 +91,7 @@ export interface AccessWork {
   /** Pending operations grouped by record id, in outbox order. */
   entries: Map<string, OutboxEntry[]>;
   drafts: { key: string; value: unknown; reason: string }[];
+  recoveryIds: string[];
   blobs: { blob: BlobRow; reason: string }[];
   /** The rows (staged/live) the decisions were based on. */
   rows: Map<string, SourceRow>;
@@ -101,11 +103,13 @@ export async function planAccessWork(store: LocalDB, userId: string, manifest: C
   const pending = await store.outbox.orderBy('autoId').toArray();
   const entries = new Map<string, OutboxEntry[]>();
   for (const entry of pending) entries.set(entry.id, [...(entries.get(entry.id) ?? []), entry]);
-  const draftRows = (await store.meta.toArray()).filter(row => row.key.startsWith(draftPrefix(userId)));
+  const draftRows = await store.meta.where('key').startsWith(draftPrefix(userId)).toArray();
+  const recoveryRows = [...await store.meta.where('key').startsWith('conflicts:').toArray(), ...await store.meta.where('key').startsWith('sync-candidates:').toArray()];
+  const recoveryIds = [...new Set(recoveryRows.map(row => (row.value as {id: string}).id))];
   const blobRows = await store.blobs.where('state').anyOf('pending', 'failed').toArray();
 
   // Everything the decisions depend on, loaded once: the records themselves and (below) their ancestors.
-  const wanted = new Set<string>(entries.keys());
+  const wanted = new Set<string>([...entries.keys(), ...recoveryIds]);
   for (const draft of draftRows) { const id = (draft.value as { id?: unknown } | null)?.id; if (typeof id === 'string') wanted.add(id); }
   for (const blob of blobRows) { wanted.add(blob.id); const parent = thumbnailParentId(blob.id); if (parent) wanted.add(parent); }
   const rows = await source([...wanted]);
@@ -187,7 +191,7 @@ export async function planAccessWork(store: LocalDB, userId: string, manifest: C
     // Local camera bytes stay only while they belong to a file row the user may still edit.
     if (!fileId || denied.has(fileId) || !visible(fileId) || !editableRecord(fileId)) blobs.push({ blob, reason: 'file_access_revoked' });
   }
-  return { denied, entries, drafts, blobs, rows };
+  return { denied, entries, drafts, blobs, rows, recoveryIds: recoveryIds.filter(id => !visible(id) || denied.has(id) || !editableRecord(id) || (() => {try {const scope = resolve(id); return scope.ancestorDeleted || scope.serviceOnly || !scope.readSpaceIds.every(space => canRead(clientAccess(manifest, space)));} catch (error) {if (!(error instanceof ScopeError)) throw error; return true;}})()) };
 }
 
 export interface AppliedWork { quarantined: number; removedBlobs: string[]; /** Spaces whose confirmed rows lost an unauthorized optimistic edit and must be re-read. */ refreshSpaces: Set<string> }
@@ -205,6 +209,7 @@ export async function applyAccessWork(store: LocalDB, work: AccessWork, quaranti
     if (row?.confirmed) { if (row.spaceId) refreshSpaces.add(row.spaceId); }
     else if (row) await store.collection(row.collection).delete(recordId); // a local creation that may no longer exist
   }
+  await clearRecovery(store, work.recoveryIds);
   await store.outbox.bulkDelete(refused);
   for (const draft of work.drafts) { retain('draft', ((draft.value as { id?: string } | null)?.id) ?? 'unknown', draft.value, draft.reason); await store.meta.delete(draft.key); }
   for (const { blob, reason } of work.blobs) { retain('blob', blob.id, storedBlobRow(blob), reason); await store.blobs.delete(blob.id); removedBlobs.push(blob.id); }

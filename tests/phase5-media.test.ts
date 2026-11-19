@@ -117,7 +117,7 @@ it('retains and uploads original bytes when the engine refuses every Blob/File w
     const refuseHeldBlob=(_key:unknown,row:{payload:unknown})=>{if((row.payload as {blob?:unknown}|null)?.blob instanceof Blob)throw new DOMException('Blob storage refused','UnknownError');};
     db.accessQuarantine.hook('creating',refuseHeldBlob);
     try {
-      await db.transaction('rw',db.outbox,db.blobs,db.meta,db.accessQuarantine,db.accessQuarantineInfo,()=>applyAccessWork(db,{denied:new Map(),entries:new Map(),drafts:[],blobs:[{blob,reason:'file_access_revoked'}],rows:new Map()},1));
+      await db.transaction('rw',db.outbox,db.blobs,db.meta,db.accessQuarantine,db.accessQuarantineInfo,()=>applyAccessWork(db,{denied:new Map(),entries:new Map(),drafts:[],recoveryIds:[],blobs:[{blob,reason:'file_access_revoked'}],rows:new Map()},1));
       expect(await db.blobs.get(id)).toBeUndefined();
       const held=(await db.accessQuarantine.toArray())[0].payload as {blobBytes:ArrayBuffer;blob?:Blob};
       expect(held.blob).toBeUndefined();expect(new TextDecoder().decode(held.blobBytes)).toBe('fallback original bytes');

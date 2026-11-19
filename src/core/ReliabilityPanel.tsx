@@ -11,6 +11,7 @@ import {syncNow} from './sync/engine';
 import {downloadRejected} from './rejectedExport';
 import {QuarantineReview} from './QuarantineReview';
 import {Button} from './ui';
+import {ConflictPanel} from './ConflictReview';
 const time=(value:number|null)=>value===null?'Not observed on this device':new Date(value).toLocaleString();
 export function ReliabilityPanel(){
  const heading=useRef<HTMLHeadingElement>(null);
@@ -43,6 +44,7 @@ export function ReliabilityPanel(){
    </div>
   </>}
   {!data&&<Button className="h-auto min-h-11 py-2" onClick={refresh}>Retry local check</Button>}
+  <ConflictPanel/>
   {held&&<QuarantineReview onClose={()=>setHeld(false)}/>}
  </section>;
 }

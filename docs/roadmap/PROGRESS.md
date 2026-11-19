@@ -1555,3 +1555,28 @@ selected-field restore and keyboard focus restoration. Its report is
 
 The full affected browser matrix and phase-end certificate remain pending.
 Next are 13.2 observed sync conflicts and 13.3 existing-Space mentions.
+
+### Phase 13.2 observed sync conflicts
+
+Implemented acknowledgement candidates, pending-field comparison and retained
+conflict review in both pull protocols. Recovery is account-local, limited to
+200 fields per pool and 14 days. Permission removal, eviction and read-only
+transitions remove retained copies. No actor identity is invented. Use mine
+uses guarded mutate, checks the exact review token and current field state,
+and preserves recovery on failure. Reliability and record headers expose review.
+
+Focused verification passed 84/84 across conflicts, real engine ordering,
+Protocol 3 cache and media/access regressions. After a bounded-guard fallback
+and loading-state refinement, conflict tests pass 15/15 and typecheck passes.
+The initial browser run found that clearing the final conflict unmounted its
+confirmation; corrected. The three-engine diagnostic then passed 3/3 with two
+independent offline browser contexts, recovery, dismissal, 200% text, geometry
+and whole-page accessibility. Report:
+`.artifacts/ux-lab/2026-11-19T06-35-06.701Z/summary.json`.
+The later guard/loading refinement will be covered by the phase-end matrix;
+this diagnostic is feature evidence, not final-source certification.
+Failed fixture attempts and browser reports remain in local artifacts.
+
+Draft PR22 is open at https://github.com/YHWH3/tcg-workspace/pull/22.
+Phase13 remains HOLD until Space mentions, the affected full browser matrix
+and final-source mandatory certification are complete. Next: item13.3.
