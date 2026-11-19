@@ -114,8 +114,8 @@ export async function verifyRestricted(config, { loopback = false } = {}) {
         await pull(config.reader, allowed, [s.spaceId], data => (seen = includes(data, s.marker)));
         if (!seen) throw new Error('Missing sync positive control');
         const spaces = denied.spaces.map(space => space.id);
-        if (!spaces.length) await pull(config.restricted, denied, [], absent);
-        for (let i = 0; i < spaces.length; i += 20) await pull(config.restricted, denied, spaces.slice(i, i + 20), absent);
+        if (!spaces.length) await pull(config.restricted, denied, [], data => absent(data.records));
+        for (let i = 0; i < spaces.length; i += 20) await pull(config.restricted, denied, spaces.slice(i, i + 20), data => absent(data.records));
       });
       await test('HTTP search', async () => {
         positive(await api(config.reader, '/api/search' + key));
@@ -144,7 +144,11 @@ export async function verifyRestricted(config, { loopback = false } = {}) {
       await test('MCP attention_queue', async () => {
         const args = { approvalDatabaseId: s.databaseId, kinds: ['approval_pending'] };
         positive(await call(0, 'attention_queue', args));
-        await checkPages(cursor => call(1, 'attention_queue', { ...args, cursor }), data => {
+        const scoped = await call(1, 'attention_queue', args);
+        absent(scoped);
+        if (scoped.items.length || scoped.nextCursor || !scoped.partial ||
+            scoped.partialSources?.length !== 1 || scoped.partialSources[0] !== 'approval_database_unavailable') throw new Error('Missing scoped denial');
+        await checkPages(cursor => call(1, 'attention_queue', { kinds: args.kinds, cursor }), data => {
           if (data.partial) throw new Error('Partial attention result');
           absent(data);
         }, data => data.nextCursor);
@@ -156,7 +160,15 @@ export async function verifyRestricted(config, { loopback = false } = {}) {
       await test('approvals', async () => {
         const path = '/api/approvals?targetId=' + encoded(s.taskId);
         positive(await api(config.reader, path));
-        absent(await api(config.restricted, path));
+        const { approvals } = await api(config.restricted, path);
+        for (const row of approvals) {
+          if (row.targetId === s.taskId && row.restricted === true && row.targetTitle === 'Restricted item' &&
+              row.note === null && row.decidedNote === null && row.url == null) {
+            // Participant-visible workflow metadata keeps its opaque target id.
+            const { targetId, ...redacted } = row;
+            absent(redacted);
+          } else absent(row);
+        }
       });
       await test('public share subtree', async () => {
         const path = '/api/public/' + encoded(s.publicShareToken);
