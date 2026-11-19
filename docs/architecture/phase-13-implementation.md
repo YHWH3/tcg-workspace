@@ -79,3 +79,9 @@ NOT RUN without an approved public tunnel. Track A remains gated on owner R3
 production release and merged item7.3. No deployment or permission activation is
 part of local Phase13 certification. Final browser and mandatory evidence must
 name the exact committed source.
+
+
+Space-token boundary coverage includes assistant apply-to-selection (preserve only
+sourced tokens), generic visitor-input neutralization, search token stripping,
+public page identity redaction and atomic Backspace deletion. Public Space labels
+never resolve a name or membership through an anonymous capability.

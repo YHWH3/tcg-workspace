@@ -1,3 +1,5 @@
+import {sanitizeReplacement} from '../src/core/assistant/applyPlan';
+import {neutralize} from '../worker/websiteIngest';
 import {expect,it} from 'vitest';
 import {parseText,serialize,mentionTokens,renderPlain,textOffsetToDom,domToTextOffset} from '../src/core/mentions';
 import {blocksToMarkdown,markdownToBlocks} from '../shared/markdown';
@@ -20,4 +22,13 @@ it('derives only newly introduced Space mentions and preserves direct event orde
 it('appends Space events after every historical event in a multi-record derivation',()=>{
  const changes=['first','second'].map(id=>({id,collection:'blocks',created:false,fields:['text'],before:{},after:{pageId:'page',text:'@[user:bob] @[group:space-core]'}}));
  expect(deriveEvents(changes).map(event=>[event.recordId,event.groupId??event.to])).toEqual([['first','bob'],['second','bob'],['first','space-core'],['second','space-core']]);
+});
+
+it('lets assistant replacements preserve sourced Space tokens but never invent them',()=>{
+ expect(sanitizeReplacement('For @[group:allowed]','Hi @[group:allowed] @[group:invented]')).toBe('Hi @[group:allowed]');
+ expect(sanitizeReplacement('Plain text','@[group:invented]')).toBe('');
+});
+it('keeps visitor-supplied Space syntax inert under the generic ingest neutralizer',()=>{
+ const text=neutralize('Visitor @[group:space-core]');expect(mentionTokens(text)).toEqual([]);
+ expect(deriveEvents([{id:'answer',collection:'blocks',created:true,fields:['text'],before:{},after:{pageId:'page',text}}]).filter(event=>event.kind==='mention.created')).toEqual([]);
 });

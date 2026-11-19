@@ -317,7 +317,7 @@ export const RichInput = forwardRef<
       if (el) {
         const c = caretOffset(el);
         const s = serializeDom(el);
-        if (c > 0 && /@\[(page|user):[A-Za-z0-9_-]{1,64}\]$/.test(s.slice(0, c))) {
+        if (c > 0 && /@\[(page|user|rec|group):[A-Za-z0-9_-]{1,64}\]$/.test(s.slice(0, c))) {
           const p = domPosAt(el, c);
           const prevNode =
             p.node === el && p.off > 0

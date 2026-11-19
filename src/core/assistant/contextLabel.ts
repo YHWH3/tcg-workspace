@@ -36,7 +36,7 @@ export function useContextTitle(r: ContextRef): string {
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  if (r.kind === 'selection') return `“${clip(r.text.replace(/@\[(page|user|rec):[A-Za-z0-9_-]+\]/g, '@…'), 40)}”`;
+  if (r.kind === 'selection') return `“${clip(r.text.replace(/@\[(page|user|rec|group):[A-Za-z0-9_-]+\]/g, '@…'), 40)}”`;
   if (r.kind === 'dashboard') return 'Dashboard';
   return clip(String(title ?? '') || 'Untitled');
 }

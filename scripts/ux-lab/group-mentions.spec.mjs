@@ -22,5 +22,9 @@ test('Space mentions: keyboard picker, Unicode chip, recipient inbox and reload'
   await page.reload();await expect(editor.locator('[data-mk=group]')).toHaveText('@Core');await expect(editor).toContainText('नमस्ते');
   await page.evaluate(()=>{document.documentElement.style.fontSize='200%';});await editor.scrollIntoViewIfNeeded();await health(page,'Space mention enlarged chip',info);
   await info.attach('Space-mention-chip',{body:await page.screenshot(),contentType:'image/png'});
+  await editor.locator('[data-mk=group]').evaluate(chip=>{const range=document.createRange();range.setStartAfter(chip);range.collapse(true);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);chip.closest('[contenteditable]').focus();});
+  await editor.press('Backspace');await editor.press('Tab');await expect(editor.locator('[data-mk=group]')).toHaveCount(0);
+  await expect.poll(async()=>(await readRecord(body))?.data.text).not.toContain('@[group:space-core]');await expect(editor).toContainText('नमस्ते');
+
  }finally{await write([{id:body,collection:'blocks',patch:{deleted:true}},{id:root,collection:'pages',patch:{deleted:true}}]);await request('/api/users/'+recipient.user.id,undefined,'DELETE');}
 });

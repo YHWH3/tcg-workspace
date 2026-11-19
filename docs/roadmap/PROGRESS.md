@@ -1606,3 +1606,23 @@ sign-in remain unrequested. External connector/tunnel acceptance is NOT RUN.
 Track A remains owner-gated. Phase13 remains HOLD pending the final committed-source
 54-cell affected feature matrix and mandatory34-gate certificate. The next action
 is source commit/publication, matrix, then one full certificate with keep-awake.
+
+### Phase 13 mention-pipeline audit correction
+
+The first final matrix was intentionally interrupted (exit130) after21 passing
+cases across7 complete profiles; an eighth profile was interrupted. Its evidence
+remains at `.artifacts/ux-lab/2026-11-19T06-52-58Z-p13-final`. It is not a final
+matrix certificate. No failing case was relabelled.
+
+A final source audit found legacy token allowlists outside the main editor.
+Updated assistant selection sanitization and context previews, search token
+stripping, and atomic chip Backspace handling. An assistant replacement can
+preserve a sourced Space token but cannot invent a new broadcast. Public page
+output uses a generic @space label instead of copying Space IDs. The generic
+website neutralizer already protects every token kind; a regression pins that.
+The corrected boundary tests and existing apply/share checks pass20/20, including
+canonical public-share authority. Browser coverage now also deletes a Space chip
+atomically while preserving the surrounding Unicode text.
+
+Commit this corrected source, restart the final54-case matrix, then run the
+single full mandatory certificate. Phase13 remains HOLD until both complete.

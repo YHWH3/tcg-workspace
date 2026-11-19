@@ -182,7 +182,8 @@ publicApi.get('/:token/pages/:pageId', async (c) => {
     return {
       id: b.id,
       type: data.type ?? 'p',
-      text: data.text ?? '',
+      // Public capabilities never disclose private Space identity or names.
+      text: String(data.text ?? '').replace(/@\[group:[A-Za-z0-9_-]{1,64}\]/g, '@space'),
       checked: data.checked ?? false,
       fileId: data.fileId ?? null,
       caption: data.caption ?? '',

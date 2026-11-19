@@ -1,3 +1,6 @@
+import {shares} from '../worker/shares';
+import {publicApi} from '../worker/public';
+import {searchRecords} from '../worker/search';
 import {afterEach,expect,it,vi} from 'vitest';
 import {openAuditFixture,type AuditFixture} from './audit-fixture';
 const tools=vi.hoisted(()=>new Map<string,(args:Record<string,unknown>)=>Promise<{content:{text:string}[]}>>());
@@ -25,4 +28,13 @@ it('MCP renders only authorized Space names and reacts to current membership cha
 it('MCP intersects Space name resolution with the connector current approved scope',async()=>{
  await setup();await f.db.batch([f.db.prepare("INSERT INTO space_members(space_id,user_id,role) VALUES('vault','bob','viewer')"),f.db.prepare("INSERT INTO ai_connections(id,user_id,client_id,spaces_json,version,created_at,expires_at) VALUES('grant','bob','fixture','[\"space-core\"]',1,1,?)").bind(Date.now()+60000)]);
  const result=await read(true);expect(result.markdown).toContain('@space(Core)');expect(JSON.stringify(result)).not.toContain('CONFIDENTIAL NAME');
+});
+
+it('does not put Space IDs into search terms or public block text',async()=>{
+ await setup();await f.db.prepare("UPDATE records SET data=json_set(data,'$.text','Visible @[group:confidentialtoken]'),seq=3 WHERE id='b'").run();
+ expect((await searchRecords(f.env,'bob',{q:'confidentialtoken'})).results).toEqual([]);
+ await f.db.prepare("INSERT INTO space_members(space_id,user_id,role) VALUES('space-core','alice','owner')").run();
+ const share=await shares.request('/',{method:'POST',headers:f.auth('alice'),body:JSON.stringify({pageId:'p'})},f.env,f.ctx);expect(share.status).toBe(200);
+ const {token}=await share.json() as {token:string};
+ const response=await publicApi.request('/'+token+'/pages/p',{},f.env,f.ctx);expect(response.status).toBe(200);const text=await response.text();expect(text).not.toContain('confidentialtoken');expect(text).toContain('Visible @space');
 });
