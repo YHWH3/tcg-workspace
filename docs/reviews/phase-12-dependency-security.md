@@ -57,3 +57,12 @@ then certify a clean committed source. Passing tests on `1689393` cannot certify
 the updated dependency tree. Phase 13 remains unstarted under README section 4.
 Its source inspection and implementation notes are saved in
 [the Phase 13 preflight](../roadmap/13-polish-preflight.md).
+
+## 19 November clearance
+
+GitHub withdrew GHSA-fc5q-39xc-vjpf on18 November2026 at15:38:56 UTC.
+The fresh audit reports zero vulnerabilities. The complete resumed certificate
+on`fb3a0bd` passes all34 mandatory gates. Source identity, security output
+hashes and reused evidence are indexed in
+[the accepted certificate](../roadmap/evidence/P12-certification.json).
+The earlier HOLD assessment above records the advisory state at that time.

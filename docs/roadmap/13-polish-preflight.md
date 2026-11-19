@@ -1,10 +1,10 @@
 # Phase 13 preflight
 
-Read-only preparation on 18 November 2026. Implementation has not started.
+Read-only preparation on 18 November 2026. Updated on 19 November after Phase12 acceptance.
 The roadmap requires the preceding phase to pass before the next phase starts.
-Phase 12 currently remains HOLD on a mandatory dependency security finding.
+Phase12 passed all34 mandatory gates on19 November2026 at`fb3a0bd`.
 On 18 November 2026, the owner explicitly chose to wait for that security fix.
-Retain the phase gate; do not start Phase 13 implementation while it is blocked.
+The withdrawn advisory and passing certificate satisfy that gate. Phase13 may now start.
 
 ## 13.1 History diff
 

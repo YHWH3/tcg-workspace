@@ -1,0 +1,506 @@
+{
+  "phase": 12,
+  "decision": "ENGINEERING GO / EXTERNAL BLOCKED",
+  "command": "npm run certify:ai -- --keep-awake --resume .artifacts/certification/fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982-2026-11-18T18-59-21-092Z-complete",
+  "exitCode": 0,
+  "testedSha": "fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982",
+  "tree": "2593d6bb333ffe0b4682b2c5155f9199d4aabeee",
+  "sourceFingerprint": "a38d8dcdaeb5a548ec7bae19557817ea463966c397970aa5818d89c5ddad2591",
+  "startedAt": "2026-11-19T05:10:01.659Z",
+  "endedAt": "2026-11-19T05:50:35.495Z",
+  "mandatoryPass": 34,
+  "mandatoryFail": 0,
+  "mandatoryNotRun": 0,
+  "completeLocalCertification": true,
+  "resumed": {
+    "from": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/worktrees/p12/.artifacts/certification/fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982-2026-11-18T18-59-21-092Z-complete",
+    "reusedGates": [
+      "whitespace",
+      "migrations",
+      "harness",
+      "typecheck",
+      "unit",
+      "build"
+    ],
+    "reusedArtifactHashes": {
+      "whitespace": {
+        "whitespace.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "whitespace.log.processes.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "migrations": {
+        "migrations.json": "aecfa592f3e22b4cfc378b1de7741753c7abd9f78035b7fb604ae33fefb1d307"
+      },
+      "harness": {
+        "harness.log": "668023b468f5a57fd23d23e40effebd20c213881c8f841fb385fe77c52a4504b",
+        "harness.log.processes.jsonl": "e6096ed6244e16f5d23e1e7160d4407f798dab0bfbc404d7eae4f515c3c4309c"
+      },
+      "typecheck": {
+        "typecheck.log": "c85faad742c8ad117de8ed591ec6999ea99a21fdd2ba557c5fb19bfa2f97cb5e",
+        "typecheck.log.processes.jsonl": "49869d5e46f19f08ca8cf2f9d22b7f3d96a5fc7c73228f7a50ba5a7e37103931"
+      },
+      "unit": {
+        "unit-selection.json": "9b4f9061506c046db6f475e76e1c19d6f1d17ef25a2c15fb49f381f71a513f61",
+        "unit.log": "cecacb723289487cab4b185bd3c290b6dc36cf8fbd59a641371c0d4eba510a1b",
+        "unit.log.processes.jsonl": "6fffd2a2ae52bd3aa3386ef1bb10e44ddd1b3d2c771f2cadbff2cc189a0b493d",
+        "vitest.json": "9f86fcbce017929b564b2eb53f99ee6e5b492ffbc82b02b890512079a034a57f"
+      },
+      "build": {
+        "build-artifacts/dist/client/_headers": "55ea7899a775fe9235243220d27f9f9e3eca118fa6796705afb33bd8e275cd44",
+        "build-artifacts/dist/client/.assetsignore": "4f83140d5f4293ab55bd1207327e995c83258f1e7d3145b1b5d7a3d17fdfe0a7",
+        "build-artifacts/dist/client/assets/accessClient-BhWMHj9V.js": "5a7074005d2d7c5ad02b06636aa67d6a8bb93a84bb0eee17284103ee787da318",
+        "build-artifacts/dist/client/assets/auth-COMmuzoL.js": "03eb25d88cd2d0b799d133cd293a6e48fa75df5e3e8a20f549a718cb5accb437",
+        "build-artifacts/dist/client/assets/collections-BJwrN3ol.js": "07a9856bd7e05fffac339c4120dd47adb8442b05471cd4a293ab1e6c086b4ca7",
+        "build-artifacts/dist/client/assets/db-Cd_S6htK.js": "31e95990d85538566e905279d8a5e90ba5153cd1031764ba61546de33ed7c44d",
+        "build-artifacts/dist/client/assets/dexie-react-hooks-BIIZtl4b.js": "c6798ac32ec272cb97da4258a4d04a26841ebf0313ca1d93805bc9f223423ac8",
+        "build-artifacts/dist/client/assets/drafts-C3_9cBZ9.js": "d8f3dcb823b7d888a221ce542f81161bd6eca9d3ce2972254f72e8eba1d4ae68",
+        "build-artifacts/dist/client/assets/engine-C5nuAAB2.js": "033fd73abdacc9c9496df36bc9686e3cad470a1b186dd0f62edef52f133139b5",
+        "build-artifacts/dist/client/assets/files-DMntltRP.js": "be8b05558ee483ec884b72f04349723607c68c7060d6fd9652790b2145652d18",
+        "build-artifacts/dist/client/assets/index-B-M1cN3r.js": "87e764dc5f0f64a849f3e70286e645752650e1f933331d5f8f83d9ea91dca3c7",
+        "build-artifacts/dist/client/assets/index-CsY5Pavy.css": "802ccc2100c711c73e38b805e89cb599bbd99a9249950a1d5a52bcb96e3eaeed",
+        "build-artifacts/dist/client/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2": "ca157063339ac4ad418f214f3abfed119b0798ab4d377386ce5c9e5a7a435ebd",
+        "build-artifacts/dist/client/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2": "71d5ee93cc1e9f1d520a3a8b66456de18c7879d8df09d57fcd2eaff75fef0075",
+        "build-artifacts/dist/client/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2": "6e9e020a25f9b56d418f2c085b1d3c09725a4da23fe693a5b463064606732190",
+        "build-artifacts/dist/client/assets/inter-greek-wght-normal-CkhJZR-_.woff2": "1be3448e292fbf05ffe176fe1e43f135013d50b1e7d324ad1a558f623d3bb6f6",
+        "build-artifacts/dist/client/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2": "34b9c504cab7a73e37b746343a449132e56cf7b5481af2cb81dc74dcff25c956",
+        "build-artifacts/dist/client/assets/inter-latin-wght-normal-Dx4kXJAl.woff2": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+        "build-artifacts/dist/client/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2": "5c66f9e07e90c6d4ac4922cc68d60de26c17b1858e677fb5e603fce3952b3ff2",
+        "build-artifacts/dist/client/assets/localBackup-gqTKi-a9.js": "167cb7511f6a6df55dfef73781f27f0e0377e1465e0e02605e37b282f1e23c53",
+        "build-artifacts/dist/client/assets/maintenance-_183vXMf.js": "8654aac170f9a5bad03dadfda51b76780a2ad49ee5c0674b8ba43ee068ad6ffd",
+        "build-artifacts/dist/client/assets/rolldown-runtime-XKyaHtl9.js": "548d1dbf321e7d2ae804fcc158b588706a7c52f8ca175de1490c6ccb4dbe55b7",
+        "build-artifacts/dist/client/assets/stablejson-oRq_iMpG.js": "fcc8b6d3f4e8d1b3190e8a70dbde89c43edd76df6601ee953a0c754d6da36a46",
+        "build-artifacts/dist/client/assets/store-DxuQaUhk.js": "25f92395a3280a0a1d201fc8f065a79071febc29d9e33558c8ff076518b594d8",
+        "build-artifacts/dist/client/assets/views-BLVMFrHp.js": "b5080d466935f6ff165dc4fef861962193ab8e8b2087e589feae58dae5543892",
+        "build-artifacts/dist/client/assets/workspaceLocale-CMTvorjh.js": "7c42cea1b15b4736a19cf5921d3098cc824a3f90c220a30932e5c8f4358fb77b",
+        "build-artifacts/dist/client/assets/workspaceSettings-WduPLy73.js": "c28860c592bf0060823e46186eafd9d246bda774d891a6008c283923aa8d416d",
+        "build-artifacts/dist/client/favicon.svg": "68596bb1f2dedf24f02597661a4cc46f1944ecfaf14b52328ff57cf8f88f94f8",
+        "build-artifacts/dist/client/icons/apple-touch-icon.png": "9904b6958f32fd9dcee49523b65773b8280208396ee2325a30579d39a5aa8366",
+        "build-artifacts/dist/client/icons/icon-192.png": "c583b3b55218513b665bfe5d3f8a330feaba5d393a7c6de1501c389141bedb04",
+        "build-artifacts/dist/client/icons/icon-512.png": "b9b885cf201e0d019abcc7cae785fbe26b17a2f5af4bdbf88c616b0285f7708d",
+        "build-artifacts/dist/client/icons/maskable-512.png": "2ec95567c823f1841b21a16d65c2109262b6144e0b3618ab052613a5dbfdbc43",
+        "build-artifacts/dist/client/index.html": "9d7805385d5dedfb49b2e10b0eab6a10eb6553bccc46f5bcde37609a14285f7a",
+        "build-artifacts/dist/client/manifest.webmanifest": "2ea419a3972efd55843340741fd3a193f270eb707e201efc03715e1931240799",
+        "build-artifacts/dist/client/registerSW.js": "9742073ef7fc795e7673d98f272992843298426a0ffd8cb3507784df5143608b",
+        "build-artifacts/dist/client/sw.js": "882cf0481744b65472a2bb7a23256d709fc2265d4c497a2a8e21f4b281bfc57c",
+        "build-artifacts/dist/workspace/.vite/manifest.json": "787e1c352a29b73a57c8273173fdf42f5bafca9c34c0455a036f7583a7b6ca95",
+        "build-artifacts/dist/workspace/assets/aiProvider-B4FUuxUY.js": "3f49d2e700c886310ed01aaf5ce1317a73dd0c685ecca5106bd60da8d94a75b8",
+        "build-artifacts/dist/workspace/assets/capability-BHzOlZsG.js": "be1f18e9795dc322b6e281c1c8974f3a07b76c6ca5a16dbf243dec0ef1af1976",
+        "build-artifacts/dist/workspace/assets/linkid-C7dycw74.js": "b68e9c344bbf5be2bfe2f57833ac2e60c4886a975a371afce7b1778805f1fe44",
+        "build-artifacts/dist/workspace/assets/readAccess-Da9O2lAs.js": "b1905416d87a2c5b6e3efd92f682c54ab322a7e948a0b41e374c29259c5dee38",
+        "build-artifacts/dist/workspace/assets/recordAccess-TPx7VBhy.js": "a89801f348bad8d4efa01d232d7ea4b4e7d58ebbf11550e04bf392944bfd4c77",
+        "build-artifacts/dist/workspace/assets/records-C0as2x1f.js": "fcfdef8428a5c8881c9447e2538d8590582ae5fcd5aafb715a3b386232604151",
+        "build-artifacts/dist/workspace/assets/rolldown-runtime-D7D4PA-g.js": "16a983b80655888fa521be8504570aef2fc3713d1a723ff439beddac3a2428c3",
+        "build-artifacts/dist/workspace/assets/search-DT3jO7oD.js": "0b1d637f7fc44cb153c301347c4f52b1192635d1abb034adc461e63a18e53bdf",
+        "build-artifacts/dist/workspace/assets/stablejson-D5LE7pSJ.js": "2242324f748e02d0a10b388a39ba44d70d07bf94057ee32d4576d8854428ba5c",
+        "build-artifacts/dist/workspace/assets/tree-BRUrNw6T.js": "36c5834676a9b4aa7464e24cc791f0bc5d1a467f519cb9d839b3e3268c26e3ff",
+        "build-artifacts/dist/workspace/assets/undo-C1WwnT5R.js": "186ddac0090c49fd3634ec680389630cd5a2a140259fb221ccb7cea6bd6545f9",
+        "build-artifacts/dist/workspace/assets/views-ISJuAK5U.js": "59de0ae4de0475933f494ecfe7700c30c7cbffca7c2836e6fea2afab097c5b78",
+        "build-artifacts/dist/workspace/assets/worker-entry-CUnqC9cV.js": "20bffbcd6fadd93631520e6623bf4464ae59b01081500d060ebcea7377eede82",
+        "build-artifacts/dist/workspace/index.js": "7b5c0499b6a66d3af7c3eaf528a55692662ee188be153f805df5fd08fb0f2a73",
+        "build-artifacts/dist/workspace/manifest.webmanifest": "2ea419a3972efd55843340741fd3a193f270eb707e201efc03715e1931240799",
+        "build-artifacts/dist/workspace/registerSW.js": "9742073ef7fc795e7673d98f272992843298426a0ffd8cb3507784df5143608b",
+        "build-artifacts/dist/workspace/wrangler.json": "bce0bdcd79f471247de4e1d75fd9b302ac7c39ea002ed25600bae02d9c68c90e",
+        "build.log": "9fc2888b1527dee84ec1eb7db0f49cf279294a8ea46cbdcf954ee6ac41019cc5",
+        "build.log.processes.jsonl": "e12abd1c3db1ce55ad81fa8d73ba6a07f819fe14586932773bc52b1063234a84"
+      }
+    }
+  },
+  "minutesSaved": 6.20325,
+  "hostPauses": [],
+  "artifactDirectory": ".artifacts/certification/fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982-2026-11-19T05-10-01-659Z-complete",
+  "artifactSha256": {
+    "summary.json": "bbb7caeec8dc73d7508ae5a12d5b4ac2601c5a78a522c84cbf1efd785ae76c92",
+    "test-results.json": "1a75c7bf9f962cee1be3107b8ebd27389c5b206457a6e2c20816199263fe1523",
+    "commands.json": "d752869188c39aff47ebeab04d3e99abdcce72fb9339c174c0471f9b96ad79bb",
+    "report.md": "080fa82de88228b9aefa431a83b7660926498effc63fc6c8806daf3d65df9810",
+    "security-audit.json": "995d66cafecad031e7047b4386b00a530393c69b3a52ec43fb83afcdaede8726",
+    "security-decisions.json": "3d5e864726dad4188248ae698e3d03f5da9e4d37cd101e2d872368d75694604c"
+  },
+  "versions": {
+    "node": "v26.7.0",
+    "playwright": "1.63.0",
+    "browsers": {
+      "chromium": "153.0.8010.12",
+      "firefox": "155.0",
+      "webkit": "26.6"
+    }
+  },
+  "suites": [
+    {
+      "suiteId": "prerequisites",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 6,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "dependencies",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "lockfile",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 2,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "security",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "whitespace",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "reused": {
+        "from": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/worktrees/p12/.artifacts/certification/fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982-2026-11-18T18-59-21-092Z-complete",
+        "gate": "whitespace",
+        "originalStartedAt": "2026-11-18T18:59:26.427Z",
+        "originalEndedAt": "2026-11-18T18:59:26.710Z"
+      }
+    },
+    {
+      "suiteId": "migrations",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 43,
+      "fail": 0,
+      "notRun": 0,
+      "reused": {
+        "from": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/worktrees/p12/.artifacts/certification/fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982-2026-11-18T18-59-21-092Z-complete",
+        "gate": "migrations",
+        "originalStartedAt": "2026-11-18T18:59:26.727Z",
+        "originalEndedAt": "2026-11-18T18:59:26.729Z"
+      }
+    },
+    {
+      "suiteId": "harness",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 150,
+      "fail": 0,
+      "notRun": 0,
+      "reused": {
+        "from": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/worktrees/p12/.artifacts/certification/fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982-2026-11-18T18-59-21-092Z-complete",
+        "gate": "harness",
+        "originalStartedAt": "2026-11-18T18:59:26.745Z",
+        "originalEndedAt": "2026-11-18T18:59:35.915Z"
+      }
+    },
+    {
+      "suiteId": "typecheck",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "reused": {
+        "from": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/worktrees/p12/.artifacts/certification/fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982-2026-11-18T18-59-21-092Z-complete",
+        "gate": "typecheck",
+        "originalStartedAt": "2026-11-18T18:59:35.933Z",
+        "originalEndedAt": "2026-11-18T18:59:37.675Z"
+      }
+    },
+    {
+      "suiteId": "unit",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1195,
+      "fail": 0,
+      "notRun": 0,
+      "reused": {
+        "from": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/worktrees/p12/.artifacts/certification/fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982-2026-11-18T18-59-21-092Z-complete",
+        "gate": "unit",
+        "originalStartedAt": "2026-11-18T18:59:37.697Z",
+        "originalEndedAt": "2026-11-18T19:05:36.247Z"
+      }
+    },
+    {
+      "suiteId": "build",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "reused": {
+        "from": "/Users/trinity/Desktop/tcg-next-phases/.artifacts/worktrees/p12/.artifacts/certification/fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982-2026-11-18T18-59-21-092Z-complete",
+        "gate": "build",
+        "originalStartedAt": "2026-11-18T19:05:36.275Z",
+        "originalEndedAt": "2026-11-18T19:05:38.720Z"
+      }
+    },
+    {
+      "suiteId": "d1",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 976,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "browsers",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 3,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "smoke",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 46,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "mcp-base",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 94,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "mcp-multiuser",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 61,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "mcp-phase1",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 41,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "mcp-phase2",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 113,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "mcp-phase3",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 64,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "mcp-phase4",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 46,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "v4",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 33,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "v6",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 150,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "v7",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 114,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "v8",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 140,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "v9",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 75,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "phase5-sync",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 33,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "phase5-workflows",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 36,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "phase5-mcp",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 15,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "phase6-workflows",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 42,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "release-preflight",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 16,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "release-rehearsal",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 12,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "release-ui",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 21,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "assistant-e2e",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 27,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "performance-evidence",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 71,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    },
+    {
+      "suiteId": "source-integrity",
+      "status": "PASS",
+      "exitCode": 0,
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "reused": null
+    }
+  ],
+  "externalGates": [
+    {
+      "name": "Physical iPhone/iPad Safari",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Physical Android",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Manual assistive technology",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Native 400% browser zoom",
+      "status": "NOT RUN",
+      "reason": "320px reflow equivalent is automated; not native zoom"
+    }
+  ],
+  "productionReleaseCertified": false,
+  "securityResolution": {
+    "advisory": "GHSA-fc5q-39xc-vjpf",
+    "withdrawnAt": "2026-11-18T15:38:56Z",
+    "source": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+    "currentAuditVulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "note": "Upstream withdrew the advisory. Hono and Workbox fixes from previous commits remain included."
+  },
+  "notes": [
+    "The original user-paused D1 failure status is retained. The resumed D1 gate ran afresh.",
+    "Six hash-verified same-source gates were reused. Fresh security, browser, performance and integrity gates passed.",
+    "The application feature matrix passed54/54 on59b3c25. Later changes updated dependencies, certification and documentation.",
+    "Fixture approvals and provider responses are automated local tests.",
+    "Later documentation commits retain this tested source identity."
+  ]
+}

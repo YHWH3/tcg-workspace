@@ -1,12 +1,11 @@
 # Next phases progress
 
-Execution started 2026-10-25. Phase 11 has a complete local certificate at
-`6673d6f` and draft PR #20. Phase 12 is implemented on `sol/p12-database-power`
-in draft PR #21, but remains **HOLD** on an unpatched dependency advisory.
-The 18 November source, passing checks and early security stop are indexed in
-`evidence/P12-certification-hold.json`. Phase 13 has a saved preflight and has
-not started under the roadmap's phase gate. Earlier checkpoints below retain
-their original source and status; later entries supersede pending decisions.
+Execution started 2026-10-25. Phase 12 has complete local engineering
+certification at `fb3a0bd`, with all 34 mandatory gates PASS, and draft PR #21.
+The certificate resumed six verified gates and ran D1 and the remaining gates
+afresh. Evidence is indexed in `evidence/P12-certification.json`. Phase 13 is
+next, using existing Spaces for group mentions under owner decision D13.
+Earlier checkpoints retain their original source and status.
 Release branch `sol/r1-date-window` is certified at `0888525` and is based
 on plan-only commit `6d02933` (application unchanged from `528b889`). Original
 integration branches and existing PRs remain unchanged.
@@ -1505,3 +1504,25 @@ entries still trace to the same `picomatch` advisory, GHSA-fc5q-39xc-vjpf.
 GitHub lists no patched version, npm still publishes `4.0.7` as latest, and
 the proposed upstream fixes checked on resume are unmerged. Phase 12 stays
 HOLD and Phase 13 remains at preflight under the recorded owner decision.
+
+### Phase 12 accepted on 19 November 2026
+
+The upstream advisory GHSA-fc5q-39xc-vjpf was withdrawn on18 November at
+15:38:56 UTC. The fresh npm audit on`fb3a0bd` reports zero vulnerabilities.
+The owner-paused certificate resumed within the same-source freshness window.
+It verified and reused six gates, including all1195 unit checks and the build,
+saving6.20 minutes. D1 reran and passed976 checks. All34 mandatory gates pass,
+with zero skips or failed gates and no detected host pause in the resumed run.
+
+The resumed run started2026-11-19T05:10:01.659Z and completed at
+2026-11-19T05:50:35.495Z. The tested SHA is
+`fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982`, tree
+`2593d6bb333ffe0b4682b2c5155f9199d4aabeee`. Exact fingerprints, versions,
+logs, hashes and reuse are recorded in`evidence/P12-certification.json`.
+Historical HOLD and interrupted reports remain retained.
+
+Decision ENGINEERING GO / EXTERNAL BLOCKED. Physical iOS/Android, manual
+assistive technology, native400%zoom and owner production/provider activation
+remain unavailable external gates. Phase13 implementation may now start under
+the approved sequence. Optional formulas/rollups remain deferred by the usage
+gate, and optional Phase13 features retain their original request conditions.
