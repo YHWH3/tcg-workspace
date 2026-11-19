@@ -1,11 +1,11 @@
 # Next phases progress
 
-Execution started 2026-10-25. Phase 12 has complete local engineering
-certification at `fb3a0bd`, with all 34 mandatory gates PASS, and draft PR #21.
-The certificate resumed six verified gates and ran D1 and the remaining gates
-afresh. Evidence is indexed in `evidence/P12-certification.json`. Phase 13 is
-next, using existing Spaces for group mentions under owner decision D13.
-Earlier checkpoints retain their original source and status.
+Execution started 2026-10-25. Phase 13 has complete local engineering
+certification at `91087d3` and is available in draft PR #22. All 34 mandatory
+gates and 54 affected browser cases passed on the same source. Evidence is
+indexed in `evidence/P13-certification.json` and `evidence/P13-feature-matrix.json`.
+Phase 12 remains certified at `fb3a0bd` in draft PR #21. Earlier checkpoints
+retain their original source and status.
 Release branch `sol/r1-date-window` is certified at `0888525` and is based
 on plan-only commit `6d02933` (application unchanged from `528b889`). Original
 integration branches and existing PRs remain unchanged.
@@ -1644,3 +1644,14 @@ regression pass with existing engine/cache cases (70/70); typecheck passes.
 This changes final source identity: do not reuse c39fe1c as a final certificate.
 Commit the fix, run the final54-case matrix and one complete mandatory certificate
 on the corrected head. Phase13 remains HOLD until both are complete.
+
+### Phase 13 completion on 19 November 2026
+
+**ENGINEERING GO / EXTERNAL BLOCKED.** Draft PR [#22](https://github.com/YHWH3/tcg-workspace/pull/22) on `sol/p13-polish` contains the history and selected field restore workflow, device-local conflict review, and mentions of current Space members. Migration `0044_history_body_context.sql` adds history context for blocks.
+
+Tested source `91087d3d715fffa86458e04c5d7a0c962b483190`, tree
+`cf63ce1049e3fb42c7db1aa8f68564ed5110da3f`, fingerprint
+`a44466b447181e9005e125efd86225505e156ba1f27902b17e0b9ae22c47e691`.
+The feature matrix passed 54 of 54 cases across 18 Chromium, Firefox and WebKit profiles, with zero skips or flakes. All child report hashes verified. `npm run certify:ai -- --keep-awake` passed 34 of 34 mandatory gates, including 1,228 unit tests, 998 actual D1 tests, 150 harness checks and 44 migrations. The run completed without a host pause, and all 30 sealed gate artifact sets verified. Evidence files record the tested commit and are added in a later documentation commit.
+
+The earlier runs interrupted for the Space token audit and pending seed correction remain part of the historical evidence. Findings N57–N59 record the fixes. Physical iPhone/iPad Safari, physical Android, manual assistive technology, native 400% zoom and additional live connector acceptance remain NOT RUN. The connector check requires separate authorization for external test exposure. Share passwords and Google sign-in remain request gated. Track A still requires the owner to complete R3 and merge the Phase 7.3 account-disable work in PR #16. Production release and live provider activation remain owner actions.

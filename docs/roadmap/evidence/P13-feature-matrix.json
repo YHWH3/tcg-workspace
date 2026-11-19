@@ -1,0 +1,426 @@
+{
+  "phase": 13,
+  "testedSha": "91087d3d715fffa86458e04c5d7a0c962b483190",
+  "tree": "cf63ce1049e3fb42c7db1aa8f68564ed5110da3f",
+  "sourceFingerprint": "a44466b447181e9005e125efd86225505e156ba1f27902b17e0b9ae22c47e691",
+  "draftPR": "https://github.com/YHWH3/tcg-workspace/pull/22",
+  "command": "npm run qa:ux -- --grep 'History diff:|Sync conflicts:|Space mentions:'",
+  "exitCode": 0,
+  "profiles": 18,
+  "expected": 54,
+  "unexpected": 0,
+  "skipped": 0,
+  "flaky": 0,
+  "sourceUnchanged": true,
+  "scope": "Three Phase13 workflows across three engines, three viewport sizes and two themes. Browser emulation; no physical-device or genuine-human-acceptance claim.",
+  "artifacts": {
+    "summary": {
+      "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/summary.json",
+      "sha256": "be1aa46252a9c41d035f9ce37d3b25d1de1e186c5a370d1da53bcc51ed770e72"
+    },
+    "projectProgress": {
+      "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/project-progress.json",
+      "sha256": "ca9ddb193732d55a7318108613e1ee9245cdefe6f767fe040387b915eb079aec"
+    }
+  },
+  "projects": [
+    {
+      "project": "chromium-compact-light",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/chromium-compact-light/summary.json",
+        "sha256": "5ac051b59e0ac0db223150fd34a517d073912b02933a9d467842db840fb7089e"
+      }
+    },
+    {
+      "project": "chromium-compact-dark",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/chromium-compact-dark/summary.json",
+        "sha256": "9ddcb4d236349a53d8fd8216c59bf31c48e98408aadcf75553b7ac9e587178cd"
+      }
+    },
+    {
+      "project": "chromium-tablet-light",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/chromium-tablet-light/summary.json",
+        "sha256": "eca98bf17f09729ff377bffe91839a25c380c2a5bc71cb0408f7221c7f1aff64"
+      }
+    },
+    {
+      "project": "chromium-tablet-dark",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/chromium-tablet-dark/summary.json",
+        "sha256": "e23387ee466779af824f844b315d4004d001f8baab3637688d4c45428badf635"
+      }
+    },
+    {
+      "project": "chromium-desktop-light",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/chromium-desktop-light/summary.json",
+        "sha256": "5b9c14092739ee774a60da307e70598554430dccef3425970f9f00b4c4d91848"
+      }
+    },
+    {
+      "project": "chromium-desktop-dark",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/chromium-desktop-dark/summary.json",
+        "sha256": "30770f6c329e8bcb9e72a13589afe8191677ba3b89f5ee0ae169b13c09890310"
+      }
+    },
+    {
+      "project": "firefox-compact-light",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/firefox-compact-light/summary.json",
+        "sha256": "a0ba4667193d01ad73796a719665432eca131a77e1a9ed5ae7f40cae37786ed5"
+      }
+    },
+    {
+      "project": "firefox-compact-dark",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/firefox-compact-dark/summary.json",
+        "sha256": "c8d58c1a07bfa014921af6e4e036910a31ad003c691770187302cd46beb96fa5"
+      }
+    },
+    {
+      "project": "firefox-tablet-light",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/firefox-tablet-light/summary.json",
+        "sha256": "0de750770e899a5284615f9084038f06309c52482e32cd34b3357a03876ac873"
+      }
+    },
+    {
+      "project": "firefox-tablet-dark",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/firefox-tablet-dark/summary.json",
+        "sha256": "520a1097150af567a26f38c23f7a1a56af253276b4aaeeb6ece0dac1a01d3e83"
+      }
+    },
+    {
+      "project": "firefox-desktop-light",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/firefox-desktop-light/summary.json",
+        "sha256": "9b020e9fa516fa0a4462c2e4d7fdcb0d6b5b7fe6cd7f52c06ace706b8ceb19b3"
+      }
+    },
+    {
+      "project": "firefox-desktop-dark",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/firefox-desktop-dark/summary.json",
+        "sha256": "f2558b8b310cb7bb7a2f804fe51512bbf025faf33dde26bace22f61b96236828"
+      }
+    },
+    {
+      "project": "webkit-compact-light",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/webkit-compact-light/summary.json",
+        "sha256": "993d3f67b02230853f792a9597194dd9fe707467708a20f0face03fca2a7f718"
+      }
+    },
+    {
+      "project": "webkit-compact-dark",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/webkit-compact-dark/summary.json",
+        "sha256": "0f7071cc07f52619d50dc4cb4558052761aa4e86fa70828560514d37b78695bf"
+      }
+    },
+    {
+      "project": "webkit-tablet-light",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/webkit-tablet-light/summary.json",
+        "sha256": "cd282d9b3f7ac22d287c1af5905cc5a1e38f8310a965d8f1f0baba12cafda4b3"
+      }
+    },
+    {
+      "project": "webkit-tablet-dark",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/webkit-tablet-dark/summary.json",
+        "sha256": "bc6af22bd03bc554e1d2e394f94efb27f422e580dc13b245f614235776454f64"
+      }
+    },
+    {
+      "project": "webkit-desktop-light",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/webkit-desktop-light/summary.json",
+        "sha256": "55e10c2f91ae6297b0ec9d90d15300a5f0a97f17435c20ab37cf5b0d81561d95"
+      }
+    },
+    {
+      "project": "webkit-desktop-dark",
+      "summary": {
+        "path": ".artifacts/ux-lab/2026-11-19T12-29-43Z-p13-seed-corrected-final/projects/webkit-desktop-dark/summary.json",
+        "sha256": "5f8d58e48e2b9c389aa65ec71718cc21eab40f7560cac684b0462f0c9b379ab4"
+      }
+    }
+  ],
+  "cells": [
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "chromium-compact-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "chromium-compact-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "chromium-compact-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "chromium-compact-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "chromium-compact-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "chromium-compact-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "chromium-tablet-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "chromium-tablet-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "chromium-tablet-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "chromium-tablet-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "chromium-tablet-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "chromium-tablet-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "chromium-desktop-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "chromium-desktop-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "chromium-desktop-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "chromium-desktop-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "chromium-desktop-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "chromium-desktop-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "firefox-compact-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "firefox-compact-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "firefox-compact-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "firefox-compact-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "firefox-compact-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "firefox-compact-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "firefox-tablet-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "firefox-tablet-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "firefox-tablet-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "firefox-tablet-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "firefox-tablet-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "firefox-tablet-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "firefox-desktop-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "firefox-desktop-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "firefox-desktop-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "firefox-desktop-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "firefox-desktop-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "firefox-desktop-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "webkit-compact-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "webkit-compact-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "webkit-compact-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "webkit-compact-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "webkit-compact-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "webkit-compact-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "webkit-tablet-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "webkit-tablet-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "webkit-tablet-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "webkit-tablet-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "webkit-tablet-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "webkit-tablet-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "webkit-desktop-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "webkit-desktop-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "webkit-desktop-light",
+      "status": "expected"
+    },
+    {
+      "workflow": "Sync conflicts: two offline devices, retained value, guarded recovery and dismissal",
+      "project": "webkit-desktop-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "Space mentions: keyboard picker, Unicode chip, recipient inbox and reload",
+      "project": "webkit-desktop-dark",
+      "status": "expected"
+    },
+    {
+      "workflow": "History diff: selected fields, body movement, restore, keyboard and enlarged text",
+      "project": "webkit-desktop-dark",
+      "status": "expected"
+    }
+  ]
+}

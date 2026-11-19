@@ -1,0 +1,416 @@
+{
+  "phase": 13,
+  "testedSha": "91087d3d715fffa86458e04c5d7a0c962b483190",
+  "tree": "cf63ce1049e3fb42c7db1aa8f68564ed5110da3f",
+  "sourceFingerprint": "a44466b447181e9005e125efd86225505e156ba1f27902b17e0b9ae22c47e691",
+  "draftPR": "https://github.com/YHWH3/tcg-workspace/pull/22",
+  "decision": "ENGINEERING GO / EXTERNAL BLOCKED",
+  "command": "npm run certify:ai -- --keep-awake",
+  "exitCode": 0,
+  "completeLocalCertification": true,
+  "mandatoryPass": 34,
+  "mandatoryFail": 0,
+  "mandatoryNotRun": 0,
+  "startedAt": "2026-11-19T12:44:33.331Z",
+  "endedAt": "2026-11-19T13:32:27.105Z",
+  "hostPauses": [],
+  "externalGates": [
+    {
+      "name": "Physical iPhone/iPad Safari",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Physical Android",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Manual assistive technology",
+      "status": "NOT RUN"
+    },
+    {
+      "name": "Native 400% browser zoom",
+      "status": "NOT RUN",
+      "reason": "320px reflow equivalent is automated; not native zoom"
+    }
+  ],
+  "securityExceptions": [],
+  "securityIndependentReviewRequired": false,
+  "productionReleaseCertified": false,
+  "artifacts": {
+    "summary.json": {
+      "path": ".artifacts/certification/91087d3d715fffa86458e04c5d7a0c962b483190-2026-11-19T12-44-33-331Z-complete/summary.json",
+      "sha256": "f353af90f08776fe6858ba48d6cee551bccb29f3cd57e18c2da7b960e2deba45"
+    },
+    "test-results.json": {
+      "path": ".artifacts/certification/91087d3d715fffa86458e04c5d7a0c962b483190-2026-11-19T12-44-33-331Z-complete/test-results.json",
+      "sha256": "79f6c257cc3f4dc60769db5ba20fa9912ce82925ce9042d2c080cc4f469b72e7"
+    },
+    "commands.json": {
+      "path": ".artifacts/certification/91087d3d715fffa86458e04c5d7a0c962b483190-2026-11-19T12-44-33-331Z-complete/commands.json",
+      "sha256": "f0ea27e1576724793c1d8a5edb688dab13b2f1bd26d4cdac955b3a072d4ef0f0"
+    },
+    "migrations.json": {
+      "path": ".artifacts/certification/91087d3d715fffa86458e04c5d7a0c962b483190-2026-11-19T12-44-33-331Z-complete/migrations.json",
+      "sha256": "0f4c006fa7998c8140cc584cf7cefa69b8fb5af4e2b738976fe252fbc0a2c008"
+    },
+    "environment.json": {
+      "path": ".artifacts/certification/91087d3d715fffa86458e04c5d7a0c962b483190-2026-11-19T12-44-33-331Z-complete/environment.json",
+      "sha256": "89f2531bcb05044d9f7d3785d28b4340095d8c9d8de29bf545bfcea8812fe867"
+    }
+  },
+  "gates": [
+    {
+      "suiteId": "prerequisites",
+      "status": "PASS",
+      "pass": 6,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 25,
+      "sealedArtifactManifestSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "suiteId": "dependencies",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 776,
+      "sealedArtifactManifestSha256": "e0dbe618f6ea1a0a9e433e5f1d93a63970da06d1a0e64a678f735cee9c7ba456"
+    },
+    {
+      "suiteId": "lockfile",
+      "status": "PASS",
+      "pass": 2,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 772,
+      "sealedArtifactManifestSha256": "89b2942eedfd8e33d558ff6bd1bd48a353e2809311c0aff13be4b57fb217fd71"
+    },
+    {
+      "suiteId": "security",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 1387,
+      "sealedArtifactManifestSha256": "d663c58a82e0be6f8b108128987cc4bd194d3dac4e090032075927e82c531537"
+    },
+    {
+      "suiteId": "whitespace",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 276,
+      "sealedArtifactManifestSha256": "2af2c99bd8a7b00308ca8e191295ed4fb88e83cf79b8fb1e1dc05956418d3c09"
+    },
+    {
+      "suiteId": "migrations",
+      "status": "PASS",
+      "pass": 44,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2,
+      "sealedArtifactManifestSha256": "ea3a5c74207581b160ed33590b1c28856fbff1dfd146b3c22c70e0f619de4be9"
+    },
+    {
+      "suiteId": "harness",
+      "status": "PASS",
+      "pass": 150,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 8922,
+      "sealedArtifactManifestSha256": "611947bf47ff49a5ca1a1e760d053f528d61e387672017613d80b7b86c8631ca"
+    },
+    {
+      "suiteId": "typecheck",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 1569,
+      "sealedArtifactManifestSha256": "db6d5587c83e5a33be9d1c35296ee312b51afd72135c4e888649eda7081c713a"
+    },
+    {
+      "suiteId": "unit",
+      "status": "PASS",
+      "pass": 1228,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 351463,
+      "sealedArtifactManifestSha256": "721e5141b781544527001a172f92340ba2f2ec54044845ca126294287cca6fcc"
+    },
+    {
+      "suiteId": "build",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2547,
+      "sealedArtifactManifestSha256": "1974675ef12a08ba96930795af5fc2e59b5932012d98dd0a85281b8494ee9f93"
+    },
+    {
+      "suiteId": "d1",
+      "status": "PASS",
+      "pass": 998,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 1041846,
+      "sealedArtifactManifestSha256": "5e2e1d2244d433c8fbc3e08a9d773ad14d46f48a506f20d7754a5a17078fadcb"
+    },
+    {
+      "suiteId": "browsers",
+      "status": "PASS",
+      "pass": 3,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 1844,
+      "sealedArtifactManifestSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "suiteId": "smoke",
+      "status": "PASS",
+      "pass": 46,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 5438,
+      "sealedArtifactManifestSha256": "f966f27a872ed591eb822d99d18aa6c98e46bde5cc40da07cf59ee7e42eebe88"
+    },
+    {
+      "suiteId": "mcp-base",
+      "status": "PASS",
+      "pass": 94,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 15460,
+      "sealedArtifactManifestSha256": "60226f20ccddd06053d8edbdb726620a771ac174158ebfbcf718868654007642"
+    },
+    {
+      "suiteId": "mcp-multiuser",
+      "status": "PASS",
+      "pass": 61,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2661,
+      "sealedArtifactManifestSha256": "392a7e93948580cf50a1c3301800bdce305c504480d8cec94eb47e0ce2e26c7a"
+    },
+    {
+      "suiteId": "mcp-phase1",
+      "status": "PASS",
+      "pass": 41,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 1647,
+      "sealedArtifactManifestSha256": "ca6b40ff092d8a7cd8ac8d82b99a73c3e8de370db00ab5df02250811a844e4bc"
+    },
+    {
+      "suiteId": "mcp-phase2",
+      "status": "PASS",
+      "pass": 113,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2984,
+      "sealedArtifactManifestSha256": "45645c71f75ea3aad82d207193050b3aef8c0dc925dc0677fb0d9df8daf4917f"
+    },
+    {
+      "suiteId": "mcp-phase3",
+      "status": "PASS",
+      "pass": 64,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2492,
+      "sealedArtifactManifestSha256": "1001e5de4e8bd50ea44a63d385ba1f17706fda37edbe4f0a1d191ca7b6242900"
+    },
+    {
+      "suiteId": "mcp-phase4",
+      "status": "PASS",
+      "pass": 46,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 5656,
+      "sealedArtifactManifestSha256": "bcaf68b41a8de4c1c5a4ab8aee09f2f7d08d36ff73e0211b627cd004c6c84445"
+    },
+    {
+      "suiteId": "v4",
+      "status": "PASS",
+      "pass": 33,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 36895,
+      "sealedArtifactManifestSha256": "dd6ea9e2d2aaf57f5c50d98a861470db44a784060e4c55e02c245040b0585e89"
+    },
+    {
+      "suiteId": "v6",
+      "status": "PASS",
+      "pass": 150,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 214062,
+      "sealedArtifactManifestSha256": "05e0610f0ae7d565c3f7a127ed43fa002c866ac8e160130a65c95157aa3cd013"
+    },
+    {
+      "suiteId": "v7",
+      "status": "PASS",
+      "pass": 114,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 166195,
+      "sealedArtifactManifestSha256": "0509cf90ab85caca8bdf21a60f66dad3c1b3d52e3f5cc3873263bb04a4d5435d"
+    },
+    {
+      "suiteId": "v8",
+      "status": "PASS",
+      "pass": 140,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 205135,
+      "sealedArtifactManifestSha256": "3f1d7e866e9c178016971028ef66ca968588eb667379ebeaf39e65278ee99070"
+    },
+    {
+      "suiteId": "v9",
+      "status": "PASS",
+      "pass": 75,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 104434,
+      "sealedArtifactManifestSha256": "b069f231f2c646e215767c0f2f76d5a5eee2346d7d1e5032a02fa591e89a793d"
+    },
+    {
+      "suiteId": "phase5-sync",
+      "status": "PASS",
+      "pass": 33,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 126909,
+      "sealedArtifactManifestSha256": "98fe99a5b70c2182cd01acc8e841f02aa3ee85091b51e656033f9921b9f92fb4"
+    },
+    {
+      "suiteId": "phase5-workflows",
+      "status": "PASS",
+      "pass": 36,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 128095,
+      "sealedArtifactManifestSha256": "70bf79620403adeb144c5164bb5fdbbee1cc63c397f25c621bd78df1f025223a"
+    },
+    {
+      "suiteId": "phase5-mcp",
+      "status": "PASS",
+      "pass": 15,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 16452,
+      "sealedArtifactManifestSha256": "57f0849216561489dd79eb8939aa2af7c8e71d63784acb8b5cc4d3aed572540f"
+    },
+    {
+      "suiteId": "phase6-workflows",
+      "status": "PASS",
+      "pass": 42,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 62785,
+      "sealedArtifactManifestSha256": "a3d016132587ccce7d4652354f5b2b3bdf13b29faba371315de2b8dfc1d3d853"
+    },
+    {
+      "suiteId": "release-preflight",
+      "status": "PASS",
+      "pass": 16,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 319,
+      "sealedArtifactManifestSha256": "619f36c90ed4dc2a7e3eae9335f2491493349573dbddf707645b225d618354c0"
+    },
+    {
+      "suiteId": "release-rehearsal",
+      "status": "PASS",
+      "pass": 12,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 2970,
+      "sealedArtifactManifestSha256": "0e27f58ce69d4094dfa57c41a0c69ac523f68b1b19b9e9e42aca670ec77945d9"
+    },
+    {
+      "suiteId": "release-ui",
+      "status": "PASS",
+      "pass": 21,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 169987,
+      "sealedArtifactManifestSha256": "f42a652790aadc6dc711a53ce6578509d09e359217ba0a4d98991102b0800719"
+    },
+    {
+      "suiteId": "assistant-e2e",
+      "status": "PASS",
+      "pass": 27,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 60717,
+      "sealedArtifactManifestSha256": "852b0eb261277e5106ab832160538eb1efec7af12e097f9fbe10793977d16ffa"
+    },
+    {
+      "suiteId": "performance-evidence",
+      "status": "PASS",
+      "pass": 71,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 4,
+      "sealedArtifactManifestSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "suiteId": "source-integrity",
+      "status": "PASS",
+      "pass": 1,
+      "fail": 0,
+      "notRun": 0,
+      "exitCode": 0,
+      "durationMs": 56,
+      "sealedArtifactManifestSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    }
+  ],
+  "sealedGateArtifactsVerified": 30,
+  "additionalExternalGates": [
+    {
+      "name": "Additional live MCP host and genuine human connector acceptance",
+      "status": "NOT RUN",
+      "reason": "External test exposure requires owner authorization."
+    },
+    {
+      "name": "Production release and live provider activation",
+      "status": "OWNER ACTION",
+      "reason": "Governed by R3 and the release runbook."
+    }
+  ]
+}

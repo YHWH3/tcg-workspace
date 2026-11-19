@@ -24,10 +24,7 @@ parent access is checked. The final canonical authority batch fences current
 revisions and historical spaces. The ordinary restore route remains the write
 path and refuses protected structural fields.
 
-The focused history checks and three-engine browser diagnostic are recorded
-in the roadmap progress ledger. Phase 13 full browser verification and
-certification remain pending, together with the conflict viewer and group
-mentions.
+Focused history checks and the final browser and certification results are recorded in the roadmap progress ledger.
 
 ## Conflicts observed by this device
 
@@ -77,8 +74,7 @@ All three requested feature items are implemented. Optional share passwords and
 Google sign-in remain request-gated. Additional external MCP host acceptance is
 NOT RUN without an approved public tunnel. Track A remains gated on owner R3
 production release and merged item7.3. No deployment or permission activation is
-part of local Phase13 certification. Final browser and mandatory evidence must
-name the exact committed source.
+part of local Phase13 certification. The final source at `91087d3` passed the 54-case feature matrix and all 34 mandatory gates. See [the evidence index](../roadmap/evidence/P13-certification.json) for the tested source, counts, and remaining external checks.
 
 
 Space-token boundary coverage includes assistant apply-to-selection (preserve only

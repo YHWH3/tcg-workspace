@@ -134,6 +134,8 @@ Images and files are never uploaded implicitly; no provider in this branch claim
 
 ## 7. External acceptance with real hosts (2026-10-21)
 
+Phase 13 update, 19 November 2026. The local MCP suites passed on `91087d3`, including history reads and Space name filtering under current membership and connector scope. Additional live host validation, including Gemini, is NOT RUN and requires owner authorization for external test exposure. The results below record the hosts and source available to the earlier review.
+
 Run through the Aside browser with the owner's approval. Setup:
 
 - A disposable local fixture with synthetic data, permissions **enabled**, and two spaces: Common Lab and Private (holding the `VAULT_CANARY` page).
