@@ -98,3 +98,12 @@ it('keeps an oversized guarded source available for manual recovery', async () =
   const envelope=(await read())!,entry=envelope.entries[0],write=vi.fn();
   await expect(resolveConflict(store,envelope,entry,'mine',()=>{},write,now)).rejects.toThrow('too large for guarded recovery');expect(write).not.toHaveBeenCalled();expect(await read()).toBeDefined();
 });
+
+it('does not turn built-in pending seeds into conflicts during first permissions backfill', async () => {
+  const pending={id:'a',patch:{title:'Built-in placeholder'},ts:1};
+  expect(losingFields(remote,[],[pending],now)).toEqual([]);
+  await store.outbox.add({...pending,collection:'pages',createIntent:true});
+  await installManifest(store,userId,manifestFor(userId),0);
+  await page(store,userId,[{...record('a','pages',remote.data),field_ts:remote.field_ts}]);
+  expect((await store.pages.get('a'))?.title).toBe('Other work');expect(await read()).toBeUndefined();
+});

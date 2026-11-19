@@ -1626,3 +1626,21 @@ atomically while preserving the surrounding Unicode text.
 
 Commit this corrected source, restart the final54-case matrix, then run the
 single full mandatory certificate. Phase13 remains HOLD until both complete.
+
+### Phase13 seed-placeholder correction
+
+The c39fe1c feature matrix passed54/54 across18 profiles, without flakes or skips,
+and all child-summary hashes were verified. The first mandatory certificate then
+passed10 gates, including1227 unit assertions, build,44 migrations, security,
+150 harness checks and typecheck. It was intentionally interrupted during D1
+before final acceptance, after a recovery audit identified a pending-seed case.
+Its retained directory is `.artifacts/certification/c39fe1cb6357aee2ffded8f12adb1b87fbe0af1c-2026-11-19T12-11-28-816Z-complete`.
+
+Acknowledged seed writes were already excluded, but the pending path could expose
+a timestamp-1 built-in placeholder as a losing user edit during a first permissions
+backfill. A new regression reproduced that false warning. The detector now excludes
+seed timestamps in both paths. The pure comparison and real Protocol3 backfill
+regression pass with existing engine/cache cases (70/70); typecheck passes.
+This changes final source identity: do not reuse c39fe1c as a final certificate.
+Commit the fix, run the final54-case matrix and one complete mandatory certificate
+on the corrected head. Phase13 remains HOLD until both are complete.

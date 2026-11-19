@@ -21,7 +21,7 @@ const same = (a: unknown, b: unknown) => stableJson(a) === stableJson(b);
 export function losingFields(server: StoredRecord, candidates: Candidate[], pending: PendingChange[], now: number): Conflict[] {
   const latest = new Map(candidates.map(entry => [entry.field, entry]));
   for (const change of pending) {
-    if (change.ifUnchanged || change.state === 'rejected') continue;
+    if (change.ts <= 1 || change.ifUnchanged || change.state === 'rejected') continue;
     for (const [field, mine] of Object.entries(change.patch)) {
       if (change.ts >= (latest.get(field)?.mineTs ?? -Infinity)) latest.set(field, {field, mine, mineTs: change.ts, at: now});
     }
