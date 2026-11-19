@@ -341,3 +341,118 @@ devices, manual assistive technology, native 400% zoom/text scaling,
 production/provider activation, remote migrations, and genuine human approval
 remain separate owner gates. These local results are not a production
 deployment or live-provider acceptance.
+
+## Track A permission activation
+
+The owner has deferred physical and external verification. Local preparation can
+proceed. Keep the production flag off until R3 is live, Phase 7.3 is merged, the
+target source is independently accepted and D11 explicitly approves activation,
+space structure and guest policy. A PASS below is evidence for the named scope.
+
+1. Verify the exact deployed Worker, frontend and migration ledger, then require
+   compatible Protocol 3 clients. Record the activity pause and privately retain
+   current D1, file-byte or R2, and OAuth KV backups. Test the restore on a
+   disposable copy. If provider SQL export cannot represent FTS or other virtual
+   tables, obtain an owner-reviewed compatible local SQL restore method.
+2. From a clean Track A checkout, use the current restored SQL and the actual
+   deployment quota in MiB. Run these commands locally.
+
+   ```sh
+   node scripts/access-inventory.mjs /absolute/private/workspace-copy.sql 450
+   node scripts/access-rehearsal.mjs /absolute/private/workspace-copy.sql 450
+   ```
+
+   The inventory lists accounts, last retained session times, memberships, root
+   scopes and recorded creators, grants stored in D1, pinned shares, orphan
+   counts and available quota. Track A accepts an exact registered schema prefix
+   through at least 0035. The checkout's migration content hashes are verified.
+   The SQL ledger supplies names. Active OAuth grants held in OAUTH_KV need the
+   owner's separate inventory. D1-only checks cannot verify R2 object bytes.
+   Review unknown or unavailable records, disabled accounts, guest-directory
+   restrictions and the Core owner before proceeding. Keep the local inventory
+   and original input private.
+3. The rehearsal imports the same SQL into fresh local D1 memory, applies pending
+   registered migrations there, checks existing account manifests and completes
+   bounded per-space backfills. Then it runs the established browser sync
+   scenarios on separate synthetic fixtures that include compact and desktop
+   views. Those browser fixtures exercise atomic staged joins, two independent
+   profiles, persistent restart, quarantine, revocation and regrant, relation
+   peers, file byte and object-URL eviction, and stale responses. The imported
+   backup stays out of browser profiles and traces. Resolve every HOLD. Run the
+   simulated email check without a provider.
+
+   ```sh
+   npx vitest run tests/phase10-notification-email-d1.test.ts -t 'escapes readable titles and uses generic text after access revocation'
+   ```
+
+4. Provision independently reviewed staging resources and confirm their
+   identity and backup before the staging owner changes the flag. Place one
+   synthetic sample in each private staging space being checked. Use a unique
+   alphanumeric marker as the page and task title. Create a genuine page
+   history edit, a pending approval and notification copies, and an open or
+   recently updated task in the sample database. Let both sample accounts
+   receive copies while they have access. Keep access for one account and revoke
+   it for the other. Both accounts must remain active with current connectors.
+   Create an active share for an unrelated public root as a positive control.
+5. On staging, privately create a regular mode-0600 JSON probe file.
+
+   ```json
+   {
+     "origin": "https://staging.example.test",
+     "reader": {"session": "<reader session>", "mcp": "<reader connector token>"},
+     "restricted": {"session": "<restricted session>", "mcp": "<restricted connector token>"},
+     "samples": [{
+       "spaceId": "staging-private-space",
+       "pageId": "synthetic-page",
+       "databaseId": "synthetic-database",
+       "taskId": "synthetic-task",
+       "marker": "SyntheticMarker012345",
+       "publicShareToken": "<unrelated staging share token>"
+     }]
+   }
+   ```
+
+   ```sh
+   node scripts/access-verify.mjs --staging /absolute/private/synthetic-probes.json
+   ```
+
+   Results contain check names, totals and status only. The verifier uses
+   same-origin read operations, including Protocol 3 and MCP reads, and requires
+   positive controls. It stops on unexpected statuses, partial bounded checks or
+   authorization failures. Use synthetic staging content only. Revoke the probe
+   sessions and connectors when done. Keep the probe file private.
+6. Only the owner executes the commands below after D11 and the staging
+   walkthrough pass. Set `ACCESS_DB` and `ACCESS_CONFIG` privately to the verified
+   database and Worker configuration for the authorized environment. Read back
+   the state between steps. Coordinate the downtime, backward compatibility and
+   approved private-space memberships before changing anything.
+
+   ```sh
+   npx wrangler d1 execute "$ACCESS_DB" --config "$ACCESS_CONFIG" --remote \
+     --command 'SELECT id, enabled, generation FROM access_state WHERE id=1'
+   npx wrangler d1 execute "$ACCESS_DB" --config "$ACCESS_CONFIG" --remote \
+     --command 'UPDATE access_state SET enabled=1 WHERE id=1 AND enabled=0'
+   npx wrangler d1 execute "$ACCESS_DB" --config "$ACCESS_CONFIG" --remote \
+     --command 'SELECT id, enabled, generation FROM access_state WHERE id=1'
+   ```
+
+   Keep the controlled rollout under active observation for the first 60 minutes
+   and through the next scheduled cycle, with owner-agreed stop criteria. Check
+   Core continuity, expired client refusal, session recovery, private reads,
+   reconnect and pending work, share access, live notifications and connector
+   scope. Pause affected traffic if any restricted content or unexplained data
+   loss becomes visible. Preserve activity and recovery evidence before changing
+   caches, memberships or provider state.
+7. Review compensating controls before rollback. Legacy mode uses the old
+   shared access model. A flag reversal may broaden access and requires an
+   explicit containment decision, compatible code and a verified recovery point.
+   After traffic is contained, the owner's flag reversal is:
+
+   ```sh
+   npx wrangler d1 execute "$ACCESS_DB" --config "$ACCESS_CONFIG" --remote \
+     --command 'UPDATE access_state SET enabled=0 WHERE id=1 AND enabled=1'
+   ```
+
+   Turning the flag off does not erase already downloaded data or undo writes.
+   Recover incompatible clients and pending writes using the rehearsed owner
+   recovery plan. Escalate any exposed contents separately.

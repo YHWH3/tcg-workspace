@@ -1672,3 +1672,11 @@ The earlier runs interrupted for the Space token audit and pending seed correcti
   Phase 7.3 account-disable work in [Workspace PR #16](https://github.com/YHWH3/tcg-workspace/pull/16).
 
 [Supplemental source and check evidence](evidence/post-phase-13-local.md).
+
+### Track A local readiness
+
+The owner moved local permission-activation preparation ahead of external
+verification. Track A starts from the Phase 13 stack so the verifier can use
+the attention, digest and email surfaces. Production activation remains an
+owner decision after R3, the Phase 7.3 merge and D11. See the
+[owner runbook](RELEASE-RUNBOOK.md#track-a-permission-activation).

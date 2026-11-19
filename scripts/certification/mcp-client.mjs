@@ -7,7 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { localOrigin } from '../certification-report.mjs';
 
 /** Real OAuth/PKCE fixture connection, also used by mixed MCP → browser journeys. */
-export async function connectFixtureMcp(base, { username = 'admin', password = 'password123', name = 'Certification browser', fixtureHuman = true, allowHttps = false } = {}) {
+export async function connectFixtureMcp(base, { username = 'admin', password = 'password123', name = 'Certification browser', fixtureHuman = true, allowHttps = false, includeToken = false } = {}) {
   if(allowHttps){
     const origin=new URL(base);
     if(origin.protocol!=='https:'||!['localhost','127.0.0.1','[::1]'].includes(origin.hostname)||!['','/'].includes(origin.pathname)||origin.username||origin.password||origin.search||origin.hash||fixtureHuman)throw new Error('HTTPS fixture MCP requires an exact loopback origin and raw review mode');
@@ -31,7 +31,7 @@ export async function connectFixtureMcp(base, { username = 'admin', password = '
   const client = new Client({ name, version: '1.0.0' }, { capabilities: {} });
   await client.connect(new StreamableHTTPClientTransport(new URL(base + '/mcp'), { requestInit: { headers: { Authorization: `Bearer ${tokens.data.access_token}` } } }));
   if(fixtureHuman)enableFixtureHuman(client,base,{username,password});
-  return { close: () => client.close(), call: async (name, args) => {
+  return { ...(includeToken ? { accessToken: tokens.data.access_token } : {}), close: () => client.close(), call: async (name, args) => {
     const result = await client.callTool({ name, arguments: args });
     const text = result.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
     let data; try { data = JSON.parse(text); } catch { throw new Error(`Malformed MCP JSON result for ${name}`); }
