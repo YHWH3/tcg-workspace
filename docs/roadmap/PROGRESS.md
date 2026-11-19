@@ -1688,3 +1688,12 @@ the restricted-content fixture passed 13/13, and the deliberately broadened
 fixture returned HOLD. The simulated email revocation check passed. Current
 owner backups and hosted staging remain pending.
 [Track A verification](evidence/track-a-local.md).
+
+### Release handoff after Track A
+
+Verified the remote Workspace stack and separate Website draft and collected the
+later review in one [release handoff](RELEASE-HANDOFF.md). On the recorded
+cross-repository heads, relay tests passed 46/46, the disposable HTTPS integration
+passed 5/5, and built-package preflight passed 16/16. Phases 7–13 and local
+Track A finish the approved engineering roadmap. Review, external verification
+and owner rollout remain deferred.
