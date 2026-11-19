@@ -166,5 +166,9 @@
   {
     "name": "0042_file_storage.sql",
     "sha256": "2a685450e39d4a0c1f70c07f45f50646d7fc3410b78ced74102b2283dc620e5d"
+  },
+  {
+    "name": "0043_automation_branches.sql",
+    "sha256": "9fdaf025436927b61e2ebe1e972858dc9ec096c0dd4da4842889e5eaaff70d5b"
   }
 ]

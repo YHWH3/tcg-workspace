@@ -51,7 +51,18 @@ export function verifyArtifactHashes(root,hashes){
 }
 export function copyVerifiedArtifacts(from,to,hashes){
  if(!verifyArtifactHashes(from,hashes))throw new Error('Source artifacts changed');
- for(const path of Object.keys(hashes)){const target=resolve(to,path);if(!target.startsWith(resolve(to)+sep))throw new Error('Invalid artifact destination');mkdirSync(dirname(target),{recursive:true});cpSync(safeFile(from,path),target,{errorOnExist:true,force:false});}
+ const pending=[];
+ for(const [path,hash] of Object.entries(hashes)){
+  const target=resolve(to,path);
+  if(!target.startsWith(resolve(to)+sep))throw new Error('Invalid artifact destination');
+  if(existsSync(target)){
+   if(hashFile(safeFile(to,path))!==hash)throw new Error('Existing artifact differs from verified evidence');
+  }else pending.push({source:safeFile(from,path),target});
+ }
+ for(const {source,target} of pending){
+  mkdirSync(dirname(target),{recursive:true});
+  cpSync(source,target,{errorOnExist:true,force:false});
+ }
  if(!verifyArtifactHashes(to,hashes))throw new Error('Copied artifact verification failed');
 }
 export function gateArtifactPaths(id){

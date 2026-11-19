@@ -20,7 +20,8 @@ import { notify, type NewNotification } from './notifications';
 import {hasD1Budget,D1BudgetExhausted,d1CleanupDatabase,d1RawDatabase} from './d1budget';
 import {
   automationDbId,
-  conditionsMatch,
+  automationActions,
+  selectAutomationBranch,
   matchesScope,
   matchesTrigger,
   renderTemplate,
@@ -53,6 +54,13 @@ const MAX_RUNS_KEPT = 200;
 
 type BoardRow = Record<string, unknown>;
 type AutomationRow = { id: string; data: AutomationConfig };
+type RunInput = {
+  auto: AutomationRow;
+  ev: SemanticEvent;
+  ctx: EventCtx;
+  recData: Record<string, unknown>;
+  today: string;
+};
 
 /** Automation configs live on synced records — load the enabled, live ones. */
 async function enabledAutomations(env: Env): Promise<AutomationRow[]> {
@@ -111,6 +119,7 @@ async function planActions(
   ctx: EventCtx,
   runId: string,
   today: string,
+  actions: AutomationAction[],
 ): Promise<{ ops: Mutation[]; side: PlannedSideEffects; memberIds: Set<string> }> {
   const ops: Mutation[] = [];
   const side: PlannedSideEffects = { approvals: [], notifications: [] };
@@ -143,7 +152,6 @@ async function planActions(
     return fallback;
   };
 
-  const actions = auto.data.actions ?? [];
   let i = 0;
   for (const a of actions) {
     i += 1;
@@ -413,7 +421,7 @@ async function loadValidationCtx(env: Env, config: AutomationConfig, extraBoardI
   const source = automationDbId(config);
   if (source) ids.add(source);
   for (const id of extraBoardIds) if (id) ids.add(id);
-  for (const action of Array.isArray(config.actions) ? config.actions : []) {
+  for (const action of automationActions(config)) {
     if (action?.type === 'create_record' && typeof action.databaseId === 'string' && action.databaseId) ids.add(action.databaseId);
   }
   const boardsById = new Map<string, Record<string, unknown>>();
@@ -491,18 +499,18 @@ async function advanceDateOffsetPage(env: Env, scan: DateOffsetScan, today: stri
         continue;
       }
       const board = boards.get(candidate.boardId);
-      let matches = false;
+      let branch: number | null | undefined;
       try {
         const fieldsById = new Map(fieldsOf(board).map((field) => [field.id, field]));
-        matches = conditionsMatch(scan.auto.data.conditions, { id: candidate.rec.id, ...candidate.rec.data }, {
+        branch = selectAutomationBranch(scan.auto.data, { id: candidate.rec.id, ...candidate.rec.data }, {
           meId: String(candidate.rec.data.createdBy ?? ''),
           today,timeZone,
           fieldsById,
         } satisfies ViewCtx);
       } catch {
-        matches = false;
+        branch = undefined;
       }
-      if (configErrors.length || !matches) {
+      if (configErrors.length || branch === undefined) {
         pending.push({ id: candidate.row.record_id, mark: false });
         continue;
       }
@@ -515,7 +523,7 @@ async function advanceDateOffsetPage(env: Env, scan: DateOffsetScan, today: stri
         source: 'automation',
         userId: String(candidate.rec.data.createdBy ?? '') || 'system',
         outboxId: `cron:${today}`,
-      }, candidate.rec.data, today);
+      }, candidate.rec.data, today, branch);
       const settled = await env.DB.prepare('SELECT status FROM automation_runs WHERE event_key=?').bind(candidate.eventKey).first<{ status: string }>();
       if (settled?.status !== 'completed' && settled?.status !== 'terminal_failure') {
         stoppedEarly = true;
@@ -596,17 +604,21 @@ export async function runOneAutomation(
   ctx: EventCtx,
   recData: Record<string, unknown>,
   today: string,
+  branch: number | null = null,
 ): Promise<void> {
   const eventKey = runEventKey(auto.id, ev, ctx.outboxId);
   const runId = `arun_${eventKey}`;
-  const payload=JSON.stringify({auto,ev,ctx,recData,today});
-  await env.DB.prepare(`INSERT OR IGNORE INTO automation_runs(id,automation_id,event_key,status,created_at,payload)
-    VALUES(?,?,?,'pending',?,?)`).bind(runId,auto.id,eventKey,Date.now(),payload).run();
+  const payload=JSON.stringify({auto,ev,ctx,recData,today} satisfies RunInput);
+  await env.DB.prepare(`INSERT OR IGNORE INTO automation_runs(id,automation_id,event_key,status,created_at,payload,branch)
+    VALUES(?,?,?,'pending',?,?,?)`).bind(runId,auto.id,eventKey,Date.now(),payload,branch).run();
   const lease=crypto.randomUUID(), now=Date.now();
   const claimed=await env.DB.prepare(`UPDATE automation_runs SET status='running',lease_id=?,lease_until=?,attempts=attempts+1,updated_at=?,payload=COALESCE(payload,?)
     WHERE id=? AND attempts<? AND retry_at<=? AND (status IN ('pending','retryable_failure') OR (status='running' AND COALESCE(lease_until,0)<=?))
-    RETURNING attempts,plan,changeset_id`).bind(lease,now+EXECUTION_LEASE_MS,now,payload,runId,EXECUTION_MAX_ATTEMPTS,now,now).first<{attempts:number;plan:string|null;changeset_id:string|null}>();
+    RETURNING attempts,plan,changeset_id,payload,branch`).bind(lease,now+EXECUTION_LEASE_MS,now,payload,runId,EXECUTION_MAX_ATTEMPTS,now,now).first<{attempts:number;plan:string|null;changeset_id:string|null;payload:string;branch:number|null}>();
   if(!claimed) return;
+  // Replays can arrive through the original outbox as well as the recovery
+  // sweep. Both must use the input and branch recorded by the first insert.
+  ({auto,ev,ctx,recData,today}=JSON.parse(claimed.payload) as RunInput);
   const cs=beginChangeset({userId:ctx.userId,tool:'automation',summary:`Automation: ${String(auto.data.name??auto.id)}`,source:'automation'});
   cs.id=claimed.changeset_id??`cs_${runId}`;
   let terminal=false;
@@ -621,7 +633,12 @@ export async function runOneAutomation(
     if(claimed.plan) plan=JSON.parse(claimed.plan);
     else {
       terminal=true;
-      plan=await planActions(env,auto,ev,{id:ev.recordId,data:recData},board,ctx,runId,today);
+      const selected = claimed.branch === null ? auto.data.actions
+        : claimed.branch === -1 ? auto.data.otherwise : auto.data.branches?.[claimed.branch]?.actions;
+      if (!selected || !selected.length || (claimed.branch === null && auto.data.branches)) {
+        throw new Error('Recorded automation path is unavailable');
+      }
+      plan=await planActions(env,auto,ev,{id:ev.recordId,data:recData},board,ctx,runId,today,selected);
       terminal=false;
       await env.DB.prepare('UPDATE automation_runs SET plan=?,changeset_id=? WHERE id=? AND lease_id=?').bind(JSON.stringify(plan),cs.id,runId,lease).run();
     }
@@ -679,11 +696,11 @@ export async function runOneAutomation(
 export async function recoverAutomationRuns(env:Pick<Env,'DB'>):Promise<void> {
   const now=Date.now();
   await env.DB.prepare(`UPDATE automation_runs SET status='terminal_failure',error=COALESCE(error,'execution attempt limit reached') WHERE attempts>=? AND status IN ('pending','running','retryable_failure') AND COALESCE(lease_until,0)<=?`).bind(EXECUTION_MAX_ATTEMPTS,now).run();
-  const {results}=await env.DB.prepare(`SELECT payload FROM automation_runs WHERE payload IS NOT NULL AND retry_at<=? AND (status IN ('pending','retryable_failure') OR (status='running' AND COALESCE(lease_until,0)<=?)) ORDER BY created_at LIMIT 20`).bind(now,now).all<{payload:string}>();
+  const {results}=await env.DB.prepare(`SELECT payload,branch FROM automation_runs WHERE payload IS NOT NULL AND retry_at<=? AND (status IN ('pending','retryable_failure') OR (status='running' AND COALESCE(lease_until,0)<=?)) ORDER BY created_at LIMIT 20`).bind(now,now).all<{payload:string;branch:number|null}>();
   for(const row of results) {
     if(!hasD1Budget(env.DB,24))break;
-    const p=JSON.parse(row.payload) as {auto:AutomationRow;ev:SemanticEvent;ctx:EventCtx;recData:Record<string,unknown>;today:string};
-    await runOneAutomation(env as Env,p.auto,p.ev,p.ctx,p.recData,p.today);
+    const p=JSON.parse(row.payload) as RunInput;
+    await runOneAutomation(env as Env,p.auto,p.ev,p.ctx,p.recData,p.today,row.branch);
   }
 }
 
@@ -719,12 +736,13 @@ export async function runAutomationsForEvent(
         if (auto.data.trigger?.kind==='date_offset' || !matchesTrigger(auto.data.trigger, ev2, { today })) continue;
         const board = ev2.boardId ? (await fetchRec(ev2.boardId))?.data : undefined;
         const vctx: ViewCtx = { meId: ctx.userId, today,timeZone:dateContext.timeZone, fieldsById: new Map(fieldsOf(board).map((f: FieldDef) => [f.id, f])) };
+        let branch: number | null | undefined;
         try {
-          if (!conditionsMatch(auto.data.conditions, { id: rec.id, ...(ev.snapshot??rec.data) }, vctx)) continue;
+          branch = selectAutomationBranch(auto.data, { id: rec.id, ...(ev.snapshot??rec.data) }, vctx);
         } catch {
           continue;
         }
-        await runOneAutomation(env as Env, auto, ev2, ctx, ev.snapshot??rec.data, today);
+        if (branch !== undefined) await runOneAutomation(env as Env, auto, ev2, ctx, ev.snapshot??rec.data, today, branch);
       }
   }
 }
@@ -743,7 +761,7 @@ automationsApi.get('/:id/runs', async (c) => {
   // Run history (status/error) belongs to readers of the automation (permissions enabled).
   if (!(await createReadGate(c.env.DB, c.get('user').id).canRead(c.req.param('id')))) return c.json({ runs: [] });
   const { results } = await c.env.DB.prepare(
-    'SELECT id, automation_id, event_key, changeset_id, status, error, created_at FROM automation_runs WHERE automation_id = ? ORDER BY created_at DESC LIMIT 50'
+    'SELECT id, automation_id, event_key, changeset_id, status, error, created_at, branch FROM automation_runs WHERE automation_id = ? ORDER BY created_at DESC LIMIT 50'
   ).bind(c.req.param('id')).all();
   return c.json({ runs: results });
 });

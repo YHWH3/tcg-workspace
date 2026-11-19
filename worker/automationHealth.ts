@@ -16,7 +16,7 @@ export const AUTOMATION_HEALTH_SQL=[`WITH candidates AS(
  SELECT 'automation' bucket,a.id,a.seq rev,json_object('name',${name('a','name','Unnamed automation')},
  'databaseId',COALESCE(json_extract(a.data,'$.trigger.databaseId'),json_extract(a.data,'$.databaseId')),
  'failedCount',(SELECT COUNT(*) FROM automation_runs run WHERE run.automation_id=a.id AND run.created_at BETWEEN ?1 AND ?2 AND run.status IN('retryable_failure','terminal_failure')),
- 'lastRun',json((SELECT json_object('id',run.id,'createdAt',run.created_at,'attempts',run.attempts,'retryAt',run.retry_at,
+ 'lastRun',json((SELECT json_object('id',run.id,'createdAt',run.created_at,'attempts',run.attempts,'retryAt',run.retry_at,'branch',run.branch,
  'recovery',CASE WHEN run.status='terminal_failure' OR run.attempts>=8 THEN 'stopped' WHEN run.payload IS NULL THEN 'blocked' ELSE 'automatic' END,
  'errorCode',${error('run.error')}) FROM automation_runs run WHERE run.automation_id=a.id AND run.created_at BETWEEN ?1 AND ?2 AND run.status IN('retryable_failure','terminal_failure') ORDER BY run.created_at DESC,run.id DESC LIMIT 1))) data FROM candidates a`,
  `WITH candidates AS(SELECT id,payload,created_at,attempts,terminal_at,last_error FROM event_outbox WHERE processed_at IS NULL AND (terminal_at IS NOT NULL OR attempts>=5) ORDER BY created_at,id LIMIT 51),
@@ -38,7 +38,7 @@ export const AUTOMATION_HEALTH_SQL=[`WITH candidates AS(
 interface Raw {bucket:string;id:string;rev:number;data:string}
 interface Target {id:string;rev:number|null;title:string;collection:string|null;boardId:string|null}
 type Row=
- |{bucket:'automation';id:string;rev:number;data:{name:string;databaseId:string|null;failedCount:number;lastRun:{id:string;createdAt:number;attempts:number;retryAt:number;recovery:RecoveryState;errorCode:string|null}}}
+ |{bucket:'automation';id:string;rev:number;data:{name:string;databaseId:string|null;failedCount:number;lastRun:{id:string;createdAt:number;attempts:number;retryAt:number;branch:number|null;recovery:RecoveryState;errorCode:string|null}}}
  |{bucket:'event';id:string;rev:number;data:{createdAt:number;attempts:number;recovery:RecoveryState;errorCode:string|null;sources:Target[]}}
  |{bucket:'approval';id:string;rev:number;data:{id:string;targetId:string;title:string;createdAt:number;collection:string|null;boardId:string|null}};
 export class AutomationHealthDenied extends Error {constructor(){super('forbidden');}}
@@ -64,7 +64,7 @@ export async function collectAutomationHealth(env:Env,userId:string,now=Date.now
   if(!row.data.sources.length||row.data.sources.length>4||row.data.sources.some(source=>source.rev===null||!decision.readable.has(source.id))){eventPartial=true;return [];}
   return [{id:row.id,createdAt:row.data.createdAt,attempts:row.data.attempts,recovery:row.data.recovery,errorClass:healthErrorClass(row.data.errorCode),sources:row.data.sources.map(source=>({id:source.id,title:source.title,url:sourceUrl(source.id,source.collection,source.boardId)}))}];
  });
- return {asOf:now,automations:autoRows.slice(0,50).filter(row=>decision.readable.has(row.id)).map(row=>({id:row.id,name:row.data.name,databaseId:row.data.databaseId,failedCount:row.data.failedCount,lastRunId:row.data.lastRun.id,lastFailedAt:row.data.lastRun.createdAt,attempts:row.data.lastRun.attempts,retryAt:row.data.lastRun.retryAt,recovery:row.data.lastRun.recovery,errorClass:healthErrorClass(row.data.lastRun.errorCode)})),
+ return {asOf:now,automations:autoRows.slice(0,50).filter(row=>decision.readable.has(row.id)).map(row=>({id:row.id,name:row.data.name,databaseId:row.data.databaseId,failedCount:row.data.failedCount,lastRunId:row.data.lastRun.id,branch:row.data.lastRun.branch,lastFailedAt:row.data.lastRun.createdAt,attempts:row.data.lastRun.attempts,retryAt:row.data.lastRun.retryAt,recovery:row.data.lastRun.recovery,errorClass:healthErrorClass(row.data.lastRun.errorCode)})),
  events:outEvents,forms:formReport.forms.filter(form=>form.failures.length>0).map(form=>({id:form.id,title:form.title,databaseId:form.databaseId,databaseName:form.databaseName,failed7Days:form.counts.last7Days.retryable_failure+form.counts.last7Days.rejected,failed30Days:form.counts.last30Days.retryable_failure+form.counts.last30Days.rejected,failures:form.failures})),
  approvals:approvalRows.slice(0,100).filter(row=>decision.readable.has(row.id)).map(row=>({id:row.data.id,targetId:row.id,title:row.data.title,createdAt:row.data.createdAt,url:sourceUrl(row.id,row.data.collection,row.data.boardId)})),
  partial:{automations:autoRows.length>50,events:eventPartial,forms:formReport.partial.forms,failures:formReport.partial.failures,approvals:approvalRows.length>100},scheduler:{available:false,reason:'not_recorded'}};

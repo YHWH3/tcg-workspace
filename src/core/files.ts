@@ -385,7 +385,7 @@ async function applyTranscriptToBlock(file: FileRow, text: string): Promise<void
 
 interface MediaAccess { uid: string | null; token: string | null; epoch: number }
 export function captureMediaAccess(): MediaAccess { return { uid: localStorage.getItem('ws_uid'), token: getToken(), epoch: accessClientStore.get().epoch }; }
-function mediaAccessCurrent(access: MediaAccess) {
+export function mediaAccessCurrent(access: MediaAccess) {
   const current = accessClientStore.get();
   return localStorage.getItem('ws_uid') === access.uid && getToken() === access.token && current.epoch === access.epoch
     && (current.manifest?.protocol !== PERMISSION_PROTOCOL || current.status === 'ready' || current.status === 'offline');
@@ -413,6 +413,34 @@ export async function cacheDownloadedFile(fileId: string, blob: Blob, access: Me
       return true;
     });
   } catch (error) { if (error instanceof MediaAccessChanged) return false; throw error; }
+}
+
+/** Reuse the authenticated media path for callers that need bytes without mounting an image. */
+async function fetchMediaBlob(fileId: string, access: MediaAccess, signal?: AbortSignal): Promise<Blob | undefined> {
+  if (!navigator.onLine || !access.token || !mediaAccessCurrent(access)) return;
+  const response = await fetch(`/api/files/${encodeURIComponent(fileId)}`, {
+    headers: { Authorization: `Bearer ${access.token}` }, signal,
+  });
+  if (!response.ok) return;
+  const blob = await response.blob();
+  if (mediaAccessCurrent(access) && !signal?.aborted) return blob;
+}
+
+export async function loadMoodboardImage(
+  fileId: string,
+  itemId: string,
+  access: MediaAccess,
+  signal: AbortSignal,
+): Promise<Blob | undefined> {
+  const file = await db.files.get(fileId);
+  const item = await db.mooditems.get(itemId);
+  if (!file || file.deleted || !item || item.deleted || item.fileId !== fileId) return;
+  const local = await db.blobs.get(fileId);
+  if (!mediaAccessCurrent(access) || signal.aborted) return;
+  const blob = local?.blob ?? await fetchMediaBlob(fileId, access, signal);
+  if (!blob || !blob.type.toLowerCase().startsWith('image/')) return;
+  const safe = await renderableBlob(blob);
+  if (safe.type.startsWith('image/') && mediaAccessCurrent(access) && !signal.aborted) return safe;
 }
 
 /**
@@ -450,12 +478,11 @@ export function useFileUrl(fileId: string | undefined, preferId?: string | undef
         return;
       }
       try {
-        const res = await fetch(`/api/files/${target}`, { headers: { Authorization: `Bearer ${getToken()}` } });
-        if (!res.ok) {
-          setMissing(true);
+        const blob = await fetchMediaBlob(target, access);
+        if (!blob) {
+          if (!cancelled) setMissing(true);
           return;
         }
-        const blob = await res.blob();
         const cached = await cacheDownloadedFile(target, blob, access, () => !cancelled);
         if (!cached || cancelled) return;
         revoke = URL.createObjectURL(await renderableBlob(blob));

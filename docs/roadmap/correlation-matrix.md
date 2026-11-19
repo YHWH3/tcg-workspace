@@ -87,7 +87,7 @@ manifests per README §5.
 | M6 | `0040_email_outbox.sql` | 10.2 |
 | M7 | `0041_web_push.sql` | 10.4 |
 | M8 | `0042_file_storage.sql` | 11 |
-| M9 | `0043_automation_branch.sql` | 12.4 |
+| M9 | `0043_automation_branches.sql` | 12.4 |
 | M10 | `0044_mention_groups.sql` (only if D13 = groups) | 13.3 |
 | M11 | `0045_share_passwords.sql` (only if requested) | 13.4 |
 

@@ -1,0 +1,96 @@
+{
+  "phase": 12,
+  "kind": "feature browser matrix",
+  "command": "npm run qa:ux -- --grep 'Chart view:|Automation branches:|Moodboard export:'",
+  "testedSha": "59b3c25b7980aec2f501f3cc82bdb9215c37662a",
+  "sourceFingerprint": "7e40e84971984516aa8ec33dda557e0db50ec021b85ccd4b6ac0be025e3cb23c",
+  "exitCode": 0,
+  "pass": 54,
+  "fail": 0,
+  "skip": 0,
+  "profiles": 18,
+  "artifactDirectory": ".artifacts/ux-lab/2026-11-15T11-38-18.685Z",
+  "summarySha256": "3c7099f86313fa4a9b23d653e88c61ba9e24826b68b41ffda71cb1c436ed1484",
+  "profilesPassed": [
+    {
+      "project": "chromium-compact-light",
+      "exitCode": 0
+    },
+    {
+      "project": "chromium-compact-dark",
+      "exitCode": 0
+    },
+    {
+      "project": "chromium-tablet-light",
+      "exitCode": 0
+    },
+    {
+      "project": "chromium-tablet-dark",
+      "exitCode": 0
+    },
+    {
+      "project": "chromium-desktop-light",
+      "exitCode": 0
+    },
+    {
+      "project": "chromium-desktop-dark",
+      "exitCode": 0
+    },
+    {
+      "project": "firefox-compact-light",
+      "exitCode": 0
+    },
+    {
+      "project": "firefox-compact-dark",
+      "exitCode": 0
+    },
+    {
+      "project": "firefox-tablet-light",
+      "exitCode": 0
+    },
+    {
+      "project": "firefox-tablet-dark",
+      "exitCode": 0
+    },
+    {
+      "project": "firefox-desktop-light",
+      "exitCode": 0
+    },
+    {
+      "project": "firefox-desktop-dark",
+      "exitCode": 0
+    },
+    {
+      "project": "webkit-compact-light",
+      "exitCode": 0
+    },
+    {
+      "project": "webkit-compact-dark",
+      "exitCode": 0
+    },
+    {
+      "project": "webkit-tablet-light",
+      "exitCode": 0
+    },
+    {
+      "project": "webkit-tablet-dark",
+      "exitCode": 0
+    },
+    {
+      "project": "webkit-desktop-light",
+      "exitCode": 0
+    },
+    {
+      "project": "webkit-desktop-dark",
+      "exitCode": 0
+    }
+  ],
+  "scope": [
+    "Chart creation, configuration, keyboard drill-down, data table, enlarged text",
+    "Conditional automation conversion, ordering, persistence, reload and caption fitting",
+    "Moodboard standalone SVG and PNG bytes, embedded raster media, missing media, selection and print layout"
+  ],
+  "physicalDevice": false,
+  "genuineHumanApproval": false,
+  "mandatoryPhaseCertificate": "pending"
+}

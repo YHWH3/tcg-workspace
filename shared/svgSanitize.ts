@@ -9,6 +9,8 @@ export type SanitizeResult = { ok: true; svg: string } | { ok: false; reasons: s
 
 export const SVG_MAX_BYTES = 1024 * 1024;
 export const SVG_MAX_NODES = 20_000;
+export const MOODBOARD_SVG_MAX_BYTES = 8 * 1024 * 1024;
+export const RASTER_DATA_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
 
 const ALLOWED_ELEMENTS = new Set([
   'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
@@ -231,21 +233,29 @@ function tokenize(input: string): { root: El } | { error: string } {
 }
 
 /** Keep allowlisted elements only — anything else is dropped with its whole subtree. */
-function filterEl(el: El): El | null {
-  if (!ALLOWED_ELEMENTS.has(el.name)) return null;
+function filterEl(el: El, moodboardExport: boolean): El | null {
+  const raster = moodboardExport && el.name === 'image';
+  if (!raster && !ALLOWED_ELEMENTS.has(el.name)) return null;
   const seen = new Set<string>();
   const attrs: [string, string][] = [];
   for (const [name, raw] of el.attrs) {
     if (seen.has(name)) continue;
     const value = decodeEntities(raw);
-    if (!attrAllowed(name, value)) continue;
+    if (raster) {
+      if (name === 'href') {
+        if (!RASTER_DATA_URL.test(value)) continue;
+      } else if (!['x', 'y', 'width', 'height', 'preserveAspectRatio'].includes(name)) continue;
+    } else if (moodboardExport && name === 'stroke-dasharray') {
+      if (!/^[0-9., ]+$/.test(value)) continue;
+    } else if (!attrAllowed(name, value)) continue;
     seen.add(name);
     attrs.push([name, value]);
   }
+  if (raster) return seen.has('href') ? { name: 'image', attrs, children: [] } : null;
   const children: Child[] = [];
   for (const c of el.children) {
     if ('name' in c) {
-      const f = filterEl(c);
+      const f = filterEl(c, moodboardExport);
       if (f) children.push(f);
     } else {
       children.push({ text: c.cdata ? c.text : decodeEntities(c.text), cdata: c.cdata });
@@ -278,17 +288,19 @@ function walk(el: El, fn: (e: El) => void): void {
  * Sanitize an SVG document. Drops disallowed elements/attributes (with their
  * subtrees); rejects fatally when input exceeds limits or has no <svg> root.
  */
-export function sanitizeSvg(input: unknown): SanitizeResult {
+export function sanitizeSvg(input: unknown, options: { moodboardExport?: boolean } = {}): SanitizeResult {
+  const { moodboardExport = false } = options;
+  const maximum = moodboardExport ? MOODBOARD_SVG_MAX_BYTES : SVG_MAX_BYTES;
   if (typeof input !== 'string') return { ok: false, reasons: ['input-not-string'] };
-  if (new TextEncoder().encode(input).length > SVG_MAX_BYTES) {
-    return { ok: false, reasons: [`input-exceeds-${SVG_MAX_BYTES}-bytes`] };
+  if (new TextEncoder().encode(input).length > maximum) {
+    return { ok: false, reasons: [`input-exceeds-${maximum}-bytes`] };
   }
   if (!input.trim()) return { ok: false, reasons: ['empty-input'] };
   const parsed = tokenize(input);
   if ('error' in parsed) return { ok: false, reasons: [parsed.error] };
   const svgEl = parsed.root.children.find((c): c is El => 'name' in c && c.name === 'svg');
   if (!svgEl) return { ok: false, reasons: ['no-svg-root'] };
-  const filtered = filterEl(svgEl);
+  const filtered = filterEl(svgEl, moodboardExport);
   if (!filtered) return { ok: false, reasons: ['no-svg-root'] };
   let usesXlink = false;
   walk(filtered, (e) => {

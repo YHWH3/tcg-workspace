@@ -134,6 +134,25 @@ check('view visible in overview', (ovV.viewsByBoard?.[dbId] ?? []).some((x) => x
 const uv = j(await call('update_view', { viewId: v.id, filters: [{ field: 'Health', op: 'is_not', value: 'On track' }] }));
 check('update_view ok', !uv.error && !!uv.id, JSON.stringify(uv).slice(0, 160));
 
+// Saved charts compute over the entire matching record set before pagination.
+const chartView = j(await call('add_view', {
+  databaseId: dbId, name: 'Health chart', type: 'chart',
+  chart: {chartType:'bar', xKey:'Health', yAgg:'count'},
+}));
+check('add_view saves a chart by field name', !!chartView.id);
+const chartUpdate = j(await call('update_view', {
+  viewId: chartView.id, chart: {chartType:'line', xKey:'Health', yAgg:'sum', yKey:'Budget'},
+}));
+check('update_view saves chart aggregation', chartUpdate.id === chartView.id);
+const chartQuery = j(await call('query_records', {databaseId:dbId, viewId:chartView.id, limit:1}));
+check('query_records chart totals precede pagination and exclude subrecords',
+  chartQuery.rows?.length === 1 && chartQuery.chart?.matched === 2 &&
+  chartQuery.chart.series[0].points.reduce((sum,point) => sum+point.value,0) === 10);
+const badChart = j(await call('update_view', {
+  viewId:chartView.id, chart:{chartType:'line', xKey:'Health', yAgg:'sum', yKey:'Health'},
+}));
+check('chart rejects a nonnumeric aggregation field', !!badChart.error);
+
 // query_records filter + sort + include
 const risk = j(await call('query_records', { databaseId: dbId, filters: [{ field: 'Health', op: 'is', value: 'At risk' }] }));
 check('query filter eq -> Borealis', risk.rows?.length === 1 && risk.rows[0].title === 'Borealis', JSON.stringify(risk).slice(0, 240));

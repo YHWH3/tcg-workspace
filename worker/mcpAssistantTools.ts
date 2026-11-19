@@ -7,6 +7,7 @@ import {ResourceTemplate} from '@modelcontextprotocol/server';
 import {z} from 'zod';
 import type {Env} from './auth';
 import {scanCollection} from './records';
+import type {AutomationAction,AutomationBranch} from '../shared/automations';
 import {AI_ACTIONS} from '../shared/aiActions';
 import {WORKFLOW_SAFETY} from '../shared/aiWorkflows';
 import {CAPABILITIES} from '../shared/aiCapabilities';
@@ -14,18 +15,25 @@ import {CAPABILITIES} from '../shared/aiCapabilities';
 type ToolResult={content:{type:'text';text:string}[];isError?:boolean};
 export type ToolHandler=(args:Record<string,unknown>)=>Promise<ToolResult>;
 interface Ctx {env:Env;userId:string;origin:string}
+const actionTypes=(actions:AutomationAction[]|undefined)=>Array.isArray(actions)?actions.map(action=>action?.type??'unknown'):[];
 const txt=(value:unknown):ToolResult=>({content:[{type:'text',text:JSON.stringify(value)}]});
 
-interface AutomationConfig {name?:string;enabled?:boolean|number;trigger?:{type?:string;[k:string]:unknown};conditions?:unknown[];actions?:{type?:string}[];boardId?:string}
+interface AutomationConfig {name?:string;enabled?:boolean|number;trigger?:{type?:string;[k:string]:unknown};conditions?:unknown[];actions?:AutomationAction[];branches?:AutomationBranch[];otherwise?:AutomationAction[];boardId?:string}
 
 export function registerAssistantTools(server:McpServer,c:Ctx,handlers:Map<string,ToolHandler>){
- server.registerTool('list_automations',{description:'Authorized automation rules described in plain language with their recent run outcomes (status/error only). Read-only: never enables, edits or runs an automation.',inputSchema:z.object({limit:z.number().int().min(1).max(50).optional(),cursor:z.string().optional()}),annotations:{readOnlyHint:true}},async a=>{
+ server.registerTool('list_automations',{description:'Authorized automation rules described in plain language with their recent run outcomes (status, selected branch and error). Read-only: never enables, edits or runs an automation.',inputSchema:z.object({limit:z.number().int().min(1).max(50).optional(),cursor:z.string().optional()}),annotations:{readOnlyHint:true}},async a=>{
   let after:{o:string;id:string}|null=null;
   if(a.cursor){try{after=JSON.parse(atob(a.cursor));}catch{return {...txt({error:'invalid cursor'}),isError:true};}}
   const page=await scanCollection(c.env,'automations',{limit:a.limit??25,after,by:'id'});
   const ids=page.rows.map(r=>r.id);
-  const runs=ids.length?(await c.env.DB.prepare(`SELECT automation_id,status,error,created_at FROM (SELECT automation_id,status,error,created_at,ROW_NUMBER() OVER(PARTITION BY automation_id ORDER BY created_at DESC) n FROM automation_runs WHERE automation_id IN(SELECT value FROM json_each(?))) WHERE n<=5`).bind(JSON.stringify(ids)).all<{automation_id:string;status:string;error:string|null;created_at:number}>()).results:[];
-  return txt({automations:page.rows.map(r=>{const d=r.data as AutomationConfig;return {id:r.id,name:d.name??'Untitled automation',enabled:d.enabled!==false&&d.enabled!==0,boardId:d.boardId??null,trigger:d.trigger?.type??'unknown',triggerDetail:d.trigger??null,conditions:Array.isArray(d.conditions)?d.conditions.length:0,actions:(d.actions??[]).map(x=>x?.type??'unknown'),sourceRev:r.rev,recentRuns:runs.filter(x=>x.automation_id===r.id).map(x=>({status:x.status,error:x.error?String(x.error).slice(0,300):null,at:x.created_at})),trust:{untrusted:true}};}),nextCursor:page.next?btoa(JSON.stringify(page.next)):null});
+  const runs=ids.length?(await c.env.DB.prepare(`SELECT automation_id,status,error,created_at,branch FROM (SELECT automation_id,status,error,created_at,branch,ROW_NUMBER() OVER(PARTITION BY automation_id ORDER BY created_at DESC) n FROM automation_runs WHERE automation_id IN(SELECT value FROM json_each(?))) WHERE n<=5`).bind(JSON.stringify(ids)).all<{automation_id:string;status:string;error:string|null;created_at:number;branch:number|null}>()).results:[];
+  return txt({automations:page.rows.map(r=>{const d=r.data as AutomationConfig;return {id:r.id,name:d.name??'Untitled automation',enabled:d.enabled!==false&&d.enabled!==0,boardId:d.boardId??null,trigger:d.trigger?.type??'unknown',triggerDetail:d.trigger??null,conditions:Array.isArray(d.conditions)?d.conditions.length:0,actions:actionTypes(d.actions),...(Array.isArray(d.branches)?{
+   branches:d.branches.slice(0,5).map(branch=>({
+    conditions:Array.isArray(branch?.conditions)?branch.conditions.length:0,
+    actions:actionTypes(branch?.actions),
+   })),
+   otherwise:actionTypes(d.otherwise),
+  }:{}),sourceRev:r.rev,recentRuns:runs.filter(x=>x.automation_id===r.id).map(x=>({status:x.status,error:x.error?String(x.error).slice(0,300):null,at:x.created_at,branch:x.branch})),trust:{untrusted:true}};}),nextCursor:page.next?btoa(JSON.stringify(page.next)):null});
  });
 
  // Read-only resources: identical authorization to the tools they delegate to.

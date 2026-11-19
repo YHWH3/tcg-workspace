@@ -550,6 +550,33 @@ describe('Phase 4 real D1 deadline indexing and reminder recovery', () => {
     expect((await db.prepare("SELECT user_id,group_count FROM notifications WHERE kind='automation'").all()).results).toEqual([{ user_id: 'bob', group_count: 1 }]);
   });
 
+  it('keeps a branch and its event snapshot fixed through replay before planning', async () => {
+    await seedDates();
+    const branches = [
+      { conditions: [{ key: 'title', op: 'is', value: 'Deadline' }], actions: [{ type: 'create_record', databaseId: 'board', title: 'First match for {{record.title}}' }] },
+      { conditions: [], actions: [{ type: 'create_record', databaseId: 'board', title: 'Later match' }] },
+    ];
+    await applyChanges(env, 'alice', [mutation('automation', {
+      databaseId: 'board', name: 'Routing rule', trigger: { kind: 'record.created' }, branches,
+    }, 101, 'automations')]);
+    const event = (await db.prepare('SELECT id FROM event_outbox').first<{ id: string }>())!;
+    await db.prepare("CREATE TRIGGER claim_interrupted BEFORE UPDATE ON automation_runs WHEN NEW.status='running' BEGIN SELECT RAISE(ABORT,'interrupted before plan'); END").run();
+    await expect(processOutbox(env, event.id)).rejects.toThrow('interrupted before plan');
+    expect(await db.prepare('SELECT status,branch,plan FROM automation_runs').first()).toMatchObject({ status: 'pending', branch: 0, plan: null });
+
+    await db.prepare('DROP TRIGGER claim_interrupted').run();
+    await applyChanges(env, 'alice', [
+      mutation('automation', { branches: [branches[1], branches[0]] }, 102, 'automations'),
+      mutation('dated', { title: 'Changed after the event' }, Date.now()),
+    ]);
+    await processOutbox(env, event.id);
+    await recoverAutomationRuns(env);
+    const runs = await db.prepare('SELECT status,branch,attempts FROM automation_runs').all();
+    expect(runs.results).toEqual([{ status: 'completed', branch: 0, attempts: 1 }]);
+    const titles = await db.prepare("SELECT json_extract(data,'$.title') title FROM records WHERE collection='tasks' ORDER BY title").all();
+    expect(titles.results).toEqual([{ title: 'Changed after the event' }, { title: 'First match for Deadline' }]);
+  });
+
   it.each([false, true])('undo after an automation (incomplete=%s) cancels further recovery and removes its created record', async incomplete => {
     await seedDates();
     await applyChanges(env, 'alice', [mutation('automation', {

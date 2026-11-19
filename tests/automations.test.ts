@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   automationDbId,
   conditionsMatch,
+  selectAutomationBranch,
   matchesScope,
   matchesTrigger,
   renderTemplate,
@@ -279,5 +280,36 @@ describe('tcg-pack automations + forms (install pipeline)', () => {
       const errors = validateAutomation(cfg as AutomationConfig, { boardsById, formIds: Object.keys(bundle.snapshot.forms ?? {}) });
       expect(errors, `${id}: ${errors.join('; ')}`).toEqual([]);
     }
+  });
+});
+
+describe('conditional branches', () => {
+  const action = { type: 'set_field', fieldKey: 'title', value: 'Handled' } as const;
+  const conditions = [{ key: 'status', op: 'is', value: 'todo' }] as const;
+  const config: AutomationConfig = {
+    name: 'Branch example', databaseId: 'db1', trigger: { kind: 'record.created' },
+    branches: [
+      { conditions: [...conditions], actions: [action] },
+      { conditions: [], actions: [action] },
+    ],
+    otherwise: [action],
+  };
+
+  it('uses the first matching branch, then Otherwise, and skips when neither applies', () => {
+    const row = { id: 'r1', status: 'todo' };
+    expect(selectAutomationBranch(config, row)).toBe(0);
+    expect(selectAutomationBranch(config, { ...row, status: 'done' })).toBe(1);
+    const singleBranch = { ...config, branches: config.branches!.slice(0, 1) };
+    expect(selectAutomationBranch(singleBranch, { ...row, status: 'done' })).toBe(-1);
+    expect(selectAutomationBranch({ ...singleBranch, otherwise: null }, { ...row, status: 'done' })).toBeUndefined();
+    expect(selectAutomationBranch({ ...config, branches: undefined, conditions: [...conditions] }, row)).toBeNull();
+  });
+
+  it('validates branch limits, conditions and every action list with the same rules as legacy', () => {
+    expect(validateAutomation(config)).toEqual([]);
+    expect(validateAutomation({ ...config, branches: Array(6).fill(config.branches![0]) })).toContain('Add one to five branches');
+    expect(validateAutomation({ ...config, branches: [{ conditions: [], actions: Array(11).fill(action) }] })).toContain('Branch 1: at most 10 actions');
+    expect(validateAutomation({ ...config, otherwise: [{ type: 'create_record' }] })).toContain('Otherwise: action 1: title is required');
+    expect(validateAutomation({ ...config, branches: [{ conditions: [{ key: 'dueDate', op: 'before', value: 'not a date' }], actions: [action] }] })).not.toEqual([]);
   });
 });

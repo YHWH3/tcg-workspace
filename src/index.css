@@ -74,6 +74,8 @@ textarea {
   field-sizing: content;
 }
 
+.moodboard-print { display: none; }
+
 /* Print exports are intentionally light and content-first. The app shell,
  * navigation, toolbars and interactive affordances do not belong in a PDF. */
 @media print {
@@ -87,6 +89,10 @@ textarea {
   img, pre, table, blockquote { break-inside: avoid; }
   a[href^='http']::after { content: ' (' attr(href) ')'; font-size: .8em; overflow-wrap: anywhere; }
   .ws-record-properties { break-inside: avoid; }
+  body:has(> .moodboard-print) > #root,
+  body:has(> .moodboard-print) > :not(.moodboard-print) { display: none !important; }
+  .moodboard-print { display: block; }
+  .moodboard-print img { width: auto; height: auto; max-width: 100%; max-height: 235mm; object-fit: contain; }
 }
 
 /* Safe-area insets on all four edges, applied once at the owning edge. */

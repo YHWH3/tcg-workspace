@@ -67,6 +67,14 @@ explicit stress repeats. No mandatory gate or test assertion is removed.
 The selection contract is part of resume eligibility, so pre-partition gates
 cannot supply evidence for the new contract.
 
+## Early security stop
+
+The current npm audit runs immediately after dependency and lockfile checks,
+before unit, D1, build or workflow execution. A failed security assessment
+ends execution and leaves every remaining mandatory gate NOT RUN. It retains
+the raw audit and exits nonzero. High and critical findings remain blocking;
+no advisory exceptions are introduced.
+
 ## Tooling verification
 
 ```sh

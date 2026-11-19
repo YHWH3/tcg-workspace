@@ -145,6 +145,9 @@ planned work, L = inconsistency.
 | N51 | M | Notification checkboxes reverted while saving because the displayed preference changed only after the server response. | First Phase 10 compact browser run failed the native checkbox assertion. | Local preference updates immediately, with pending and conflict feedback retained. Corrected 72/72 affected browser checks passed on e75b0cd. |
 | N52 | M | A late push-service response could delete or complete a subscription renewed with different keys. | Added actual-D1 regressions for key changes during 201 and 410 responses. | Receipt and deletion fences now include the subscription keys. All 11 push D1 tests passed and the 3259d03 mandatory certificate passed 34/34. |
 | N53 | M | Interrupted sign-out cleanup could leave a browser push endpoint for the previous account. A later account kept reusing it and received an ownership conflict on every retry. | New push-client regression failed against 3259d03 with the actual client helpers and local IndexedDB. | Enable now replaces subscriptions without a matching local account/session marker. Five focused client/service-worker checks and the recovery journey across all 18 browser profiles pass on 72e2b31. Final-source certification passed all 34 mandatory gates on 454ee5c; see evidence/P10-certification.json. |
+| N54 | H | Current dependency audit blocks Phase12 on unpatched picomatch GHSA-fc5q-39xc-vjpf, propagated as14 high package entries. | Resumed1689393 run passed1195 unit and976 D1 checks, then failed security. Advisory reviewed17Nov2026 lists no patched version; npm latest4.0.7 is affected. | HOLD. Compatible Hono patches applied; security now stops certification before heavy gates. No exception or threshold relaxation. |
+| N55 | L | One-day TLS renewal fixture could be checked in its creation second, when OpenSSL still accepts equality at86400 seconds. |18Nov98764a4 harness149PASS/1FAIL. |1689393 waits across that boundary with async cleanup; focused3/3 and subsequent150/150 harness PASS. |
+| N56 | M | Certification resume refused its already generated, byte-identical unit-selection manifest. |15Novdf8e2f8 EEXIST on actual resume. |98764a4 verifies confined paths and exact bytes before accepting existing artifacts.43 focused checks PASS and18Nov actual resume reused five gates successfully. |
 
 Add new findings as N54+ with the same columns.
 
@@ -164,4 +167,4 @@ Add new findings as N54+ with the same columns.
 | D10 | Share link default expiry | 9.7 | None by default; optional 7/30/90 days |
 | D11 | Permission activation go-ahead, space structure, guest policy | Track A | After release is stable |
 | D12 | Delivered-body retention (website relay), CA sign-off for terms/refunds/delivery pages, sample Patron cards | Release | Owner/CA |
-| D13 | Group mentions: use spaces as groups, or separate mention groups | 13.3 | Spaces |
+| D13 | Group mentions: use spaces as groups, or separate mention groups | 13.3 | Owner selected existing spaces in this chat, 2026-11-15. |

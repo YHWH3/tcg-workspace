@@ -1,9 +1,11 @@
 # Next phases progress
 
-Execution started 2026-10-25. Phase 10 on `sol/p10-notifications` has complete
-local engineering certification at `454ee5c` (draft PR #19, stacked on
-`sol/p9-everyday`). Phase 11 is next. Earlier checkpoints below retain their
-original source and status; later entries supersede pending phase decisions.
+Execution started 2026-10-25. Phase 12 has complete local engineering
+certification at `fb3a0bd`, with all 34 mandatory gates PASS, and draft PR #21.
+The certificate resumed six verified gates and ran D1 and the remaining gates
+afresh. Evidence is indexed in `evidence/P12-certification.json`. Phase 13 is
+next, using existing Spaces for group mentions under owner decision D13.
+Earlier checkpoints retain their original source and status.
 Release branch `sol/r1-date-window` is certified at `0888525` and is based
 on plan-only commit `6d02933` (application unchanged from `528b889`). Original
 integration branches and existing PRs remain unchanged.
@@ -1278,3 +1280,249 @@ Physical iPhone/iPad and Android, manual assistive technology, native 400%
 browser zoom, owner R2 account checkout/provisioning and paired live backup
 acceptance remain external. Owner setup is described in
 `docs/roadmap/11-storage-runbook.md`. Draft PR #20 carries this phase.
+
+## Phase 12 — Database power
+
+The independent chart work started in a separate worktree on
+`sol/p12-database-power`, based on Phase 11 application source `6673d6f`.
+Phase 8's completed certificate and draft PR #17 satisfy the chart's local
+predecessor requirement. Phase 11 certification continues in its own worktree.
+
+### 12.1 and 12.2 usage gate
+
+General rollups and formulas remain deferred. The ledger shows that the focused
+project health, budget, product economics and measurement surfaces passed
+local qualification. It has no evidence of two team workflows that require
+general rollups or formulas beyond those focused tools.
+
+### 12.3 chart view checkpoint
+
+Database chart views support bar, stacked bar and line plots, saved native
+controls, keyboard and table drill-down, and embedding through the existing
+view block. Charts share live view and aggregate behavior with MCP
+`query_records`. A saved chart's series summarizes all authorized matching
+root records, before row pagination. The response omits per-point record IDs
+to keep the series bounded. An explicit limit applies above 5,000 source rows.
+Plots show at most 60 horizontal groups and 12 series with a notice when limited.
+
+The build, typecheck, 40 view tests and 41 local MCP assertions passed.
+Compact dark WebKit passed the new chart UI journey. The first runner command
+used a test-title anchor and selected no tests. The expanded journey exposed
+teardown racing creation, then passed after waiting for server acknowledgement.
+The local reports are in this worktree's `.artifacts/ux-lab/` and
+`.artifacts/phase12/mcp-chart-first/`. The full profile matrix and phase-end
+certificate remain pending.
+
+### 12.4 automation branches checkpoint
+
+Conditional rules run the first matching branch or the Otherwise actions.
+Legacy rules keep their previous shape and behavior. The editor copies the
+existing path into Branch 1 on conversion and supports keyboard ordering.
+The run journal freezes the index and event payload at first insertion,
+including when an outbox replay follows a rule edit before planning. Run
+history, administrator health and the read-only MCP inventory expose the
+selected path. Branch and Otherwise references use the existing canonical
+mutation authorization.
+
+Migration `0043_automation_branches.sql` is additive. NULL represents a legacy
+run, 0–4 are the branch positions at execution, and -1 identifies Otherwise.
+The migration hash is registered. Packaging preflight passed 16/16 and its
+self-tests passed 7/7.
+
+The four focused suites initially passed 85 of 86 tests. The remaining test
+used an event-outbox retry column that does not exist. It passed after that
+fixture statement was removed, together with the new branch-reference access
+regression. Compact dark WebKit passed keyboard conversion and ordering,
+relative date controls, server persistence, reload and 200% text reflow.
+Report: `.artifacts/ux-lab/2026-11-15T10-28-29.519Z/summary.json` in the Phase 12
+worktree. The full browser matrix and clean-source phase certificate remain
+pending.
+
+### 12.5 moodboard export checkpoint
+
+Whole-board and selected-item exports use the stored canvas bounds, including
+negative coordinates, connectors, notes, shapes, diagrams and linked-item
+titles. Images use the existing authenticated media path and local blobs,
+then rasterize into embedded data. Missing or oversized media gets a labeled
+placeholder. Scope, account, session and access generation are checked during
+preparation and before download. The current space export policy applies.
+
+The export uses a responsive preview and SVG, PNG and print/PDF controls.
+Printing hides the rest of the application. Raster output is limited to
+4096 pixels on its longest edge. A maximum of 600 items, six MiB of embedded
+image data and eight MiB of sanitized SVG bounds local work. These are
+implementation limits chosen for browser memory and encoded-file size.
+Uploaded SVG serving retains the existing sanitizer defaults. The export
+option accepts only embedded raster image data and rejects external URLs.
+
+Export and sanitizer tests passed 34/34. Compact dark WebKit verified actual
+SVG and PNG files, embedded image data, missing-media status, keyboard
+selection, focus restoration, print CSS and enlarged text. Its report is
+`.artifacts/ux-lab/2026-11-15T11-15-17.535Z/summary.json` in this worktree.
+The first browser assertion expected an escaped tag to stay on one wrapped
+line. The revised assertion reads the joined text. The next run found an
+existing print display rule overriding shell hiding. Corrected specificity
+passed the workflow. These interrupted reports are retained.
+
+The feature matrix across 18 engine/viewport/theme profiles and the complete
+phase-end certificate are still required.
+
+### Phase 12 reflow corrections and Turnpack adoption
+
+The first matrix passed six Chromium profiles, then stopped on compact Firefox.
+Firefox found an enlarged-text navigation target obscured by the capture
+button. Its image decoder also rejected the synthetic test PNG, while the
+other engines accepted it. The fixture now uses a CRC-valid generated image.
+Visual review separately found clipped branch names and selected captions
+inside nested editor padding, although the geometry gate had passed.
+The editor uses full rows and bounded padding. A new caption-width assertion
+checks every selected caption at 200% text. The capture button keeps a fixed
+48-pixel visual diameter and a reserved 56-pixel column.
+
+The corrected compact WebKit and Firefox profiles passed all six workflows
+in .artifacts/ux-lab/2026-11-15T11-36-09.276Z/. A subsequent small export text
+change preserves grapheme boundaries and prefers word wrapping. All 34 export
+and sanitizer tests passed after that change. A final committed-source
+18-profile matrix is next. Draft PR #21 is open.
+
+The owner requested OnlyTerp/turnpack for the remaining work. Version 0.2.0
+is pinned outside the application at
+/Users/trinity/.codex/tools/turnpack-0.2.0. The published package git head is
+5eeda36c7947be5fef897f19c89c98f20024db00. The repository reviewed at adoption
+was b14330d766479811f11d6ab8cb3caf7398bcade8. Local doctor passed its seven
+checks, including MCP handshake, workspace confinement and read-only batch.
+The disposable demo passed all five steps, including failed-test rollback.
+The local MCP bridge at that tool directory's invoke.mjs accepts a tool name
+and explicit worktree root, then JSON arguments on stdin. It pins the
+server to that worktree and writes metadata-only logs under
+.artifacts/tooling/turnpack.jsonl. It has already used pack and ship on this
+phase.
+
+Use pack for grouped context, ship for coupled edits with the narrow relevant
+check and batch for multi-file summaries. Retain the existing phase-end
+certification runner for mandatory long checks. The application adds no
+Turnpack runtime dependency. Tool installation and invocation require no
+change to the user's application-wide MCP configuration. The README's
+small rename benchmark does not establish savings for this roadmap.
+
+Owner decision D13 is recorded as existing spaces for group mentions.
+Phase 13 implementation follows Phase 12 verification.
+
+### Phase 12 feature matrix acceptance
+
+Committed source `59b3c25b7980aec2f501f3cc82bdb9215c37662a` passed all 54
+feature checks across 18 browser/viewport/theme profiles, with no skips,
+unexpected results or retries. The source fingerprint stayed unchanged.
+Evidence is recorded in `docs/roadmap/evidence/P12-feature-matrix.json`.
+The features are locally qualified. The mandatory phase certificate is next
+and the phase remains HOLD until it finishes. Draft PR #21 carries the source.
+
+### Phase 12 certification recovery correction
+
+The first certificate startup required local dependency metadata. Installing
+the locked packages in this worktree resolved it. The next run passed nine
+gates, including all 1,195 unit-gate checks and the build. It then stopped
+during D1 after a measured 902,549 ms host pause at 12:12 UTC. Its summary is
+PARTIAL, with no failed engineering assertion and an incomplete D1 gate.
+
+The first resume attempt reproduced a runner defect. The orchestrator writes
+unit-selection.json before artifact reuse, while the copier refused any
+existing destination. Identical generated selection bytes caused EEXIST.
+The correction accepts an existing file only after confined-path and exact
+hash verification. Differing content is refused before copying any file.
+All 43 focused resume tests passed, including both new regressions.
+
+Reports under the df8e2f8 certification directories at 11:47:17, 11:47:52
+and 12:59:10 are retained. Source changed to correct the harness, so a fresh
+certificate is required. It will use a labelled test checkpoint after the
+unit gate to exercise the corrected actual resume path, then continue the
+remaining mandatory gates. The application source from the passing 54-case
+matrix has not changed. The phase remains HOLD pending full certification.
+
+### Phase 12 certification restart on 18 November
+
+The 15 November checkpoint is outside the runner's 24-hour reuse window.
+A fresh run on 98764a4 exposed a timing-dependent TLS harness assertion,
+with 149/150 harness checks passing. The one-day certificate fixture was
+checked in its creation second, when OpenSSL can still accept equality at
+its 86,400-second threshold. The renewal test now crosses the one-second
+boundary before checking. Its asynchronous fixture retains cleanup until
+the assertion finishes. The application and TLS renewal policy are unchanged.
+The failed report at 2026-11-18T10-19-48-555Z is retained. The run was stopped
+early to avoid continuing long gates after a known harness failure. A fresh
+committed-source certificate and actual resume-path check remain required.
+
+### Phase 12 security blocker on 18 November
+
+Source `168939307893cc59858d8a304de669c40b25be6c` passed all 1,195 unit
+checks and 976 D1 checks. Its labelled unit checkpoint resumed successfully,
+verifying five reused gates and saving about 6.19 minutes. No actual host pause
+was detected. The resumed certificate then failed the current security gate.
+The remaining run was stopped. Its partial MCP Phase 2 output and raw failure
+statuses are retained as interrupted evidence.
+
+The advisory GHSA-fc5q-39xc-vjpf affects `picomatch <=4.0.7`, currently the
+latest published version, and lists no patched release. Fourteen high package
+entries propagate this one advisory. No exception or threshold change is made.
+Phase 12 remains HOLD. Phase 13 cannot start under README section 4 while this
+mandatory gate fails. Its implementation preflight is saved in
+`13-polish-preflight.md`, including the existing-spaces decision D13.
+
+Compatible patches update Hono from 4.13.13 to 4.13.19 and the transitive
+Node server from 2.1.3 to 2.1.6 with exact pins. Typechecking, build, dependency
+tree validation and all 150 harness checks pass. On committed source `c6c4c9e`,
+focused MCP checks pass 94/94 and canvas MCP checks pass 113/113. These are
+compatibility checks rather than full certification.
+
+Certification now checks security immediately after dependency and lockfile
+validation. Actual committed-source proof on `c6c4c9e` exits 1 after security,
+with three prerequisite gates PASS and all 30 later gates NOT RUN. No unit or
+D1 result was generated. The audit retains 14 high and two moderate package
+entries. Evidence and hashes are in `evidence/P12-certification-hold.json`;
+review and continuation are in `../reviews/phase-12-dependency-security.md`.
+No long suite will be rerun while this known security blocker remains.
+
+### Owner decision: retain the Phase 12 gate
+
+On 18 November 2026, the owner explicitly chose “Wait for the Phase 12
+security fix” instead of starting Phase 13 while certification remains HOLD.
+Keep Phase 13 at preflight only. After a compatible security fix is available,
+verify the audit first, then complete certification on the updated committed
+source. Phase 13 begins only after Phase 12 acceptance. Release remains HOLD.
+
+### Phase 12 dependency remediation on resume
+
+The fresh audit on `74e5d14` still reported 14 high and two moderate package
+entries. A Workbox-only override now resolves `glob` to `14.0.6`, which brings
+in `minimatch` `11.0.9`. Workbox uses `globSync` to enumerate precache assets.
+The production build succeeds and emits byte-identical `dist/client/sw.js`
+before and after the update, with 38 precache entries. The installed
+dependency tree and npm lockfile dry run both pass.
+
+The updated audit reports zero moderate or critical entries. Its 14 high
+entries still trace to the same `picomatch` advisory, GHSA-fc5q-39xc-vjpf.
+GitHub lists no patched version, npm still publishes `4.0.7` as latest, and
+the proposed upstream fixes checked on resume are unmerged. Phase 12 stays
+HOLD and Phase 13 remains at preflight under the recorded owner decision.
+
+### Phase 12 accepted on 19 November 2026
+
+The upstream advisory GHSA-fc5q-39xc-vjpf was withdrawn on18 November at
+15:38:56 UTC. The fresh npm audit on`fb3a0bd` reports zero vulnerabilities.
+The owner-paused certificate resumed within the same-source freshness window.
+It verified and reused six gates, including all1195 unit checks and the build,
+saving6.20 minutes. D1 reran and passed976 checks. All34 mandatory gates pass,
+with zero skips or failed gates and no detected host pause in the resumed run.
+
+The resumed run started2026-11-19T05:10:01.659Z and completed at
+2026-11-19T05:50:35.495Z. The tested SHA is
+`fb3a0bdecb23cd1f6dc7dbf6b1a63594dcce0982`, tree
+`2593d6bb333ffe0b4682b2c5155f9199d4aabeee`. Exact fingerprints, versions,
+logs, hashes and reuse are recorded in`evidence/P12-certification.json`.
+Historical HOLD and interrupted reports remain retained.
+
+Decision ENGINEERING GO / EXTERNAL BLOCKED. Physical iOS/Android, manual
+assistive technology, native400%zoom and owner production/provider activation
+remain unavailable external gates. Phase13 implementation may now start under
+the approved sequence. Optional formulas/rollups remain deferred by the usage
+gate, and optional Phase13 features retain their original request conditions.

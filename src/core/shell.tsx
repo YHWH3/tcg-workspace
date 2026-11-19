@@ -617,8 +617,8 @@ export function Shell() {
             {tabItems.slice(0, Math.ceil(tabItems.length / 2)).map((item) => (
               <TabLink key={item.path} item={item} />
             ))}
-            <NavLink to="/capture" aria-label="Quick capture" className="flex min-h-11 flex-1 items-center justify-center">
-              <span className="-mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg ring-4 ring-white active:scale-95 dark:bg-white dark:text-neutral-900 dark:ring-neutral-950">
+            <NavLink to="/capture" aria-label="Quick capture" className="flex min-h-11 w-[56px] shrink-0 items-center justify-center">
+              <span className="-mt-[16px] flex h-[48px] w-[48px] items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg ring-[4px] ring-white active:scale-95 dark:bg-white dark:text-neutral-900 dark:ring-neutral-950">
                 <Plus size={22} strokeWidth={2.2} />
               </span>
             </NavLink>

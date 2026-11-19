@@ -227,3 +227,17 @@ it('C15 resumes a budget-limited cross-database automation once and still reache
   await runDateOffsetAutomations(env,today);
   expect(await created('Tail A')).toBe(1);
 },60_000);
+
+it('selects Otherwise for a due record when its conditional branches miss', async () => {
+  await applyChanges(env, 'alice', [{ id: 'branch-cron', collection: 'automations', ts: 1, patch: {
+    name: 'Due routing', databaseId: 'board', trigger: { kind: 'date_offset' },
+    branches: [{ conditions: [{ key: 'title', op: 'is', value: 'Different' }], actions: [{ type: 'create_record', databaseId: 'board', title: 'Condition hit' }] }],
+    otherwise: [{ type: 'create_record', databaseId: 'board', title: 'Otherwise hit' }],
+  } }]);
+  await task('due');
+  await runDateOffsetAutomations(env, today);
+  await runDateOffsetAutomations(env, today);
+  expect(await created('Condition hit')).toBe(0);
+  expect(await created('Otherwise hit')).toBe(1);
+  expect(await db.prepare('SELECT branch,status FROM automation_runs').first()).toMatchObject({ branch: -1, status: 'completed' });
+});

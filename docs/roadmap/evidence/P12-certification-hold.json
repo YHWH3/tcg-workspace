@@ -1,0 +1,142 @@
+{
+  "phase": 12,
+  "decision": "HOLD",
+  "reason": "Mandatory security gate fails on unpatched GHSA-fc5q-39xc-vjpf. Phase13 remains unstarted under roadmap section4.",
+  "checkedAt": "2026-11-18T10:50:39.545Z",
+  "testedSha": "c6c4c9ebfae0da8e17b81de2278c4c3117275600",
+  "tree": "ee4d6b33f8913a348b05d4e7a821d326fe3405b1",
+  "sourceFingerprint": "e9304e43a2409c6ccbf0d4e994302822e6cb562f754cfc503b257a2c2758bdc0",
+  "command": "npm run certify:ai -- --keep-awake",
+  "exitCode": 1,
+  "completeLocalCertification": false,
+  "mandatoryPass": 3,
+  "mandatoryFail": 1,
+  "mandatoryNotRun": 30,
+  "artifactDirectory": ".artifacts/certification/c6c4c9ebfae0da8e17b81de2278c4c3117275600-2026-11-18T10-50-34-941Z-complete",
+  "artifactSha256": {
+    "summary.json": "dde9dcbc38da4746b44d5ae82fc473e4a8c2144d4545abc369012d555ef08f89",
+    "test-results.json": "c7ddf1ad5e58a09e0746bc26a604947df853ebb0d50b64b0b1e4083b9cba1d9c",
+    "commands.json": "c467020f4ab68bccded6f2d972bd9bec0eb8a7711a791d8554b043a6851bb7f5",
+    "report.md": "5f9e2c708ab8c7bb28255e4e313b03864ed53a8f2ca1e602853cfd9cd56e54f1",
+    "security-audit.json": "1910f10f9b5830529bde24a66663ec0f7abcc0b50425ab314f6bda9059f67f7e",
+    "security-decisions.json": "0ae82d66eeb0d056a33efa19e9c80aa7d43f88bdfe16da39fd41ac14af078fcc"
+  },
+  "earlyStopAssertions": {
+    "onlyPrerequisitesDependenciesLockfileSecurityExecuted": true,
+    "noUnitOrD1ReportCreated": true,
+    "allLaterMandatoryGatesNotRun": true,
+    "cleanStartingAndEndingSource": true
+  },
+  "versions": {
+    "node": "v26.7.0",
+    "playwright": "1.63.0",
+    "browsers": {
+      "chromium": "153.0.8010.12",
+      "firefox": "155.0",
+      "webkit": "26.6"
+    }
+  },
+  "security": {
+    "counts": {
+      "info": 0,
+      "low": 0,
+      "moderate": 2,
+      "high": 14,
+      "critical": 0,
+      "total": 16
+    },
+    "blockingAdvisory": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+    "affected": "picomatch <=4.0.7",
+    "latestPublishedVersionObserved": "4.0.7",
+    "patchedVersionListed": null,
+    "exceptions": []
+  },
+  "historicalBeforeDependencyUpdates": {
+    "testedSha": "168939307893cc59858d8a304de669c40b25be6c",
+    "artifactDirectory": ".artifacts/certification/168939307893cc59858d8a304de669c40b25be6c-2026-11-18T10-27-47-209Z-complete",
+    "passedGates": [
+      {
+        "suiteId": "unit",
+        "pass": 1195,
+        "fail": 0,
+        "status": "PASS"
+      },
+      {
+        "suiteId": "d1",
+        "pass": 976,
+        "fail": 0,
+        "status": "PASS"
+      }
+    ],
+    "reusedGates": [
+      "whitespace",
+      "migrations",
+      "harness",
+      "typecheck",
+      "unit"
+    ],
+    "minutesSavedByVerifiedReuse": 6.168916666666667,
+    "note": "Historical source. Unit checkpoint used a labelled simulated pause. The resumed run was stopped after security failure; partial MCP Phase2 failures remain retained, not certified."
+  },
+  "focusedUpdatedDependencyCompatibility": [
+    {
+      "runner": "verify-mcp",
+      "testedSha": "c6c4c9ebfae0da8e17b81de2278c4c3117275600",
+      "summary": {
+        "pass": 94,
+        "fail": 0,
+        "notRun": 0,
+        "blocking": 0,
+        "total": 94
+      },
+      "allMandatoryAssertionsExecuted": true,
+      "artifactDirectory": ".artifacts/tooling/hono-compatibility/verify-mcp",
+      "artifactSha256": {
+        "results.json": "9031192d122da8cb1bf9ac091e640a88933c9ef3420bb4f198a92c965b7f9127",
+        "command.log": "e21bdc30baf1b980ff59c8e5b948e3217b18fa596155144cec8bf7f8829fd0ef"
+      }
+    },
+    {
+      "runner": "verify-mcp-phase2",
+      "testedSha": "c6c4c9ebfae0da8e17b81de2278c4c3117275600",
+      "summary": {
+        "pass": 113,
+        "fail": 0,
+        "notRun": 0,
+        "blocking": 0,
+        "total": 113
+      },
+      "allMandatoryAssertionsExecuted": true,
+      "artifactDirectory": ".artifacts/tooling/hono-compatibility/verify-mcp-phase2",
+      "artifactSha256": {
+        "results.json": "0df8de3bd9d32e8653f2798651beb9efcc4be0323b0186ae1ff4611a9cfb264e",
+        "command.log": "d63e4698365ef77f030abd8c322fd835b33fe4eb45350a4bc9edad8160d899bf"
+      }
+    }
+  ],
+  "focusedHarness": {
+    "pass": 150,
+    "fail": 0,
+    "command": "node --test scripts/certification/*.test.mjs",
+    "artifactDirectory": ".artifacts/tooling",
+    "artifactSha256": {
+      "security-harness.log": "27c0cd251b2e7f2a1be90c422919c31dc8d1de309acd99543898a665f30edf60"
+    }
+  },
+  "nextActions": [
+    "Resolve the blocking advisory with a genuine compatible patch; verify npm audit before long tests.",
+    "Run complete certification on clean committed updated source.",
+    "After Phase12 acceptance, implement Phase13 history diff, observed conflicts and spaces-based group mentions."
+  ],
+  "externalNotRun": [
+    "Physical iOS and Android",
+    "Manual assistive technology",
+    "Production deployment and provider activation"
+  ],
+  "ownerDecision": {
+    "date": "2026-11-18",
+    "choice": "Wait for the Phase 12 security fix",
+    "phase13": "Do not start implementation before Phase 12 passes its mandatory security gate and complete certification.",
+    "release": "HOLD"
+  }
+}

@@ -82,6 +82,7 @@ export const VIEW_TYPE_LABELS: Record<ViewType, string> = {
   gallery: 'Gallery',
   calendar: 'Calendar',
   timeline: 'Timeline',
+  chart: 'Chart',
 };
 
 export function useViews(databaseId: string | undefined): DbViewRow[] {
