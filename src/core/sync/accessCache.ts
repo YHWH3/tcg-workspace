@@ -8,6 +8,7 @@ import { PERMISSION_PROTOCOL, MAX_PULL_LIMIT, type PullRequestV3, type PullRespo
 import type { PulledRecord } from '../../../shared/types';
 import type { LocalDB, LocalRow, SyncStageRow } from '../db';
 import { rebaseRecord } from './rebase';
+import {observeConflicts, clearRecovery, pruneRecovery} from './conflicts';
 import { applyAccessWork, clientAccess, liveSource, planAccessWork, stagedFirst, type AppliedWork } from './pendingWork';
 import { FeedStateChanged, freshScan, readState, requestedScans, deferredSpaces, validateAccessManifest, writeState,
   type ClientAccessManifest, type FeedState, type ReadState } from './feedState';
@@ -41,6 +42,7 @@ async function dropBytes(store: LocalDB, ids: string[], removed: string[]) {
 async function evictIds(store: LocalDB, ids: Set<string>, removed: string[]) {
   if (!ids.size) return;
   for (const link of await store.links.toArray()) if (ids.has(String(link.fromId)) || ids.has(String(link.toId))) ids.add(link.id);
+  await clearRecovery(store, ids);
   await dropBytes(store, [...ids], removed);
   for (const collection of COLLECTIONS) await store.collection(collection).bulkDelete([...ids]);
 }
@@ -128,6 +130,7 @@ async function putRow(store: LocalDB, row: PulledRecord, userId: string) {
     if (old && old.state !== 'pending' && old.state !== 'failed') await store.blobs.delete(old.id);
   }
   const pending = await store.outbox.where('id').equals(row.id).sortBy('autoId');
+  await observeConflicts(store, row.collection as import('../../../shared/collections').Collection, row.id, {data: row.data, field_ts: row.field_ts}, pending);
   const record = rebaseRecord({ data: row.data, field_ts: row.field_ts }, pending);
   await table.put({ ...record.data, id: row.id, _ts: record.field_ts, _serverRev: row.seq, _spaceId: row.spaceId, ...(row.peerSpaceId ? { _peerSpaceId: row.peerSpaceId } : {}) });
   const key = `draft:${userId}:${row.collection}:${row.id}`;
@@ -225,6 +228,7 @@ export async function applyFeedPage(store: LocalDB, userId: string, expectedFeed
     }
     await writeState(store, { manifest: state.access, feed, ...(feed.legacyUpgrade ? { required: { userId, reason: 'legacy_upgrade' as const } } : {}) });
     hooks.assertCurrent?.(); hooks.beforeCommit?.();
+    await pruneRecovery(store);
     return { quarantined: applied.quarantined, removedBlobs: [...new Set([...removedBlobs, ...applied.removedBlobs])], activated, feed };
   });
 }

@@ -27,13 +27,15 @@ export interface MentionResolvers {
   resolveRecord?: (title: string) => string | undefined;
   /** For blocksToMarkdown: user id → display name. */
   userName?: (id: string) => string | undefined;
+  /** Current, authorized Space name. Missing names keep the original token. */
+  groupName?: (id: string) => string | undefined;
   /** For blocksToMarkdown: page id → title. */
   pageTitle?: (id: string) => string | undefined;
   /** For blocksToMarkdown: record id → title. */
   recordTitle?: (id: string) => string | undefined;
 }
 
-const TOKEN_RE = /@\[(page|user|rec):([^\]]+)\]/g;
+const TOKEN_RE = /@\[(page|user|rec|group):([^\]]+)\]/g;
 const AT_MENTION_RE = /@([a-z0-9_.-]{2,32})/gi;
 const WIKI_RE = /\[\[([^\]]+)\]\]/g;
 
@@ -134,6 +136,7 @@ export function markdownToBlocks(markdown: string, resolvers: MentionResolvers =
 /** Render stored tokens as readable markdown-ish mention syntax. */
 export function renderMentionText(text: string, r: MentionResolvers): string {
   return text.replace(TOKEN_RE, (_m, kind: string, id: string) => {
+    if (kind === 'group') {const name = r.groupName?.(id); return name ? `@space(${name})` : _m;}
     if (kind === 'user') return `@${r.userName?.(id) ?? 'user'}`;
     if (kind === 'rec') { const title=r.recordTitle?.(id); return title ? `[[${title}]]` : _m; }
     return `[[${r.pageTitle?.(id) ?? 'page'}]]`;

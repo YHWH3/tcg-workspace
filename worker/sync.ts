@@ -587,7 +587,7 @@ async function flushPlans(env: Env, userId: string, plans: Map<string, Plan>, ex
         indices.push(statements.length);
         statements.push(stmtFor(p));
         const item = makeApplied(p, p.baseSeq);
-        if(p.collection!=='activity') statements.push(historyStatement(db,item,userId,opts.event?.source??opts.journal?.source??'client',opts.journal?.id??null,now));
+        if(p.collection!=='activity') statements.push(historyStatement(db,item,userId,opts.event?.source??opts.journal?.source??'client',opts.journal?.id??null,now,p.beforeData));
         if (opts.event) {
           const event = stageAppliedEvent(db, {
             source: opts.event.source, userId, applied: [item],

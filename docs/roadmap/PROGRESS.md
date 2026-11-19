@@ -1,11 +1,11 @@
 # Next phases progress
 
-Execution started 2026-10-25. Phase 12 has complete local engineering
-certification at `fb3a0bd`, with all 34 mandatory gates PASS, and draft PR #21.
-The certificate resumed six verified gates and ran D1 and the remaining gates
-afresh. Evidence is indexed in `evidence/P12-certification.json`. Phase 13 is
-next, using existing Spaces for group mentions under owner decision D13.
-Earlier checkpoints retain their original source and status.
+Execution started 2026-10-25. Phase 13 has complete local engineering
+certification at `91087d3` and is available in draft PR #22. All 34 mandatory
+gates and 54 affected browser cases passed on the same source. Evidence is
+indexed in `evidence/P13-certification.json` and `evidence/P13-feature-matrix.json`.
+Phase 12 remains certified at `fb3a0bd` in draft PR #21. Earlier checkpoints
+retain their original source and status.
 Release branch `sol/r1-date-window` is certified at `0888525` and is based
 on plan-only commit `6d02933` (application unchanged from `528b889`). Original
 integration branches and existing PRs remain unchanged.
@@ -1526,3 +1526,149 @@ assistive technology, native400%zoom and owner production/provider activation
 remain unavailable external gates. Phase13 implementation may now start under
 the approved sequence. Optional formulas/rollups remain deferred by the usage
 gate, and optional Phase13 features retain their original request conditions.
+
+### Phase 13.1 history diff implementation
+
+Phase 13 starts on `sol/p13-polish`, stacked on accepted Phase 12 source plus
+its evidence commit `1211693`. The managed worktree request did not return
+a path or operation ID. A separate Git checkout was created at
+`.artifacts/worktrees/p13` with a fresh locked dependency installation.
+
+History now offers a selected revision, word-level text changes, selected-field
+restore previews and body-change history. Unicode word segmentation and a
+250,000-cell comparison budget preserve complete source text. Migration 0044
+retains block parent IDs and creation metadata atomically with history. Block
+text also survives deletion and movement. Older entries without parent context
+remain explicitly unavailable for body attribution. The existing MCP history
+tool accepts `body:true` for the same bounded, authorized read.
+
+Focused tests pass 19/19, covering text integrity, body movement, deletion,
+private destinations, revocation during a read, pagination, selected-field
+restore and D1 call bounds in both permission modes. Fourteen migration
+preflight/rehearsal self-tests pass. The first compact browser probe exposed
+an ambiguous wrapped Revision label. Explicit label association fixed it.
+Visual review then reduced crowded explanatory copy at 200% text. The corrected
+three-engine diagnostic passes 3/3 across Chromium compact/light, Firefox
+tablet/dark and WebKit desktop/light, including accessibility, visible diffs,
+selected-field restore and keyboard focus restoration. Its report is
+`.artifacts/ux-lab/2026-11-19T06-16-27.699Z/summary.json`.
+
+The full affected browser matrix and phase-end certificate remain pending.
+Next are 13.2 observed sync conflicts and 13.3 existing-Space mentions.
+
+### Phase 13.2 observed sync conflicts
+
+Implemented acknowledgement candidates, pending-field comparison and retained
+conflict review in both pull protocols. Recovery is account-local, limited to
+200 fields per pool and 14 days. Permission removal, eviction and read-only
+transitions remove retained copies. No actor identity is invented. Use mine
+uses guarded mutate, checks the exact review token and current field state,
+and preserves recovery on failure. Reliability and record headers expose review.
+
+Focused verification passed 84/84 across conflicts, real engine ordering,
+Protocol 3 cache and media/access regressions. After a bounded-guard fallback
+and loading-state refinement, conflict tests pass 15/15 and typecheck passes.
+The initial browser run found that clearing the final conflict unmounted its
+confirmation; corrected. The three-engine diagnostic then passed 3/3 with two
+independent offline browser contexts, recovery, dismissal, 200% text, geometry
+and whole-page accessibility. Report:
+`.artifacts/ux-lab/2026-11-19T06-35-06.701Z/summary.json`.
+The later guard/loading refinement will be covered by the phase-end matrix;
+this diagnostic is feature evidence, not final-source certification.
+Failed fixture attempts and browser reports remain in local artifacts.
+
+Draft PR22 is open at https://github.com/YHWH3/tcg-workspace/pull/22.
+Phase13 remains HOLD until Space mentions, the affected full browser matrix
+and final-source mandatory certification are complete. Next: item13.3.
+
+### Phase 13.3 Space mentions and source freeze
+
+Implemented D13 using existing Spaces and `@[group:ID]` tokens. Editor, plain-text,
+markdown, assistant chips and MCP render current authorized names. Fan-out caps at
+20 recipients, excludes the author and disabled users, honors preferences, and
+deduplicates overlapping direct/Space mentions. Four binding calls cover a
+25-member synthetic limit fixture. Source and target revisions plus current rights,
+membership, preference and activation checks fence the atomic write. Ordinary
+notification grouping and channel outboxes use one shared statement builder.
+Legacy direct receipt positions are preserved when new Space events are appended.
+
+Focused mention/notification tests passed52/52, the additional ordering and existing
+event recovery run passed38/38, and MCP private-name/connector checks passed2/2.
+Typecheck passed. The first picker probe found a decorative icon in its accessible
+name; fixed with hidden decorative semantics, label contrast and larger tap rows.
+The next probe exposed a test assertion using the SQL name instead of the public
+API's targetId. Corrected without changing the API. Corrected editor workflow
+passes3/3 on Chromium compact/light, Firefox tablet/dark and WebKit desktop/light:
+`.artifacts/ux-lab/2026-11-19T06-50-40.348Z/summary.json`.
+
+No user-facing optional item has been silently enabled. Share passwords and Google
+sign-in remain unrequested. External connector/tunnel acceptance is NOT RUN.
+Track A remains owner-gated. Phase13 remains HOLD pending the final committed-source
+54-cell affected feature matrix and mandatory34-gate certificate. The next action
+is source commit/publication, matrix, then one full certificate with keep-awake.
+
+### Phase 13 mention-pipeline audit correction
+
+The first final matrix was intentionally interrupted (exit130) after21 passing
+cases across7 complete profiles; an eighth profile was interrupted. Its evidence
+remains at `.artifacts/ux-lab/2026-11-19T06-52-58Z-p13-final`. It is not a final
+matrix certificate. No failing case was relabelled.
+
+A final source audit found legacy token allowlists outside the main editor.
+Updated assistant selection sanitization and context previews, search token
+stripping, and atomic chip Backspace handling. An assistant replacement can
+preserve a sourced Space token but cannot invent a new broadcast. Public page
+output uses a generic @space label instead of copying Space IDs. The generic
+website neutralizer already protects every token kind; a regression pins that.
+The corrected boundary tests and existing apply/share checks pass20/20, including
+canonical public-share authority. Browser coverage now also deletes a Space chip
+atomically while preserving the surrounding Unicode text.
+
+Commit this corrected source, restart the final54-case matrix, then run the
+single full mandatory certificate. Phase13 remains HOLD until both complete.
+
+### Phase13 seed-placeholder correction
+
+The c39fe1c feature matrix passed54/54 across18 profiles, without flakes or skips,
+and all child-summary hashes were verified. The first mandatory certificate then
+passed10 gates, including1227 unit assertions, build,44 migrations, security,
+150 harness checks and typecheck. It was intentionally interrupted during D1
+before final acceptance, after a recovery audit identified a pending-seed case.
+Its retained directory is `.artifacts/certification/c39fe1cb6357aee2ffded8f12adb1b87fbe0af1c-2026-11-19T12-11-28-816Z-complete`.
+
+Acknowledged seed writes were already excluded, but the pending path could expose
+a timestamp-1 built-in placeholder as a losing user edit during a first permissions
+backfill. A new regression reproduced that false warning. The detector now excludes
+seed timestamps in both paths. The pure comparison and real Protocol3 backfill
+regression pass with existing engine/cache cases (70/70); typecheck passes.
+This changes final source identity: do not reuse c39fe1c as a final certificate.
+Commit the fix, run the final54-case matrix and one complete mandatory certificate
+on the corrected head. Phase13 remains HOLD until both are complete.
+
+### Phase 13 completion on 19 November 2026
+
+**ENGINEERING GO / EXTERNAL BLOCKED.** Draft PR [#22](https://github.com/YHWH3/tcg-workspace/pull/22) on `sol/p13-polish` contains the history and selected field restore workflow, device-local conflict review, and mentions of current Space members. Migration `0044_history_body_context.sql` adds history context for blocks.
+
+Tested source `91087d3d715fffa86458e04c5d7a0c962b483190`, tree
+`cf63ce1049e3fb42c7db1aa8f68564ed5110da3f`, fingerprint
+`a44466b447181e9005e125efd86225505e156ba1f27902b17e0b9ae22c47e691`.
+The feature matrix passed 54 of 54 cases across 18 Chromium, Firefox and WebKit profiles, with zero skips or flakes. All child report hashes verified. `npm run certify:ai -- --keep-awake` passed 34 of 34 mandatory gates, including 1,228 unit tests, 998 actual D1 tests, 150 harness checks and 44 migrations. The run completed without a host pause, and all 30 sealed gate artifact sets verified. Evidence files record the tested commit and are added in a later documentation commit.
+
+The earlier runs interrupted for the Space token audit and pending seed correction remain part of the historical evidence. Findings N57–N59 record the fixes. Physical iPhone/iPad Safari, physical Android, manual assistive technology, native 400% zoom and additional live connector acceptance remain NOT RUN. The connector check requires separate authorization for external test exposure. Share passwords and Google sign-in remain request gated. Track A still requires the owner to complete R3 and merge the Phase 7.3 account-disable work in PR #16. Production release and live provider activation remain owner actions.
+
+### Supplemental release and accessibility checks
+
+- R2 local Workspace rehearsal passed seven checks each on synthetic migration
+  prefixes 0003 and 0034, both upgraded to 0044. The local relay restore passed
+  four checks, including preservation of a pending delivery and an accepted email
+  receipt. The owner still needs to rehearse current production exports and
+  verify hosted staging.
+- Native Chromium page zoom at 400% passed six checks on macOS with a disposable
+  desktop browser profile. Settings, the keyboard menu and search, Website inbox
+  and the notification Inbox reflowed at 320 CSS pixels. The earlier Phase 13
+  certificate's recorded native zoom coverage is historical. Other browser zoom
+  modes, physical devices and human assistive technology remain open.
+- R3 is owner-executed. Track A implementation waits for R3 and the merge of the
+  Phase 7.3 account-disable work in [Workspace PR #16](https://github.com/YHWH3/tcg-workspace/pull/16).
+
+[Supplemental source and check evidence](evidence/post-phase-13-local.md).

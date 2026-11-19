@@ -1,4 +1,5 @@
 import {recordSyncObservation} from './observations';
+import {retainAcknowledged, observeConflicts, pruneRecovery} from './conflicts';
 import {mutationGuardMatches,validMutationGuard,type MutationGuard} from '../../../shared/mutationGuard';
 import { PERMISSION_PROTOCOL } from '../../../shared/protocol';
 import { isCollection, type Collection } from '../../../shared/collections';
@@ -277,6 +278,7 @@ async function pushOutbox(access: ReconciledAccess, assertCurrent: () => void): 
     if (access.protocol === PERMISSION_PROTOCOL && (typeof res.accessEtag !== 'string' || !res.accessEtag)) throw new Error('invalid_push_reply');
     await db.transaction('rw', db.outbox, db.meta, async () => {
       assertCurrent();
+      await retainAcknowledged(db, acked);
       await db.outbox.bulkDelete(acked.map((e) => e.autoId!).filter((n) => n !== undefined));
       if (refused.length) await db.outbox.bulkPut(refused);
       if(acked.length)await recordSyncObservation(db,access.userId,'push',Date.now(),assertCurrent);
@@ -320,6 +322,7 @@ async function pullRemote(access: ReconciledAccess, assertCurrent: () => void): 
         }
         for (const rec of res.records) {
           if (!isCollection(rec.collection)) continue;
+          await observeConflicts(db, rec.collection, rec.id, {data: rec.data, field_ts: rec.field_ts}, byId.get(rec.id) ?? []);
           const rebased = rebaseRecord({ data: rec.data, field_ts: rec.field_ts }, byId.get(rec.id) ?? []);
           const row = { ...rebased.data, id: rec.id, _ts: rebased.field_ts, _serverRev: rec.seq, ...(rec.spaceId ? { _spaceId: rec.spaceId } : {}) };
           await db.collection(rec.collection).put(row);
@@ -329,6 +332,7 @@ async function pullRemote(access: ReconciledAccess, assertCurrent: () => void): 
           await reconcileDraft(rec.collection, rec.id, rebased.data, rebased.field_ts);
           for (const ts of Object.values(rec.field_ts)) hlc.observe(ts);
         }
+        await pruneRecovery(db);
         // Invisible gaps advance too. Cursor and records commit atomically.
         await setMeta(CURSOR_KEY, res.cursor);
         assertCurrent();

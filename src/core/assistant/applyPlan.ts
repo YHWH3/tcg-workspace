@@ -31,7 +31,7 @@ export function sanitizeReplacement(original: string, replacement: string): stri
   const allowed = new Set(mentionTokens(original).map((t) => `@[${t.kind}:${t.id}]`));
   return replacement
     .replace(/\r\n?/g, '\n')
-    .replace(/@\[(page|user|rec):([A-Za-z0-9_-]{1,64})\]/g, (tok) => (allowed.has(tok) ? tok : ''))
+    .replace(/@\[(page|user|rec|group):([A-Za-z0-9_-]{1,64})\]/g, (tok) => (allowed.has(tok) ? tok : ''))
     .trim();
 }
 

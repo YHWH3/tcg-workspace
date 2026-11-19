@@ -149,7 +149,11 @@ planned work, L = inconsistency.
 | N55 | L | One-day TLS renewal fixture could be checked in its creation second, when OpenSSL still accepts equality at86400 seconds. |18Nov98764a4 harness149PASS/1FAIL. |1689393 waits across that boundary with async cleanup; focused3/3 and subsequent150/150 harness PASS. |
 | N56 | M | Certification resume refused its already generated, byte-identical unit-selection manifest. |15Novdf8e2f8 EEXIST on actual resume. |98764a4 verifies confined paths and exact bytes before accepting existing artifacts.43 focused checks PASS and18Nov actual resume reused five gates successfully. |
 
-Add new findings as N54+ with the same columns.
+| N57 | M | Resolving the final sync conflict closed its dialog before the user could read the confirmation. | Chromium compact diagnostic recovered the edit, then failed to find the review dialog. | Keep the dialog open for the confirmation. The final 54-case matrix includes recovery and dismissal across every profile. |
+| N58 | M | The new Space token was absent from the assistant replacement allowlist and other text boundaries. | Source audit found the missing token handling. Focused checks cover assistant replacement, visitor text, search and public output. | Preserve only sourced assistant tokens, keep visitor input inert, omit IDs from search and public output, and support atomic chip deletion. 20 focused checks passed. |
+| N59 | M | Initial permissions backfill could report a built-in placeholder as a lost edit. | Regression reproduced the false warning from a pending seed at timestamp 1. | Exclude seed writes from observed conflicts. 70 focused conflict, engine and cache checks passed. |
+
+Add new findings as N60+ with the same columns.
 
 ## 6. Owner decisions (collect before or during the named item)
 

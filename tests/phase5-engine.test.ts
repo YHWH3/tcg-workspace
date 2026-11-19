@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fixture = vi.hoisted(() => ({ userId: 'engine-user', calls: [] as string[], upload: vi.fn(), authed: true }));
 vi.mock('../src/core/auth', () => ({ authStore: { get: () => ({ user: fixture.authed ? { id: fixture.userId } : null }), subscribe: vi.fn() }, dropSession: vi.fn() }));
+vi.mock('../src/core/live', () => ({startPresence: vi.fn(), stopPresence: vi.fn(), liveConnected: () => false}));
 vi.mock('../src/core/files', () => ({ uploadPendingBlobs: async () => { fixture.calls.push('upload'); await fixture.upload(); } }));
 let engine: typeof import('../src/core/sync/engine'), db: typeof import('../src/core/db')['db'];
 let generation: number, failAccess: boolean, pullCursor: number, pullOverride: Record<string, unknown> | null;
@@ -44,6 +45,25 @@ beforeEach(async () => {
 afterEach(async () => { await db.delete(); vi.unstubAllGlobals(); });
 
 describe('Phase 5 real client sync engine ordering with simulated HTTP', () => {
+  it.each([1, 3])('retains an acknowledged losing edit through the real protocol %i push-before-pull path', async protocol => {
+    if (protocol === 1) {
+      await db.meta.put({key:'seeds_website_v2',value:1});
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        if (url === '/api/access') return Response.json({protocol:1,userId:fixture.userId});
+        if (url === '/api/sync/push') return Response.json({ok:true,rejected:0,rejectedItems:[]});
+        if (url.startsWith('/api/sync/pull')) return Response.json({records:[{id:'visible',collection:'pages',data:{title:'Server winner'},field_ts:{title:20},seq:101}],cursor:101,hasMore:false});
+        return Response.json({users:[]});
+      }));
+    } else {
+      await engine.syncNow(); pullCursor=101;
+      pullOverride={protocol:3,etag:'fixture-etag-20',highWater:101,cursor:101,hasMore:false,joining:[],evictions:[],records:[{id:'visible',collection:'pages',data:{title:'Server winner'},field_ts:{title:20},seq:101,spaceId:'space-core'}]};
+    }
+    await db.outbox.add({id:'visible',collection:'pages',patch:{title:'My lost edit'},ts:10});
+    await engine.syncNow();expect(await db.outbox.count()).toBe(0);
+    expect((await db.meta.get('conflicts:visible'))?.value).toMatchObject({entries:[{mine:'My lost edit',theirs:'Server winner'}]});
+    expect((await db.pages.get('visible'))?.title).toBe('Server winner');
+  });
+
   it('keeps a known-stale cache locked after an offline browser restart', async () => {
     const access = await import('../src/core/accessClient');
     await engine.syncNow();

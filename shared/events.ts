@@ -36,6 +36,7 @@ export interface SemanticEvent {
   targetType?: string;
   targetId?: string;
   formId?: string;
+  groupId?: string;
 }
 
 const USER_MENTION = /@\[user:([A-Za-z0-9_-]+)\]/g;
@@ -54,6 +55,7 @@ const FIELD_CAP = 20;
  * → mentions so downstream consumers can rely on sequence. */
 export function deriveEvents(applied: AppliedLike[]): SemanticEvent[] {
   const events: SemanticEvent[] = [];
+  const groupEvents: SemanticEvent[] = [];
   for (const ch of applied) {
     const { id, collection } = ch;
     const before = ch.before ?? {};
@@ -152,8 +154,16 @@ export function deriveEvents(applied: AppliedLike[]): SemanticEvent[] {
           to: uid,
         });
       }
+      const previousGroups = new Set(typeof before[textField] === 'string' ? [...String(before[textField]).matchAll(/@\[group:([A-Za-z0-9_-]{1,64})\]/g)].map(match=>match[1]) : []);
+      for (const groupId of new Set([...String(after[textField]??'').matchAll(/@\[group:([A-Za-z0-9_-]{1,64})\]/g)].map(match=>match[1]))) {
+        if (previousGroups.has(groupId)) continue;
+        groupEvents.push({kind:'mention.created',recordId:id,collection,groupId,
+          targetType:collection==='comments'?String(after.targetType??''):'page',
+          targetId:collection==='comments'?String(after.targetId??''):String(after.pageId??'')});
+      }
     }
   }
-  for(const event of events) event.snapshot=applied.find(ch=>ch.id===event.recordId)?.snapshot;
-  return events;
+  const all = [...events, ...groupEvents];
+  for(const event of all) event.snapshot=applied.find(ch=>ch.id===event.recordId)?.snapshot;
+  return all;
 }

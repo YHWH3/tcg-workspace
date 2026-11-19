@@ -10,7 +10,7 @@ import { createReadGate } from './readAccess';
 import { Hono } from 'hono';
 import type { SemanticEvent } from '../shared/events';
 import type { EventSource } from './events';
-import { channelsFor, kindAllowed, loadPrefs, requireAuth, type Env, type AuthUser, type UserPrefs } from './auth';
+import { channelsFor, kindAllowed, loadPrefs, parsePrefs, requireAuth, type Env, type AuthUser, type UserPrefs } from './auth';
 import { sendNotificationEmails } from './notificationEmail';
 import { notificationEmailOrigin, type EmailEnv } from './email';
 import { recurrencesForEvent } from './reminders';
@@ -113,15 +113,31 @@ export async function notify(env: { DB: D1Database } & EmailEnv & PushEnv, n: Ne
   }else guard+=' AND (SELECT enabled FROM access_state WHERE id=1)=0';
   if(user.enabled===1 && !await env.DB.prepare(`SELECT 1 WHERE ${guard}`).bind(...guardBinds).first())return;
   const now = Date.now();
-  let id: string | undefined;
+  let existing: NotificationGroup | null = null;
   if (n.groupKey) {
-    const existing = await env.DB.prepare(
+    existing = await env.DB.prepare(
       `SELECT id, items, group_count,read_at FROM notifications
        WHERE user_id = ? AND group_key = ? AND created_at > ? AND target_id IS ?
        ORDER BY (read_at IS NULL) DESC,created_at DESC LIMIT 1`,
     )
       .bind(n.userId, n.groupKey, now - GROUP_WINDOW_MS,n.targetId??null)
       .first<{ id: string; items: string | null; group_count: number;read_at:number|null }>();
+  }
+  const {statements, emailId} = notificationStatements(env, n, prefs, guard, guardBinds, existing, now);
+  await env.DB.batch([...statements, ...transaction]);
+  if (emailId && ctx && (n.kind === 'mention' || n.kind === 'approval_requested')) {
+    ctx.waitUntil(sendNotificationEmails(env, emailId).catch(() => {
+      console.warn('Immediate notification email deferred to scheduled delivery');
+    }));
+  }
+}
+
+interface NotificationGroup {id: string; items: string | null; group_count: number; read_at: number | null}
+/** One builder for ordinary and batched Space deliveries. No I/O here. */
+function notificationStatements(env: {DB: D1Database} & EmailEnv & PushEnv, n: NewNotification, prefs: UserPrefs,
+  guard: string, guardBinds: unknown[], existing: NotificationGroup | null, now: number) {
+  let id: string | undefined;
+  if (n.groupKey) {
     id=existing&&existing.read_at===null?existing.id:`ntf_${fnv1a64hex(JSON.stringify([n.userId,n.kind,n.groupKey,n.targetId??'',Math.floor(now/GROUP_WINDOW_MS),existing?.id??'',existing?.read_at??'']))}`;
   }
   id ??= n.dedupeKey ? `ntf_${fnv1a64hex(n.userId+'|'+n.dedupeKey)}` : `ntf_${crypto.randomUUID().replace(/-/g,'')}`;
@@ -129,7 +145,7 @@ export async function notify(env: { DB: D1Database } & EmailEnv & PushEnv, n: Ne
   const item=JSON.stringify({actorId:n.actorId,at:now,summary:n.body??n.title,targetId:n.targetId});
   const emailId = notificationEmailOrigin(env) && channelsFor(prefs, n.kind).has('email') ? 'email_' + fnv1a64hex(key) : null;
   const pushId = pushMode(env) && channelsFor(prefs,n.kind).has('push') ? 'push_' + fnv1a64hex(key) : null;
-  await env.DB.batch([
+  const statements = [
     // Abort the whole batch on a raced authority change: caller checkpoints must
     // never commit when delivery was refused by the insert fence.
     env.DB.prepare(`SELECT CASE WHEN ${guard} THEN 1 ELSE json_extract('{','$') END`).bind(...guardBinds),
@@ -155,13 +171,8 @@ export async function notify(env: { DB: D1Database } & EmailEnv & PushEnv, n: Ne
         AND EXISTS(SELECT 1 FROM json_each(u.prefs,?) WHERE value='push')`
     ).bind(emailId,n.kind,id,n.targetId??null,now,now,n.userId,emailId,'$.notifications.'+n.kind,
       pushId,'push:'+n.kind,id,n.targetId??null,now,now,pushId,n.userId,now,'$.notifications.'+n.kind)] : []),
-    ...transaction,
-  ]);
-  if (emailId && ctx && (n.kind === 'mention' || n.kind === 'approval_requested')) {
-    ctx.waitUntil(sendNotificationEmails(env, emailId).catch(() => {
-      console.warn('Immediate notification email deferred to scheduled delivery');
-    }));
-  }
+  ];
+  return {statements, emailId};
 }
 
 /* ---------- Event → recipient routing ---------- */
@@ -204,7 +215,7 @@ function titleOf(rec: RecordLite | null): string {
 function excerpt(text: unknown, n = 140): string {
   if (typeof text !== 'string') return '';
   // Strip mention tokens down to readable text for the preview line.
-  return text.replace(/@\[(?:user|page|rec):[A-Za-z0-9_-]+\]/g, '@…').replace(/\s+/g, ' ').trim().slice(0, n);
+  return text.replace(/@\[(?:user|page|rec|group):[A-Za-z0-9_-]+\]/g, '@…').replace(/\s+/g, ' ').trim().slice(0, n);
 }
 
 /** URL a notification deep-links to, based on the real stored collection of
@@ -231,6 +242,11 @@ export async function notificationsForEvent(
   const recCache = new Map<string, RecordLite | null>();
   const nameCache = new Map<string, string>();
   const actor = () => userName(env.DB, actorId, nameCache);
+
+  const spaceSources = new Map<string, SemanticEvent[]>();
+  for (const event of semantic) if (event.kind === 'mention.created' && event.groupId) spaceSources.set(event.recordId, []);
+  for (const event of semantic) if (event.kind === 'mention.created' && spaceSources.has(event.recordId)) spaceSources.get(event.recordId)!.push(event);
+  for (const events of spaceSources.values()) await notifySpaceMentions(env, events, semantic, ctx);
 
   for (let index=0;index<semantic.length;index++) {
     const ev=semantic[index];
@@ -294,6 +310,7 @@ export async function notificationsForEvent(
           });
         }
       } else if (ev.kind === 'mention.created') {
+        if (spaceSources.has(ev.recordId)) continue;
         const uid = typeof ev.to === 'string' ? ev.to : '';
         if (!uid || uid === actorId) continue;
         let url: string | undefined;
@@ -330,6 +347,82 @@ export async function notificationsForEvent(
 
   // Recurrence is event-driven: stage → done here spawns the next occurrence.
   await recurrencesForEvent(env, semantic, ctx);
+}
+
+/** One source record per durable applied event. Constant binding calls for up to
+ * 20 recipients; canonical membership and both source/target revisions are fenced
+ * again inside the same transaction as receipts and channel outboxes. */
+async function notifySpaceMentions(env: {DB: D1Database} & EmailEnv & PushEnv, events: SemanticEvent[], semantic: SemanticEvent[], ctx: EventCtx) {
+  const first = events[0], targetId = first.targetId;
+  if (!targetId || events.some(event => event.targetId !== targetId)) return;
+  const graph = await loadScopeGraph(env.DB, [first.recordId, targetId]);
+  const resolve = scopeResolver(graph.records);
+  let sourceScope, targetScope;
+  try {sourceScope = resolve(first.recordId); targetScope = resolve(targetId);} catch {return;}
+  if ([sourceScope, targetScope].some(scope => scope.serviceOnly || scope.ancestorDeleted)
+    || graph.records.get(first.recordId)?.data.deleted === true || graph.records.get(targetId)?.data.deleted === true) return;
+  const groups = [...new Set(events.flatMap(event => event.groupId ? [event.groupId] : []))];
+  const direct = events.filter(event => !event.groupId && typeof event.to === 'string');
+  const spaces = [...new Set([...sourceScope.readSpaceIds, ...targetScope.readSpaceIds])];
+  const revisions = JSON.stringify(Object.fromEntries([...graph.records].map(([id,row]) => [id,row.rev])));
+  const [state, members, content] = await env.DB.batch([
+    env.DB.prepare('SELECT enabled, (SELECT name FROM users WHERE id=?) actor FROM access_state WHERE id=1').bind(ctx.userId),
+    env.DB.prepare(`SELECT u.id,u.prefs,
+      (SELECT json_group_array(g.value) FROM json_each(?) g WHERE ${levelSql('?', 'g.value')}>=1 AND ${levelSql('u.id', 'g.value')}>=1) groups_json
+      FROM users u WHERE u.disabled_at IS NULL AND u.id!=? AND
+       (u.id IN (SELECT value FROM json_each(?)) OR EXISTS(SELECT 1 FROM json_each(?) g WHERE ${levelSql('?', 'g.value')}>=1 AND ${levelSql('u.id', 'g.value')}>=1))
+      AND ((SELECT enabled FROM access_state WHERE id=1)=0 OR NOT EXISTS(SELECT 1 FROM json_each(?) scope WHERE ${levelSql('u.id', 'scope.value')}<1))
+      ORDER BY u.id LIMIT 201`).bind(JSON.stringify(groups),ctx.userId,ctx.userId,JSON.stringify(direct.map(event=>event.to)),JSON.stringify(groups),ctx.userId,JSON.stringify(spaces)),
+    env.DB.prepare('SELECT id,collection,data,seq FROM records WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify([first.recordId,targetId])),
+  ]);
+  if (members.results.length > 200) throw new Error('Space mention candidate budget exceeded');
+  const mode = state.results[0] as {enabled: number; actor: string | null} | undefined;
+  if (!mode) return;
+  const rows = new Map((content.results as {id: string; collection: string; data: string; seq: number}[]).map(row => [row.id, row]));
+  const source = rows.get(first.recordId), target = rows.get(targetId);
+  if (!source || !target || source.seq !== graph.records.get(source.id)?.rev || target.seq !== graph.records.get(target.id)?.rev) throw new Error('Mention source changed; retry');
+  const sourceData = JSON.parse(source.data) as Record<string,unknown>, targetData = JSON.parse(target.data) as Record<string,unknown>;
+  const parent = source.collection === 'comments' ? sourceData.targetId : sourceData.pageId;
+  if (parent !== targetId) return;
+  const text = String(sourceData.text ?? sourceData.body ?? '');
+  // A removed token must not deliver an old queued broadcast.
+  const activeGroups = groups.filter(group => text.includes(`@[group:${group}]`));
+  const activeDirect = direct.filter(event => text.includes(`@[user:${event.to}]`));
+  const eligible = (members.results as {id: string; prefs: string | null; groups_json: string}[]).flatMap(user => {
+    const prefs = parsePrefs(user.prefs), memberGroups = (JSON.parse(user.groups_json) as string[]).filter(id=>activeGroups.includes(id));
+    const directEvent = activeDirect.find(event => event.to === user.id);
+    return kindAllowed(prefs,'mention') && (memberGroups.length || directEvent) ? [{...user,prefsParsed:prefs,memberGroups,directEvent}] : [];
+  }).slice(0,20);
+  if (!eligible.length) return;
+  const now = Date.now(), groupKey = `mention:${targetId}`;
+  const existing = await env.DB.prepare(`SELECT * FROM (
+    SELECT id,user_id,items,group_count,read_at,ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY (read_at IS NULL) DESC,created_at DESC) position
+    FROM notifications WHERE user_id IN (SELECT value FROM json_each(?)) AND group_key=? AND target_id=? AND created_at>?) WHERE position=1`)
+    .bind(JSON.stringify(eligible.map(user=>user.id)),groupKey,targetId,now-GROUP_WINDOW_MS).all<NotificationGroup & {user_id:string}>();
+  const statements: D1PreparedStatement[] = [];
+  for (const user of eligible) {
+    let guard = `EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at IS NULL AND prefs IS ?) AND (SELECT enabled FROM access_state WHERE id=1)=?
+      AND NOT EXISTS(SELECT 1 FROM json_each(?) rev WHERE NOT EXISTS(SELECT 1 FROM records r WHERE r.id=rev.key AND r.seq=rev.value))`;
+    const binds: unknown[] = [user.id,user.prefs,mode.enabled,revisions];
+    if (mode.enabled === 1) {
+      guard += ` AND NOT EXISTS(SELECT 1 FROM json_each(?) scope WHERE ${levelSql('?', 'scope.value')}<1)`;
+      binds.push(JSON.stringify(spaces),user.id);
+    }
+    if (!user.directEvent) {
+      guard += ` AND EXISTS(SELECT 1 FROM json_each(?) g WHERE ${levelSql('?', 'g.value')}>=1 AND ${levelSql('?', 'g.value')}>=1)`;
+      binds.push(JSON.stringify(user.memberGroups),ctx.userId,user.id);
+    }
+    const dedupeKey = user.directEvent
+      ? `event:${ctx.outboxId??JSON.stringify(user.directEvent)}:${semantic.indexOf(user.directEvent)}`
+      : `event:${ctx.outboxId??JSON.stringify(first)}:space:${first.recordId}:${user.id}`;
+    const n: NewNotification = {userId:user.id,kind:'mention',actorId:ctx.userId,targetType:first.targetType,targetId,
+      title:`${mode.actor??'Someone'} mentioned you${titleOf({collection:target.collection,data:targetData}) ? ` in "${titleOf({collection:target.collection,data:targetData})}"` : ''}`,
+      body:excerpt(text)||undefined,url:urlFor({collection:target.collection,data:targetData},targetId),groupKey,dedupeKey};
+    statements.push(...notificationStatements(env,n,user.prefsParsed,guard,binds,existing.results.find(row=>row.user_id===user.id)??null,now).statements);
+  }
+  await env.DB.batch(statements);
+  // Group delivery stays in the durable channel outboxes; scheduled recovery
+  // sends email/push using the existing per-recipient gates and preferences.
 }
 
 /* ---------- Recipient-scoped REST API ---------- */

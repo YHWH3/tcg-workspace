@@ -2,6 +2,7 @@ import {DASHBOARD_BLOCK_TYPES} from '../../../shared/templates';
 import {ReliabilityChip} from '../../core/ReliabilityPanel';
 import {MoveSpaceButton} from '../../core/MoveSpace';
 import {HistoryButton} from '../../core/History';
+import {ConflictIndicator} from '../../core/ConflictReview';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, Navigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -116,7 +117,7 @@ export function PageView() {
             primary={{ kind: 'page', id: page.id }}
             compact
           />
-          {!page.parentId&&<MoveSpaceButton root={page}/>}<HistoryButton recordId={page.id}/><SharePopover pageId={page.id} />
+          {!page.parentId&&<MoveSpaceButton root={page}/>}<ConflictIndicator recordId={page.id}/><HistoryButton recordId={page.id}/><SharePopover pageId={page.id} />
           <Popover
           align="right"
           trigger={

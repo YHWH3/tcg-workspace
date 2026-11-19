@@ -346,3 +346,30 @@ include auth renewal and the final credential fence; SQL work is separate.
 Do not add a scheduler journal or rerun action by silently changing existing
 recovery budgets/rotation. Full phase certification remains required; incremental
 presentation changes run their affected feature checks per TESTING-SCOPE-AUDIT.md.
+
+## Phase 13 history
+
+`shared/textDiff.ts` segments Unicode words and bounds detailed comparison to
+250,000 cells, retaining complete values in the simplified view. Migration
+0044 adds historical block parent metadata to server-only `record_history`.
+`loadBodyHistory` uses bounded parent indexes, current record/parent gates,
+historical-space access and a final canonical revision/authority batch. Older
+entries without parent metadata cannot establish body ownership. Body context
+commits in the same transaction as the record. Restore keeps the existing
+revision/session-fenced durable jobs and protected-field rules.
+
+
+## Phase 13 conflicts and Space mentions
+
+Recovery candidates and conflicts live only in account-local Dexie meta. Preserve
+acknowledged candidates before deleting the outbox and settle them in both pull
+protocols. Each recovery pool is bounded to 200 fields and 14 days. Permission
+quarantine/eviction removes retained copies. Use mine uses guarded mutate and an
+exact review token; refused or stale writes never erase a newer review.
+
+Space mention tokens are `@[group:ID]`. Existing Spaces supply groups; do not add
+another membership system. Notification batching reuses the ordinary statement
+builder. Fence source and target graph revisions, current recipient rights and
+preferences, and current Space membership. Preserve direct-only receipt identities
+when extending semantic events. Space name resolution must respect canonical
+membership and current connector-approved scope. No real provider calls in tests.

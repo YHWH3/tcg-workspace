@@ -11,7 +11,7 @@ import {isEmbeddedAllowed} from '../shared/aiCapabilities';
 import {proposePreview,executePreview,previewUrl,PreviewError,type PreviewOp} from './aiPreviews';
 import {registerReadTools} from './mcpReadTools';
 import { loadConnection } from './connectorAccess';
-import {loadHistoryPage,historicalPatch,HistoryError} from './history';
+import {loadHistoryPage,loadBodyHistory,historicalPatch,HistoryError} from './history';
 import { McpServer } from '@modelcontextprotocol/server';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler } from 'agents/mcp/server';
@@ -234,7 +234,14 @@ async function mentionResolvers(c: Ctx, texts: unknown[] = []) {
   const ids = new Set<string>();
   for (const text of texts) for (const m of String(text ?? '').matchAll(/@\[(?:page|rec):([^\]]+)\]/g)) ids.add(m[1]);
   await loadTitleIds(c, [...ids]);
+  const groupIds = [...new Set(texts.flatMap(text => [...String(text??'').matchAll(/@\[group:([A-Za-z0-9_-]{1,64})\]/g)].map(match=>match[1])))];
+  if (groupIds.length > 200) throw new Error('Too many Space mentions for one read');
+  const groups = groupIds.length ? (await c.env.DB.prepare(`SELECT s.id,s.name FROM spaces s WHERE s.id IN (SELECT value FROM json_each(?))
+    AND ${levelSql('?', 's.id')}>=1 ${c.env.CONNECTOR ? `AND EXISTS(SELECT 1 FROM ai_connections g,json_each(g.spaces_json) a WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>? AND a.value=s.id)` : ''}`)
+    .bind(JSON.stringify(groupIds),c.userId,...(c.env.CONNECTOR ? [c.env.CONNECTOR.id,c.userId,Date.now()] : [])).all<{id:string;name:string}>()).results : [];
+  const groupNames = new Map(groups.map(group => [group.id,group.name]));
   return {
+    groupName: (id: string) => groupNames.get(id),
     resolveUser: resolverFor(c, 'user'),
     resolvePage: resolverFor(c, 'page'),
     resolveRecord: resolverFor(c, 'record'),
@@ -565,7 +572,7 @@ Data model:
 - Boards have named columns (stages) and custom fields (text, number, select, multi_select, person, date, url, checkbox). Tasks live in a board column; custom values are per-field properties.
 - Mood boards are spatial canvases with image/note/text/color items.
 - Page templates are pages flagged isTemplate; instantiate them with create_from_template, which also copies embedded task boards.
-- Mentions: block text accepts [[Page Title]] and @username; stored as tokens and rendered as names.
+- Mentions: block text accepts [[Page Title]] and @username; stored as tokens and rendered as names. Space mentions use @[group:SPACE_ID] with a known authorized Space ID; display names do not grant membership or record access.
 - For multi-part structures prefer create_project (pages + board + tasks + moodboard in one call). Look up ids first with workspace_overview, search or get_board.
 - markdown? arguments accept standard markdown plus [[Page Title]] and @handle mentions and ![caption](url) image imports (https only).
 - Date filters accept yyyy-mm-dd, today, today+N and today-N (0–3650 days, case-sensitive, no spaces). within uses inclusive {from,to} bounds. createdAt calendar comparisons use the context timezone while numeric comparisons and sorting retain milliseconds. query_records, dashboards, reminders and digests use the configured workspace timezone. Read workspace_overview.workspace for timeZone, currency and today.
@@ -907,7 +914,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
   );
 
-  server.registerTool('get_record_history',{description:'Read authorized per-record field history with bounded revision pagination. Historical values require current record and historical-space access.',inputSchema:z.object({id:z.string(),before:z.number().int().positive().optional(),limit:z.number().int().min(1).max(50).optional()}),annotations:{readOnlyHint:true}},async a=>{try{return txt(await loadHistoryPage(ctx.env.DB,ctx.userId,a.id,a.before,a.limit,ctx.env.READ_GATE,ctx.env.CONNECTOR));}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}});
+  server.registerTool('get_record_history',{description:'Read authorized field history or body changes with body:true and bounded revision pagination. Body ownership starts at migration0044. Historical values require current record and historical-space access.',inputSchema:z.object({id:z.string(),before:z.number().int().positive().optional(),limit:z.number().int().min(1).max(50).optional(),body:z.boolean().optional()}),annotations:{readOnlyHint:true}},async a=>{try{return txt(a.body ? await loadBodyHistory(ctx.env.DB,ctx.userId,a.id,a.before,a.limit,ctx.env.READ_GATE,ctx.env.CONNECTOR) : await loadHistoryPage(ctx.env.DB,ctx.userId,a.id,a.before,a.limit,ctx.env.READ_GATE,ctx.env.CONNECTOR));}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}});
   reg('restore_record_fields',{description:'Restore selected retained fields from one historical revision using an exact current expectedRev. Preview with dryRun first. Deletion recovery uses restore_item or undo_change.',inputSchema:z.object({id:z.string(),revision:z.number().int().positive(),expectedRev:z.number().int().nonnegative(),fields:z.array(z.string()).min(1).max(100),side:z.enum(['before','after']).default('before')}),annotations:{idempotentHint:true}},async a=>{if(!await ctx.env.READ_GATE!.canRead(a.id))return err('not_found');let planned;try{planned=await historicalPatch(ctx.env.DB,ctx.userId,a.id,a.revision,a.fields,a.side);}catch(e){if(e instanceof HistoryError)return err(e.code);throw e;}if(ctx.cs)ctx.cs.source='undo';await write(ctx,[{id:a.id,collection:planned.collection as Collection,patch:planned.patch}],{expect:new Map([[a.id,a.expectedRev]]),source:'undo'});return txt({id:a.id,restoredFields:a.fields});});
 
   /* ---------- 3. workspace_overview ---------- */

@@ -2,6 +2,7 @@ import {useRequestedFieldFocus} from '../../core/useRequestedFieldFocus';
 import {workspaceTimeZone} from '../../core/workspaceLocale';
 import {useWorkspaceLocale} from '../../core/workspaceLocale';
 import {HistoryButton} from '../../core/History';
+import {ConflictIndicator} from '../../core/ConflictReview';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Archive, ArchiveRestore, ImagePlus, Paperclip, Trash2, X } from 'lucide-react';
@@ -124,7 +125,7 @@ function DetailBody({ taskId, task, loading, titleDraft, descriptionDraft, onClo
         <div className="flex items-center gap-1">
           <PresenceStack path={`/boards/${taskBoardId(task)}/tasks/${task.id}`} />
           <AskAiMenu modules={['tasks']} refs={{ record: { kind: 'record', id: task.id } }} compact />
-          <HistoryButton recordId={task.id}/>
+          <ConflictIndicator recordId={task.id}/><HistoryButton recordId={task.id}/>
           <IconButton aria-label={isArchived(task) ? 'Unarchive task' : 'Archive task'} onClick={() => void setTaskField(task.id, archivePatch(!isArchived(task)))}>
             {isArchived(task) ? <ArchiveRestore size={15} /> : <Archive size={15} />}
           </IconButton>

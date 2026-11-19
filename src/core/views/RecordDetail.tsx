@@ -1,6 +1,7 @@
 import {IdeaHandoff} from './IdeaHandoff';
 import {useRequestedFieldFocus} from '../useRequestedFieldFocus';
 import {HistoryButton} from '../History';
+import {ConflictIndicator} from '../ConflictReview';
 /**
  * RecordDetail — generic record page body for both tasks and records.
  * Section order (spec §4.4): title → stage/builtins → all fields (incl.
@@ -114,7 +115,7 @@ function RecordDetailInner({ rec, board, onClose }: { rec: TaskRow; board: Board
         <span className="flex-1" />
         <PresenceStack path={`/boards/${board.id}/tasks/${rec.id}`} />
         <AskAiMenu modules={recordAiModules(board)} refs={{ record: { kind: 'record', id: rec.id } }} compact />
-        <HistoryButton recordId={rec.id}/>
+        <ConflictIndicator recordId={rec.id}/><HistoryButton recordId={rec.id}/>
         <Popover
           align="right"
           trigger={

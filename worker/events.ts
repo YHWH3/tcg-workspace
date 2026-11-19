@@ -88,7 +88,10 @@ export async function processOutbox(env: { DB: D1Database }, outboxId: string, c
   };
 
   try {
-    const semantic = [...deriveEvents(ev.applied), ...(ev.extra ?? [])];
+    const derived = deriveEvents(ev.applied);
+    // Append new Space events after the historical sequence, including extras,
+    // so already-pending direct deliveries retain their receipt identities.
+    const semantic = [...derived.filter(event => !event.groupId), ...(ev.extra ?? []), ...derived.filter(event => event.groupId)];
     await maintainDateIndex(env, ev.applied);
     await notificationsForEvent(env, semantic, { source: ev.source, userId: ev.userId, outboxId, ctx });
     for(const notification of ev.notifications??[]) await notify(env,notification,[],ctx);

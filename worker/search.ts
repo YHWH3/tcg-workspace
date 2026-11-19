@@ -49,7 +49,7 @@ interface Doc {
 interface RootRow { id: string; collection: string; data: string; space_id: string | null; seq: number; updated_at: number | null }
 interface BlockRow { doc: string; text: string | null; seq: number; updated_at: number | null }
 
-const plain = (text: unknown) => String(text ?? '').replace(/@\[(?:page|user|rec):[^\]]+\]/g, ' ').replace(/\s+/g, ' ').trim();
+const plain = (text: unknown) => String(text ?? '').replace(/@\[(?:page|user|rec|group):[^\]]+\]/g, ' ').replace(/\s+/g, ' ').trim();
 
 function linkMetadata(value:unknown):string {try {const u=new URL(String(value));return u.protocol==='https:'?plain(u.hostname+' '+u.pathname):'';}catch{return '';}}
 
