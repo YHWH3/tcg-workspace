@@ -1,7 +1,9 @@
 # Track A — Permission activation readiness (Sol builds tooling; owner activates)
 
-Branch `sol/track-a-activation` stacked on `sol/p7-foundations`. Do not start
-until production runs the release (R3) and 7.3 (account disable) is merged.
+The owner authorized local Track A preparation before external verification.
+Branch `codex/track-a-activation` stacks on Phase 13, which already contains
+Phase 7.3 and the later attention and email surfaces this track checks.
+Production activation still requires R3, the Phase 7.3 merge and D11.
 
 Permissions (spaces, roles, guests, filtered sync) are implemented and certified
 but OFF (`access_state.enabled=0`). The authoritative runbook is

@@ -1672,3 +1672,28 @@ The earlier runs interrupted for the Space token audit and pending seed correcti
   Phase 7.3 account-disable work in [Workspace PR #16](https://github.com/YHWH3/tcg-workspace/pull/16).
 
 [Supplemental source and check evidence](evidence/post-phase-13-local.md).
+
+### Track A local readiness
+
+The owner moved local permission-activation preparation ahead of external
+verification. Track A starts from the Phase 13 stack so the verifier can use
+the attention, digest and email surfaces. Production activation remains an
+owner decision after R3, the Phase 7.3 merge and D11. See the
+[owner runbook](RELEASE-RUNBOOK.md#track-a-permission-activation).
+
+Track A local readiness passed on `2c65e3394ad1f5cdb8d5f19ba84740ef7970f0a9`.
+The disposable copy migrated from 0035 to 0044 and passed manifest and
+backfill checks. The Chromium, Firefox and WebKit sync matrix passed 33/33,
+the restricted-content fixture passed 13/13, and the deliberately broadened
+fixture returned HOLD. The simulated email revocation check passed. Current
+owner backups and hosted staging remain pending.
+[Track A verification](evidence/track-a-local.md).
+
+### Release handoff after Track A
+
+Verified the remote Workspace stack and separate Website draft and collected the
+later review in one [release handoff](RELEASE-HANDOFF.md). On the recorded
+cross-repository heads, relay tests passed 46/46, the disposable HTTPS integration
+passed 5/5, and built-package preflight passed 16/16. Phases 7–13 and local
+Track A finish the approved engineering roadmap. Review, external verification
+and owner rollout remain deferred.

@@ -96,7 +96,7 @@ Phase 8 desks         Phase 9 everyday (independent features; 9.6 needs 7.1)
 Phase 13 polish
 
 Phase 11 storage: independent; needs owner R2 bucket.
-Track A access activation: after R3 is live and 7.3 is merged; owner executes.
+Track A tooling: local preparation can proceed. The owner activates after R3 is live and 7.3 is merged.
 ```
 
 Do not start a phase until the previous phase it depends on is committed, its
@@ -115,8 +115,7 @@ order.
   migration numbers never collide:
   `plan/next-phases` → `sol/r1-date-window` → `sol/p7-foundations` → `sol/p8-desks` →
   `sol/p9-everyday` → `sol/p10-notifications` → `sol/p11-storage` →
-  `sol/p12-database-power` → `sol/p13-polish`; `sol/track-a-activation` stacks
-  on `sol/p7-foundations`.
+  `sol/p12-database-power` → `sol/p13-polish` → `codex/track-a-activation`.
   Open each as a draft PR whose base is the previous branch.
 - **Migrations.** Latest is `0034_website_source_authority.sql`. Take the next
   unused number at implementation time (expected sequence in
