@@ -349,6 +349,7 @@ async function transcribePending(assertCurrent: () => void): Promise<void> {
       else if (f.parentType === 'block' && f.parentId) await applyTranscriptToBlock(f, text);
     } catch (e) {
       assertCurrent(); // access interruptions never consume transcription attempts
+      if (e instanceof ApiError && e.status === 503 && e.message === 'transcription_disabled') return;
       // Permanent errors (bad input, too large) fail immediately; transient
       // errors (network, auth, AI 5xx) stay 'pending' and retry — but cap the
       // attempts so a file Whisper can't handle doesn't retry forever.

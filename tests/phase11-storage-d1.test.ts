@@ -165,7 +165,7 @@ it('reads exact R2 bytes for transcription through a simulated provider', async 
     expect(Buffer.from(input.audio, 'base64')).toEqual(Buffer.from(bytes));
     return {text:'Fixture transcript'};
   });
-  const env = {...f.env, AI:{run} as unknown as typeof f.env.AI};
+  const env = {...f.env, AUDIO_TRANSCRIPTION: 'on' as const, AI:{run} as unknown as typeof f.env.AI};
   const response = await files.request('/asset/transcribe', {method:'POST', headers:f.auth('alice')}, withD1Budget(env), f.ctx);
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({text:'Fixture transcript'});

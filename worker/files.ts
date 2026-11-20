@@ -84,6 +84,9 @@ const MAX_TRANSCRIBE_BYTES=MAX_FILE_SIZE;
 
 /** Transcribe an uploaded audio file with Workers AI Whisper. */
 files.post('/:id/transcribe', async (c) => {
+  if (c.env.AUDIO_TRANSCRIPTION !== 'on' || !c.env.AI) {
+    return c.json({ error: 'transcription_disabled' }, 503);
+  }
   const id = c.req.param('id');
   if (!ID_RE.test(id)) return c.json({ error: 'invalid file id' }, 400);
   const authority = await authorizeFile(c.env.DB, c.get('user'), id, true);
@@ -107,6 +110,6 @@ files.post('/:id/transcribe', async (c) => {
     return c.json({ text: res.text ?? '' });
   } catch (e) {
     if (e instanceof FileAccessError) throw e;
-    return c.json({ error: `transcription failed: ${e instanceof Error ? e.message : String(e)}` }, 502);
+    return c.json({ error: 'transcription_failed' }, 502);
   }
 });

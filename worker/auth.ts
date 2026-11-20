@@ -34,6 +34,8 @@ export interface Env {
   MCP_WRITE_LIMIT?: string;
   /** Exact trusted media hosts; no remote network imports unless explicitly configured. */
   REMOTE_IMPORT_HOSTS?: string;
+  /** Audio transcription is independent of assistant and embedding providers. */
+  AUDIO_TRANSCRIPTION?: 'off' | 'on';
   AI_PROVIDER?:'none'|'workers-ai';
   AI_DAILY_UNITS?:string;
   AI_CLASSIFICATION?:string;

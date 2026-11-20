@@ -15,7 +15,7 @@ export const releasePreflightNames=[
   'fixture bypasses absent','optional AI disabled','secret values absent from config',
   'permission activation defaults off','44 immutable migration hashes','lockfile and pinned Wrangler',
   'built package matches deployment contract',
-  'optional notifications disabled','optional storage configured safely',
+  'optional notifications disabled','optional storage configured safely','audio transcription disabled',
 ];
 const project=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const json=path=>JSON.parse(readFileSync(path,'utf8'));
@@ -72,6 +72,9 @@ export function inspectRelease(root=project){
     ((c.vars?.FILE_STORAGE??'d1')!=='r2'||(c.r2_buckets??[]).some(b=>b.binding==='FILES'&&b.bucket_name))&&
     Number.isSafeInteger(Number(c.vars?.FILE_QUOTA_MB??450))&&Number(c.vars?.FILE_QUOTA_MB??450)>0&&Number(c.vars?.FILE_QUOTA_MB??450)<=1024*1024,
     'File storage mode, private bucket binding or quota is invalid'));
+  check(releasePreflightNames[16],()=>invariant(
+    c.vars?.AUDIO_TRANSCRIPTION === undefined || c.vars.AUDIO_TRANSCRIPTION === 'off',
+    'Audio transcription requires separate authorization and must be off for this release'));
   return results;
 }
 
@@ -81,7 +84,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
   reporter.setMetadata('scope','Local static contract and built-package checks only; never authorizes deployment');
   reporter.setMetadata('productionReleaseCertified',false);
   reporter.setMetadata('productionTargetWarning','Default config targets existing production workspace/DB/KV. Do not deploy or migrate without separate approval.');
-  reporter.setMetadata('operatorConfiguration',{secretNames:['TURNSTILE_SECRET'],publicVariableNames:['TURNSTILE_SITE_KEY','TURNSTILE_HOSTNAMES'],optionalDisabled:['AI_PROVIDER','AI_DAILY_UNITS','AI_CLASSIFICATION','AI_CHAT_MODEL','AI_BYOK_PROVIDERS','AI_CREDENTIAL_KEY','OPENAI_CHATGPT_HOSTED_APPROVAL','REMOTE_IMPORT_HOSTS','EMAIL_PROVIDER','EMAIL_FROM','EMAIL_APP_ORIGIN','EMAIL_LINK_KEY','RESEND_API_KEY','WEB_PUSH','VAPID_PUBLIC_KEY','VAPID_PRIVATE_KEY','VAPID_SUBJECT','FILE_STORAGE','FILE_QUOTA_MB'],valuesIncluded:false});
+  reporter.setMetadata('operatorConfiguration',{secretNames:['TURNSTILE_SECRET'],publicVariableNames:['TURNSTILE_SITE_KEY','TURNSTILE_HOSTNAMES'],optionalDisabled:['AI_PROVIDER','AI_DAILY_UNITS','AI_CLASSIFICATION','AI_CHAT_MODEL','AI_BYOK_PROVIDERS','AI_CREDENTIAL_KEY','OPENAI_CHATGPT_HOSTED_APPROVAL','REMOTE_IMPORT_HOSTS','AUDIO_TRANSCRIPTION','EMAIL_PROVIDER','EMAIL_FROM','EMAIL_APP_ORIGIN','EMAIL_LINK_KEY','RESEND_API_KEY','WEB_PUSH','VAPID_PUBLIC_KEY','VAPID_PRIVATE_KEY','VAPID_SUBJECT','FILE_STORAGE','FILE_QUOTA_MB'],valuesIncluded:false});
   reporter.setMetadata('externalReleaseGates',['Live remote variables/secrets and target settings','Approved production backup/restore','Real Turnstile and hostname','Physical devices and assistive technology','Real third-party MCP host','Real optional AI provider'].map(test=>({test,status:'NOT VERIFIED'})));
   if(process.argv.length>2)reporter.record('node','none','arguments','FAIL','This read-only local preflight accepts no command-line arguments');
   else for(const result of inspectRelease()){reporter.record('node','none',result.test,result.status,result.error);console.log(`${result.status}: ${result.test}`);}
