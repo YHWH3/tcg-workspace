@@ -5,7 +5,7 @@ This is preparation only. Remote migrations, resource creation and deployment re
 ## Source and migration order
 1. Review the Workspace integration PR stacked on feature/unified-ai-mcp; retain existing release PRs #12/#13 unchanged.
 2. Back up the intended Workspace and relay D1 databases using the operator's verified account/resource identifiers. Confirm restoration on isolated copies before release.
-3. Apply all Workspace migrations in order: release 0032_assistant_conversations.sql, 0033_website_ingest.sql, then 0034_website_source_authority.sql. The manifests pin immutable bytes. Apply relay 0001, 0002 and 0003_delivery_outbox.sql.
+3. Apply all Workspace migrations in order: release 0032_assistant_conversations.sql, 0033_website_ingest.sql, then 0034_website_source_authority.sql. The manifests pin immutable bytes. Apply relay migrations in order through 0004_patron_receipt_recovery.sql.
 4. Deploy compatible receiver/relay code only under separate authorization. Keep forwarding explicitly disabled until both database/schema and authority setup are ready.
 
 ## Configuration

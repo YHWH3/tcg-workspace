@@ -30,9 +30,17 @@ try{
   const sql=readFileSync(join(site,'services/form-relay/migrations',file),'utf8').replace(/--[^\n]*/g,'');
   await db.batch((sql.match(/\s*CREATE\s+TRIGGER\b[\s\S]*?END\s*;|[^;]+;/gi)??[]).map(s=>db.prepare(s.trim())));
  }
- let emails=0;
+ let emails=0, receiptOutage=false;
+ const receiptAttempts=[];
  providers=httpServer(async(req,res)=>{let raw='';for await(const b of req)raw+=b;res.setHeader('Content-Type','application/json');
-  if(req.url==='/emails'){emails++;res.end(JSON.stringify({id:'fixture-email-'+emails}));}
+  if(req.url==='/emails'){
+   const key=req.headers['idempotency-key'];
+   if(key==='patron-paid-pay_fixture'||key==='patron-receipt-pay_fixture'){
+    receiptAttempts.push({key,raw});
+    if(receiptOutage){res.statusCode=503;res.end('{}');return;}
+   }
+   emails++;res.end(JSON.stringify({id:'fixture-email-'+emails}));
+  }
   else if(req.url==='/payment_links')res.end(JSON.stringify({id:'plink_fixture',short_url:'https://example.invalid/fixture'}));
   else if(req.url==='/orders')res.end(JSON.stringify({id:'order_fixture'}));
   else{res.statusCode=500;res.end('{}');}});
@@ -57,11 +65,27 @@ try{
   assert.equal((await ops('approve',{id:app,currency:'inr'})).status,200);await settle();
   const hook={event:'payment_link.paid',payload:{payment_link:{entity:{id:'plink_fixture',reference_id:app}},payment:{entity:{id:'pay_fixture',amount:8500000,currency:'INR',status:'captured'}}}};
   const raw=JSON.stringify(hook),signature=createHmac('sha256','fixture-hook').update(raw).digest('hex');
-  assert.equal((await call('/patron/webhook',hook,{'X-Razorpay-Signature':signature,'X-Razorpay-Event-Id':'evt_fixture'})).status,200);await settle();
+  const hookHeaders={'X-Razorpay-Signature':signature,'X-Razorpay-Event-Id':'evt_fixture'};
+  receiptOutage=true;
+  assert.equal((await call('/patron/webhook',hook,hookHeaders)).status,200);await settle();
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM relay_emails WHERE scheduled=1 AND state='pending'").first()).n,2);
+  assert.equal(receiptAttempts.length,2);
+  assert.equal((await call('/patron/webhook',hook,hookHeaders)).body.duplicate,true);
+  assert.equal(receiptAttempts.length,2);
   assert.equal((await ops('minted',{id:app,tx:'0x'+'1'.repeat(64),token:'1000001'})).status,200);await settle();
   const row=await db.prepare("SELECT COUNT(*) n FROM relay_deliveries WHERE state='delivered'").first();assert.equal(row.n,5);
   const state=await worker.sql("SELECT COUNT(*) n FROM records WHERE collection='tasks' AND json_extract(data,'$.boardId')='board-website-inbox'");assert.equal(state[0].results[0].n,2);
   const patron=await worker.sql("SELECT json_extract(data,'$.p_wi_stage') stage FROM records WHERE collection='tasks' AND json_extract(data,'$.p_wi_application')='"+app+"'");assert.equal(patron[0].results[0].stage,'minted');
+ });
+ await test('scheduled Patron receipt recovery reuses the two stored provider intents',async()=>{
+  receiptOutage=false;
+  await db.prepare("UPDATE relay_emails SET next_attempt=0 WHERE scheduled=1").run();
+  await relay.scheduled({},env,{waitUntil:p=>pending.push(p)});await settle();
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM relay_emails WHERE scheduled=1 AND state='accepted' AND attempts=2 AND receipt IS NOT NULL").first()).n,2);
+  const byKey=(a,b)=>a.key.localeCompare(b.key);
+  assert.deepEqual(receiptAttempts.slice(0,2).sort(byKey),receiptAttempts.slice(2).sort(byKey));
+  await relay.scheduled({},env,{waitUntil:p=>pending.push(p)});await settle();
+  assert.equal(receiptAttempts.length,4);
  });
  await test('outage returns visitor success only after durable storage, then recovery delivers',async()=>{
   const saved=env.FORWARD_URL;env.FORWARD_URL='https://127.0.0.1:1/api/ingest/website';assert.equal((await call('/',{...form,submission_id:'https-outage'})).status,200);await settle();
