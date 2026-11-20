@@ -19,7 +19,7 @@ AI (Claude, ChatGPT, Gemini) ── workspace MCP connector (/mcp) ──▶ rea
 
 - The website never stores submissions; the relay emails them and forwards them.
 - The workspace is where the team works on them: status, triage, replies, patron pipeline, AI summaries.
-- Email stays as the fallback record. If forwarding fails after three tries, the email still arrived.
+- Email and Workspace delivery have independent outcomes. The Workspace outbox retains failed deliveries for authorized replay.
 
 ## 2. The signed request
 
@@ -167,11 +167,12 @@ codebase.
 
 The event-body contract remains v2 and the receiver still accepts v1. Operational changes below do not introduce v3.
 
-- Apply Workspace migrations through `0034_website_source_authority.sql` (the ingest migration is now `0033_website_ingest.sql`); retain the release's `0032_assistant_conversations.sql`. Apply relay migrations through `0003_delivery_outbox.sql`. These are deployment prerequisites, not authorization to run remote migrations.
+- Apply Workspace migrations through `0034_website_source_authority.sql` (the ingest migration is now `0033_website_ingest.sql`); retain the release's `0032_assistant_conversations.sql`. Apply relay migrations through `0004_patron_receipt_recovery.sql`. These are deployment prerequisites, not authorization to run remote migrations.
 - An administrator configures `/api/admin/website-ingest` (GET/PUT/DELETE). Ingest requires the active sponsored grant, its configured Inbox/People destinations and current canonical editing rights. Revocation, sponsor disablement or destination loss returns retryable 503. Every record transaction fences current authority. There is no synthetic privileged `website` account.
 - D1 `relay_deliveries` stores immutable payloads before success. A one-minute scheduled sweep claims at most 10 due rows using two-minute leases. Retry network errors, 429 and 5xx with exponential backoff from one minute, capped at one day; after 10 attempts retain a failed, replayable row. Other 4xx are terminal. Sign anew on each delivery; retain the original event ID, body and `occurred_at`.
 - Existing bearer-token relay administration adds `delivery-list`, `delivery-replay`, `delivery-export` and `delivery-erase`. Listing excludes payloads. Replay cannot change the stored body or choose another destination. Use `tools/patron_admin.py` for these operations.
 - Email intents retain the immutable provider payload, first-attempt time, accepted receipt and processing lease. Resend idempotency is limited to 24 hours: unknown outcomes beyond that window go to review; known accepted emails are not automatically sent again. A provider concurrent-idempotency response is retryable.
+- The relay commits paid Patron edition assignments together with the two email intents. Cron retries these using the stored provider idempotency keys, including when Workspace forwarding is disabled. An unresolved attempt past the 24-hour idempotency window or the retry limit goes to operator review.
 - Delivered outbox and accepted email bodies are purged after 30 days; deduplication receipts remain. Pending/failed events remain recoverable and require operator resolution. Patron export/erase includes this storage, and ordinary-form privacy operations can select the sender email. Owner confirmation of the new privacy wording/retention policy remains a launch gate.
 - Browser pending answers and submission IDs are kept in tab-scoped session storage for up to 24 hours, cleared on successful acknowledgement. A conflict offers an explicit new-submission action. The same identity with different substantive answers is rejected.
 - People matching is confined to the granted database. Deleted/archived/changed identities produce `matchingStatus: unusable_identity` and no invalid relationship. Restoring the existing identity permits matching again; ingestion does not silently resurrect or replace it.

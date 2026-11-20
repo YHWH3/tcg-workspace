@@ -65,7 +65,7 @@ export function AudioChip({ file, onOpen }: { file: FileRow; onOpen?: () => void
         {playing ? <Pause size={9} /> : <Play size={9} className="ml-px" />}
       </button>
       <span onClick={onOpen} className="cursor-pointer">
-        {file.transcriptState === 'pending' ? <span className="anim-pulse text-neutral-400">Transcribing…</span> : file.duration ? fmtDur(Number(file.duration)) : 'Audio'}
+        {file.transcriptState === 'pending' ? <span>Transcript pending</span> : file.duration ? fmtDur(Number(file.duration)) : 'Audio'}
       </span>
       <span className="absolute bottom-0 left-0 h-0.5 bg-blue-500/60 transition-[width]" style={{ width: `${Math.round(progress * 100)}%` }} />
     </span>
@@ -84,7 +84,7 @@ export function AudioPlayer({ file, onDelete }: { file: FileRow; onDelete?: () =
           <p className="truncate text-xs font-medium">{String(file.name ?? 'Voice memo')}</p>
           <p className="text-[11px] text-neutral-400">
             {file.duration ? fmtDur(Number(file.duration)) : 'audio'}
-            {file.transcriptState === 'pending' && <span className="anim-pulse"> · Transcribing…</span>}
+            {file.transcriptState === 'pending' && <span> · Transcript pending</span>}
             {file.transcriptState === 'failed' && ' · Transcription failed'}
           </p>
         </div>

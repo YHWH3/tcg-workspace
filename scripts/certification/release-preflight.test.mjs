@@ -33,10 +33,10 @@ test('local release contract passes without production secrets or credentials',t
 
 test('unsafe fixture/prod configuration fails even when the same values enter the built package',t=>{
   const {root,source,built}=fixture(t);
-  const unsafe={TURNSTILE_LOCAL_TEST:'1',TURNSTILE_SECRET:'NONSECRET-CANARY-NEVER-RETURN',AI_PROVIDER:'workers-ai',AI_DAILY_UNITS:'100',EMAIL_PROVIDER:'simulated',WEB_PUSH:'simulated'};
+  const unsafe={TURNSTILE_LOCAL_TEST:'1',TURNSTILE_SECRET:'NONSECRET-CANARY-NEVER-RETURN',AI_PROVIDER:'workers-ai',AI_DAILY_UNITS:'100',AUDIO_TRANSCRIPTION:'on',EMAIL_PROVIDER:'simulated',WEB_PUSH:'simulated'};
   source.vars=unsafe;built.vars=unsafe;source.d1_databases[0].remote=true;built.d1_databases[0].remote=true;
   writeFileSync(join(root,'wrangler.jsonc'),JSON.stringify(source));writeFileSync(join(root,'dist/workspace/wrangler.json'),JSON.stringify(built));
-  for(const name of ['local bindings have no remote access','fixture bypasses absent','optional AI disabled','optional notifications disabled','secret values absent from config'])assert.ok(failed(root,name),name);
+  for(const name of ['local bindings have no remote access','fixture bypasses absent','optional AI disabled','audio transcription disabled','optional notifications disabled','secret values absent from config'])assert.ok(failed(root,name),name);
   assert.ok(!JSON.stringify(inspectRelease(root)).includes(unsafe.TURNSTILE_SECRET),'Report must not echo operator values');
 });
 

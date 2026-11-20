@@ -16,7 +16,7 @@ beforeEach(async () => {
     script: 'export default {fetch(){return new Response("disposable file fixture")}}',
     compatibilityDate: '2026-09-25', d1Databases: { DB: 'disposable-phase5-files' },
   }] }));
-  db = await runtime.getD1Database('DB') as D1Database; env = { DB: db, AI: { run: ai } } as unknown as Env; ai.mockClear();
+  db = await runtime.getD1Database('DB') as D1Database; env = { DB: db, AUDIO_TRANSCRIPTION: 'on', AI: { run: ai } } as unknown as Env; ai.mockClear();
   const folder = fileURLToPath(new URL('../migrations/', import.meta.url));
   for (const name of readdirSync(folder).filter(n => n.endsWith('.sql')).sort()) {
     const sql = readFileSync(`${folder}/${name}`, 'utf8').replace(/--[^\n]*/g, '');
@@ -122,6 +122,17 @@ it('does not delete auxiliary thumbnail bytes after a concurrent revocation', as
   expect(await db.prepare("SELECT COUNT(*) n FROM file_chunks WHERE file_id='audiot'").first('n')).toBe(1);
   expect(await db.prepare("SELECT COUNT(*) n FROM file_deletions WHERE id='audiot'").first('n')).toBe(0);
 });
+it('keeps the provider off by default even with an AI binding and enables it independently', async () => {
+  const disabled = await call('editor', '/audio/transcribe', 'POST', '{}', { ...env, AUDIO_TRANSCRIPTION: undefined });
+  expect(disabled.status).toBe(503);
+  expect(await disabled.json()).toEqual({ error: 'transcription_disabled' });
+  expect(ai).not.toHaveBeenCalled();
+  expect(await db.prepare("SELECT complete FROM files WHERE id='audio'").first('complete')).toBe(1);
+  const enabled = await call('editor', '/audio/transcribe', 'POST', '{}', { ...env, AI_PROVIDER: 'none' });
+  expect(enabled.status).toBe(200);
+  expect(ai).toHaveBeenCalledTimes(1);
+});
+
 it('prevents viewers completing, deleting or transcribing files and preserves canonical bytes', async () => {
   for (const [path, method, body] of [['/audio/complete', 'POST', JSON.stringify({ chunks: 1, size: 7, mime: 'audio/webm' })], ['/audio/transcribe', 'POST', '{}'], ['/audio', 'DELETE', undefined]] as const) {
     expect((await call('viewer', path, method, body)).status).toBe(403);
