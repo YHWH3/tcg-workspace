@@ -9,7 +9,7 @@ import type {Env} from './auth';
 import {serverDateContext} from './workspaceSettings';
 import {getRec,getRecs,SELECT,toRow,type RawRow} from './records';
 import {gateRows} from './readAccess';
-import {aggregate,applyView,type Filter,type FieldKey,type ViewConfig} from '../shared/views';
+import {aggregate,applyView,summarizeDashboard,type Filter,type FieldKey,type ViewConfig} from '../shared/views';
 import {fieldsOf,formatNumber} from '../shared/fields';
 import {recordsForCalendar} from '../shared/calendarView';
 import {argsHash} from '../shared/stablejson';
@@ -220,11 +220,13 @@ export function registerReadTools(server:McpServer,c:Context) {
    }
 
    if(!board||board.collection!=='boards'||board.data.archived)return {id:block.id,type:data.type,status:'source_unavailable'};
-   const rows=tasks.rows.filter(r=>(r.data.boardId??'board-default')===board.id&&!r.data.parentId&&!r.data.archived).map(r=>({id:r.id,...r.data}));
+   const rows=tasks.rows.filter(r=>(r.data.boardId??'board-default')===board.id&&!r.data.parentId).map(r=>({id:r.id,...r.data}));
    const context=contextFor(board);
    // Relational filters cannot be evaluated from incomplete relations. Fail closed
    // instead of silently returning an inconsistent number.
-   const view=views.get(String(data.viewId??board.data.defaultViewId));
+   const storedView=views.get(String(data.viewId??board.data.defaultViewId));
+   const view=storedView?.collection==='views'&&!storedView.data.deleted&&storedView.data.databaseId===board.id?storedView:undefined;
+   if(data.type==='view'&&data.viewId&&!view)return {id:block.id,type:data.type,status:'source_unavailable'};
    const config={...(view?.data.config as ViewConfig??{}),...(data.inline as ViewConfig??{})};
    const filters=(data.type==='metric'?data.filters:config.filters) as Filter[]|undefined;
    if(relationsTruncated&&(filters?.some(filter=>filter.key.startsWith('rel_'))||config.sorts?.some(sort=>sort.key.startsWith('rel_'))||config.groupBy?.startsWith('rel_')))return {id:block.id,type:data.type,status:'partial',records:[],value:null,truncated:true,partialSources:['relations']};
@@ -235,7 +237,9 @@ export function registerReadTools(server:McpServer,c:Context) {
     return {id:block.id,type:data.type,label:data.label,...result,formattedValue:result.value==null?null:currencyFormat?formatNumber(result.value,{...field,format:'currency'},dateContext.currency):new Intl.NumberFormat('en-US').format(result.value),currency,currencySource:currency?(field?.currency?'field':'workspace'):null,truncated:tasks.truncated||relationsTruncated};
    }
    const evaluated=applyView(rows,{...config,...(data.type==='mywork'?{mine:true}:{} )},context).rows;
-   return {id:block.id,type:data.type,records:evaluated.slice(0,100).map(brief),truncated:tasks.truncated||relationsTruncated||evaluated.length>100};
+   const configuredLimit=Number(data.limit);
+   const limit=Number.isInteger(configuredLimit)&&configuredLimit>0?Math.min(configuredLimit,100):100;
+   return {id:block.id,type:data.type,records:evaluated.slice(0,limit).map(brief),...(view?.data.type==='dashboard'?{dashboard:summarizeDashboard(evaluated.slice(0,limit),{id:board.id,columns:board.data.columns},config)}:{}),truncated:tasks.truncated||relationsTruncated||evaluated.length>limit};
   });
   return txt({pageId:a.pageId,blocks:output,truncated:blocks.truncated||tasks.truncated||relationsTruncated||[...attentionRows.values()].some(row=>row.partial||!!row.nextCursor)||[...healthRows.values(),...financeRows.values(),...fieldRows.values(),...eventRows.values()].some(h=>h.partial===true),trust});
  });

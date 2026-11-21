@@ -3,13 +3,25 @@
  * rows; custom-field values live at top-level `p_<fieldId>`; relation values
  * are never stored on the record — resolved on demand via ctx.relationTitles. */
 
+import { columnIdFor, columnsOf } from './boardModel';
 import { cmpOrder } from './order';
 import { isSelectType, optionByName, type FieldDef } from './fields';
 import { isDateBound, parseDateOnly, relativeDateError, resolveDateBound, resolveRelativeDate, toDateOnlyInZone } from './dates';
 
-export type ViewType = 'board' | 'table' | 'list' | 'gallery' | 'calendar' | 'timeline' | 'chart';
+export const VIEW_TYPES = ['board', 'table', 'list', 'gallery', 'calendar', 'timeline', 'chart', 'feed', 'dashboard'] as const;
+export type ViewType = typeof VIEW_TYPES[number];
 
-export const VIEW_TYPES: readonly ViewType[] = ['board', 'table', 'list', 'gallery', 'calendar', 'timeline', 'chart'];
+export const VIEW_LAYOUTS: Record<ViewType, { label: string; description: string }> = {
+  table: { label: 'Table', description: 'Edit properties in a grid of rows and columns.' },
+  board: { label: 'Board', description: 'Organize records into columns by stage or another property.' },
+  calendar: { label: 'Calendar', description: 'See records on the dates that matter.' },
+  timeline: { label: 'Timeline', description: 'Plan work across start and end dates.' },
+  dashboard: { label: 'Dashboard', description: 'See totals, dates and stage breakdowns together.' },
+  chart: { label: 'Chart', description: 'Compare counts, totals, or trends.' },
+  list: { label: 'List', description: 'Scan a compact list of records.' },
+  gallery: { label: 'Gallery', description: 'Browse a grid of visual cards.' },
+  feed: { label: 'Feed', description: 'Read record updates as a stack of cards.' },
+};
 
 /** Date-capable field key: the built-in due date or a custom `date` field. */
 export type DateFieldKey = 'dueDate' | `p_${string}`;
@@ -62,6 +74,11 @@ export interface ViewConfig {
   endDateKey?: DateFieldKey | null; // timeline bar end; null/absent → 1-day bars
   timelineScale?: 'week' | 'month' | 'quarter';
   chart?: ChartConfig;
+}
+
+/** Defaults for a new presentation of an existing database. */
+export function newViewConfig(type: ViewType): ViewConfig {
+  return type === 'feed' ? { sorts: [{ key: 'createdAt', dir: 'desc' }] } : {};
 }
 
 /** The record field calendar/timeline views bucket by — defaults to 'dueDate'. */
@@ -374,6 +391,23 @@ export function applyView(records: readonly ViewRecord[], config: ViewConfig = {
   const sorted = sortRecords(rows, config.sorts, ctx);
   if (config.groupBy) return { rows: sorted, groups: groupRows(sorted, config.groupBy, ctx) };
   return { rows: sorted };
+}
+
+/** Summarize rows already evaluated by the dashboard's saved view filters. */
+export function summarizeDashboard(rows: readonly ViewRecord[], board: { id?: string; columns?: unknown }, config?: ViewConfig) {
+  const columns = Array.isArray(board.columns) && board.columns.length ? columnsOf(board) : [];
+  const counts = new Map<string, number>();
+  let scheduled = 0;
+  const dateKey = resolveDateKey(config);
+  for (const row of rows) {
+    if (parseDateOnly(row[dateKey])) scheduled++;
+    if (columns.length) {
+      const stage = columnIdFor({ status: row.status }, board);
+      counts.set(stage, (counts.get(stage) ?? 0) + 1);
+    }
+  }
+  const stages = columns.map(column => ({ ...column, count: counts.get(column.id) ?? 0 }));
+  return { total: rows.length, scheduled, dateKey, stages };
 }
 
 /**

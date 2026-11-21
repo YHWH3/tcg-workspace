@@ -1,6 +1,7 @@
 import {modules} from '../../modules';
 import {Slot} from '../../modules/slots';
 import {AttentionEditor} from '../../modules/boards/AttentionEditor';
+import {GateEditor, GateMoveHost} from '../../modules/boards/GateMove';
 import {MoveSpaceButton} from '../MoveSpace';
 /**
  * DatabasePage — the Phase 1 database shell: view tabs, view config toolbar
@@ -12,9 +13,9 @@ import {MoveSpaceButton} from '../MoveSpace';
  * BoardPage (kind 'tasks', unchanged UX) and this shell (kind 'records',
  * or when a database has views).
  */
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, ClipboardList, Download, Filter, Image as ImageIcon, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Table2, Trash2, Upload, Users, Zap } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowUpDown, BarChart3, Calendar, ClipboardList, Copy, Download, Filter, Image as ImageIcon, KanbanSquare, LayoutDashboard, List, MoreHorizontal, Newspaper, Pencil, Plus, ShieldCheck, Table2, GanttChartSquare, Trash2, Upload, Users, Zap } from 'lucide-react';
 import { authStore } from '../auth';
 import { useIsMobile } from '../mobile';
 import { PresenceStack } from '../presence';
@@ -48,7 +49,6 @@ import {
   useDbRecords,
   useViews,
   viewCtx,
-  VIEW_TYPE_LABELS,
   type FieldKey,
   type ViewConfig,
   type Filter as VFilter,
@@ -61,31 +61,33 @@ import { TableView } from './TableView';
 import {ChartView} from './ChartView';
 import {DEFAULT_CHART} from '../../../shared/charts';
 import { ListView } from './ListView';
+import { DashboardView } from './DashboardView';
+import { FeedView } from './FeedView';
 import { GalleryView } from './GalleryView';
 import { GroupBoard } from './GroupBoard';
 import { RecordDetail } from './RecordDetail';
 import { CalendarView } from '../../modules/boards/views/CalendarView';
 import { TimelineView } from '../../modules/boards/views/TimelineView';
 import { fieldKeyOf } from '../records';
-import {changeFilterOperator,isDateFilterKey,type DateFieldKey} from '../../../shared/views';
+import {changeFilterOperator,isDateFilterKey, VIEW_LAYOUTS, type DateFieldKey} from '../../../shared/views';
 import {DateFilterControl,DATE_VALUE_OPERATORS} from './DateFilterControl';
 import {useContainerWidth} from '../container';
 import { archivePatch, isArchived } from '../../../shared/archive';
 import { BulkActionBar, BulkSelectionProvider } from './bulk';
 import { ImportCsvDialog } from './ImportCsv';
 
-const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: BarChart3, chart: BarChart3 };
+const VIEW_ICONS: Record<ViewType, typeof Table2> = { board: KanbanSquare, table: Table2, list: List, gallery: ImageIcon, calendar: Calendar, timeline: GanttChartSquare, chart: BarChart3, feed: Newspaper, dashboard: LayoutDashboard };
 
 /* ============ dispatcher for the legacy routes ============ */
 
-export function BoardOrDb() {
+export function BoardOrDb({ savedViews = false }: { savedViews?: boolean }) {
   const { boardId = '', taskId } = useParams();
   const board = useBoard(boardId);
   const views = useViews(boardId);
   if (board === undefined) return null;
   if (!board) return <Navigate to="/boards" replace />;
   // Records databases and tasks boards that already have views use the shell.
-  if (isRecordsDb(board) || views.length > 0) return <DatabasePage recordId={taskId} />;
+  if (savedViews || isRecordsDb(board) || views.length > 0) return <DatabasePage recordId={taskId} />;
   return <BoardPage />;
 }
 
@@ -106,6 +108,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
   // sliver beside a fixed-width detail, especially with enlarged root text.
   const detailOverlay=mobile||container.width<54*parseFloat(getComputedStyle(document.documentElement).fontSize);
   const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [gateOpen, setGateOpen] = useState(false);
   const [attentionOpen,setAttentionOpen]=useState(false);
   const [csvExportOpen, setCsvExportOpen] = useState(false);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
@@ -174,6 +177,10 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); navigate(`/forms/${board.id}`); }}>
                   <ClipboardList size={14} /> Forms…
                 </button>
+                {cols.length > 0 && <button className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  onClick={() => { close(); setGateOpen(true); }}>
+                  <ShieldCheck size={14} /> Approval gate…
+                </button>}
                 <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => { close(); navigate(`/automations/${board.id}`); }}>
                   <Zap size={14} /> Automations…
                 </button>
@@ -202,10 +209,10 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
         <Slot modules={modules} kind="databaseSummary" props={{databaseId:board.id}}/>
 
         {/* view tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto border-b border-neutral-200/70 px-3 py-1.5 dark:border-neutral-800/70">
-          <div className="flex shrink-0 items-center gap-1" role="tablist" aria-label="Views">
+        <div className="flex min-w-0 items-center gap-1 border-b border-neutral-200/70 px-3 py-1.5 dark:border-neutral-800/70">
+          <div className="flex min-w-0 items-center gap-1 overflow-x-auto" role="tablist" aria-label="Views">
           {(views.length ? views : [view!]).map((v) => {
-            const Icon = VIEW_ICONS[v.type ?? 'table'];
+            const Icon = VIEW_ICONS[v.type] ?? Table2;
             const active = v.id === view?.id;
             return (
               <div key={v.id || 'implicit'} role="presentation" className={cn('group flex shrink-0 items-center rounded-lg text-xs', active && 'bg-neutral-100 dark:bg-neutral-800')}>
@@ -232,18 +239,19 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
             );
           })}
           </div>
-          {view?.id && <ViewTabMenu view={view} board={board} onDeleted={() => navigate(`/boards/${board.id}`)} />}
-          <Popover
+          {view?.id && <ViewTabMenu key={view.id} view={view} board={board} onCreated={id => pickView({ ...view, id })} onDeleted={() => navigate(`/boards/${board.id}`)} />}
+          <Popover adaptive label="Add a database view" align="right"
             trigger={
-              <button className="flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-xs text-neutral-600 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800" aria-label="New view" style={{ minHeight: 32 }}>
-                <Plus size={12} /> View
+              <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-xs font-medium text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800" aria-label="New view">
+                <Plus size={14} aria-hidden="true" /> View
               </button>
             }
           >
             {(close) => (
               <NewViewMenu
                 board={board}
-                cols={cols}
+                hasStages={cols.length > 0}
+                onForms={() => { close(); navigate(`/forms/${board.id}`); }}
                 onCreate={(t, cfg) => {
                   close();
                   void createView(board.id, t, undefined, cfg).then((id) => {
@@ -292,6 +300,8 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
       )}
       {csvExportOpen && view && <CsvExportDialog board={board} view={view} records={records} tasks={tasks} links={links} meId={me} onClose={() => setCsvExportOpen(false)} />}
       {csvImportOpen && <ImportCsvDialog board={board} records={records} onClose={() => setCsvImportOpen(false)} />}
+      {gateOpen && <Dialog title="Approval gate" onClose={() => setGateOpen(false)}><GateEditor board={board} /></Dialog>}
+      <GateMoveHost />
     </div>
   );
 }
@@ -367,25 +377,30 @@ function renderView(board: BoardRow, view: ViewRow, records: ReturnType<typeof u
     return <GroupBoard board={board} view={view} records={records} />;
   }
   if (type === 'list') return <ListView board={board} view={view} records={records} />;
+  if (type === 'feed') return <FeedView key={view.id} board={board} view={view} records={records} />;
   if (type === 'gallery') return <GalleryView board={board} view={view} records={records} />;
   if (type === 'calendar') return <CalendarView board={board} view={view} records={records} />;
   if (type === 'timeline') return <TimelineView board={board} view={view} records={records} />;
+  if (type === 'dashboard') return <DashboardView key={view.id} board={board} view={view} records={records}
+    context={viewCtx(board, deps.tasks, deps.links, deps.meId, todayISO())} />;
   if (type === 'chart') return <ChartView key={view.id} board={board} view={view} records={records}
     context={viewCtx(board, deps.tasks, deps.links, deps.meId, todayISO())}
     onConfig={chart => void persistViewConfig(board, view, {...view.config, chart})} />;
   return <TableView board={board} view={view} records={records} />;
 }
 
-function ViewTabMenu({ view, board, onDeleted }: { view: ViewRow; board: BoardRow; onDeleted: () => void }) {
+function ViewTabMenu({ view, board, onCreated, onDeleted }: { view: ViewRow; board: BoardRow; onCreated: (id: string) => void; onDeleted: () => void }) {
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(String(view.name ?? ''));
   return (
     <>
       <Popover
-        align="left"
+        align="right"
+        adaptive
+        label="View options"
         trigger={
-          <button className="mr-1 flex h-5 w-5 items-center justify-center rounded text-neutral-400 opacity-0 transition-opacity hover:bg-neutral-200 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-neutral-700" aria-label={`${view.name} options`}>
-            <MoreHorizontal size={12} />
+          <button type="button" className="flex min-h-11 min-w-9 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800" aria-label={`${view.name} options`}>
+            <MoreHorizontal size={16} />
           </button>
         }
       >
@@ -399,6 +414,15 @@ function ViewTabMenu({ view, board, onDeleted }: { view: ViewRow; board: BoardRo
               }}
             >
               <Pencil size={13} /> Rename
+            </button>
+            <button
+              className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              onClick={() => {
+                close();
+                void createView(board.id, view.type, `${view.name} copy`, view.config).then(onCreated);
+              }}
+            >
+              <Copy size={13} /> Duplicate view
             </button>
             <button
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
@@ -592,7 +616,7 @@ function ViewToolbar({ board, view, noun }: { board: BoardRow; view: ViewRow; no
           </div>
         )}
       </Popover>
-      {(view.type === 'calendar' || view.type === 'timeline') && (
+      {(view.type === 'calendar' || view.type === 'timeline' || view.type === 'dashboard') && (
         <>
           <Select density="compact"
             value={cfg.dateKey ?? 'dueDate'}
@@ -638,47 +662,72 @@ function dateFieldKeys(board: BoardRow): DateFieldKey[] {
 }
 
 /** New-view menu: type list; calendar/timeline ask for the date field first. */
-function NewViewMenu({ board, cols, onCreate }: { board: BoardRow; cols: { id: string }[]; onCreate: (t: ViewType, cfg?: ViewConfig) => void }) {
-  const [pending, setPending] = useState<ViewType | null>(null);
+function NewViewMenu({ board, hasStages, onCreate, onForms }: {
+  board: BoardRow;
+  hasStages: boolean;
+  onCreate: (type: ViewType, config?: ViewConfig) => void;
+  onForms: () => void;
+}) {
+  const descriptionId = useId();
+  const [pending, setPending] = useState<'calendar' | 'timeline' | null>(null);
   const [dateKey, setDateKey] = useState<DateFieldKey>('dueDate');
-  if (pending === 'calendar' || pending === 'timeline') {
+  const groupField = fieldsOf(board).find(field => field.type === 'select' || field.type === 'person');
+
+  if (pending) {
     return (
-      <div className="w-56 p-2 text-sm">
-        <p className="px-1 pb-1.5 text-xs font-semibold text-neutral-500">{VIEW_TYPE_LABELS[pending]} — date field</p>
-        <Select value={dateKey} onChange={(e) => setDateKey(e.target.value as DateFieldKey)} className="mb-2 w-full text-xs">
-          {dateFieldKeys(board).map((k) => (
-            <option key={k} value={k}>
-              {fieldKeyLabel(board, k)}
-            </option>
-          ))}
-        </Select>
-        <div className="flex justify-end gap-1">
-          <Button size="sm" variant="ghost" onClick={() => setPending(null)}>
-            Back
-          </Button>
-          <Button size="sm" variant="primary" onClick={() => onCreate(pending, { dateKey })}>
-            Create
-          </Button>
+      <div className="w-full p-4 text-sm sm:w-72">
+        <label className="block">
+          <span className="font-medium">{VIEW_LAYOUTS[pending].label} date field</span>
+          <Select autoFocus value={dateKey} onChange={e => setDateKey(e.target.value as DateFieldKey)} className="my-2 w-full">
+            {dateFieldKeys(board).map(key => <option key={key} value={key}>{fieldKeyLabel(board, key)}</option>)}
+          </Select>
+        </label>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setPending(null)}>Back</Button>
+          <Button variant="primary" onClick={() => onCreate(pending, { dateKey })}>Create</Button>
         </div>
       </div>
     );
   }
+
+  const layouts: ViewType[] = ['table', 'board', 'calendar', 'timeline', 'dashboard', 'chart', 'list', 'gallery', 'feed'];
+  const buttonClass = 'flex min-h-11 w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800';
   return (
-    <div className="w-40 p-1 text-sm">
-      {(['table', 'list', 'gallery', 'board', 'calendar', 'timeline', 'chart'] as ViewType[])
-        .filter((t) => t !== 'board' || cols.length > 0)
-        .map((t) => {
-          const Icon = VIEW_ICONS[t];
+    <div className="w-full p-2 text-sm sm:w-[min(32rem,calc(100vw-2rem))]">
+      <p className="px-3 pt-2 pb-1 font-semibold">Add a view</p>
+      <div className="grid gap-1 sm:grid-cols-2">
+        {layouts.map((type, index) => {
+          const Icon = VIEW_ICONS[type];
+          const { label, description } = VIEW_LAYOUTS[type];
+          const unavailable = type === 'board' && !hasStages && !groupField;
           return (
-            <button
-              key={t}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
-              onClick={() => (t === 'calendar' || t === 'timeline' ? setPending(t) : onCreate(t, t === 'chart' ? {chart:DEFAULT_CHART} : undefined))}
+            <button key={type} type="button" autoFocus={index === 0} disabled={unavailable}
+              aria-label={label} aria-describedby={`${descriptionId}-${type}`}
+              className={`${buttonClass} disabled:cursor-default disabled:hover:bg-transparent`}
+              onClick={() => {
+                if (type === 'calendar' || type === 'timeline') setPending(type);
+                else if (type === 'chart') onCreate(type, { chart: DEFAULT_CHART });
+                else if (type === 'board' && !hasStages && groupField) onCreate(type, { groupBy: fieldKeyOf(groupField) });
+                else onCreate(type);
+              }}
             >
-              <Icon size={14} className="text-neutral-400" /> {VIEW_TYPE_LABELS[t]}
+              <Icon aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-neutral-600 dark:text-neutral-400" />
+              <span>
+                <span className="block font-medium">{label}</span>
+                <span id={`${descriptionId}-${type}`} className="block text-xs text-neutral-600 dark:text-neutral-300">
+                  {unavailable ? 'Add a stage, select, or person property first.' : description}
+                </span>
+              </span>
             </button>
           );
         })}
+      </div>
+      <div className="mt-1 border-t border-neutral-200 pt-1 dark:border-neutral-700">
+        <button type="button" className={buttonClass} onClick={onForms}>
+          <ClipboardList aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-neutral-600 dark:text-neutral-400" />
+          <span><span className="block font-medium">Form builder</span><span className="block text-xs text-neutral-600 dark:text-neutral-300">Collect new records through a form.</span></span>
+        </button>
+      </div>
     </div>
   );
 }

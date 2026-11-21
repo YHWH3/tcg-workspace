@@ -226,7 +226,8 @@ export function Popover({
         {nativeTrigger ? cloneElement(trigger, { 'aria-haspopup': true, 'aria-expanded': isOpen }) : trigger}
       </span>
       {isOpen && sheetMode ? (
-        <Overlay onClose={() => setOpen(false)} label={label} className="flex flex-col justify-end">
+        <Overlay onClose={() => setOpen(false)} label={label} className="flex flex-col justify-end"
+          returnFocus={() => triggerRef.current?.querySelector<HTMLElement>('button') ?? triggerRef.current}>
           <div className="anim-slide-bottom mt-auto max-h-[85%] w-full overflow-y-auto rounded-t-2xl border-t border-neutral-200 bg-white pb-safe shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
             {children(() => setOpen(false))}
           </div>
@@ -312,12 +313,14 @@ function Overlay({
   label,
   labelledBy,
   guard,
+  returnFocus,
 }: {
   children: ReactNode;
   onClose: () => void;
   className?: string;
   label?: string;
   labelledBy?: string;
+  returnFocus?: () => HTMLElement | null;
   /** Return false to refuse Escape / outside dismiss (unsaved content). */
   guard?: () => boolean;
 }) {
@@ -330,11 +333,11 @@ function Overlay({
 
   useEffect(() => {
     const layer: OverlayLayer = { id: Symbol('overlay'), portal: portalRef.current ?? undefined };
+    const prevFocus = returnFocus?.() ?? document.activeElement as HTMLElement | null;
     pushLayer(layer);
     applyInert();
     overlayDepth++;
     document.body.style.overflow = 'hidden';
-    const prevFocus = document.activeElement as HTMLElement | null;
     const surface = surfaceRef.current;
     const focusables = () =>
       Array.from(surface?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(

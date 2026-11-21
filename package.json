@@ -24,7 +24,8 @@
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:rehearse": "node scripts/release-rehearsal.mjs",
     "release:ui": "node scripts/verify-release-ui.mjs",
-    "qa:ux": "node scripts/qa-ux.mjs"
+    "qa:ux": "node scripts/qa-ux.mjs",
+    "demo:studio": "node scripts/studio-demo/preview.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",

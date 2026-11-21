@@ -18,6 +18,8 @@ import { Board } from '../Board';
 import { boardTasks, type BoardRow, type TaskRow } from '../api';
 import { GroupBoard } from '../../../core/views/GroupBoard';
 import { ListView } from '../../../core/views/ListView';
+import { DashboardView } from '../../../core/views/DashboardView';
+import { FeedView } from '../../../core/views/FeedView';
 import { GalleryView } from '../../../core/views/GalleryView';
 import {ChartView} from '../../../core/views/ChartView';
 import { TableView } from '../../../core/views/TableView';
@@ -39,6 +41,7 @@ function renderBlockView(board: BoardRow, view: ViewRow, records: TaskRow[]) {
     return <GroupBoard board={board} view={view} records={records} />;
   }
   if (type === 'list') return <ListView board={board} view={view} records={records} />;
+  if (type === 'feed') return <FeedView key={view.id} board={board} view={view} records={records} />;
   if (type === 'gallery') return <GalleryView board={board} view={view} records={records} />;
   if (type === 'calendar') return <CalendarView board={board} view={view} records={records} />;
   if (type === 'timeline') return <TimelineView board={board} view={view} records={records} />;
@@ -58,6 +61,7 @@ function ViewBlockInner({ block }: { block: LocalRow }) {
   const view = useMemo((): ViewRow | undefined => {
     if (!board) return undefined;
     const pinned = block.viewId ? views.find((v) => v.id === block.viewId && !v.deleted) : undefined;
+    if (block.viewId && !pinned) return undefined;
     const base = pinned ?? resolveView(board, views, undefined);
     const inline = blockInline(block);
     return inline ? { ...base, config: { ...base.config, ...inline } } : base;
@@ -68,7 +72,7 @@ function ViewBlockInner({ block }: { block: LocalRow }) {
   if (boards === undefined || tasks === undefined) return <BlockNotice tone="loading">Loading…</BlockNotice>;
   if (!board) return <BlockNotice>Database missing — pick another in Configure.</BlockNotice>;
   if (isArchived(board)) return <BlockNotice>Source database is archived.</BlockNotice>;
-  if (!view) return <BlockNotice tone="loading">Loading…</BlockNotice>;
+  if (!view) return <BlockNotice>Saved view unavailable. Choose another view in Configure.</BlockNotice>;
 
   const ctx = viewCtx(board, tasks, links, me, todayISO());
   const baseRows = boardTasks(tasks, board.id).filter((t) => !t.parentId);
@@ -79,7 +83,9 @@ function ViewBlockInner({ block }: { block: LocalRow }) {
   return <div className="dashboard-view -mx-1">
     {view.type === 'chart'
       ? <ChartView board={board} view={view} records={sliced} context={ctx} />
-      : renderBlockView(board, view, sliced)}
+      : view.type === 'dashboard'
+        ? <DashboardView key={view.id} board={board} view={view} records={sliced} context={ctx} />
+        : renderBlockView(board, view, sliced)}
   </div>;
 }
 

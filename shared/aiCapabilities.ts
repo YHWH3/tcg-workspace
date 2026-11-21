@@ -18,7 +18,7 @@
 export type CapabilityKind = 'read' | 'write' | 'proposal';
 export type CapabilityModule =
   | 'search' | 'pages' | 'editor' | 'tasks' | 'databases' | 'properties' | 'views' | 'projects'
-  | 'dashboards' | 'moodboards' | 'files' | 'comments' | 'approvals' | 'people' | 'inbox'
+  | 'dashboards' | 'forms' | 'moodboards' | 'files' | 'comments' | 'approvals' | 'people' | 'inbox'
   | 'automations' | 'history' | 'changesets' | 'workflows' | 'templates' | 'workspace';
 
 export interface Capability {
@@ -50,12 +50,15 @@ export const CAPABILITIES: readonly Capability[] = [
   W('edit_record_body', 'editor'), W('set_parent', 'databases'), W('convert_record', 'databases'),
   W('add_stage', 'properties'), W('update_stage', 'properties'), W('remove_stage', 'properties'),
   W('add_field', 'properties'), W('update_field', 'properties'), W('remove_field', 'properties'),
-  W('add_view', 'views'), W('update_view', 'views'), W('remove_view', 'views'),
+  R('list_database_views', 'views'), W('add_view', 'views'), W('update_view', 'views'), W('remove_view', 'views'),
+  W('duplicate_view', 'views'), W('set_default_view', 'views'),
   W('link_items', 'databases'), W('unlink_items', 'databases'), W('add_dependency', 'tasks'), W('remove_dependency', 'tasks'),
   W('create_project', 'projects'), W('convert_idea_to_project', 'projects'),
   W('archive_item', 'workspace'), W('unarchive_item', 'workspace'), W('delete_item', 'workspace'), W('restore_item', 'workspace'),
   // Dashboards
-  R('dashboard_snapshot', 'dashboards'), R('operating_review_context', 'dashboards'), R('attention_queue','dashboards'),
+  W('append_dashboard_widgets', 'dashboards'), R('dashboard_snapshot', 'dashboards'), R('operating_review_context', 'dashboards'), R('attention_queue','dashboards'),
+  // Form configuration. Publishing stays in the authenticated editor.
+  R('list_database_forms', 'forms'), W('save_form_draft', 'forms'),
   // Moodboards
   W('create_moodboard', 'moodboards'), W('add_mood_items', 'moodboards'), R('get_moodboard', 'moodboards'),
   W('update_mood_items', 'moodboards'), W('connect_items', 'moodboards'), W('add_frame', 'moodboards'),

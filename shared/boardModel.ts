@@ -16,7 +16,13 @@ export const FALLBACK_COLUMNS: BoardColumn[] = [
   { id: 'done', name: 'Done', color: '#30a46c' },
 ];
 
-export const COLUMN_COLORS = ['#8a8a8a', '#e5484d', '#e5a000', '#30a46c', '#0091ff', '#8e4ec6', '#e93d82', '#795548'];
+export const COLUMN_PALETTE = [
+  { color: '#8a8a8a', label: 'Gray' }, { color: '#e5484d', label: 'Red' },
+  { color: '#e5a000', label: 'Amber' }, { color: '#30a46c', label: 'Green' },
+  { color: '#0091ff', label: 'Blue' }, { color: '#8e4ec6', label: 'Purple' },
+  { color: '#e93d82', label: 'Pink' }, { color: '#795548', label: 'Brown' },
+];
+export const COLUMN_COLORS = COLUMN_PALETTE.map(option => option.color);
 
 export function taskBoardId(task: { id?: string; boardId?: unknown }): string {
   return typeof task.boardId === 'string' && task.boardId ? task.boardId : DEFAULT_BOARD_ID;

@@ -51,6 +51,14 @@ export function FieldChip({ field, task }: { field: FieldDef; task: TaskRow }) {
   }
   const disp = formatFieldValue(field, raw,{workspaceCurrency:workspaceCurrency()});
   if (!disp) return null;
+  if (field.type === 'number' && field.format === 'percent' && typeof raw === 'number' && raw >= 0 && raw <= 1) {
+    return (
+      <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-neutral-600 dark:text-neutral-300">
+        <meter min={0} max={1} value={raw} aria-label={field.name} className="h-2.5 w-12 shrink-0" />
+        <span aria-hidden="true">{disp}</span>
+      </span>
+    );
+  }
   return <span className="inline-flex max-w-[130px] items-center truncate rounded-full bg-neutral-100 px-1.5 py-0.5 text-[11px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400" title={`${field.name}: ${disp}`}>{disp}</span>;
 }
 

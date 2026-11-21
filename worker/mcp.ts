@@ -57,7 +57,8 @@ import { parseSearchDateBounds } from './searchDates';
 import { visibleItems, visibleSummaries } from './historyAccess';
 import { levelSql } from './capability';
 import type { Collection } from '../shared/collections';
-import { dateFilterError, FILTER_OPERATORS, VIEW_TYPES, type ChartConfig, type ViewConfig, type FilterOp } from '../shared/views';
+import { parseFormConfig, validateFormConfig } from './forms';
+import { dateFilterError, FILTER_OPERATORS, newViewConfig, summarizeDashboard, VIEW_LAYOUTS, VIEW_TYPES, type ChartConfig, type ViewConfig, type FilterOp } from '../shared/views';
 import {chartSeries, DEFAULT_CHART, isChartConfig, type ChartResult} from '../shared/charts';
 import {serverDateContext,readWorkspaceSettings,withWorkspaceContext} from './workspaceSettings';
 
@@ -573,7 +574,7 @@ Data model:
 - Mood boards are spatial canvases with image/note/text/color items.
 - Page templates are pages flagged isTemplate; instantiate them with create_from_template, which also copies embedded task boards.
 - Mentions: block text accepts [[Page Title]] and @username; stored as tokens and rendered as names. Space mentions use @[group:SPACE_ID] with a known authorized Space ID; display names do not grant membership or record access.
-- For multi-part structures prefer create_project (pages + board + tasks + moodboard in one call). Look up ids first with workspace_overview, search or get_board.
+- For multi-part structures prefer create_project (pages + board + tasks + moodboard in one call). Look up IDs first with workspace_overview, search or get_board. Discover saved view settings with list_database_views (then query_records by viewId). Use duplicate_view to copy the presentation while keeping the same records.
 - markdown? arguments accept standard markdown plus [[Page Title]] and @handle mentions and ![caption](url) image imports (https only).
 - Date filters accept yyyy-mm-dd, today, today+N and today-N (0–3650 days, case-sensitive, no spaces). within uses inclusive {from,to} bounds. createdAt calendar comparisons use the context timezone while numeric comparisons and sorting retain milliseconds. query_records, dashboards, reminders and digests use the configured workspace timezone. Read workspace_overview.workspace for timeZone, currency and today.
 
@@ -684,7 +685,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
             for(const [key,value]of Object.entries(payload)){
               if(typeof value==='number'||typeof value==='boolean')metadata[key]=value;
               else if(typeof value==='string'&&(key==='id'||key.endsWith('Id'))&&/^[A-Za-z0-9_:.\-]{1,64}$/.test(value))metadata[key]=value;
-              else if(typeof value==='string'&&/url$/i.test(key)){try{const u=new URL(value,ctx.origin);if(u.origin===ctx.origin&&!u.search&&!u.hash&&/^\/(pages|boards|moodboards)\//.test(u.pathname))metadata[key]=u.href;}catch{/* no unvalidated URLs */}}
+              else if(typeof value==='string'&&/url$/i.test(key)){try{const u=new URL(value,ctx.origin);if(u.origin===ctx.origin&&!u.search&&!u.hash&&/^\/(pages|boards|moodboards|forms)\//.test(u.pathname))metadata[key]=u.href;}catch{/* no unvalidated URLs */}}
               else if(value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length<=50&&Object.values(value).every(v=>typeof v==='number'))metadata[key]=value;
               else if(key==='created'&&Array.isArray(value))metadata[key]=value.slice(0,2000).map(v=>v&&typeof v==='object'&&typeof v.id==='string'?{id:v.id}:null).filter(Boolean);
               else if(key==='warnings'&&Array.isArray(value))metadata[key]=value.filter(v=>typeof v==='string').slice(0,20).map(v=>v.slice(0,300));
@@ -3222,9 +3223,12 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     type: z.enum(VIEW_TYPES).optional(),
     filters: z.array(z.object({ field: z.string(), op: z.enum(FILTER_OPERATORS), value: z.unknown().optional().describe("within: {from: yyyy-mm-dd or today±N, to: yyyy-mm-dd or today±N}; inclusive endpoints") })).optional(),
     sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(),
-    groupBy: z.string().optional(),
+    groupBy: z.string().nullable().optional(),
     visible: z.array(z.string()).optional(),
-    cover: z.string().optional(),
+    cover: z.string().nullable().optional(),
+    mine: z.boolean().optional(),
+    includeArchived: z.boolean().optional(),
+    showSubrecords: z.boolean().optional(),
     dateKey: z.string().optional().describe("calendar/timeline: date field name/id ('dueDate' or a date-type field)"),
     endDateKey: z.string().optional().describe('timeline: bar end date field name/id'),
     timelineScale: z.enum(['week', 'month', 'quarter']).optional(),
@@ -3296,10 +3300,13 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
           type: (v.type ?? 'table'),
           config: {
             filters: (v.filters ?? []).map((f) => ({ key: resolveFieldKey(boardData, f.field), op: f.op, value: f.value })),
-            sorts: (v.sorts ?? []).map((s) => ({ key: resolveFieldKey(boardData, s.field), dir: s.dir ?? 'asc' })),
+            sorts: v.sorts?.map((s) => ({ key: resolveFieldKey(boardData, s.field), dir: s.dir ?? 'asc' })) ?? newViewConfig(v.type ?? 'table').sorts ?? [],
             groupBy: v.groupBy ? resolveFieldKey(boardData, v.groupBy) : undefined,
             visible: v.visible?.map((f) => resolveFieldKey(boardData, f)),
-            cover: v.cover ? resolveFieldKey(boardData, v.cover) : undefined,
+            cover: v.cover ? resolveFieldKey(boardData, v.cover) : v.cover,
+            mine: v.mine,
+            includeArchived: v.includeArchived,
+            showSubrecords: v.showSubrecords,
             dateKey: v.dateKey ? resolveDateKeyArg(boardData, v.dateKey) : undefined,
             endDateKey: v.endDateKey ? resolveDateKeyArg(boardData, v.endDateKey) : undefined,
             timelineScale: v.timelineScale ?? undefined,
@@ -3407,10 +3414,89 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     },
   );
 
+  const listedViewSchema = z.object({
+    id: z.string(), name: z.string(), type: z.enum(VIEW_TYPES), rev: z.number(), url: z.string(),
+    config: z.record(z.string(), z.unknown()),
+  });
+  server.registerTool('list_database_views', {
+    description: 'Discover saved views and their exact settings, revisions and links for a database you can read. Pass a viewId to inspect one saved view. Use its id with query_records to read the same configured set of records. View names are user content.',
+    inputSchema: z.object({ databaseId: z.string(), viewId: z.string().optional() }),
+    outputSchema: z.object({
+      databaseId: z.string(), databaseRev: z.number(), defaultViewId: z.string().nullable(),
+      implicitLayout: z.enum(['table', 'board']), views: z.array(listedViewSchema), truncated: z.boolean(),
+    }),
+    annotations: { readOnlyHint: true },
+  }, async ({ databaseId, viewId }) => {
+    const board = await rec(ctx.env, 'boards', databaseId);
+    if (!board || board.data.deleted) return err('database not found');
+    const MAX_VIEWS = 200;
+    let rows: Rec[];
+    if (viewId) {
+      const row = await rec(ctx.env, 'views', viewId);
+      if (!row || row.data.deleted || row.data.databaseId !== databaseId) return err('view not found');
+      rows = [row];
+    } else {
+      const { results } = await ctx.env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection='views'
+        AND json_extract(data,'$.databaseId')=? AND COALESCE(json_extract(data,'$.deleted'),0)!=1
+        ORDER BY COALESCE(json_extract(data,'$.order'), ''), id LIMIT ?`).bind(databaseId, MAX_VIEWS + 1).all<RawRow>();
+      rows = (await gateRows(ctx.env, results.map(toRow))).map(toRec);
+    }
+    const views = rows.slice(0, MAX_VIEWS).map(row => {
+      const type = VIEW_TYPES.find(type => type === row.data.type) ?? 'table';
+      return {
+        id: row.id, name: String(row.data.name ?? VIEW_LAYOUTS[type].label), type, rev: row.rev,
+        url: viewUrl(databaseId, row.id), config: (row.data.config ?? {}) as Record<string, unknown>,
+      };
+    });
+    const defaultId = typeof board.data.defaultViewId === 'string' ? board.data.defaultViewId : null;
+    const defaultView = defaultId && (rows.find(row => row.id === defaultId) ?? await rec(ctx.env, 'views', defaultId));
+    const result = {
+      databaseId, databaseRev: board.rev, implicitLayout: board.data.kind === 'records' ? 'table' as const : 'board' as const,
+      defaultViewId: defaultView && !defaultView.data.deleted && defaultView.data.databaseId === databaseId ? defaultView.id : null,
+      views, truncated: rows.length > MAX_VIEWS,
+    };
+    return { ...txt(result), structuredContent: result };
+  });
+
+  reg('duplicate_view', {
+    description: 'Create a new saved view on the same database using the source view’s layout and settings. Records are shared. Pass requestId for safe retry.',
+    inputSchema: z.object({ viewId: z.string(), name: z.string().trim().min(1).max(160).optional(), dryRun: dryRunInput }),
+    annotations: { idempotentHint: true },
+  }, async ({ viewId, name }) => {
+    const source = await rec(ctx.env, 'views', viewId);
+    if (!source || source.data.deleted) return err('view not found');
+    const databaseId = String(source.data.databaseId);
+    const board = await rec(ctx.env, 'boards', databaseId);
+    if (!board || board.data.deleted) return err('database not found');
+    const views = (await listBy(ctx.env, 'views', 'databaseId', databaseId)).map(toRec).sort(byOrder);
+    const id = uuid();
+    await write(ctx, [{ id, collection: 'views', patch: {
+      databaseId, name: name ?? `${String(source.data.name ?? 'View').slice(0, 155)} copy`, type: source.data.type,
+      config: source.data.config ?? {}, order: orderBetween(String(views.at(-1)?.data.order ?? '') || null, null),
+      createdAt: Date.now(), createdBy: ctx.userId,
+    } }]);
+    return txt({ id, databaseId, url: viewUrl(databaseId, id) });
+  });
+
+  reg('set_default_view', {
+    description: 'Set or clear the shared default view for a database. Read databaseRev with list_database_views first. Each user’s last-opened view still takes precedence.',
+    inputSchema: z.object({ databaseId: z.string(), viewId: z.string().nullable(), expectedRev: z.number().int().nonnegative(), dryRun: dryRunInput }),
+    annotations: { idempotentHint: true },
+  }, async ({ databaseId, viewId, expectedRev }) => {
+    const board = await rec(ctx.env, 'boards', databaseId);
+    if (!board || board.data.deleted) return err('database not found');
+    if (viewId !== null) {
+      const view = await rec(ctx.env, 'views', viewId);
+      if (!view || view.data.deleted || view.data.databaseId !== databaseId) return err('view not found');
+    }
+    await write(ctx, [{ id: databaseId, collection: 'boards', patch: { defaultViewId: viewId } }], { expect: new Map([[databaseId, expectedRev]]) });
+    return txt({ id: databaseId, defaultViewId: viewId, url: viewId ? viewUrl(databaseId, viewId) : boardUrl(ctx, databaseId) });
+  });
+
   reg(
     'add_view',
     {
-      description: 'Add a view to a database (types: table/list/gallery/board/calendar/timeline/chart). Filter/sort/groupBy/visible take field NAMES (resolved server-side to ids). calendar/timeline take dateKey/endDateKey (date field names) + timelineScale. For chart views, configure the chart fields with chart.',
+      description: 'Add a view to a database (types: table/list/gallery/board/calendar/timeline/chart/feed/dashboard). Filter/sort/groupBy/visible take field NAMES (resolved server-side to ids). calendar/timeline take dateKey/endDateKey (date field names) + timelineScale. For chart views, configure the chart fields with chart.',
       inputSchema: viewInput.extend({ databaseId: z.string() }),
       annotations: { idempotentHint: true },
     },
@@ -3419,11 +3505,15 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (!board || board.data.deleted) return err('database not found');
       const existing = (await listBy(ctx.env, 'views', 'databaseId', a.databaseId)).map(toRec);
       validateFilterDates(board.data, a.filters);
-      const dup = existing.find((v) => String(v.data.name ?? '').toLowerCase() === a.name.toLowerCase());
+      const dup = existing.find((v) => v.data.type === (a.type ?? 'table') && String(v.data.name ?? '').toLowerCase() === a.name.toLowerCase());
       if (dup) return txt({ id: dup.id, url: viewUrl(a.databaseId, dup.id), existed: true });
       const id = uuid();
       const ops = await viewOps(a.databaseId, [a], board.data);
-      await write(ctx, ops.map((o) => ({ ...o, id })).concat(activityOp(ctx.userId, ctx.clientName, 'created', 'board', a.databaseId, `view ${a.name}`, ctx.cs?.id)));
+      const last = existing.sort(byOrder).at(-1);
+      await write(ctx, [
+        ...ops.map(op => ({ ...op, id, patch: { ...op.patch, order: orderBetween(String(last?.data.order ?? '') || null, null) } })),
+        activityOp(ctx.userId, ctx.clientName, 'created', 'board', a.databaseId, `view ${a.name}`, ctx.cs?.id),
+      ]);
       return txt({ id, url: viewUrl(a.databaseId, id) });
     },
   );
@@ -3432,14 +3522,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
     'update_view',
     {
       description: 'Update a view name/type/config.',
-      inputSchema: z.object({ viewId: z.string(), name: z.string().optional(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.enum(FILTER_OPERATORS), value: z.unknown().optional().describe("within: {from: yyyy-mm-dd or today±N, to: yyyy-mm-dd or today±N}; inclusive endpoints") })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: z.string().optional(), visible: z.array(z.string()).optional(), cover: z.string().optional(), dateKey: z.string().nullable().optional(), endDateKey: z.string().nullable().optional(), timelineScale: z.enum(['week', 'month', 'quarter']).nullable().optional(), chart: chartInput.optional(), expectedRev: z.number().optional() }),
+      inputSchema: z.object({ viewId: z.string(), name: z.string().optional(), type: z.enum(VIEW_TYPES).optional(), filters: z.array(z.object({ field: z.string(), op: z.enum(FILTER_OPERATORS), value: z.unknown().optional().describe("within: {from: yyyy-mm-dd or today±N, to: yyyy-mm-dd or today±N}; inclusive endpoints") })).optional(), sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(), groupBy: viewInput.shape.groupBy, visible: viewInput.shape.visible, cover: viewInput.shape.cover, mine: viewInput.shape.mine, includeArchived: viewInput.shape.includeArchived, showSubrecords: viewInput.shape.showSubrecords, dateKey: z.string().nullable().optional(), endDateKey: z.string().nullable().optional(), timelineScale: z.enum(['week', 'month', 'quarter']).nullable().optional(), chart: chartInput.optional(), expectedRev: z.number().optional() }),
       annotations: { idempotentHint: true },
     },
     async (a) => {
       const v = await rec(ctx.env, 'views', a.viewId);
       if (!v || v.data.deleted) return err('view not found');
       const board = await rec(ctx.env, 'boards', String(v.data.databaseId));
-      const cfg = (v.data.config ?? {}) as Record<string, unknown>;
+      const cfg = { ...newViewConfig(a.type ?? 'table'), ...((v.data.config ?? {}) as ViewConfig) } as Record<string, unknown>;
       validateFilterDates(board?.data ?? {}, a.filters);
       const patch: Record<string, unknown> = {};
       if (a.name !== undefined) patch.name = a.name;
@@ -3448,7 +3538,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       if (a.sorts !== undefined) cfg.sorts = a.sorts.map((s) => ({ key: resolveFieldKey(board?.data ?? {}, s.field), dir: s.dir ?? 'asc' }));
       if (a.groupBy !== undefined) cfg.groupBy = a.groupBy ? resolveFieldKey(board?.data ?? {}, a.groupBy) : undefined;
       if (a.visible !== undefined) cfg.visible = a.visible.map((f) => resolveFieldKey(board?.data ?? {}, f));
-      if (a.cover !== undefined) cfg.cover = a.cover ? resolveFieldKey(board?.data ?? {}, a.cover) : undefined;
+      if (a.cover !== undefined) cfg.cover = a.cover ? resolveFieldKey(board?.data ?? {}, a.cover) : null;
+      if (a.mine !== undefined) cfg.mine = a.mine;
+      if (a.includeArchived !== undefined) cfg.includeArchived = a.includeArchived;
+      if (a.showSubrecords !== undefined) cfg.showSubrecords = a.showSubrecords;
       if (a.dateKey !== undefined) cfg.dateKey = a.dateKey ? resolveDateKeyArg(board?.data ?? {}, a.dateKey) : undefined;
       if (a.endDateKey !== undefined) cfg.endDateKey = a.endDateKey ? resolveDateKeyArg(board?.data ?? {}, a.endDateKey) : undefined;
       if (a.timelineScale !== undefined) cfg.timelineScale = a.timelineScale ?? undefined;
@@ -3481,6 +3574,127 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       return txt({ removed: a.viewId });
     },
   );
+
+  const viewWidget = z.object({
+    type: z.literal('view'), databaseId: z.string(), viewId: z.string(),
+    heading: z.string().trim().max(160).optional(), limit: z.number().int().min(1).max(100).optional(),
+  });
+  const metricWidget = z.object({
+    type: z.literal('metric'), databaseId: z.string(), label: z.string().trim().min(1).max(160),
+    agg: z.enum(['count', 'sum', 'avg']), field: z.string().optional(), filters: viewInput.shape.filters,
+  });
+  reg('append_dashboard_widgets', {
+    description: 'Add live saved views and count/sum/average widgets to an existing Workspace page. Widget records remain in their original database. Preview first with dryRun and supply requestId for retry.',
+    inputSchema: z.object({
+      pageId: z.string(), widgets: z.array(z.discriminatedUnion('type', [viewWidget, metricWidget])).min(1).max(10),
+      dryRun: dryRunInput,
+    }),
+    annotations: { idempotentHint: true },
+  }, async ({ pageId, widgets }) => {
+    const page = await rec(ctx.env, 'pages', pageId);
+    if (!page || page.data.deleted) return err('page not found');
+    const sources = [...new Set(widgets.flatMap(widget => widget.type === 'view' ? [widget.databaseId, widget.viewId] : [widget.databaseId]))];
+    const rows = await getRecs(ctx.env, sources);
+    const access = await ctx.env.READ_GATE!.decide([pageId, ...sources]);
+    const pageSpace = access.scopes.get(pageId)?.spaceId;
+    if (access.enabled && (!pageSpace || sources.some(id => access.scopes.get(id)?.spaceId !== pageSpace))) {
+      return err('create the dashboard page in the same space as its sources');
+    }
+    const last = (await listBy(ctx.env, 'blocks', 'pageId', pageId)).map(toRec).sort(byOrder).at(-1);
+    let order = String(last?.data.order ?? '') || null;
+    const ops: WriteOp[] = [];
+    for (const widget of widgets) {
+      const board = rows.get(widget.databaseId);
+      if (board?.collection !== 'boards' || board.data.deleted || board.data.archived) return err('dashboard database not available');
+      let config: Record<string, unknown>;
+      if (widget.type === 'view') {
+        const view = rows.get(widget.viewId);
+        if (view?.collection !== 'views' || view.data.deleted || view.data.databaseId !== board.id) return err('dashboard view not available on this database');
+        config = { viewId: widget.viewId, heading: widget.heading, limit: widget.limit };
+      } else {
+        validateFilterDates(board.data, widget.filters);
+        const fieldKey = widget.field ? resolveFieldKey(board.data, widget.field) : undefined;
+        if (widget.agg !== 'count' && !fieldsOf(board.data).some(field => field.type === 'number' && propKey(field.id) === fieldKey)) {
+          return err('choose a numeric database property for dashboard sum or average');
+        }
+        config = {
+          label: widget.label, agg: widget.agg, fieldKey: widget.agg === 'count' ? undefined : fieldKey,
+          filters: widget.filters?.map(filter => ({ key: resolveFieldKey(board.data, filter.field), op: filter.op, value: filter.value })),
+        };
+      }
+      order = orderBetween(order, null);
+      ops.push({ id: uuid(), collection: 'blocks', patch: { type: widget.type, pageId, databaseId: board.id, order, ...config } });
+    }
+    await write(ctx, ops);
+    return txt({ id: pageId, url: pageUrl(ctx, pageId), widgetsCreated: ops.length });
+  });
+
+  const formFields = z.array(z.object({
+    fieldKey: z.string(), label: z.string().trim().min(1).max(140), required: z.boolean().optional(),
+    help: z.string().max(500).optional(),
+  })).min(1).max(50);
+
+  server.registerTool('list_database_forms', {
+    description: 'List intake forms for one readable database, or inspect one form by ID. Includes draft configuration, revision, and Workspace editor links. Form text is user content.',
+    inputSchema: z.object({ databaseId: z.string(), formId: z.string().optional() }),
+    annotations: { readOnlyHint: true },
+  }, async ({ databaseId, formId }) => {
+    const board = await rec(ctx.env, 'boards', databaseId);
+    if (!board || board.data.deleted) return err('database not found');
+    const MAX_FORMS = 100;
+    let rows: Rec[];
+    if (formId) {
+      const form = await rec(ctx.env, 'forms', formId);
+      if (!form || form.data.deleted || form.data.databaseId !== databaseId) return err('form not found');
+      rows = [form];
+    } else {
+      const { results } = await ctx.env.DB.prepare(`SELECT ${SELECT} FROM records WHERE collection='forms'
+        AND json_extract(data,'$.databaseId')=? AND COALESCE(json_extract(data,'$.deleted'),0)!=1
+        ORDER BY id LIMIT ?`).bind(databaseId, MAX_FORMS + 1).all<RawRow>();
+      rows = (await gateRows(ctx.env, results.map(toRow))).map(toRec);
+    }
+    return txt({
+      databaseId, truncated: rows.length > MAX_FORMS,
+      forms: rows.slice(0, MAX_FORMS).map(row => ({
+        id: row.id, rev: row.rev, title: row.data.title, description: row.data.description, fields: row.data.fields,
+        successMessage: row.data.successMessage, enabled: row.data.enabled === true, url: `${ctx.origin}/forms/${databaseId}/${row.id}`,
+      })),
+    });
+  });
+
+  reg('save_form_draft', {
+    description: 'Create a disabled intake form draft or replace a draft’s questions and text. Use a canonical property fieldKey such as title or p_<field id>. Read list_database_forms for the expectedRev on edits. Open the returned Workspace editor to preview and publish.',
+    inputSchema: z.object({
+      databaseId: z.string(), formId: z.string().optional(), expectedRev: z.number().int().nonnegative().optional(),
+      title: z.string().trim().min(1).max(200), description: z.string().max(2000).nullable().optional(),
+      fields: formFields, successMessage: z.string().trim().min(1).max(500).optional(), dryRun: dryRunInput,
+    }).strict(),
+    annotations: { idempotentHint: true },
+  }, async a => {
+    const board = await rec(ctx.env, 'boards', a.databaseId);
+    if (!board || board.data.deleted || board.data.archived) return err('database not available');
+    const existing = a.formId ? await rec(ctx.env, 'forms', a.formId) : null;
+    if (a.formId && (!existing || existing.data.deleted || existing.data.databaseId !== a.databaseId)) return err('form not found');
+    if (existing?.data.enabled === true) return err('edit published forms through the Workspace form editor');
+    if (existing && a.expectedRev === undefined) return err('expectedRev is required to edit an existing draft');
+    const checked = parseFormConfig({
+      ...existing?.data, databaseId: a.databaseId, title: a.title,
+      fields: a.fields.map((field, order) => ({ ...field, order })),
+      description: a.description === undefined ? existing?.data.description : a.description,
+      successMessage: a.successMessage ?? existing?.data.successMessage,
+    });
+    if (!checked) return err('invalid form configuration');
+    const errors = validateFormConfig(checked, board.data);
+    if (errors.length) return { ...txt({ error: 'form_validation', details: errors }), isError: true };
+    const id = existing?.id ?? `form_${uuid()}`;
+    const now = Date.now();
+    await write(ctx, [{ id, collection: 'forms', patch: {
+      title: checked.title, description: checked.description ?? null, fields: checked.fields, successMessage: checked.successMessage,
+      updatedBy: ctx.userId, updatedAt: now,
+      ...(!existing ? { databaseId: a.databaseId, enabled: false, notifyUserIds: [], createdAt: now, createdBy: ctx.userId } : {}),
+    } }], { expect: existing ? new Map([[existing.id, a.expectedRev!]]) : undefined });
+    return txt({ id, databaseId: a.databaseId, enabled: false, url: `${ctx.origin}/forms/${a.databaseId}/${id}` });
+  });
 
   const linkRec = async (kind: 'relation' | 'blocks' | 'related', fieldId: string, fromType: string, fromId: string, toType: string, toId: string): Promise<{ id: string; existed: boolean }> => {
     const { linkId } = await import('../shared/linkid');
@@ -4210,10 +4424,10 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   server.registerTool(
     'query_records',
     {
-      description: 'Query a database: filters/sorts use field NAMES. Returns rows with named field values + rev, at most `limit` (default 100, max 200) per call; while hasMore is true pass nextCursor back as `cursor`. Without sorts any database size pages in id order; with sorts the database must have at most 5,000 records (otherwise an explicit error). Pass a chart viewId to also get its series across the authorized matching records.',
+      description: 'Query a database: filters/sorts use field NAMES. Returns rows with named field values + rev, at most `limit` (default 100, max 200) per call; while hasMore is true pass nextCursor back as `cursor`. Without sorts any database size pages in id order; with sorts the database must have at most 5,000 records (otherwise an explicit error). Pass a saved viewId to apply its filters, sorts, and archive setting; chart views return their aggregate series and dashboard views return counts and stage colors.',
       inputSchema: z.object({
         databaseId: z.string(),
-        viewId: z.string().optional().describe('Saved chart view in this database'),
+        viewId: z.string().optional().describe('Saved view id from list_database_views in this database'),
         filters: z.array(z.object({ field: z.string(), op: z.enum(FILTER_OPERATORS), value: z.unknown().optional().describe("within: {from: yyyy-mm-dd or today±N, to: yyyy-mm-dd or today±N}; inclusive endpoints") })).optional(),
         sorts: z.array(z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).optional() })).optional(),
         limit: z.number().optional(),
@@ -4234,11 +4448,13 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       await fillCaches(ctx);
       const include = new Set(a.include ?? ['fields']);
       let saved: ViewConfig | undefined;
+      let savedType: unknown;
       if (a.viewId) {
         const selected = await rec(ctx.env, 'views', a.viewId);
-        if (!selected || selected.data.deleted || selected.data.databaseId !== a.databaseId || selected.data.type !== 'chart') return err('chart view not found');
+        if (!selected || selected.data.deleted || selected.data.databaseId !== a.databaseId) return err('view not found');
+        savedType = selected.data.type;
         saved = (selected.data.config ?? {}) as ViewConfig;
-        if (saved.chart !== undefined && !isChartConfig(saved.chart)) return err('chart view requires valid configuration');
+        if (savedType === 'chart' && saved.chart !== undefined && !isChartConfig(saved.chart)) return err('chart view requires valid configuration');
       }
       const view = {
         filters: [...(saved?.filters ?? []), ...(a.filters ?? []).map((f) => ({ key: resolveFieldKey(board.data, f.field), op: f.op as import('../shared/views').FilterOp, value: f.value }))],
@@ -4262,6 +4478,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       let page: Rec[];
       let next: string | null;
       let chart: ChartResult | undefined;
+      let dashboard: ReturnType<typeof summarizeDashboard> | undefined;
       if (!view.sorts.length && !saved) {
         // Unsorted (the default): a keyset scan in id order, filters applied window by window
         // after the read gate. The cursor is the last SCANNED id, so filtering never skips
@@ -4285,13 +4502,14 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
             AND (json_extract(data,'$.boardId') = ? OR (? = 'board-default' AND json_extract(data,'$.boardId') IS NULL)) LIMIT ?`)
           .bind(a.databaseId, a.databaseId, MAX_SORTED + 1).all<RawRow>();
         if (raw.length > MAX_SORTED) return err(saved
-          ? `chart aggregation needs every record and this database has more than ${MAX_SORTED}`
+          ? `saved view evaluation needs every record and this database has more than ${MAX_SORTED}; query without a view or sorts to page the database`
           : `sorting needs every record and this database has more than ${MAX_SORTED}; query without sorts (paginated, any size) or split the database`);
         const rows = (await gateRows(ctx.env, raw.map(toRow))).map(toRec);
         await loadRelations(rows);
         const viewRows = rows.filter(row => !saved || !row.data.parentId).map(row => ({...row.data, id:row.id}));
         const applied = applyView(viewRows, view, vctx).rows;
-        if (saved) chart = chartSeries(viewRows, {...view, chart:saved.chart ?? DEFAULT_CHART}, vctx);
+        if (savedType === 'chart') chart = chartSeries(viewRows, {...view, chart:saved?.chart ?? DEFAULT_CHART}, vctx);
+        if (savedType === 'dashboard') dashboard = summarizeDashboard(applied, { id: board.id, columns: board.data.columns }, saved);
         const startIdx = a.cursor ? applied.findIndex((r) => String(r.id) === a.cursor) + 1 : 0;
         const byId = new Map(rows.map((r) => [r.id, r]));
         page = applied.slice(startIdx, startIdx + limit).map((d) => byId.get(String(d.id))!).filter(Boolean);
@@ -4317,6 +4535,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
       });
       return txt({
         rows: out, count: out.length, nextCursor: next, hasMore: next !== null,
+        ...(dashboard ? { dashboard } : {}),
         ...(chart ? {chart:{...chart, series:chart.series.map(series => ({
           key:series.key,
           points:series.points.map(({records: _ids, ...point}) => point),

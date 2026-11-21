@@ -602,6 +602,7 @@ export function Shell() {
             <Routes>
               <Route path="boards/:boardId" element={<BoardOrDb />} />
               <Route path="boards/:boardId/tasks/:taskId" element={<BoardOrDb />} />
+              <Route path="boards/:boardId/views" element={<BoardOrDb savedViews />} />
               <Route path="boards/:boardId/views/:viewId" element={<BoardOrDb />} />
               <Route path="boards/:boardId/views/:viewId/records/:recordId" element={<BoardOrDb />} />
               <Route path="boards/*" element={<BoardOrDb />} />

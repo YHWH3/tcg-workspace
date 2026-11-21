@@ -15,7 +15,7 @@ import { noteGatedMove } from './GateMove';
 import { columnsOf } from './model';
 import { FieldChips } from './FieldValue';
 
-export function TaskCard({ task, board, overlay }: { task: TaskRow; board: BoardRow | undefined; overlay?: boolean }) {
+export function TaskCard({ task, board, overlay, hasMenu }: { task: TaskRow; board: BoardRow | undefined; overlay?: boolean; hasMenu?: boolean }) {
   useWorkspaceLocale();
   const navigate = useNavigate();
   const users = useUsers();
@@ -46,7 +46,7 @@ export function TaskCard({ task, board, overlay }: { task: TaskRow; board: Board
         </div>
       )}
       <div className="px-2.5 pb-2 pt-2">
-        <button type="button" className={cn('block w-full text-left text-[13px] font-medium leading-5', isDone(task, board) && 'text-neutral-400 line-through')}>{String(task.title ?? '') || 'Untitled task'}</button>
+        <button type="button" className={cn('block w-full break-words text-left text-[13px] font-medium leading-5 [overflow-wrap:anywhere]', hasMenu && 'min-h-8 pe-10', isDone(task, board) && 'text-neutral-600 line-through dark:text-neutral-400')}>{String(task.title ?? '') || 'Untitled task'}</button>
         <CardFooter audios={audios} fileCount={files.length} commentCount={commentCount} assignee={assignee} dueDate={task.dueDate} overdue={!!overdue} fieldChips={<FieldChips board={board} task={task} />} task={task} board={board} />
       </div>
     </div>

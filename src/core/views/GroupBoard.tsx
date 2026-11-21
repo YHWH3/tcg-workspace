@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { DndContext, DragOverlay, TouchSensor, MouseSensor, useDroppable, useDraggable, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { Plus } from 'lucide-react';
+import { fieldOptionStyle } from '../fieldColors';
 import { useStore } from '../store';
 import { authStore } from '../auth';
 import { Popover } from '../ui';
@@ -26,6 +27,7 @@ import { subProgress } from './cells';
 interface Group {
   key: string;
   label: string;
+  color?: string;
   rows: TaskRow[];
 }
 
@@ -53,11 +55,11 @@ export function GroupBoard({ board, view, records }: { board: BoardRow; view: Vi
     }
     const opts =
       field.type === 'person'
-        ? users.map((u) => ({ id: u.id, label: u.name }))
+        ? users.map((u) => ({ id: u.id, label: u.name, color: u.color }))
         : isSelectType(field.type)
           ? (field.options ?? []).map((o) => ({ id: o.id, label: o.name, color: o.color }))
           : [];
-    const gs: Group[] = opts.map((o) => ({ key: o.id, label: o.label, rows: byGroup.get(o.id) ?? [] }));
+    const gs: Group[] = opts.map((o) => ({ key: o.id, label: o.label, color: o.color, rows: byGroup.get(o.id) ?? [] }));
     const rest = rows.filter((r) => {
       const raw = r[propKeyOf(field)];
       const k = Array.isArray(raw) ? String(raw[0] ?? '') : String(raw ?? '');
@@ -103,10 +105,11 @@ function GroupColumn({ board, view, group, groups, onAdd, onMove }: { board: Boa
   const { setNodeRef, isOver } = useDroppable({ id: `g:${group.key}` });
   return (
     <div className="flex w-64 shrink-0 flex-col">
-      <div className="mb-1.5 flex items-center gap-2 px-1.5">
-        <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">{group.label}</span>
-        <span className="text-[11px] text-neutral-400">{group.rows.length}</span>
-      </div>
+      <h2 className="mb-1.5 flex min-w-0 items-center gap-2 px-1.5 text-sm">
+        <span className="min-w-0 break-words rounded-md bg-neutral-100 px-2 py-1 font-semibold text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 [overflow-wrap:anywhere]"
+          style={fieldOptionStyle(group.color || '#737373')}>{group.label}</span>
+        <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-600 dark:text-neutral-400">{group.rows.length}</span>
+      </h2>
       <div ref={setNodeRef} className={cn('min-h-24 flex-1 space-y-2 rounded-xl p-1 transition-colors', isOver && 'bg-blue-50/70 dark:bg-blue-950/30')}>
         {group.rows.map((r) => (
           <GroupCard key={r.id} board={board} view={view} rec={r} groups={groups} onMove={onMove} />
@@ -136,13 +139,13 @@ function GroupCard({ board, view, rec, groups, onMove }: { board: BoardRow; view
   return (
     <div ref={setNodeRef} onPointerDown={(e) => listeners?.onPointerDown?.(e)} role="group" aria-label={recordTitle(rec)} className={cn('group rounded-xl border border-neutral-200/70 bg-white p-3 text-sm shadow-sm dark:border-neutral-800 dark:bg-neutral-900', isDragging && 'opacity-40')}>
       <div className="flex items-start gap-1">
-        <button className="min-h-6 min-w-0 flex-1 text-left" onClick={() => navigate(`/boards/${board.id}/views/${view.id}/records/${rec.id}`)}>
-          <span className="block truncate font-medium">{renderPlain(recordTitle(rec), resolve)}</span>
+        <button className="min-h-11 min-w-0 flex-1 text-left" onClick={() => navigate(`/boards/${board.id}/views/${view.id}/records/${rec.id}`)}>
+          <span className="block break-words font-medium [overflow-wrap:anywhere]">{renderPlain(recordTitle(rec), resolve)}</span>
         </button>
         <Popover
           align="right"
           trigger={
-            <button className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-500 sm:opacity-0 hover:bg-neutral-100 focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:text-neutral-400 dark:hover:bg-neutral-800" aria-label="Card menu" onClick={(e) => e.stopPropagation()}>
+            <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800" aria-label="Card menu" onClick={(e) => e.stopPropagation()}>
               ⋯
             </button>
           }

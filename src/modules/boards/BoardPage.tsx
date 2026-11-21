@@ -140,6 +140,10 @@ export function BoardPage() {
             ) : (
               <NewTaskButton board={board} />
             )}
+            <button type="button" className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              onClick={() => navigate(`/boards/${board.id}/views`)}>
+              <LayoutGrid size={14} aria-hidden="true" /> Saved views
+            </button>
             <BoardMenu board={board} deletable={board.id !== 'board-default' && board.id !== 'board-inbox' && board.id !== 'board-website-inbox'} />
           </div>
         </header>

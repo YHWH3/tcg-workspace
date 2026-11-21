@@ -1,3 +1,5 @@
+import { COLUMN_PALETTE } from '../../../shared/boardModel';
+import { fieldOptionStyle } from '../../core/fieldColors';
 import { useState } from 'react';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, closestCorners, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -8,7 +10,7 @@ import { mutate } from '../../core/sync/engine';
 import { IconButton, Menu, Popover } from '../../core/ui';
 import { cn, cmpOrder, orderBetween } from '../../core/utils';
 import { TaskCard } from './TaskCard';
-import { addColumn, columnIdFor, columnsOf, createTask, deleteColumn, moveColumn, COLUMN_COLORS, recolorColumn, renameColumn, setTaskField, type BoardColumn, type BoardRow, type TaskRow } from './api';
+import { addColumn, columnIdFor, columnsOf, createTask, deleteColumn, moveColumn, recolorColumn, renameColumn, setTaskField, type BoardColumn, type BoardRow, type TaskRow } from './api';
 import { noteGatedMove } from './GateMove';
 
 export function Board({ board, tasks }: { board: BoardRow; tasks: TaskRow[] }) {
@@ -126,6 +128,7 @@ function Column({ board, col, tasks }: { board: BoardRow; col: BoardColumn; task
   return (
     <section
       ref={setNodeRef}
+      aria-label={col.name}
       className={cn('flex w-64 shrink-0 snap-start flex-col rounded-xl bg-neutral-50 p-2 transition-colors sm:w-72 dark:bg-neutral-900/60', isOver && 'ring-2 ring-blue-400/50')}
     >
       <ColumnHeader board={board} col={col} count={tasks.length} />
@@ -162,14 +165,14 @@ function SortableCard({ task, board, cols, col }: { task: TaskRow; board: BoardR
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} role="group" tabIndex={-1} className={cn(isDragging && 'opacity-40')}>
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} role="group" aria-label={String(task.title ?? 'Untitled task')} tabIndex={-1} className={cn(isDragging && 'opacity-40')}>
       <div className="relative">
-        <TaskCard task={task} board={board} />
-        <span className="absolute right-1.5 top-1.5 opacity-0 transition-opacity group-hover:opacity-100 [.group:hover_&]:opacity-100">
+        <TaskCard task={task} board={board} hasMenu />
+        <span className="absolute end-1 top-1">
           <Popover
             align="right"
             trigger={
-              <IconButton className="h-6 w-6 bg-white/90 shadow-sm dark:bg-neutral-900/90" aria-label="Card menu">
+              <IconButton className="h-10 w-10" aria-label="Card menu">
                 <MoreHorizontal size={13} />
               </IconButton>
             }
@@ -187,14 +190,14 @@ function SortableCard({ task, board, cols, col }: { task: TaskRow; board: BoardR
                           .map((c) => (
                             <button
                               key={c.id}
-                              className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                              className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
                               onClick={() => {
                                 close();
                                 noteGatedMove(board, task.id, c.id);
                                 void setTaskField(task.id, { status: c.id });
                               }}
                             >
-                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
+                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} aria-hidden="true" />
                               {c.name}
                             </button>
                           ))}
@@ -217,7 +220,7 @@ function ColumnHeader({ board, col, count }: { board: BoardRow; col: BoardColumn
   const hasTasks = count > 0;
 
   return (
-    <div className="flex items-center justify-between px-2 py-1.5">
+    <div className="mb-1 flex min-w-0 items-center justify-between gap-2 px-1 py-1.5">
       {renaming ? (
         <input
           autoFocus
@@ -237,16 +240,16 @@ function ColumnHeader({ board, col, count }: { board: BoardRow; col: BoardColumn
           }}
         />
       ) : (
-        <span className="flex items-center gap-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
-          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: col.color }} />
-          {col.name}
-          <span className="font-normal text-neutral-600 dark:text-neutral-400">{count}</span>
-        </span>
+        <h2 className="flex min-w-0 items-center gap-2 text-sm">
+          <span className="min-w-0 break-words rounded-md bg-neutral-100 px-2 py-1 font-semibold text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 [overflow-wrap:anywhere]"
+            style={fieldOptionStyle(col.color || '#737373')}>{col.name}</span>
+          <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-600 dark:text-neutral-400">{count}</span>
+        </h2>
       )}
       <Popover
         align="right"
         trigger={
-          <IconButton className="h-6 w-6" aria-label="Column menu">
+          <IconButton className="h-10 w-10" aria-label="Column menu" title={`${col.name} settings`}>
             <MoreHorizontal size={14} />
           </IconButton>
         }
@@ -260,19 +263,22 @@ function ColumnHeader({ board, col, count }: { board: BoardRow; col: BoardColumn
                 node: (
                   <div className="px-2.5 py-1.5">
                     <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">Color</p>
-                    <div className="flex gap-1.5">
-                      {COLUMN_COLORS.map((c) => (
+                    <div className="grid grid-cols-4 gap-1">
+                      {COLUMN_PALETTE.map(({ color: c, label }) => (
                         <button
                           key={c}
-                          aria-label={`Color ${c}`}
-                          className="flex h-5 w-5 items-center justify-center rounded-full transition-transform hover:scale-110"
-                          style={{ backgroundColor: c }}
+                          aria-label={label}
+                          title={label}
+                          aria-pressed={col.color === c}
+                          className="grid h-11 w-11 place-items-center rounded-lg hover:bg-neutral-100 focus-visible:outline focus-visible:outline-2 dark:hover:bg-neutral-800"
                           onClick={() => {
                             close();
                             void recolorColumn(board, col.id, c);
                           }}
                         >
-                          {col.color === c && <Check size={11} className="text-white" />}
+                          <span className="grid h-6 w-6 place-items-center rounded-full" style={{ backgroundColor: c }}>
+                            {col.color === c && <Check size={14} className="text-white" />}
+                          </span>
                         </button>
                       ))}
                     </div>

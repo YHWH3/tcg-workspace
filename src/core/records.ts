@@ -15,7 +15,7 @@ import { mutate } from './sync/engine';
 import { cmpOrder, orderBetween, uuid } from './utils';
 import { columnIdFor, columnsOf, firstColumnId, lastColumnId, taskBoardId, type BoardColumn, type BoardRow, type TaskRow } from '../modules/boards/api';
 import { fieldsOf, formatFieldValue, propKey, type FieldDef } from '../../shared/fields';
-import { applyView as applyViewShared, type FieldKey, type ViewConfig, type ViewCtx, type ViewRow as SharedViewRow, type ViewType } from '../../shared/views';
+import { applyView as applyViewShared, newViewConfig, VIEW_LAYOUTS, type FieldKey, type ViewConfig, type ViewCtx, type ViewRow as SharedViewRow, type ViewType } from '../../shared/views';
 import { checkReparent, descendants, MAX_DEPTH } from '../../shared/tree';
 import { isRelationField, type RelationFieldDef } from './links';
 import { toCsv } from '../../shared/csv';
@@ -75,16 +75,6 @@ export function relationFields(board: BoardRow | undefined | null): RelationFiel
 
 /* ---------- views ---------- */
 
-export const VIEW_TYPE_LABELS: Record<ViewType, string> = {
-  board: 'Board',
-  table: 'Table',
-  list: 'List',
-  gallery: 'Gallery',
-  calendar: 'Calendar',
-  timeline: 'Timeline',
-  chart: 'Chart',
-};
-
 export function useViews(databaseId: string | undefined): DbViewRow[] {
   const rows = useLiveQuery(
     () => (databaseId ? db.collection('views').where('databaseId').equals(databaseId).toArray() : []),
@@ -107,7 +97,7 @@ export function implicitView(board: BoardRow): DbViewRow {
   return {
     id: '',
     databaseId: board.id,
-    name: VIEW_TYPE_LABELS[type],
+    name: VIEW_LAYOUTS[type].label,
     type,
     order: '',
     config: { showSubrecords: type === 'table' },
@@ -153,10 +143,10 @@ export async function createView(databaseId: string, type: ViewType, name?: stri
   const me = authStore.get().user;
   await mutate('views', id, {
     databaseId,
-    name: name?.trim() || VIEW_TYPE_LABELS[type],
+    name: name?.trim() || VIEW_LAYOUTS[type].label,
     type,
     order: orderBetween(views.length ? String(views[views.length - 1].order ?? '') || null : null, null),
-    config: config ?? {},
+    config: config ?? newViewConfig(type),
     createdBy: me?.id ?? null,
     createdAt: Date.now(),
   });
