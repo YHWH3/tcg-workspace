@@ -23,15 +23,19 @@ O-03 options as evaluated, with the owner's answer added:
 | (c) | Cloudflare Email Routing inbound plus a sending provider (CRM becomes the only mail client for that address) | Not applicable while Zoho hosts the MX records |
 | **(d)** | **Zoho Mail** (added 24 Nov 2026; not in the original list) | **Chosen.** Adapter: Zoho Mail REST API first, IMAP/SMTP fallback; see `09` section 1.7. Provider facts [needs verification]. |
 
-## Needed before S0 starts
+## Needed before S0 starts vs production activation (`CR-06`)
 
-No open owner decision blocks S0. What remains before implementation: independent review and freeze of `contracts/crm-s0-v1.md`; Paul's approval of the design (G0) and of `S0-PLAN.md`; authorisation to implement (and, separately, to commit implementation work); the read-only owner check in `S0-PLAN.md` section 6.1; the screenshot baseline in `S0-PLAN.md` section 9.1.
+**No open owner decision blocks S0 implementation.**
+
+- **Before local S0 implementation starts (Checkpoint 1):** independent ChatGPT review and freeze of [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md), plus Paul's approval of [`S0-PLAN.md`](S0-PLAN.md) and authorisation to begin Stage 1/2 implementation. Local Miniflare/Playwright fixtures bootstrap a single active `owner` automatically (`worker/auth.ts:316`).
+- **Before Stage 3 (Frontend UI edits) completes:** capture Workspace UX screenshot baselines (`npm run qa:ux -- --record`).
+- **Before staging / production activation (G4–G6; does NOT block local S0 development):** read-only owner check on an owner-exported copy of production (`S0-PLAN.md` section 5.2), installed pack/People inventory, and SI-01 stabilisation (`11-ROADMAP.md` section 5).
 
 ## Unresolved stability issues
 
 | ID | Issue | Status | Required by |
 |---|---|---|---|
-| SI-01 | Three Workspace tests fail under the full parallel suite and pass alone (baseline in `00-README.md`): `phase4-events-d1` "Cron recovers durable events after interruption and a failed sweep, then dedupes subsequent sweeps" (`beforeEach` timeout creating Miniflare); `phase8-commitments-d1` "keeps private action metadata out while retaining available decisions" (`read ECONNRESET`); `phase8-form-operations-d1` "fences disablement and session revocation during a read" (test timeout). | **Open.** Tolerated for S0 acceptance only under A-24. Not skipped, not removed, not given longer timeouts to hide them. Owner: Neon (backend tests), reviewed by ChatGPT. | Investigated and stabilised **before production release** (A-24; `11` section 5). |
+| SI-01 | Three Workspace tests fail under the full parallel suite and pass alone (baseline in `00-README.md`): `phase4-events-d1` "Cron recovers durable events after interruption and a failed sweep, then dedupes subsequent sweeps" (`beforeEach` timeout creating Miniflare); `phase8-commitments-d1` "keeps private action metadata out while retaining available decisions" (`read ECONNRESET`); `phase8-form-operations-d1` "fences disablement and session revocation during a read" (test timeout). | **Open.** Tolerated for S0 acceptance only under A-24. Not skipped, not removed, not given longer timeouts to hide them. Owner: Neon, reviewed by ChatGPT. | Investigated and stabilised **before production release** (A-24; `11` section 5). |
 
 ## Needed before first real use
 

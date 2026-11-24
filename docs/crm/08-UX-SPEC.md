@@ -307,7 +307,9 @@ Route `/crm/settings/access`. Visible to the owner and to admins holding `crm.ca
 (fictional data)
 ```
 
-- S0 grants are scope "All" only (`contracts/crm-s0-v1.md`, SC-2 rule 7). Programme-scoped rows and an "Add programme scope" control arrive with the programme registry in S2.
+- S0 grants are scope "All" only (`contracts/crm-s0-v2.md`, SC-2 rule 7). Programme-scoped rows and an "Add programme scope" control arrive with the programme registry in S2.
+- If an account holds specialised grants while `crm.access` ("Open the CRM") is off, the UI flags those specialised grants as **inactive until "Open the CRM" is granted** (`effectiveAccess: false` in `CapabilityOverview`). Granting or revoking `crm.access` never hides or silently deletes specialised grant rows.
+- Capability state (`crmStatusStore`) stays in memory only and refreshes on local grants, `ws-records-changed`, tab focus/visibility, account switches, and reconnect; a `401` drops the session and a `403`/`forbidden`/`404` immediately unmounts protected Settings tabs.
 - Each row is a labelled switch (`role="switch"`, name = capability label plus scope). Toggling sends `capability.grant` or `capability.revoke` with a fresh `requestId`; the switch shows a pending state until the server replies and reverts with the error text on failure. No optimistic success.
 - The owner's own row reads "All capabilities (owner)" with no switches (`owner_implicit`).
 - Guests: "Guests cannot hold CRM capabilities." Members: every row except "Manage capabilities", which shows "Admins only".
@@ -367,6 +369,6 @@ WCAG 2.2 AA is a permanent requirement in this repository (`AGENTS.md`). Specifi
 - Regression gate: screenshot comparison of key Workspace screens before and after each CRM slice, compact, tablet and desktop, light and dark. The existing UX lab (`npm run qa:ux`, `scripts/ux-lab/playwright.config.mjs`) already runs 18 projects (Chromium, Firefox, WebKit × 390×844, 820×1180, 1440×900 × light, dark) with `toHaveScreenshot` at `maxDiffPixels: 0`; `S0-PLAN.md` section 9 says how it is used.
 - The app switcher is the one intended Workspace change. It renders only when the Worker variable `CRM_ENABLED` is on and the account holds `crm.access` (P-24), so a Workspace-only account sees no change at all.
 
-## 19. Visual prototype
+## 19. Visual prototype (optional, no longer a mandatory gate)
 
-A separate static prototype (fictional data, no backend) can be produced for review before implementation. It is not production code and should not be merged.
+Under the revised backend-first operating model (A-26), a separate static clickable prototype is no longer a mandatory gate before implementation. Frontend views are built directly against verified backend APIs in each slice, using scoped `[data-app="crm"]` tokens and verified via the 18-project UX lab. If an exploratory static prototype is ever created, it remains non-production and is never merged into the app bundle.

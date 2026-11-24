@@ -164,7 +164,7 @@ All are server-only D1 tables, never in `COLLECTIONS`. Every row carries `create
 | `crm_capability_grants` | Capability grants (S0) | (`user_id`,`capability`,`scope`) PK, `granted_by`, `granted_at`, `reason` (bounded); no rows for the owner (implicit, A-21); `capability` checked against the catalogue in code, `scope` is `*` or a programme ID |
 | `crm_capability_audit` | Grant and revoke audit (S0) | `id` PK, `actor_id`, `target_user_id`, `action` (grant, revoke), `capability`, `scope`, `before_json`, `after_json`, `reason`, `request_id`, `created_at`; UNIQUE(`actor_id`,`request_id`); triggers reject UPDATE and DELETE |
 | `crm_facts` | Operational knowledge | `id`, `programme_id`, `edition_id` (nullable), `key`, `value`, `state` (draft, verified, stale, retired), `verified_by`, `verified_at`, `review_by`, `source` |
-| `crm_commands` | Command journal | `id`, `name`, `actor_id`, `via` (ui, mcp, automation, ingest), `idempotency_key` unique per actor, `request_hash`, `result` (bounded), `at` |
+| `crm_commands` | Command journal | `id`, `name`, `actor_id`, `via` (ui, mcp, automation, ingest), `request_id` unique per actor, `request_hash`, `status` (ok, error), `result` (<= 16,384 UTF-8 bytes), `created_at` |
 
 ## 4. Source-of-truth matrix
 
@@ -202,7 +202,7 @@ All are server-only D1 tables, never in `COLLECTIONS`. Every row carries `create
 
 ### Order
 
-1. **Migration 0045 (additive, S0):** create the server-only tables above, empty. No existing table changes. Rollback: drop the new tables while they hold no data. Once capability grants exist, `crm_capability_grants` and `crm_capability_audit` are live authority data: rollback after that point is "set `CRM_ENABLED` off and keep the tables", never a drop. The exact S0 table list is in `S0-PLAN.md` section 6.2.
+1. **Migration 0045 (additive, S0):** create the three S0 server-only tables specified in `contracts/crm-s0-v2.md` SC-8 (`crm_commands`, `crm_capability_grants`, `crm_capability_audit`), empty. No existing table changes. Later operational tables arrive with their slices (`S0-PLAN.md` section 6.1). Rollback: drop triggers and the three tables while they hold no data. Once capability grants exist, `crm_capability_grants` and `crm_capability_audit` are live authority data: rollback after that point is "set `CRM_ENABLED` off and keep the tables", never a drop.
 2. **Pack upgrade (v12, additive):** new databases (Applications, Activities, Affiliations), new fields on People, Organisations, Programs, Events, Places, Opportunities. Uses the existing planner (`shared/bundled.ts`) and reviewed client apply; team customisations retained. Rollback: fields and databases stay (harmless if unused); hide the CRM shell.
 3. **Endpoint backfill (command, dry-run first):** for every People record with Email or Phone, create endpoints. Conflicts (two people with the same email) go to duplicate review, never auto-merged. Report counts before applying.
 4. **Programme seed:** 14 Programme records with profiles, created by an admin from a reviewed plan, not silently.

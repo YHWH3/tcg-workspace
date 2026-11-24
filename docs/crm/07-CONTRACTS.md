@@ -23,12 +23,12 @@ interface CommandError {
 
 Guarantees for every command:
 
-1. **Idempotent:** the same `requestId` from the same actor returns the stored result and does not repeat effects; the same `requestId` with a different input hash returns `idempotency_conflict`. (The 8-64 character bound is a CRM choice; MCP `requestId` elsewhere in the repository accepts 1-64.)
-2. **Revision-checked:** any object in `expected` whose current `rev` differs returns `stale` with the current revs; nothing is written.
+1. **Idempotent:** the canonical SHA-256 request hash covers `{ v: 1, name, via, input, expected }` (`shared/stablejson.ts:4-19`). The same `requestId` from the same actor with matching hash returns the stored result (rechecking current actor & replay authority first) and never repeats side effects; a differing hash returns `idempotency_conflict`. Successful no-ops write a journal row; in S0 no errors are persisted (`contracts/crm-s0-v2.md` SC-1). (The 8-64 character bound is a CRM choice; MCP `requestId` elsewhere in the repository accepts 1-64.)
+2. **Revision-checked:** any object in `expected` whose current `rev` differs returns `stale` with the current revs; nothing is written (enforced both in pre-check and transactionally via `strictExpectationGuard`, even when no projection field changed).
 3. **Authorised now:** the actor's session, account state, CRM capability and (for records) space access are checked against current state by fence statements in the same batch as the write, using the repository's abort-the-batch fence pattern (`SELECT CASE WHEN ... THEN 1 ELSE json_extract('{','$') END`, as in `worker/admin.ts:19-24`). **CRM capability checks run whether or not `access_state.enabled` is set** (A-19); only the space-access part follows the Workspace permission mode.
-4. **Atomic:** operational rows, projection fields and the journal row commit in one D1 batch or not at all. Two commit modes, because `applyChanges` issues no batch at all when no record actually changes (`worker/sync.ts:553-556`):
-   - *Server-only mode* (no record touched): one `db.batch([fences..., operational rows..., journal])`.
-   - *Records mode* (projection or ordinary field writes): `applyChanges(env, actor, changes, { serverTs: true, atomic: true, expect, session, projection, fences, execution })`, with the operational rows and journal carried in the same single batch; the S0 change that makes this possible is specified in `S0-PLAN.md` section 6.3. Records-mode commands never pass `journal` (changesets), so no generic Undo is offered for side effects.
+4. **Atomic:** operational rows, projection fields and the journal row commit in one D1 batch or not at all (with a `changes() = 1` guard on every record write so a failed projection aborts server-only rows). Two commit modes, because legacy `applyChanges` skips batching when `todo` is empty (`worker/sync.ts:553-556`):
+   - *Server-only mode* (no record written or expected): one `db.batch([fences..., operational rows..., journal])`.
+   - *Records mode* (projection writes or expected record revisions): `applyChanges(env, actor, changes, { serverTs: true, atomic: true, expect, session: { tokenHash }, projection, fences, commit })`, routed to single-batch `flushAtomicCommit` (no retries, no chunk splitting). Records-mode commands never pass `journal` (changesets), so no generic Undo is offered for side effects.
 5. **Budgeted:** a command stays inside the 45-binding-call request budget (`withD1Budget`, `worker/d1budget.ts:18`).
 6. **Journalled:** a `crm_commands` row records actor, channel (ui, mcp, automation, ingest), request hash and bounded result.
 7. **Never writes `records` by SQL.** Record changes go through `applyChanges`; command handlers write only CRM server-only tables directly.
@@ -63,7 +63,7 @@ The CRM capability catalogue. The owner's list (A-21) is marked *owner*; the res
 
 | Capability | Scope | Meaning |
 |---|---|---|
-| `crm.access` | `*` | Open the CRM and run relationship-tier commands. Without it the app switcher and `/crm` are hidden and every CRM API returns `forbidden` |
+| `crm.access` | `*` | Mandatory CRM gate to open `/crm`, read `/api/crm/read/*` and run `/api/crm/commands/*`. For non-owners, no specialised capability takes effect unless `crm.access` (`*`) is also held. Without it the app switcher and `/crm` are hidden and CRM APIs refuse access (`forbidden`) |
 | `crm.send:email`, `crm.send:whatsapp`, `crm.send:instagram`, `crm.send:facebook` *owner* | `*` | Send on that channel |
 | `crm.restricted.read` *owner* | programme ID or `*` | Read screening and restricted notes |
 | `crm.finance.read` *owner* | `*` | See money screens and amounts |
@@ -74,23 +74,23 @@ The CRM capability catalogue. The owner's list (A-21) is marked *owner*; the res
 | `crm.channels.manage` | `*` | Connect and disconnect channel accounts, submit templates |
 | `crm.capabilities.manage` | `*` | Grant and revoke CRM capabilities. Only the owner can grant or revoke this one, and only to an admin |
 
-Evaluation rule, used by every command and gated read (`worker/crm/grants.ts`, pure decision in `shared/crm/capabilities.ts`):
+Evaluation rule, used by every command and gated read (`worker/crm/grants.ts`, pure rules in `worker/crm/rules.ts`, catalogue only in `shared/crm/capabilities.ts`):
 
 1. The actor's account must be active (`users.disabled_at IS NULL`) with a live session; a connector request also needs a live connector grant.
 2. If the actor's current workspace role is `owner`, every capability is held, at every scope. This is computed from the `users` row at check time; there are no rows to revoke.
-3. Otherwise the capability is held iff a `crm_capability_grants` row exists for (user, capability, scope) or (user, capability, `*`). `crm.capabilities.manage` additionally requires the current role to be `admin`; a demoted admin loses it without any revoke.
+3. For any non-owner, holding `crm.access` (`*`) is required before any CRM command, protected CRM read or specialised capability is effective. Otherwise a specialised capability is held iff the actor holds `crm.access` (`*`) AND a `crm_capability_grants` row exists for (user, capability, scope) or (user, capability, `*`). `crm.capabilities.manage` additionally requires the current role to be `admin`; a demoted admin loses it without any revoke. Specialised grant rows remain independent in `crm_capability_grants` (revoking `crm.access` does not delete them, preserving audit history).
 4. Guests hold nothing and cannot be granted anything (`guest_not_eligible`).
 5. Nothing is implied by `admin` or `member` alone (A-21).
-6. Disabling an account revokes all its grants in the disable batch, each with an audit row (reason `account_disabled`); re-enabling restores none and writes nothing to CRM tables (approved, A-25; `S0-PLAN.md` section 6.3). Removing an account deletes its grants by foreign-key cascade; audit rows remain.
+6. Disabling an account revokes all its grants in the disable batch, each with an audit row (reason `account_disabled`); re-enabling restores none and writes nothing to CRM tables (approved, A-25; `S0-PLAN.md` section 6.2). Removing an account deletes its grants by foreign-key cascade; audit rows remain.
 
 | Command | Input | Effect | Who | AI |
 |---|---|---|---|---|
-| `capability.grant` | userId, capability, scope (`*`; programme IDs from S2), reason? | Inserts the grant row and one audit row in one batch. Already held: returns `ok` with `already: true`, writes no audit row | Owner; or an admin holding `crm.capabilities.manage`, who may not grant to themselves and may not grant `crm.capabilities.manage` | Human-only, not registered as an MCP tool |
-| `capability.revoke` | userId, capability, scope | Deletes the grant row and writes one audit row in one batch. Not held: `ok` with `already: true` | Same as grant; revoking `crm.capabilities.manage` is owner-only | Human-only, not registered |
+| `capability.grant` | userId, capability, scope (`*`; programme IDs from S2), reason? | Inserts the grant row and one audit row in one batch (and calls `pokeLive()`). Already held: commits journal + fences (`ok` with `already: true`), writes no audit row | Owner; or an admin holding `crm.access` + `crm.capabilities.manage`, who may not grant to themselves and may not grant `crm.capabilities.manage` | Human-only, not registered as an MCP tool |
+| `capability.revoke` | userId, capability, scope | Deletes the grant row and writes one audit row in one batch (and calls `pokeLive()`). Not held: commits journal + fences (`ok` with `already: true`), writes no audit row | Same as grant; revoking `crm.capabilities.manage` is owner-only | Human-only, not registered |
 
-Fences in the batch: (1) the actor's session is live, the actor is active, and the actor is the owner or an admin holding `crm.capabilities.manage` (the shape of `adminSessionFence`, `worker/admin.ts:19-24`, extended with the grant lookup); (2) the target account still has the role and disabled state that was read (the shape of `accountFence`, `worker/admin.ts:103-105`); (3) the idempotency row. A fence failure returns `stale` (account or authority changed) and writes nothing.
+Fences in the batch: (1) `actorFence`: actor session live, active, same role and (if non-owner) holding `crm.access` + `crm.capabilities.manage`; (2) `targetAccountFence`: target still has the role and disabled state that was read; (3) `targetGrantStateFence`: grant row still absent or matches the loaded `(granted_by, granted_at)`. A fence failure returns `stale` (or `401`/`forbidden` if actor auth dropped) and writes nothing.
 
-Errors specific to these commands: `forbidden` (actor lacks the right), `invalid_input` with `detail.reason` one of `guest_not_eligible`, `self_grant`, `owner_implicit` (granting to or revoking from the owner), `unknown_capability`, `unknown_scope`, `account_disabled`, `not_admin`. **For S0 the normative, versioned form of these commands, the API, owner protection, disable revocation and the table contract is `contracts/crm-s0-v1.md`**, which also restricts S0 to scope `*` (programme scopes arrive with S2).
+Errors specific to these commands: `forbidden` (actor lacks the right), `invalid_input` with `detail.reason` one of `guest_not_eligible`, `self_grant`, `owner_implicit` (granting to or revoking from the owner), `unknown_capability`, `unknown_scope`, `account_disabled`, `not_admin`. **For S0 the normative, versioned form of these commands, the API, owner protection, disable revocation and the table contract is [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md)**, which also restricts S0 to scope `*` (programme scopes arrive with S2).
 
 **Audit.** Every grant or revoke that changes state writes one row to `crm_capability_audit` (`06` section 3): actor, target, action, capability, scope, before, after, reason, request ID, time. The table is append-only (SQL triggers reject UPDATE and DELETE). Reads: `GET /api/crm/read/capabilities` (accounts with their effective capabilities) and `GET /api/crm/read/capability-audit?cursor=` (newest first, keyset cursor), both for the owner and admins holding `crm.capabilities.manage`.
 

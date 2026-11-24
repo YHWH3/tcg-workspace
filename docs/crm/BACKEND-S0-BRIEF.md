@@ -1,100 +1,102 @@
-# Backend brief for CRM slice S0 (Neon)
+# Backend-first S0 implementation brief (Neon)
 
-This brief is self-contained: it should be enough to implement the backend part of S0 without any earlier conversation. It summarises; where it and a normative document differ, the normative document wins and the difference should be reported.
+This brief is self-contained for executing **Stage 1 (Shared Contracts)** and **Stage 2 (S0 Backend)** once the review gate clears. Where this brief and [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) ever differ, `crm-s0-v2.md` is normative and wins.
 
-**Status: not yet authorised.** Do not start until Paul authorises S0 implementation and ChatGPT has recorded the freeze of contract `crm-s0-v1`. Do not commit or push without separate authorisation. Never run remote migrations, activate Workspace permissions, connect providers or deploy.
+**Status: awaiting Review Gate (Checkpoint 1).** Do not begin code implementation until ChatGPT has recorded the freeze of `crm-s0-v2` and Paul has authorised S0 implementation. Never run remote migrations, activate Workspace permissions, connect real providers, deploy or commit secrets. Track progress in [`PROGRESS.md`](PROGRESS.md).
 
-## 1. What to read, in order
+---
+
+## 1. Required reading order
 
 | # | Document | Why |
 |---|---|---|
-| 1 | `AGENTS.md` (repository root) | Repository invariants. The ones that bind S0 are in section 4 below |
-| 2 | `docs/crm/contracts/crm-s0-v1.md` | **Normative** shared contracts SC-1 to SC-9. You implement against them and may not change them |
-| 3 | `docs/crm/S0-PLAN.md`, sections 2, 4, 6, 8, 9 and 10 | Governance, file ownership, the exact backend changes, tests, acceptance rule, rollback |
-| 4 | `docs/crm/01-DECISIONS.md`, A-19 to A-26 | Owner decisions behind the contracts |
-| 5 | `docs/crm/05-ARCHITECTURE.md`, ADR-03, ADR-04, ADR-10 | Why the data split, projections and capabilities are shaped this way |
-| 6 | `docs/crm/00-README.md`, "Verification log" V-01, V-02, V-17 to V-19, and "Baseline test results" | The code facts S0 rests on and the recorded baseline |
+| 1 | `AGENTS.md` (repository root) | Standing repository, D1-budget, security and testing invariants |
+| 2 | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) | **Normative** contracts SC-1 to SC-9 (incorporates CR-01 through CR-06) |
+| 3 | [`S0-PLAN.md`](S0-PLAN.md) | Backend-first Stages 1–4, exact Workspace code edits, checkpoints, A-24 gate, rollback |
+| 4 | [`01-DECISIONS.md`](01-DECISIONS.md) (especially A-19 to A-26) | Approved owner decisions and revised responsibility model |
+| 5 | [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) (ADR-03, ADR-04, ADR-10) | Data split, `_crm_` projection protection, CRM capability model |
+| 6 | [`00-README.md`](00-README.md) (Verification log & Baseline results) | Pinned baseline facts (`38c388a`) and recorded test counts |
 
-`docs/crm/input/` is a local, uncommitted handover folder. Nothing in S0 depends on it.
+`docs/crm/input/` is a local git-ignored handover folder; nothing in S0 implementation depends on it, and nothing from it may be committed.
 
-## 2. Your scope
+---
 
-Backend implementation, the database migration, server-side authorisation, the CRM API, the command infrastructure and backend tests. Precisely:
+## 2. Stage 1 — Shared contract files & validation (do FIRST)
 
-| Action | File | What |
+Under revised A-26, **Neon owns `shared/crm/*` as the single source of truth** imported by both `worker/` and (in Stage 3) `src/`. Create and validate these files **before** any `worker/crm/*` or `src/apps/crm/*` file:
+
+1. **`shared/crm/capabilities.ts`**: Exact catalogue (`CRM_CHANNELS`, `CRM_CAPABILITIES`, `ALL_SCOPE`, `CrmScope`, `PROGRAMME_SCOPED`, `isCrmCapability`, `CRM_CAPABILITY_LABELS`). Pure catalogue + UI labels only — zero authorisation logic.
+2. **`shared/crm/projection.ts`**: `CRM_PROJECTION_PREFIX = '_crm_'`, `isCrmProjectionKey`, `ProjectionGrant`.
+3. **`shared/crm/contracts.ts`**: Exact constants (`CRM_CONTRACT_VERSION = 'crm-s0-v2'`, `REQUEST_ID_PATTERN`, `MAX_COMMAND_BODY_BYTES = 65_536`, `MAX_COMMAND_RESULT_BYTES = 16_384`, `MAX_EXPECTED_ENTRIES = 100`, `AUDIT_PAGE_LIMIT = 50`, `MAX_CAPABILITY_REASON_CHARS = 500`), error codes & `CRM_ERROR_RETRYABLE`, `OWNER_PROTECTED_ERROR`, all TypeScript interfaces, and all Zod schemas (`CommandRequestEnvelopeSchema`, `commandResultSchema`, `CommandErrorSchema`, `CrmStatusSchema`, `CapabilityOverviewSchema`, `CapabilityAuditPageSchema`, wire `CapabilityChangeRequestInputSchema`, strict `CapabilityChangeInputSchema`, `CapabilityChangeOutputSchema`).
+4. **Validate immediately**: Write and run `tests/crm-contract.test.ts` + `npm run typecheck`.
+
+---
+
+## 3. Stage 2 — Backend scope & exact edits
+
+| Action | File | Responsibility |
 |---|---|---|
-| Add | `migrations/0045_crm_foundation.sql` | Exactly the SQL in contract SC-8 |
-| Add | `worker/crm/rules.ts` | Pure capability evaluation and grant-management rules (SC-2 rules 1-8, SC-5 table) |
-| Add | `worker/crm/projection.ts` | Pure `projectionRejections(changes, grant?)` (SC-3) |
-| Add | `worker/crm/commands.ts` | `defineCommand`, `createCommandRegistry(defs)`, `runCommand` (`S0-PLAN.md` section 6.5) |
-| Add | `worker/crm/grants.ts` | Fences, effective-capability reads, `capability.grant` and `capability.revoke`, audit reads |
-| Add | `worker/crm/index.ts` | `crmApi` Hono router for SC-4 |
-| Change | `worker/sync.ts` | `ApplyOptions.projection` and `.commit`; unconditional `_crm_` pre-check; pass the grant to the authoriser; `commit` statements in `flushPlans` (`S0-PLAN.md` section 6.3) |
-| Change | `worker/mutationAccess.ts` | Trailing `projection?` parameter; the `_` rule skips granted `_crm_` keys (section 6.3) |
-| Change | `worker/admin.ts` | Owner protection on three routes (SC-6); revocation on disable (SC-7) |
-| Change | `worker/index.ts` | Mount `app.route('/api/crm', crmApi)` before `app.route('/api', admin)` (`worker/index.ts:123`) |
-| Change | `worker/auth.ts` | `Env.CRM_ENABLED?: string` (SC-9) |
-| Change | `scripts/certification/migrations.json` | Register 0045 with its SHA-256 |
-| Change | `scripts/access/selftest.mjs` | `:33` must stop hard-coding `0044_history_body_context.sql` as the last migration |
-| Change | `scripts/certification/test-files.mjs` | Add `crm` to the D1 selection pattern (`:3`) |
-| Add | Backend tests | Section 5 |
+| Add | `migrations/0045_crm_foundation.sql` | Exact SQL in `crm-s0-v2.md` SC-8 (`crm_commands` incl. `status` + UTF-8 byte cap `CHECK`, `crm_capability_grants`, `crm_capability_audit` + append-only triggers). |
+| Add | `worker/crm/rules.ts` | Pure SC-2 & SC-5 evaluation: owner implicit, `crm.access` mandatory prerequisite over specialised capabilities, `crm.capabilities.manage` + `admin`, 15-step precedence (`not_admin` grant-only). |
+| Add | `worker/crm/projection.ts` | Pure `projectionRejections(changes, projection?)` implementing SC-3. |
+| Add | `worker/crm/commands.ts` | Per-request `createCommandRegistry(defs)` (validating `projectionKeys` regex, zero module-level state) and `runCommand` (defensive `CRM_ENABLED` check, strip `undefined` before `stableJson`, recovery precedence `401 -> forbidden -> replay/conflict -> stale -> 503`). |
+| Add | `worker/crm/grants.ts` | Single-batch loaders (`COALESCE(workspace_role, role)`, never `c.get('user').role`), `actorFence`, `targetAccountFence`, `targetGrantStateFence`, `capability.grant` & `capability.revoke` (`pokeLive()` on change), `readCapabilitiesOverview`, `readCapabilityAudit` (`LEFT JOIN users`). |
+| Add | `worker/crm/index.ts` | `crmApi` Hono router (`GET /status`, `POST /commands/:name`, `GET /read/capabilities`, `GET /read/capability-audit`, plus `crmApi.all('*', 404 not_found)`). |
+| Change | `worker/sync.ts` | `ApplyOptions.projection` & `.commit`; `ApplyResult.fenceAborted`; unconditional `_crm_` pre-check after `:350`; preserve empty-`todo` commits when `opts.commit` set; pass `opts.projection` to `authorizeMutations`; add single-batch `flushAtomicCommit` (`strictExpectationGuard` `LEFT JOIN`, `!authority` `access_state=0` fence, `changes() = 1` SQL assertion per record write, SQL `json_set` committed `projections`, no retries, rethrow non-fence errors without speculative `readRows`). Keep legacy `expectationGuard` untouched for `tests/sync-atomic.test.ts:44`. |
+| Change | `worker/mutationAccess.ts` | Trailing `projection?: ProjectionGrant` on `authorizeMutations`; skip `_` rejection only for matching granted `_crm_` keys on `tasks`. |
+| Change | `worker/admin.ts` | Always-on SC-6 owner protection (`403 owner_protected` placed before `:172` and `:111` + `accountFence(..., protectOwner)`); always-on SC-7 disable revocation (`|`-delimited `request_id`, `ORDER BY capability, scope`) + explicit `DELETE FROM crm_capability_grants` on `DELETE /users/:id`. |
+| Change | `worker/index.ts` | Mount `app.route('/api/crm', crmApi)` before `app.route('/api', admin)` (`worker/index.ts:123`). |
+| Change | `worker/auth.ts` | Add `CRM_ENABLED?: string` to `Env` (`worker/auth.ts:10`). |
+| Change | `scripts/certification/migrations.json` | Register `0045_crm_foundation.sql` + SHA-256. |
+| Change | `scripts/access/selftest.mjs` | Replace hard-coded `'0044_history_body_context.sql'` at `:33` with `verifyMigrationManifest().at(-1).name`. |
+| Change | `scripts/certification/test-files.mjs` & `test-files.test.mjs` | Include `crm` and `admin-owner-protection` D1 test files in `d1TestFiles` (`:3`) and update test assertions. |
+| Add | Backend tests (8 files) | Section 6 below. |
 
-You import, never edit: `shared/crm/contracts.ts`, `shared/crm/capabilities.ts`, `shared/crm/projection.ts` (Opus creates them verbatim from the contract document). If you need them before they exist, ask for them through ChatGPT; do not write your own versions.
+**Do NOT touch during Stage 1 & Stage 2:** `src/` (reserved for Stage 3 after Checkpoint 2 backend review), `shared/collections.ts`, `wrangler.jsonc`, `templates/*.json`, `docs/integrations/the-common-ground.md`, or the three SI-01 test files.
 
-**Out of scope:** every file under `src/`, `src/App.tsx`, `src/core/shell.tsx`, `scripts/qa-ux.mjs`, `scripts/ux-lab/*`, `scripts/crm-demo/*`, `package.json`, `wrangler.jsonc`, `shared/collections.ts`, `src/core/db.ts`, templates, the website integration contract, any MCP tool, any provider adapter, any CRM table beyond SC-8, and fixing the three SI-01 tests (tracked separately; see section 6).
+---
 
-## 3. The facts S0 depends on (verified at `38c388a`)
+## 4. Verified code hazards & non-negotiable backend requirements (CR-01 to CR-05)
 
-1. **The `_` protected-field rule does not run with permissions off.** `authorizeMutations` rejects fields starting with `_` (`worker/mutationAccess.ts:66-67`), but `applyChanges` only calls it when `access_state.enabled = 1` or the request comes from a connector (`worker/sync.ts:352-355`). Production pilots with permissions off (A-19). Hence the unconditional pre-check (SC-3).
-2. **`applyChanges` issues no batch when nothing changed** (`worker/sync.ts:553-556`). Hence `commit` and the server-only commit mode.
-3. **The fence pattern.** A statement `SELECT CASE WHEN <condition> THEN 1 ELSE json_extract('{','$') END` aborts the whole `db.batch` with "malformed JSON" when the condition is false (examples: `adminSessionFence` and `accountFence` in `worker/admin.ts:19-24,103-105`, `accountBatch` at `:106`).
-4. **Only three routes change another account's role or status**: `PATCH /api/users/:id` (`worker/admin.ts:165-179`), `POST /api/users/:id/disable` (`:108-124`), `DELETE /api/users/:id` (`:206-215`). Every other `UPDATE users` is a self-edit (`worker/auth.ts:466-489`, `worker/email.ts:156`, `worker/notificationEmail.ts:222-224`). Today an admin can demote, disable or remove the owner while another owner or admin remains.
-5. **Owner identity.** Only the bootstrap signup creates `owner` (`worker/auth.ts:316`); migration 0012 assigned `owner` to the earliest-created admin on older databases (`migrations/0012_phase5_access_foundation.sql:37-39`).
-6. **Disable batch** already deletes sessions and revokes connector and website grants in one batch (`worker/admin.ts:111-118`).
-7. **D1 budget**: `withD1Budget(env, 45)` (`worker/d1budget.ts:18`).
-8. **Auth**: `requireAuth` returns `401 { error: 'unauthenticated' }` (`worker/auth.ts:217-222`); `/api/*` responses are `no-store` (`worker/index.ts:49`).
+1. **`applyChanges` permissions-off gap (`worker/sync.ts:352-355`, `worker/mutationAccess.ts:65-68`)**: `authorizeMutations` runs only when `snapshot.enabled === 1 || env.CONNECTOR`. The `_crm_` pre-check MUST run unconditionally right after patch cloning (`:350`) and return early on any rejection when `atomic: true`. `_crm_` keys are already excluded from `record_history` (`worker/historyPersistence.ts:3`).
+2. **`applyChanges` `flushPlans` hazards (`worker/sync.ts:309,515-684`) — CR-02**:
+   - Line `:309` returns early when `!incoming.length && !opts.expect?.size`.
+   - Line `:515-523` `expectationGuard` uses `INNER JOIN` (ignoring missing rows) and `:567` checks only `chunk` (ignoring read-only `opts.expect` IDs and unchanged projections). **AND `tests/sync-atomic.test.ts:44` intercepts `/JOIN json_each\(\?\)/`!** Therefore keep `expectationGuard` intact for existing callers and route `opts.commit` through a dedicated single-batch `flushAtomicCommit` using `strictExpectationGuard` (`LEFT JOIN ... WHERE COALESCE(r.seq, -1) <> e.value`) over `opts.expect ∪ changedPlans`.
+   - `flushAtomicCommit` MUST run even when `changedPlans` is empty (unchanged projections / read-only `expect`), MUST assert `SELECT CASE WHEN changes() = 1 THEN 1 ELSE json_extract('{', '$') END` immediately after every record upsert so a 0-row projection aborts server-only rows + journal, MUST capture committed `seq` into `crm_commands.result` inside SQL, MUST NOT retry or split chunks, MUST preserve `D1BudgetExhausted`, and MUST rethrow non-fence errors to `runCommand` instead of returning `partialError`.
+3. **Canonical hashing & journal recovery (`shared/stablejson.ts:4-19`, `worker/password.ts`) — CR-01**:
+   - **Watch out for `shared/stablejson.ts:13-18`:** `sortValue(undefined)` returns `null`, so `stableJson({ a: 1, reason: undefined })` emits `{"a":1,"reason":null}`! Recursively strip `undefined` object properties in `worker/crm/commands.ts` before calling `stableJson`, hash `{ v: 1, name, via, input: canonicalInput, expected: canonicalExpected }` with `sha256Hex(stableJson(...))` (never `argsHash()`), and keep `shared/stablejson.ts` untouched.
+   - Persist `crm_commands` for every committed `ok: true` result, **including successful `already: true` no-ops** (zero audit rows). Persist **zero** errors in S0 (`status = 'ok'`). Enforce `<= 16,384` UTF-8 bytes before commit (`budget_exceeded` on overflow, never truncate).
+   - On ANY commit error (except `D1BudgetExhausted`, which rethrows for `503 processing_budget`), execute a recovery read batch for `(actor_id, request_id)` + current actor session/role/grants:
+     - Enforce precedence: dead session/disabled actor -> `401`; lost actor authority -> `200 forbidden`; existing `crm_commands` row -> check hash (`idempotency_conflict`) or `authorizeReplay` -> return stored result verbatim (recovers both lost acks AND concurrent winner-tripped-fence races!); absent journal -> `stale` on fence abort, 500/domain-map on unrelated SQLite constraints, `503 write_interrupted` on transient D1 error.
+4. **Auth & read snapshots (`worker/auth.ts:199-232`, `worker/admin.ts:19-24,103-105`) — CR-03**:
+   - `userByToken` (`:199-214`) returns only `u.role` (never `workspace_role`), and `requireAuth` post-check (`:227-232`) rechecks only `sessions` and `disabled_at` on `GET`/`HEAD`, not role or CRM capability grants. Never inspect `c.get('user').role`; load `COALESCE(u.workspace_role, u.role)` + grants + payload in ONE `db.batch` snapshot on `/status` and `/read/*`.
+   - Non-owners require `crm.access` (`'*'`) for EVERY `/api/crm/read/*` and `/api/crm/commands/*` route; no specialised capability is effective without `crm.access` (`'*'`).
+   - `capability.grant` / `revoke` batches MUST include all 3 fences (`actorFence`, `targetAccountFence`, `targetGrantStateFence`), even on `already: true` no-ops, and call `pokeLive()` on state change.
+5. **Request validation order & streamed body cap (`worker/forms.ts:395-403`) — CR-04**:
+   - Exact order: `401` (`requireAuth`) -> `404` (`CRM_ENABLED` off / unknown command; plus `crmApi.all('*', 404 not_found)`) -> `413 request_too_large` (`boundedRequestBody(c.req.raw, 65_536)`) -> `400 invalid_body` (strict UTF-8 + JSON + `CommandRequestEnvelopeSchema`) -> `401` / `200 forbidden` (coarse authority) -> `200 invalid_input` (wire schema, then `unknown_capability`, then `unknown_scope`) -> `200 forbidden` (fine capability) -> idempotency check -> load/plan -> atomic commit.
+   - Audit cursor validated ONLY after `401` / `404` / `403` authority check passes; rejects empty string, >256 chars, bad base64url/JSON/bounds with `400 invalid_cursor`. Uses `LEFT JOIN users`.
+6. **Always-on Workspace controls (`CRM_ENABLED` off) — CR-05**:
+   - When `CRM_ENABLED` is off, operational `/api/crm/*` routes return `404` (after `401`) and `/status` returns `enabled: false, access: false, owner, capabilities: []`, while SC-6 (A-23), SC-7 (A-25), and SC-3 (ADR-04) stay **active**.
+   - Verified compatibility with `tests/phase7-disable-d1.test.ts` (45-call budget at `:24`, all existing callers act as owner on non-owners).
 
-## 4. Invariants you must keep (from `AGENTS.md`)
+---
 
-- Record writes only through `applyChanges`; command handlers write CRM server-only tables directly and never write `records` by SQL.
-- Server-only tables are never added to `COLLECTIONS`.
-- A policy refusal is item-wise (the `_crm_` pre-check rejects items, it does not abort the batch).
-- One timestamp ordering: the pre-check runs after timestamp healing and restamping (after `worker/sync.ts:350`) and reads only patch keys.
-- No module-level mutable state in `worker/`: the command registry is built per request.
-- Reads go through the request's read gate (`withReadGate`); unauthorised is reported as missing.
-- Every request phase fits 45 D1 binding calls; use `db.batch`, never one call per row.
-- Credentials derive grants: capability checks need an active account and a live session at check time; disabling revokes (SC-7).
-- AI never holds a capability; `capability.grant` and `capability.revoke` are never MCP tools.
-- CRM capability checks never depend on `access_state.enabled`.
-- If you edit `wrangler.jsonc` (you should not need to), run `npm run cf-typegen`.
+## 5. Preconditions distinction (`CR-06`)
 
-## 5. Tests you own (write them first)
+- **Local S0 dev**: needs only frozen `crm-s0-v2` + Paul's S0 implementation approval. Local D1 fixtures bootstrap a single active `owner` automatically (`worker/auth.ts:316`).
+- **Production activation**: reading an owner-exported prod D1 copy to verify the single active `owner` is Paul (and stabilising SI-01) is required **before production rollout / G4–G6** — it does **not** block Stage 1–4 local development.
 
-Named and specified in `S0-PLAN.md` section 6.6; the contract-to-test map is at the end of the contract document.
+---
 
-- `tests/crm-projection-keys-d1.test.ts` (fails before your change in disabled mode; that proves fact 1)
-- `tests/crm-mcp-projection-d1.test.ts`
-- `tests/crm-rules.test.ts`
-- `tests/crm-commands-d1.test.ts`
-- `tests/crm-grants-d1.test.ts` (include: grant to a disabled account → `account_disabled`; manage to a member → `not_admin`)
-- `tests/crm-disable-revocation-d1.test.ts`
-- `tests/admin-owner-protection-d1.test.ts` (through the HTTP routes with an admin session; never rely on UI hiding)
-- `tests/crm-api-d1.test.ts` (every response validated with the shared zod schemas; SC-9 values off, `1`, `true`, `TRUE`, other)
+## 6. Stage 1 & Stage 2 tests & Checkpoint 2 acceptance
 
-Follow the existing D1 test pattern (Miniflare with migrations applied; see `tests/phase5-audit-interplay-d1.test.ts:40-70` for setup, including the statement splitter that keeps trigger bodies intact).
+Write and verify these 9 test files (listed in full detail in [`S0-PLAN.md`](S0-PLAN.md) section 6.4):
+- Stage 1: `tests/crm-contract.test.ts`
+- Stage 2: `tests/crm-projection-keys-d1.test.ts`, `tests/crm-mcp-projection-d1.test.ts`, `tests/crm-rules.test.ts`, `tests/crm-commands-d1.test.ts`, `tests/crm-grants-d1.test.ts`, `tests/crm-disable-revocation-d1.test.ts`, `tests/admin-owner-protection-d1.test.ts`, `tests/crm-api-d1.test.ts`.
 
-## 6. How your work is accepted
-
-1. Your tests pass; `npm run typecheck` and `npm run build` pass.
-2. Full `npm test` judged by the A-24 rule (`S0-PLAN.md` section 9.4). Baseline at `38c388a`: 2,230 tests in 218 files, 2,227 passed, 3 failed. The only tolerated failures are the three SI-01 tests with their recorded signatures, each passing when re-run alone with `npx vitest run <file>`. Any other failure, any changed failure behaviour, any reduction in test count, or any skip, removal or timeout change on those three tests blocks acceptance. Do not modify those tests in S0.
+**Checkpoint 2 passes only when:**
+1. Stage 1 & Stage 2 tests pass; `npm run typecheck` and `npm run build` pass.
+2. Full `npm test` passes under **A-24** (tolerating ONLY the 3 unchanged SI-01 signatures with passing isolated `npx vitest run <file>` reruns; total tests `>= 2,230 + new S0 tests`; zero skipped/modified SI-01 tests).
 3. `npm run demo:studio -- --check` passes.
-4. Migration 0045 applies to fresh local D1 (`npm run db:migrate:local`) and the certification migration check passes.
-5. ChatGPT reviews your `worker/sync.ts`, `worker/mutationAccess.ts` and `worker/admin.ts` diffs line by line against `S0-PLAN.md` section 6.3 and confirms no other Workspace behaviour changed.
-
-## 7. When something does not fit
-
-Stop work on the affected part and send a change request through ChatGPT: what, why, evidence (file and line, failing test), and the impact on the frontend. Do not change a contract, the architecture or a frontend file to make it fit. Internal choices that leave the contracts and architecture unchanged (helper names, internal structure) need no request.
-
-## 8. What to report
-
-Exact commands run and their counts; per-test results for the A-24 rule including isolated reruns; files changed; anything NOT RUN and why; any discrepancy found between this brief, the contracts and the code.
+4. `npm run db:migrate:local` applies `0045` cleanly on fresh D1 and certification migration/test-file checks pass (`node --test scripts/certification/*.test.mjs scripts/access/selftest.mjs`).
+5. ChatGPT finishes line-by-line review of `worker/sync.ts`, `worker/mutationAccess.ts`, `worker/admin.ts`, `worker/index.ts`, and `worker/auth.ts` before Stage 3 frontend implementation begins.

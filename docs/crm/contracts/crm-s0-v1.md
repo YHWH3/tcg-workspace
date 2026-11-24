@@ -3,7 +3,7 @@
 | Item | Value |
 |---|---|
 | Version | `crm-s0-v1` |
-| Status | **Candidate.** Pending independent review by ChatGPT. Not frozen until that review is recorded in the change log below. This is not an authorisation to implement S0. |
+| Status | **Superseded by [`crm-s0-v2`](crm-s0-v2.md)** (24 November 2026, following ChatGPT contract review findings CR-01 through CR-06 and updated governance A-26). Retained for historical reference only. |
 | Date | 24 November 2026 |
 | Baseline | `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444`, branch `crm/foundation` |
 | Owner | Opus (technical contracts, A-26) |
@@ -341,4 +341,4 @@ Rules: server-only tables, never in `shared/collections.ts`. `crm_commands.resul
 
 | Version | Date | Change | Review |
 |---|---|---|---|
-| `crm-s0-v1` (candidate) | 24 Nov 2026 | First version, from `07-CONTRACTS.md` and `S0-PLAN.md` after decisions A-19 to A-26 | Pending ChatGPT review |
+| `crm-s0-v1` (superseded) | 24 Nov 2026 | First version, from `07-CONTRACTS.md` and `S0-PLAN.md` after decisions A-19 to A-26 | Reviewed by ChatGPT; superseded by `crm-s0-v2` (CR-01 to CR-06) |

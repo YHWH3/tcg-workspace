@@ -1,16 +1,15 @@
 # TCG CRM: product design and architecture specification
 
-Version 2.1, 24 November 2026. Version 1 was written in a separate session from a read-only inspection of the code at `38c388a`. This version was checked against the actual source in this checkout, corrected where it was wrong, and updated with the owner decisions of 24 November 2026 (A-19 to A-26 in `01-DECISIONS.md`). Version 2.1 records the answers to the three S0 questions and the division of responsibilities, and restructures `S0-PLAN.md` by workstream.
+Version 2.2, 24 November 2026. Version 1 was written in a separate session from a read-only inspection of the code at `38c388a`. Version 2 was checked against the actual source in this checkout, corrected where it was wrong, and updated with the owner decisions of 24 November 2026 (A-19 to A-26 in `01-DECISIONS.md`). Version 2.2 closes ChatGPT's independent review of S0 contracts (CR-01 through CR-06) with [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md), updates A-26 to the revised single-engineering-agent operating model (Neon owning both backend and frontend under ChatGPT review and Paul's approvals), restructures [`S0-PLAN.md`](S0-PLAN.md) into a backend-first sequence, and adds [`PROGRESS.md`](PROGRESS.md).
 
-This is still design and architecture. No application code was changed, nothing was committed, pushed, merged, migrated or deployed, and no provider was connected. Only files under `docs/crm/` changed, plus `node_modules` from `npm ci` and the build's generated, git-ignored output. The baseline test run is reported below with actual counts.
+This is still design and architecture. No application code (`src/`, `shared/`, `worker/`, `migrations/`) was changed, nothing was merged into `38c388a`, no remote migration was run, and no provider or production permission flag was activated. Only files under `docs/crm/` changed. The baseline test run is reported below with actual counts.
 
 ## Baseline reference
 
 | Item | Value | How checked |
 |---|---|---|
-| HEAD | `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` | `git rev-parse HEAD` in this worktree |
-| Branch | `crm/foundation` (local, no upstream) | `git branch --show-current` |
-| Same commit as | `codex/workspace-database-platform` (tracks `origin/codex/workspace-database-platform`) | `git rev-parse codex/workspace-database-platform` |
+| Workspace engineering baseline | `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`codex/workspace-database-platform`) | `git rev-parse codex/workspace-database-platform` |
+| Branch | `crm/foundation` (tracks `origin/crm/foundation`; prior doc commit `d1742a09cb1972644ba869134208dc70a76524d7`) | `git branch --show-current`, `git log -n 2` |
 | Remote | `YHWH3/tcg-workspace` | `git remote -v` |
 | Package | `workspace` `1.0.0-rc.1` | `package.json` |
 | Migrations | 44 files, `0001_init.sql` to `0044_history_body_context.sql`, all registered in `scripts/certification/migrations.json` | `ls migrations` |
@@ -34,9 +33,11 @@ This is still design and architecture. No application code was changed, nothing 
 | `10-AI-MCP-SECURITY.md` | AI and MCP model, operational knowledge, approvals, privacy and threat model |
 | `11-ROADMAP.md` | Vertical slices, acceptance criteria, test strategy, gates, risk register |
 | `12-OPEN-DECISIONS.md` | Closed and remaining owner decisions |
-| `S0-PLAN.md` | Implementation plan for slice S0: responsibilities, shared-contract index, frontend and backend workstreams, exact code changes, migration, tests, acceptance gate, rollback |
-| `contracts/crm-s0-v1.md` | **The nine shared S0 contracts (SC-1 to SC-9), normative, versioned `crm-s0-v1`, candidate pending ChatGPT review** |
-| `BACKEND-S0-BRIEF.md` | Self-contained handoff for the backend workstream (Neon) |
+| `S0-PLAN.md` | Backend-first implementation plan for slice S0 (Stages 0–4): governance, single-source contracts, preconditions, backend, frontend, acceptance gate, rollback |
+| `contracts/crm-s0-v2.md` | **The nine shared S0 contracts (SC-1 to SC-9), normative, versioned `crm-s0-v2` (resolves CR-01 to CR-06; candidate pending ChatGPT freeze)** |
+| `contracts/crm-s0-v1.md` | Historical v1 contract candidate (superseded by `crm-s0-v2.md`) |
+| `BACKEND-S0-BRIEF.md` | Self-contained Stage 1 & Stage 2 (shared contracts + backend) implementation brief for Neon |
+| `PROGRESS.md` | Current engineering checkpoint: completed work, active contract version, next action, blockers, verification evidence |
 
 ## Evidence base
 
@@ -171,24 +172,39 @@ All three defaults were accepted with safeguards (A-23 to A-25 in `01-DECISIONS.
 2. **Baseline comparison (A-24).** Only the three SI-01 failures are tolerated, with unchanged failure signatures and passing isolated reruns; any new or changed failure blocks. The tests stay in place as an open stability issue and must be stabilised before production release (`S0-PLAN.md` section 9.4, `12` SI-01).
 3. **Grants on disable (A-25).** Disabling revokes CRM capabilities with one audit row per grant in the disable batch; re-enabling restores none (`S0-PLAN.md` section 6.3).
 
-**Division of responsibilities (A-26).** Opus: product architecture, UI/UX, frontend implementation, technical contracts. Neon: backend implementation, migrations, server-side authorisation, APIs, command infrastructure, backend tests. ChatGPT: project management and independent review. Neither implementation agent redefines the approved architecture or shared contracts; changes follow the procedure in `S0-PLAN.md` section 2.
+**Division of responsibilities (revised A-26).** Opus 5.5 completed product discovery, independent architecture, repository audit, baseline testing and initial S0 planning. Under revised A-26, **Neon** (principal engineering agent in T3 Code) owns technical architecture refinement, shared contracts (`shared/crm/*`), migrations, backend implementation, server-side security and authorisation, APIs, frontend implementation (backend-first in later stages), UI/UX quality, testing and progress reporting; **ChatGPT** serves as project management and independent review; **Paul** retains owner decision authority and gate approval. No separate clickable frontend prototype gate is required.
 
-No open owner question blocks S0. Implementation itself is not yet authorised.
+No open owner question blocks local S0 implementation. Implementation itself awaits ChatGPT's freeze of `crm-s0-v2` and Paul's authorisation.
+
+## Contract review closure (`crm-s0-v2`, CR-01 to CR-06)
+
+| Finding | Resolution recorded in `crm-s0-v2.md` and `S0-PLAN.md` | Verified code basis |
+|---|---|---|
+| **CR-01** Idempotency | Canonical SHA-256 hash covers `{ v: 1, name, via, input, expected }` (omitting blank `reason`, stripping `undefined` keys before `stableJson` due to `shared/stablejson.ts:13-18`); successful no-ops (`already: true`) journal in `crm_commands` with zero audit rows; no errors persisted in S0 (`status = 'ok'`); 16,384 UTF-8 byte cap fails closed (`budget_exceeded`); commit-error recovery enforces `401 -> forbidden -> replay/conflict -> stale -> 503`, prevents masking unrelated SQL constraints, and recovers concurrent fence aborts and lost acks. | `shared/stablejson.ts:4-19`, `worker/idempotency.ts:19-68`, `worker/password.ts` |
+| **CR-02** Atomic execution | Dedicated single-batch `flushAtomicCommit` when `opts.commit` is set (zero retries, zero multi-chunking, runs even when `todo` is empty), `strictExpectationGuard` (`LEFT JOIN`) over `expect ∪ changedPlans` (leaving legacy `expectationGuard` intact for `tests/sync-atomic.test.ts:44`), `!authority` `access_state=0` fence, per-record `changes() = 1` SQL assertion aborting server rows on 0-row projection writes, atomic SQL `projections` rev capture, `D1BudgetExhausted`/SQL errors rethrown to recovery. | `worker/sync.ts:42,309,350-365,431-465,515-684`, `tests/sync-atomic.test.ts:44` |
+| **CR-03** Authorisation | `crm.access` (`'*'`) is mandatory for `/crm/*`, `/api/crm/read/*` and `/api/crm/commands/*`; specialised grants stay independent rows but have no effect for non-owners while `crm.access` is absent; single-batch authority snapshots (`COALESCE(workspace_role, role)`, never `userByToken`'s `user.role`) on `/status` and `/read/*`; 3 fences on `grant`/`revoke` (`actorFence`, `targetAccountFence`, `targetGrantStateFence`); `pokeLive()` on changes; `crmStatusStore` 6-trigger invalidation matrix. | `worker/auth.ts:199-232`, `worker/admin.ts:19-24,103-105,178`, `src/core/live.ts:75`, `src/core/auth.ts:29-34`, `src/core/accessClient.ts:17-34` |
+| **CR-04** API validation | Strict order `401 -> 404 (disabled/unknown + crmApi.all('*') catch-all) -> 413 (streamed 65,536 B cap via boundedRequestBody) -> 400 invalid_body -> 401/forbidden (coarse before parse) -> 200 invalid_input`; wire string schemas map `unknown_capability`/`unknown_scope` cleanly to `CommandError('invalid_input')`; `/read/capability-audit` checks authority before validating base64url `[createdAt, id]` cursor (`400 invalid_cursor`). | `worker/forms.ts:395-403`, `worker/websiteIngest.ts:650-651`, `worker/index.ts:52-56,123-125` |
+| **CR-05** Feature flag | `CRM_ENABLED` off hides switcher, disables `/crm/*`, returns `{ enabled: false, access: false, owner, capabilities: [] }` from `/status`, and returns `404` for all other `/api/crm/*` routes (plus `runCommand` guard & unscoped presence path hygiene), while intentionally keeping SC-6 (A-23 owner protection, incl. before `:172` & `:111`), SC-7 (A-25 disable revocation & `DELETE` cleanup) and SC-3 (`_crm_` protection) always active. | `worker/websiteIngest.ts:139-141`, `worker/admin.ts:108-215`, `worker/live.ts:52-57`, `tests/phase7-disable-d1.test.ts:18-136` |
+| **CR-06** Single owner & sequencing | Removed Opus-to-Neon shared-contract dependency; Neon authors `shared/crm/capabilities.ts -> projection.ts -> contracts.ts` and validates with `tests/crm-contract.test.ts` + `typecheck` in Stage 1, implements & certifies S0 Backend in Stage 2 (Checkpoint 2 review), builds Stage 3 Frontend against real API, and separates local dev preconditions from production activation checks. | `S0-PLAN.md` sections 2–8, `BACKEND-S0-BRIEF.md` |
 
 ## Remainder
 
+**Before S0 implementation starts (Review Gate):**
+- Independent ChatGPT review & freeze of [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md). [needs verification]
+- Paul's approval of this revised design/plan (`S0-PLAN.md`) and explicit S0 implementation authorisation (commit/push of code remains separately authorised). [needs Paul]
+
+**Before Stage 3 (Frontend UI edits) completes:**
+- Capture clean Workspace UX screenshot baselines (`npm run qa:ux -- --record`). [needs execution]
+
+**Before staging / production activation (G4–G6; does NOT block local S0 development):**
 - Confirm, on an owner-exported copy of production, that exactly one active account has the `owner` role and that it is Paul's. [needs access]
-- Approve this design (G0) and the revised S0 plan, then authorise S0 implementation; separately authorise any commit or push. [needs Paul]
-- Independent ChatGPT review of `contracts/crm-s0-v1.md`, then record the freeze in its change log before either workstream starts. [needs verification]
-- Zoho account details: data centre, plan, whether API and IMAP/SMTP access are enabled, whether CRM-sent mail must appear in Zoho's Sent folder (O-20); inbound polling frequency (O-21). [needs Paul]
-- Verify Zoho Mail API endpoints, OAuth scopes and token lifetimes, push-notification support, rate and sending limits, Sent-folder behaviour and thread identifiers against Zoho's current documentation and the account. [needs provider] [needs verification]
-- Verify Cloudflare Workers outbound TCP support and blocked ports, only if the IMAP/SMTP fallback is needed. [needs verification]
+- SI-01: investigate and stabilise the three flaky Workspace tests before production release (A-24); owner Neon, reviewed by ChatGPT. [needs verification]
 - Installed production state: pack installed and its version, People database ID pinned by the website grant, existing People with duplicate emails. [needs access]
 - Enable private R2 before channel media at volume. [needs Paul] [needs access]
-- SI-01: investigate and stabilise the three flaky Workspace tests before production release (A-24); owner Neon, reviewed by ChatGPT. [needs verification]
+- Zoho account details (O-20, O-21) and Zoho Mail API verification against Zoho docs and the account before S5. [needs Paul] [needs provider]
 - Physical-device and human assistive-technology checks for CRM screens (`docs/architecture/cross-platform-responsive-web.md` section 3). [needs verification]
 - Small confirmations still Proposed: time zone `Asia/Kolkata`, open and click tracking off, the name "Conversations". [needs Paul]
-- Remaining policy decisions O-04 to O-07, O-09 to O-18 for later slices (`12`). [needs Paul]
+- Remaining policy decisions O-04 to O-07, O-09 to O-18 for later slices (`12-OPEN-DECISIONS.md`). [needs Paul]
 - Update the `site-patron` branch name in both integration-contract copies at the next website change (C-05). [needs verification]
 
 ## Fictional data
