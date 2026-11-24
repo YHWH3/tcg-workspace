@@ -30,7 +30,7 @@ test('inventory imports a synthetic migration prefix and detects an orphan witho
   writeReport(folder, 'synthetic-0035.sql', dump);
   assert.equal((await withDump(input, async ({ db, applied, pending }) => {
     assert.equal(applied.length, 35);
-    assert.equal(pending.at(-1).name, '0044_history_body_context.sql');
+    assert.equal(pending.at(-1).name, verifyMigrationManifest().at(-1).name);
     const report = await inventory(db, 450);
     assert.deepEqual(report.blockers, []);
     assert.equal(report.limits.activeAccounts, 2);

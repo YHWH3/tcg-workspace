@@ -45,7 +45,7 @@ function configurationReferences(record: ScopeRecord): { id: string; edit: boole
   ]);
 }
 
-export async function authorizeMutations(db: D1Database, userId: string, incoming: Mutation[], existing: ReadonlyMap<string, AuthorityRow>, expected: ReadonlyMap<string, number> | undefined, session?: string, connector?: import('./connectorAccess').ConnectorAuthority): Promise<MutationAuthorization> {
+export async function authorizeMutations(db: D1Database, userId: string, incoming: Mutation[], existing: ReadonlyMap<string, AuthorityRow>, expected: ReadonlyMap<string, number> | undefined, session?: string, connector?: import('./connectorAccess').ConnectorAuthority, projection?: import('../shared/crm/projection').ProjectionGrant): Promise<MutationAuthorization> {
   const changes = incoming.map(ch => ({ ...ch, patch: { ...ch.patch } }));
   const candidates = new Map<string, ScopeRecord>();
   const before = new Map<string, { data: Record<string, unknown>; field_ts: Record<string, number> }>();
@@ -63,7 +63,8 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
     // is resolved through the graph, including roots created in this call.
     if (!['pages', 'boards', 'moodboards'].includes(ch.collection)) delete ch.patch.spaceId;
     for (const field of Object.keys(ch.patch)) {
-      if (field.startsWith('_') || ['space_id', 'collection', 'uploadClaimHash', 'uploadClaim', 'uploadSubmission'].includes(field)
+      const allowedProjection = !!projection && ch.collection === 'tasks' && projection.keys.has(field);
+      if ((field.startsWith('_') && !allowedProjection) || ['space_id', 'collection', 'uploadClaimHash', 'uploadClaim', 'uploadSubmission'].includes(field)
           || (field === 'id' && ch.patch.id !== ch.id)) reject(ch.id, ch.collection, 'protected_field');
     }
     delete ch.patch.id;

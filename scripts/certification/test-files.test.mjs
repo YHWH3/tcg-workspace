@@ -8,9 +8,21 @@ test('D1 certification discovers phases 4 through 13, including Phase 7', () => 
   assert.deepEqual(d1TestFiles(files), files);
 });
 
-test('D1 certification preserves audit/assistant coverage and excludes pure tests', () => {
-  const included = ['tests/audit-example-d1.test.ts', 'tests/assistant-example-d1.test.ts'];
-  const excluded = ['tests/phase7-example.test.ts', 'tests/phase14-example-d1.test.ts', 'tests/phase3-example-d1.test.ts', 'tests/phase7-example-d1.test.ts.bak'];
+test('D1 certification preserves audit/assistant/crm coverage and excludes pure tests', () => {
+  const included = [
+    'tests/audit-example-d1.test.ts',
+    'tests/assistant-example-d1.test.ts',
+    'tests/crm-commands-d1.test.ts',
+    'tests/admin-owner-protection-d1.test.ts',
+  ];
+  const excluded = [
+    'tests/phase7-example.test.ts',
+    'tests/phase14-example-d1.test.ts',
+    'tests/phase3-example-d1.test.ts',
+    'tests/crm-contract.test.ts',
+    'tests/crm-rules.test.ts',
+    'tests/phase7-example-d1.test.ts.bak',
+  ];
   assert.deepEqual(d1TestFiles([...included, ...excluded]), included);
 });
 

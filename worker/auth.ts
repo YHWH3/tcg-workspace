@@ -52,6 +52,8 @@ export interface Env {
   WEBSITE_INGEST_SECRET?: string;
   /** '1' or 'true' turns the website inbox on; anything else answers 503. */
   WEBSITE_INGEST_ENABLED?: string;
+  /** '1' or 'true' enables CRM routes and UI (SC-9); absent or any other value is off. */
+  CRM_ENABLED?: string;
   DB: D1Database;
   AI: Ai;
   LIVE: DurableObjectNamespace;

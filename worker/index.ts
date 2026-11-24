@@ -42,6 +42,7 @@ import {financeApi} from './finance';
 import {fieldEvidenceApi} from './fieldEvidence';
 import {commitmentsApi} from './commitments';
 import {eventOpsApi} from './eventOps';
+import { crmApi } from './crm';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 // API state must not survive account switches or public-form disable/re-enable
@@ -120,6 +121,7 @@ app.route('/api/finance',financeApi);
 app.route('/api/field-evidence',fieldEvidenceApi);
 app.route('/api/event-ops',eventOpsApi);
 app.route('/api/commitments',commitmentsApi);
+app.route('/api/crm', crmApi);
 app.route('/api', admin);
 
 app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));

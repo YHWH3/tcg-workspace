@@ -18,6 +18,8 @@ import { syncFailure } from './syncAccess';
 import { loadAccessState, SyncProtocolError, validateSyncProtocol } from './syncState';
 import { loadManifest, parsePullRequest, pullFeed } from './spaceFeed';
 import { MAX_FUTURE_SKEW_MS, healTimestamps } from '../shared/clock';
+import type { ProjectionGrant } from '../shared/crm/projection';
+import { projectionRejections } from './crm/projection';
 
 const MAX_CHANGES = 500;
 const MAX_ID_LEN = 64;
@@ -179,6 +181,11 @@ export interface ApplyOptions {
   expect?: Map<string, number>;
   /** all-or-nothing: if any expectation fails, write nothing (default true when expect is set). */
   atomic?: boolean;
+  /** Static CRM projection key grant (constructed only by worker/crm/commands.ts). */
+  projection?: ProjectionGrant;
+  /** Server-only CRM rows + command journal committed atomically in the same single batch.
+   * Requires atomic: true; incompatible with journal, execution, env.MCP_PLAN, and multi-chunking. */
+  commit?: (context: { recordIds: string[] }) => D1PreparedStatement[];
   /**
    * Phase 4 event emission: when set, successfully applied changes are staged
    * in event_outbox and processed (notifications/automations/date_index).
@@ -232,6 +239,8 @@ export interface ApplyResult {
   rejectedItems?: RejectedItem[];
   /** Filled on hard conflict after retries — caller turns it into a 409. */
   conflict?: boolean;
+  /** True when an atomic commit batch aborted via SQL fence (malformed JSON). */
+  fenceAborted?: boolean;
   /** expectedRev mismatches — nothing written for those ids. */
   conflicts?: ConflictInfo[];
   /** What actually changed (touched fields only) — feeds change sets. */
@@ -290,6 +299,12 @@ export function restampForServer(changes: Mutation[], existingTs: Map<string, nu
 export async function applyChanges(env: Env, userId: string, changes: unknown[], opts: ApplyOptions = {}): Promise<ApplyResult> {
   const db = env.DB;
   const now = Date.now();
+  if (opts.commit) {
+    if (opts.atomic !== true) throw new Error('commit requires atomic: true');
+    if (opts.journal || opts.execution || env.MCP_PLAN) {
+      throw new Error('commit cannot be combined with changesets, execution, or MCP_PLAN');
+    }
+  }
 
   let rejected = 0;
   const rejectedItems: RejectedItem[] = [];
@@ -306,7 +321,8 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
   });
 
   if ((opts.expect?.size ?? 0) > MAX_EXPECTED) throw new Error(`at most ${MAX_EXPECTED} expected ids per call`);
-  if (!incoming.length && !opts.expect?.size) return { rejected, rejectedItems, changed: 0, applied: [] };
+  if (opts.commit && rejected > 0) return { rejected, rejectedItems, changed: 0, applied: [] };
+  if (!incoming.length && !opts.expect?.size && !opts.commit) return { rejected, rejectedItems, changed: 0, applied: [] };
   // One binding request still loads rows. The authority state is in the same
   // read transaction, not a cached flag or an optional caller-provided grant.
   // The same read serves restamping, authorization, the gate pre-check and the
@@ -348,15 +364,29 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     incoming = incoming.map((ch) => (ch.ts > ceiling ? { ...ch, ts: ceiling } : ch));
   }
   incoming=incoming.map(ch=>({...ch,patch:{...ch.patch}}));
+  const projectionCheck = projectionRejections(incoming, opts.projection);
+  for (const item of projectionCheck.rejected) reject(item.id, item.collection, item.reason);
+  incoming = projectionCheck.changes;
+  if (projectionCheck.rejected.length > 0 && (opts.atomic === true || (!!opts.expect?.size && opts.atomic !== false))) {
+    return { rejected, rejectedItems, changed: 0, applied: [] };
+  }
 
   let authority: WriteAuthority | undefined;
   if (snapshot.enabled === 1 || env.CONNECTOR) {
     try {
-      const authorization = await authorizeMutations(db, userId, incoming, existing, opts.expect, opts.session?.tokenHash, env.CONNECTOR);
+      const authExisting = projectionCheck.rejected.length
+        ? new Map(
+            [...existing].filter(
+              ([id]) => incoming.some((ch) => ch.id === id) || opts.expect?.has(id),
+            ),
+          )
+        : existing;
+      const authorization = await authorizeMutations(db, userId, incoming, authExisting, opts.expect, opts.session?.tokenHash, env.CONNECTOR, opts.projection);
       authority = authorization.authority;
       for (const item of authorization.rejected) reject(item.id, item.collection, item.reason);
       incoming = authorization.changes;
       if (authorization.blockedExpectation || (rejected && (opts.atomic === true || (!!opts.expect?.size && opts.atomic !== false)))) return { rejected, rejectedItems, changed: 0, applied: [] };
+      if (opts.commit && !authority.context.principal) return { rejected: 0, changed: 0, applied: [], conflict: true, fenceAborted: true };
     } catch (error) {
       if (!(error instanceof RecordAccessError)) throw error;
       for (const ch of incoming) reject(ch.id, ch.collection, error.code === 'access_reset_required' ? 'access_changed_retry' : 'authorization_budget');
@@ -463,6 +493,17 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
     env.MCP_PLAN.ops.push(...incoming.filter(ch=>isCollection(ch.collection)).map(ch=>({id:ch.id,collection:ch.collection as import('../shared/collections').Collection,patch:{...ch.patch}})));
     return {rejected:0,changed:applied.length,applied};
   }
+  if (opts.commit) {
+    const changedPlans = [...plans.values()].filter((p) => p.changed);
+    const boundIds = new Set([...expected, ...changedPlans.map((p) => p.id)]);
+    if (boundIds.size > MAX_EXPECTED) {
+      throw new Error(`at most ${MAX_EXPECTED} expected or changed ids per atomic commit`);
+    }
+    const result = await flushAtomicCommit(env, userId, changedPlans, opts.expect, now, opts, authority);
+    result.rejected += rejected;
+    if (rejectedItems.length) result.rejectedItems = [...rejectedItems, ...(result.rejectedItems ?? [])];
+    return result;
+  }
   const result = await flushPlans(env, userId, plans, expected, now, opts, authority);
   result.rejected += rejected;
   if (rejectedItems.length) result.rejectedItems = [...rejectedItems, ...(result.rejectedItems ?? [])];
@@ -520,6 +561,185 @@ function expectationGuard(db: D1Database, expect: Map<string, number>): D1Prepar
        ) = 0 THEN 1 ELSE json_extract('{', '$') END`,
     )
     .bind(JSON.stringify(Object.fromEntries(expect)));
+}
+
+/**
+ * Strict atomic-commit expectation guard (SC-3.2 / CR-02).
+ * Uses LEFT JOIN + COALESCE(r.seq, -1) so missing rows, concurrent creations,
+ * unchanged projections, and read-only expected IDs are all enforced atomically
+ * without disturbing legacy expectationGuard's SQL shape tested in sync-atomic.test.ts.
+ */
+function strictExpectationGuard(db: D1Database, expect: Map<string, number>): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT CASE WHEN (
+         SELECT COUNT(*) FROM json_each(?) e LEFT JOIN records r ON r.id = e.key
+         WHERE COALESCE(r.seq, -1) <> e.value
+       ) = 0 THEN 1 ELSE json_extract('{', '$') END`,
+    )
+    .bind(JSON.stringify(Object.fromEntries(expect)));
+}
+
+function recordUpsertStatement(
+  db: D1Database,
+  p: Plan,
+  userId: string,
+  now: number,
+  authority?: WriteAuthority,
+): D1PreparedStatement {
+  return authority
+    ? db
+        .prepare(
+          `INSERT INTO records(id,collection,data,field_ts,seq,updated_by,updated_at,space_id,peer_space_id)
+      VALUES(?,?,?,?,${NEXT_SEQ},?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET data=excluded.data,field_ts=excluded.field_ts,
+        seq=${NEXT_SEQ},updated_by=excluded.updated_by,updated_at=excluded.updated_at,space_id=excluded.space_id,peer_space_id=excluded.peer_space_id
+      WHERE records.seq=? RETURNING seq`,
+        )
+        .bind(
+          p.id,
+          p.collection,
+          JSON.stringify(p.data),
+          JSON.stringify(p.field_ts),
+          userId,
+          now,
+          authority.spaces.get(p.id)!,
+          authority.peers.get(p.id) ?? null,
+          p.baseSeq,
+        )
+    : db
+        .prepare(
+          `INSERT INTO records (id, collection, data, field_ts, seq, updated_by, updated_at)
+         VALUES (?, ?, ?, ?, ${NEXT_SEQ}, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           data = excluded.data,
+           field_ts = excluded.field_ts,
+           seq = ${NEXT_SEQ},
+           updated_by = excluded.updated_by,
+           updated_at = excluded.updated_at
+         WHERE records.seq = ? RETURNING seq`,
+        )
+        .bind(p.id, p.collection, JSON.stringify(p.data), JSON.stringify(p.field_ts), userId, now, p.baseSeq);
+}
+
+function approvalGateStatement(db: D1Database, p: Plan): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT CASE WHEN NOT EXISTS (
+          SELECT 1 FROM records b WHERE b.id=COALESCE(json_extract(?,'$.boardId'),'board-default') AND b.collection='boards'
+          AND json_extract(b.data,'$.approvalGate.stageId')=json_extract(?,'$.status')
+          AND (json_extract(?,'$.status') IS NOT json_extract(?,'$.status') OR json_extract(?,'$.boardId') IS NOT json_extract(?,'$.boardId')
+            OR (json_extract(b.data,'$.approvalGate.approverField') IS NOT NULL
+              AND json_extract(?,'$.p_'||json_extract(b.data,'$.approvalGate.approverField')) IS NOT json_extract(?,'$.p_'||json_extract(b.data,'$.approvalGate.approverField'))))
+          AND NOT EXISTS(SELECT 1 FROM approvals a WHERE a.target_type='record' AND a.target_id=? AND a.status='approved'
+            AND (a.stage_id=json_extract(b.data,'$.approvalGate.stageId') OR a.stage_id IS NULL)
+            AND (json_extract(b.data,'$.approvalGate.approverField') IS NULL OR a.approver_id=json_extract(?,'$.p_'||json_extract(b.data,'$.approvalGate.approverField'))))
+        ) THEN 1 ELSE json_extract('{','$') END`,
+    )
+    .bind(
+      JSON.stringify(p.data),
+      JSON.stringify(p.data),
+      JSON.stringify(p.data),
+      JSON.stringify(p.beforeData),
+      JSON.stringify(p.data),
+      JSON.stringify(p.beforeData),
+      JSON.stringify(p.data),
+      JSON.stringify(p.beforeData),
+      p.id,
+      JSON.stringify(p.data),
+    );
+}
+
+/**
+ * Dedicated single-batch atomic commit for CRM commands (SC-3.2 / CR-02).
+ * Never retries, never chunks, never skips empty `changedPlans`, enforces
+ * `changes() = 1` per record write, and rethrows non-fence errors to `runCommand`.
+ */
+async function flushAtomicCommit(
+  env: Env,
+  userId: string,
+  changedPlans: Plan[],
+  expect: Map<string, number> | undefined,
+  now: number,
+  opts: ApplyOptions,
+  authority?: WriteAuthority,
+): Promise<ApplyResult> {
+  const db = env.DB;
+  const statements: D1PreparedStatement[] = [];
+  if (authority) {
+    statements.push(...writeAuthorityFences(db, authority));
+  } else {
+    statements.push(
+      db.prepare(
+        `SELECT CASE WHEN (SELECT enabled FROM access_state WHERE id = 1) = 0 THEN 1 ELSE json_extract('{', '$') END`,
+      ),
+    );
+  }
+  for (const fence of opts.fences ?? []) statements.push(fence());
+
+  const guardMap = new Map<string, number>();
+  for (const p of changedPlans) guardMap.set(p.id, p.baseSeq);
+  if (expect) {
+    for (const [id, rev] of expect) guardMap.set(id, rev);
+  }
+  if (guardMap.size > 0) {
+    statements.push(strictExpectationGuard(db, guardMap));
+  }
+
+  const indices: number[] = [];
+  const eventIds: string[] = [];
+  for (const p of changedPlans) {
+    if (p.collection === 'tasks') statements.push(approvalGateStatement(db, p));
+    indices.push(statements.length);
+    statements.push(recordUpsertStatement(db, p, userId, now, authority));
+    // Assert the record write actually touched 1 row before history/events/CRM rows land.
+    // A pure SELECT does not reset sqlite3_changes(), so historyStatement still observes changes() = 1.
+    statements.push(
+      db.prepare(`SELECT CASE WHEN changes() = 1 THEN 1 ELSE json_extract('{', '$') END`),
+    );
+    const item = makeApplied(p, p.baseSeq);
+    if (p.collection !== 'activity') {
+      statements.push(historyStatement(db, item, userId, opts.event?.source ?? 'client', null, now, p.beforeData));
+    }
+    if (opts.event) {
+      const event = stageAppliedEvent(
+        db,
+        {
+          source: opts.event.source,
+          userId,
+          applied: [item],
+          changesetId: opts.event.changesetId,
+          extra: opts.event.extra?.filter((e) => e.recordId === p.id),
+        },
+        now,
+      );
+      eventIds.push(event.id);
+      statements.push(event.statement);
+    }
+  }
+
+  statements.push(...opts.commit!({ recordIds: changedPlans.map((p) => p.id) }));
+
+  let results: D1Result<Record<string, unknown>>[];
+  try {
+    results = await db.batch(statements);
+  } catch (err) {
+    if (err instanceof D1BudgetExhausted) throw err;
+    if (err instanceof Error && /malformed JSON/i.test(err.message)) {
+      return { rejected: 0, changed: 0, applied: [], conflict: true, fenceAborted: true };
+    }
+    throw err;
+  }
+
+  const applied: AppliedChange[] = [];
+  for (let j = 0; j < changedPlans.length; j++) {
+    const p = changedPlans[j];
+    const r = results[indices[j]];
+    const rev = Number(r.results?.[0]?.seq ?? 0);
+    applied.push(makeApplied(p, rev));
+  }
+  if (opts.event && eventIds.length) scheduleOutbox(env, opts.event.ctx, eventIds);
+  return { rejected: 0, changed: applied.length, applied };
 }
 
 /** Write the planned merges with seq CAS, retries and applied-change capture. */

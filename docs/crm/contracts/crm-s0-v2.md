@@ -3,7 +3,7 @@
 | Item | Value |
 |---|---|
 | Version | `crm-s0-v2` (supersedes [`crm-s0-v1`](crm-s0-v1.md)) |
-| Status | **Candidate.** Resolves independent review findings CR-01 through CR-06 and updated governance A-26. Pending ChatGPT review and freeze. Not an authorisation to implement S0. |
+| Status | **Accepted (Checkpoint 1).** Resolves independent review findings CR-01 through CR-06 and updated governance A-26. Accepted at `8aa6f5300426029dc1db87e979fb871313190973` with Stage 1–2 implementation authorised on `crm/s0-backend`. |
 | Date | 24 November 2026 |
 | Workspace baseline | `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444`, branch `crm/foundation` |
 | Owner | Neon (principal engineering agent in T3 Code, A-26) |
@@ -351,7 +351,7 @@ All routes mount at `/api/crm` before `app.route('/api', admin)` in `worker/inde
 2. **`404`** (`CRM_ENABLED` off).
 3. **Authority snapshot batch + check** (actor active, live session, owner OR active admin with `crm.access` + `crm.capabilities.manage`) -> **`401`** or **`403 { error: 'forbidden' }` BEFORE cursor parsing** (so an unauthorised caller cannot probe cursor semantics).
 4. **Cursor validation**: If `cursor` query param is present (including empty string `""` or exceeding 256 chars), base64url-decode UTF-8 JSON `[createdAt, id]` where `Number.isSafeInteger(createdAt) && createdAt >= 0` and `typeof id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(id)`; any failure returns **`400 { error: 'invalid_cursor' }`**.
-5. **Keyset query & response**: Query `WHERE (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT 51` inside `withD1Budget(env, 45)`; return up to 50 items + `next` opaque base64url cursor (`null` when no more rows), re-checked by `requireAuth`'s post-handler GET fence.
+5. **Keyset query & final snapshot recheck**: Execute `WHERE (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT 51` inside `withD1Budget(env, 45)` in the **same D1 `db.batch` snapshot** as a live recheck of current session, `disabled_at IS NULL`, canonical role, and `crm.access` + `crm.capabilities.manage` (discarding audit rows and returning `401` or `403` if authority changed between step 3 and step 5); return up to 50 items + `next` opaque base64url cursor (`null` when no more rows), also re-checked by `requireAuth`'s post-handler GET fence.
 
 ### SC-4.2 Shared TypeScript interfaces & Zod schemas (`shared/crm/contracts.ts`)
 
@@ -718,4 +718,4 @@ Notes:
 | Version | Date | Change | Review |
 |---|---|---|---|
 | `crm-s0-v1` (superseded) | 24 Nov 2026 | First candidate from `07-CONTRACTS.md` and `S0-PLAN.md` after A-19 to A-26 | Reviewed by ChatGPT (CR-01 to CR-06 raised) |
-| `crm-s0-v2` (candidate) | 24 Nov 2026 | Resolved CR-01 (canonical hash w/ `expected` & `via`, no-op journal, error persistence policy, journal recovery, replay auth), CR-02 (single-batch `flushAtomicCommit`, `strictExpectationGuard`, `changes()=1`, atomic SQL `projections`, no retry loop), CR-03 (`crm.access` gate over specialised capabilities, single-snapshot reads, 3 grant fences, `pokeLive`, `crmStatusStore` invalidation), CR-04 (validation precedence, streamed 413, wire vs strict schemas, exact cursors), CR-05 (`CRM_ENABLED` off vs always-on A-23/A-25/SC-3), CR-06 (single Neon contract/code owner, backend-first Stage 1-4 sequence) | Pending ChatGPT review & freeze |
+| `crm-s0-v2` (accepted) | 24 Nov 2026 | Resolved CR-01 (canonical hash w/ `expected` & `via`, no-op journal, error persistence policy, journal recovery, replay auth), CR-02 (single-batch `flushAtomicCommit`, `strictExpectationGuard`, `changes()=1`, atomic SQL `projections`, no retry loop), CR-03 (`crm.access` gate over specialised capabilities, single-snapshot reads, 3 grant fences, `pokeLive`, `crmStatusStore` invalidation), CR-04 (validation precedence, streamed 413, wire vs strict schemas, exact cursors), CR-05 (`CRM_ENABLED` off vs always-on A-23/A-25/SC-3), CR-06 (single Neon contract/code owner, backend-first Stage 1-4 sequence). Non-material Checkpoint 1 clarification: `/read/capability-audit?cursor=` rechecks live session, canonical role, and CRM capabilities in the same `db.batch` snapshot as the returned audit rows while preserving `401 -> 404 -> 403 -> 400 invalid_cursor`. | Accepted at `8aa6f53` (Checkpoint 1 passed; Stage 1–2 authorised) |

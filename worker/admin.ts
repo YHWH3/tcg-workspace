@@ -12,6 +12,7 @@ import {loadAccessContext,spaceAccess} from './access';
 import {canEdit} from '../shared/access';
 import {levelSql} from './capability';
 import {fieldsOf,propKey} from '../shared/fields';
+import { OWNER_PROTECTED_ERROR } from '../shared/crm/contracts';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 admin.use('*', requireAuth);
@@ -100,23 +101,35 @@ admin.get('/users', async (c) => {
 type AccountState={id:string;disabled_at:number|null;canonicalRole:string};
 const privilegedCount="(SELECT COUNT(*) FROM users WHERE disabled_at IS NULL AND COALESCE(workspace_role,role) IN ('owner','admin'))";
 function accountState(env:Env,id:string){return env.DB.prepare('SELECT id,disabled_at,COALESCE(workspace_role,role) AS canonicalRole FROM users WHERE id=?').bind(id).first<AccountState>();}
-function accountFence(env:Env,target:string,before:AccountState,protectLast=false){
- return env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at IS ? AND COALESCE(workspace_role,role)=? ${protectLast?`AND (disabled_at IS NOT NULL OR COALESCE(workspace_role,role) NOT IN ('owner','admin') OR ${privilegedCount}>1)`:''}) THEN 1 ELSE json_extract('{','$') END`).bind(target,before.disabled_at,before.canonicalRole);
+function accountFence(env:Env,target:string,before:AccountState,protectLast=false,protectOwner=false){
+ return env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at IS ? AND COALESCE(workspace_role,role)=? ${protectOwner?`AND COALESCE(workspace_role,role)!='owner'`:''} ${protectLast?`AND (disabled_at IS NOT NULL OR COALESCE(workspace_role,role) NOT IN ('owner','admin') OR ${privilegedCount}>1)`:''}) THEN 1 ELSE json_extract('{','$') END`).bind(target,before.disabled_at,before.canonicalRole);
 }
 async function accountBatch(env:Env,statements:D1PreparedStatement[]){try{await env.DB.batch(statements);return true;}catch(error){if(/malformed JSON/i.test(String(error)))return false;throw error;}}
 
 admin.post('/users/:id/disable',requireAdmin,async c=>{
  const target=c.req.param('id')!,actor=c.get('user');if(target===actor.id)return c.json({error:'Cannot disable yourself'},400);
  const before=await accountState(c.env,target);if(!before)return c.json({error:'not found'},404);
+ if(before.canonicalRole==='owner')return c.json({error:OWNER_PROTECTED_ERROR},403);
  const now=Date.now(),already=before.disabled_at!==null;
- const statements=[adminSessionFence(c.env,actor),accountFence(c.env,target,before,true),
+ const statements=[adminSessionFence(c.env,actor),accountFence(c.env,target,before,true,true),
   c.env.DB.prepare('UPDATE users SET disabled_at=COALESCE(disabled_at,?) WHERE id=?').bind(now,target),
   c.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(target),
   c.env.DB.prepare('UPDATE ai_connections SET revoked_at=?,version=version+1 WHERE user_id=? AND revoked_at IS NULL').bind(now,target),
   c.env.DB.prepare('UPDATE ai_scope_consents SET consumed_at=? WHERE user_id=? AND consumed_at IS NULL').bind(now,target),
   c.env.DB.prepare('UPDATE website_ingest_grant SET revoked_at=?,version=version+1,updated_at=? WHERE sponsor_id=? AND revoked_at IS NULL').bind(now,now,target),
  ];
- if(!already)statements.push(c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.disable',?,?,(SELECT generation FROM access_state WHERE id=1),?)").bind(crypto.randomUUID(),actor.id,target,JSON.stringify({disabled:false}),JSON.stringify({disabled:true,connectorRevocation:'requested'}),now));
+ if(!already){
+  const disableEventId=crypto.randomUUID();
+  statements.push(
+   c.env.DB.prepare(`INSERT INTO crm_capability_audit(id,actor_id,target_user_id,action,capability,scope,before_json,after_json,reason,request_id,created_at)
+    SELECT lower(hex(randomblob(16))),?,user_id,'revoke',capability,scope,
+      json_object('held',json('true'),'grantedBy',granted_by,'grantedAt',granted_at),
+      json_object('held',json('false')),'account_disabled','disable|'||?||'|'||capability||'|'||scope,?
+    FROM crm_capability_grants WHERE user_id=? ORDER BY capability,scope`).bind(actor.id,disableEventId,now,target),
+   c.env.DB.prepare('DELETE FROM crm_capability_grants WHERE user_id=?').bind(target),
+   c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.disable',?,?,(SELECT generation FROM access_state WHERE id=1),?)").bind(crypto.randomUUID(),actor.id,target,JSON.stringify({disabled:false}),JSON.stringify({disabled:true,connectorRevocation:'requested'}),now),
+  );
+ }
  if(!await accountBatch(c.env,statements))return c.json({error:'account_or_authority_changed'},409);
  let grantsRevoked=false;try{grantsRevoked=await revokeAllGrants(c.env,target,true);}catch{/* The account stays disabled; restoration requires a successful sweep. */}
  pokeLive(c.env,c.executionCtx);
@@ -168,9 +181,10 @@ admin.patch('/users/:id', requireAdmin, async (c) => {
   if(body?.role!=='admin'&&body?.role!=='member')return c.json({error:'invalid role'},400);
   if(target===actor.id)return c.json({error:'Cannot change your own role'},400);
   const before=await accountState(c.env,target);if(!before)return c.json({error:'not found'},404);
+  if(before.canonicalRole==='owner')return c.json({error:OWNER_PROTECTED_ERROR},403);
   if(before.canonicalRole==='guest')return c.json({error:'Guest roles must be managed through guest access'},400);
-  const role=before.canonicalRole==='owner'&&body.role==='admin'?'owner':body.role;
-  if(!await accountBatch(c.env,[adminSessionFence(c.env,actor),accountFence(c.env,target,before,role==='member'),
+  const role=body.role;
+  if(!await accountBatch(c.env,[adminSessionFence(c.env,actor),accountFence(c.env,target,before,role==='member',true),
     c.env.DB.prepare('UPDATE users SET role=?,workspace_role=? WHERE id=?').bind(body.role,role,target),
     c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.role',?,?,(SELECT generation FROM access_state WHERE id=1),?)")
       .bind(crypto.randomUUID(),actor.id,target,JSON.stringify({role:before.canonicalRole}),JSON.stringify({role}),Date.now()),
@@ -207,7 +221,9 @@ admin.delete('/users/:id', requireAdmin, async (c) => {
   const target=c.req.param('id')!,actor=c.get('user');
   if(target===actor.id)return c.json({error:'Cannot remove yourself'},400);
   const before=await accountState(c.env,target);if(!before)return c.json({error:'not found'},404);
-  if(!await accountBatch(c.env,[adminSessionFence(c.env,actor),accountFence(c.env,target,before,true),
+  if(before.canonicalRole==='owner')return c.json({error:OWNER_PROTECTED_ERROR},403);
+  if(!await accountBatch(c.env,[adminSessionFence(c.env,actor),accountFence(c.env,target,before,true,true),
+    c.env.DB.prepare('DELETE FROM crm_capability_grants WHERE user_id=?').bind(target),
     c.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(target),
     c.env.DB.prepare('DELETE FROM users WHERE id=?').bind(target),
   ]))return c.json({error:'account_or_authority_changed'},409);

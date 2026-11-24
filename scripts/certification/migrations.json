@@ -174,5 +174,9 @@
   {
     "name": "0044_history_body_context.sql",
     "sha256": "851d35efb636a5c286b94784b4b2c2903032e143447d738123b5d51d663ea1f8"
+  },
+  {
+    "name": "0045_crm_foundation.sql",
+    "sha256": "f3de59750de0318c03a867a6120934e46b4ab8e9ae597d93bd01114544d117b3"
   }
 ]

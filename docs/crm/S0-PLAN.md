@@ -207,6 +207,8 @@ All 8 files are written and run in Stage 2 (plus Stage 1 `tests/crm-contract.tes
 
 Built directly against the verified Stage 2 API (still validated against `shared/crm/contracts.ts` Zod schemas in unit tests). Separate clickable prototype is **not** required (revised A-26).
 
+> **Baseline screenshot hygiene (Checkpoint 1 clarification):** The original Workspace screenshot baseline (`npm run qa:ux -- --record`) for Stage 3/4 visual diffing MUST be captured from an isolated checkout of Workspace baseline `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444`, **not** from a post-backend-implementation working tree.
+
 ### 7.1 Frontend files
 
 | Action | File | Purpose |
