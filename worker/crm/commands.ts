@@ -93,10 +93,14 @@ function binaryCompare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+const SQLITE_NOW_MS = `CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)`;
+
+export type FenceInput = D1PreparedStatement | (() => D1PreparedStatement);
+
 export interface CommandCommitPlan<O> {
   kind: 'commit';
   result: O;
-  fences: D1PreparedStatement[];
+  fences: FenceInput[];
   rows?: D1PreparedStatement[];
   records?: Mutation[];
   recordExpect?: Map<string, number>;
@@ -250,7 +254,7 @@ export async function runCommand(args: {
       .prepare(
         `SELECT u.id, u.disabled_at, COALESCE(u.workspace_role, u.role) AS canonicalRole
          FROM sessions s JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > ?`,
+         WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > MAX(?, ${SQLITE_NOW_MS})`,
       )
       .bind(tokenHash, actorId, now),
     env.DB
@@ -390,8 +394,9 @@ export async function runCommand(args: {
 
   try {
     if (!usesRecordsCommit) {
+      const commitFences = plan.fences.map((f) => (typeof f === 'function' ? f() : f));
       await env.DB.batch([
-        ...plan.fences,
+        ...commitFences,
         ...(plan.rows ?? []),
         insertCommandStmt([]),
       ]);
@@ -400,6 +405,7 @@ export async function runCommand(args: {
         def.projectionKeys && def.projectionKeys.length > 0
           ? { command: def.name, keys: new Set(def.projectionKeys) }
           : undefined;
+      let commitCallbackInvoked = false;
       const applyResult = await applyChanges(env, actor.id, plan.records ?? [], {
         atomic: true,
         serverTs: plan.serverTs ?? true,
@@ -407,30 +413,47 @@ export async function runCommand(args: {
         session: { tokenHash },
         projection,
         event: plan.event,
-        fences: plan.fences.map((stmt) => () => stmt),
-        commit: ({ recordIds }) => [...(plan.rows ?? []), insertCommandStmt(recordIds)],
+        fences: plan.fences.map((f) => (typeof f === 'function' ? f : () => f)),
+        commit: ({ recordIds }) => {
+          commitCallbackInvoked = true;
+          return [...(plan.rows ?? []), insertCommandStmt(recordIds)];
+        },
       });
 
-      if (applyResult.conflicts && applyResult.conflicts.length > 0) {
+      if (applyResult.authorizationError) {
+        if (applyResult.authorizationError === 'access_reset_required') {
+          fenceAborted = true;
+        } else {
+          return { status: 200, body: makeCommandError('budget_exceeded') };
+        }
+      } else if (applyResult.conflicts && applyResult.conflicts.length > 0) {
         return { status: 200, body: makeCommandError('stale') };
-      }
-      if (applyResult.rejected > 0) {
+      } else if (applyResult.rejected > 0) {
         const forbiddenReasons = new Set(['not_found_or_forbidden', 'read_only']);
-        const hasForbidden = (applyResult.rejectedItems ?? []).some((item) =>
-          forbiddenReasons.has(item.reason),
-        );
-        if (hasForbidden) {
+        const staleReasons = new Set(['access_changed_retry', 'source_changed_refresh_preview']);
+        const budgetReasons = new Set(['authorization_budget', 'record_too_large']);
+        const items = applyResult.rejectedItems ?? [];
+        if (items.some((item) => forbiddenReasons.has(item.reason))) {
           return { status: 200, body: makeCommandError('forbidden') };
         }
-        return {
-          status: 200,
-          body: makeCommandError('invalid_input', {
-            rejectedItems: applyResult.rejectedItems ?? [],
-          }),
-        };
-      }
-      if (applyResult.fenceAborted || applyResult.conflict) {
+        if (items.some((item) => staleReasons.has(item.reason))) {
+          fenceAborted = true;
+        } else if (items.some((item) => budgetReasons.has(item.reason))) {
+          return { status: 200, body: makeCommandError('budget_exceeded') };
+        } else {
+          return {
+            status: 200,
+            body: makeCommandError('invalid_input', {
+              rejectedItems: items,
+            }),
+          };
+        }
+      } else if (applyResult.fenceAborted || applyResult.conflict) {
         fenceAborted = true;
+      } else if (applyResult.partialError) {
+        commitError = new Error(applyResult.partialError);
+      } else if (!commitCallbackInvoked || applyResult.committed !== true) {
+        commitError = new Error('atomic_commit_not_executed');
       } else {
         committedProjections = [...applyResult.applied]
           .sort((a, b) => binaryCompare(a.id, b.id))
@@ -537,7 +560,7 @@ async function recoverAfterCommitFailure(args: {
         .prepare(
           `SELECT u.id, u.disabled_at, COALESCE(u.workspace_role, u.role) AS canonicalRole
            FROM sessions s JOIN users u ON u.id = s.user_id
-           WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > ?`,
+           WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > MAX(?, ${SQLITE_NOW_MS})`,
         )
         .bind(tokenHash, actorId, recoveryNow),
       env.DB

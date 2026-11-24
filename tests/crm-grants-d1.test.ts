@@ -411,4 +411,122 @@ describe.each([false, true])('SC-2 & SC-5 capability.grant / capability.revoke (
     expect(CommandErrorSchema.parse(r3.body)).toMatchObject({ ok: false, error: 'stale', retryable: true });
     expect(await raw.prepare('SELECT COUNT(*) n FROM crm_capability_audit').first('n')).toBe(auditsBefore);
   });
+
+  it('aborts grant and revoke with 401 and zero writes when the actor session expires between planning and transactional commit (N2)', async () => {
+    await setup(permissionsEnabled);
+    const raw = fx!.db;
+
+    // Case 1: Real wall-clock expiry at the SQL write boundary during capability.grant
+    // Session is valid during pre-commit snapshot and plan(), then expires right before target.batch(stmts) runs.
+    const grantExpiry = Date.now() + 90;
+    await raw
+      .prepare("UPDATE sessions SET expires_at = ? WHERE user_id = 'owner1'")
+      .bind(grantExpiry)
+      .run();
+
+    let delayedGrant = false;
+    const grantExpiredDb = interceptD1Batches(raw, async (target, stmts, sql) => {
+      if (!delayedGrant && sql.some((s) => /INSERT INTO crm_commands/.test(s))) {
+        delayedGrant = true;
+        await new Promise((resolve) => setTimeout(resolve, 130));
+      }
+      return target.batch(stmts);
+    });
+
+    const grantRes = await exec(
+      'owner1',
+      'capability.grant',
+      'req_exp_grt_01',
+      { userId: 'member1', capability: 'crm.access', scope: '*' },
+      { ...fx!.env, DB: grantExpiredDb },
+    );
+    expect(delayedGrant).toBe(true);
+    expect(grantRes).toEqual({ status: 401, body: { error: 'unauthenticated' } });
+    expect(
+      await raw.prepare("SELECT COUNT(*) n FROM crm_capability_grants WHERE user_id = 'member1'").first('n'),
+    ).toBe(0);
+    expect(await raw.prepare('SELECT COUNT(*) n FROM crm_capability_audit').first('n')).toBe(0);
+    expect(
+      await raw.prepare("SELECT COUNT(*) n FROM crm_commands WHERE request_id = 'req_exp_grt_01'").first('n'),
+    ).toBe(0);
+
+    // Case 2: Real wall-clock expiry at the SQL write boundary during capability.revoke
+    await raw
+      .prepare(
+        "INSERT INTO crm_capability_grants(user_id, capability, scope, granted_by, granted_at) VALUES ('member1', 'crm.access', '*', 'owner1', 1)",
+      )
+      .run();
+    const revokeExpiry = Date.now() + 90;
+    await raw
+      .prepare("UPDATE sessions SET expires_at = ? WHERE user_id = 'owner1'")
+      .bind(revokeExpiry)
+      .run();
+
+    let delayedRevoke = false;
+    const revokeExpiredDb = interceptD1Batches(raw, async (target, stmts, sql) => {
+      if (!delayedRevoke && sql.some((s) => /INSERT INTO crm_commands/.test(s))) {
+        delayedRevoke = true;
+        await new Promise((resolve) => setTimeout(resolve, 130));
+      }
+      return target.batch(stmts);
+    });
+
+    const revokeRes = await exec(
+      'owner1',
+      'capability.revoke',
+      'req_exp_rev_01',
+      { userId: 'member1', capability: 'crm.access', scope: '*' },
+      { ...fx!.env, DB: revokeExpiredDb },
+    );
+    expect(delayedRevoke).toBe(true);
+    expect(revokeRes).toEqual({ status: 401, body: { error: 'unauthenticated' } });
+    // Existing grant must remain intact; zero audit rows and zero journal rows written
+    expect(
+      await raw.prepare("SELECT COUNT(*) n FROM crm_capability_grants WHERE user_id = 'member1'").first('n'),
+    ).toBe(1);
+    expect(await raw.prepare('SELECT COUNT(*) n FROM crm_capability_audit').first('n')).toBe(0);
+    expect(
+      await raw.prepare("SELECT COUNT(*) n FROM crm_commands WHERE request_id = 'req_exp_rev_01'").first('n'),
+    ).toBe(0);
+
+    // Case 3: JS clock advance between plan() and commit batch construction (proves actorFence does not bind stale request-start `now`)
+    const baseNow = Date.now();
+    await raw
+      .prepare("UPDATE sessions SET expires_at = ? WHERE user_id = 'owner1'")
+      .bind(baseNow + 5_000)
+      .run();
+    let virtualNow = baseNow;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => virtualNow);
+    try {
+      let planObserved = false;
+      const clockJumpDb = interceptD1Batches(raw, async (target, stmts, sql) => {
+        const res = await target.batch(stmts);
+        if (!planObserved && sql.some((s) => /FROM users WHERE id = \?/.test(s))) {
+          planObserved = true;
+          virtualNow = baseNow + 10_000;
+        }
+        return res;
+      });
+      const jumpRes = await exec(
+        'owner1',
+        'capability.grant',
+        'req_exp_clk_01',
+        { userId: 'member1', capability: 'crm.finance.read', scope: '*' },
+        { ...fx!.env, DB: clockJumpDb },
+      );
+      expect(planObserved).toBe(true);
+      expect(jumpRes).toEqual({ status: 401, body: { error: 'unauthenticated' } });
+      expect(
+        await raw
+          .prepare("SELECT COUNT(*) n FROM crm_capability_grants WHERE user_id = 'member1' AND capability = 'crm.finance.read'")
+          .first('n'),
+      ).toBe(0);
+      expect(await raw.prepare('SELECT COUNT(*) n FROM crm_capability_audit').first('n')).toBe(0);
+      expect(
+        await raw.prepare("SELECT COUNT(*) n FROM crm_commands WHERE request_id = 'req_exp_clk_01'").first('n'),
+      ).toBe(0);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
 });

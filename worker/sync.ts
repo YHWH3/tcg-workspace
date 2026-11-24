@@ -241,6 +241,10 @@ export interface ApplyResult {
   conflict?: boolean;
   /** True when an atomic commit batch aborted via SQL fence (malformed JSON). */
   fenceAborted?: boolean;
+  /** Set when authorizeMutations threw a RecordAccessError (including empty incoming lists). */
+  authorizationError?: RecordAccessError['code'];
+  /** True only when opts.commit executed and its single atomic batch committed. */
+  committed?: boolean;
   /** expectedRev mismatches — nothing written for those ids. */
   conflicts?: ConflictInfo[];
   /** What actually changed (touched fields only) — feeds change sets. */
@@ -389,8 +393,16 @@ export async function applyChanges(env: Env, userId: string, changes: unknown[],
       if (opts.commit && !authority.context.principal) return { rejected: 0, changed: 0, applied: [], conflict: true, fenceAborted: true };
     } catch (error) {
       if (!(error instanceof RecordAccessError)) throw error;
-      for (const ch of incoming) reject(ch.id, ch.collection, error.code === 'access_reset_required' ? 'access_changed_retry' : 'authorization_budget');
-      return { rejected, rejectedItems, changed: 0, applied: [] };
+      const reason = error.code === 'access_reset_required' ? 'access_changed_retry' : 'authorization_budget';
+      for (const ch of incoming) reject(ch.id, ch.collection, reason);
+      if (incoming.length === 0) {
+        if (opts.expect?.size) {
+          for (const id of opts.expect.keys()) reject(id, '', reason);
+        } else if (opts.commit) {
+          reject('', '', reason);
+        }
+      }
+      return { rejected, rejectedItems, changed: 0, applied: [], authorizationError: error.code };
     }
   }
 
@@ -726,7 +738,7 @@ async function flushAtomicCommit(
   } catch (err) {
     if (err instanceof D1BudgetExhausted) throw err;
     if (err instanceof Error && /malformed JSON/i.test(err.message)) {
-      return { rejected: 0, changed: 0, applied: [], conflict: true, fenceAborted: true };
+      return { rejected: 0, changed: 0, applied: [], conflict: true, fenceAborted: true, committed: false };
     }
     throw err;
   }
@@ -739,7 +751,7 @@ async function flushAtomicCommit(
     applied.push(makeApplied(p, rev));
   }
   if (opts.event && eventIds.length) scheduleOutbox(env, opts.event.ctx, eventIds);
-  return { rejected: 0, changed: applied.length, applied };
+  return { rejected: 0, changed: applied.length, applied, committed: true };
 }
 
 /** Write the planned merges with seq CAS, retries and applied-change capture. */

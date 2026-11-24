@@ -797,4 +797,308 @@ describe('CRM command framework, idempotency & atomic Records Commit Mode (SC-1,
       await fx!.db.prepare("SELECT COUNT(*) n FROM crm_commands WHERE request_id = 'req_flip_acc_01'").first('n'),
     ).toBe(0);
   });
+
+  it.each([false, true])(
+    'prevents false success on RecordAccessError / authorization failure / unexecuted commit while keeping no-change atomic commands working (permissions=%s, N2)',
+    async (permissionsEnabled) => {
+      await setup(permissionsEnabled);
+      const ownerHash = await tokenHashFor('owner1');
+      const now = Date.now();
+
+      const atomicCmd: CommandDefinition<
+        {
+          recordId?: string;
+          stage?: string;
+          sideEffectAuditId?: string;
+          forceRecordsCommit?: boolean;
+        },
+        { ok: boolean }
+      > = {
+        name: 'test.atomic_ro',
+        projectionKeys: ['_crm_stage'],
+        authorizeCoarse: () => true,
+        parseInput: (raw) => ({ ok: true, input: raw as never }),
+        plan: async ({ env, input, expected, requestId }) => ({
+          kind: 'commit',
+          result: { ok: true },
+          fences: [],
+          forceRecordsCommit: input.forceRecordsCommit,
+          recordExpect: expected ? new Map(expected) : undefined,
+          records: input.recordId
+            ? [
+                {
+                  id: input.recordId,
+                  collection: 'tasks',
+                  patch: { _crm_stage: input.stage ?? 'lead' },
+                  ts: now,
+                },
+              ]
+            : [],
+          rows: input.sideEffectAuditId
+            ? [
+                env.DB.prepare(
+                  `INSERT INTO crm_capability_audit(id, actor_id, target_user_id, action, capability, scope, before_json, after_json, request_id, created_at)
+                   VALUES (?, 'owner1', 'member1', 'grant', 'crm.access', '*', '{}', '{}', ?, ?)`,
+                ).bind(input.sideEffectAuditId, requestId, now),
+              ]
+            : [],
+        }),
+      };
+      const registry = createCommandRegistry([atomicCmd]);
+
+      // 1. Successful no-change commands in BOTH permission modes:
+      // 1a. Unchanged projection value ('lead' === existing 'lead') still executes commit batch and writes crm_commands + rows.
+      const unchangedRes = await runCommand({
+        env: fx!.env,
+        executionCtx: ctx,
+        actorId: 'owner1',
+        tokenHash: ownerHash,
+        via: 'ui',
+        name: 'test.atomic_ro',
+        envelope: {
+          requestId: 'req_noop_proj1',
+          input: { recordId: 'task-p1', stage: 'lead', sideEffectAuditId: 'audit_noop_proj1' },
+          expected: { 'task-p1': 2 },
+        },
+        registry,
+      });
+      expect(unchangedRes.status).toBe(200);
+      expect(unchangedRes.body).toMatchObject({ ok: true, projections: [] });
+      expect(
+        await fx!.db.prepare("SELECT COUNT(*) n FROM crm_commands WHERE request_id = 'req_noop_proj1'").first('n'),
+      ).toBe(1);
+      expect(
+        await fx!.db.prepare("SELECT COUNT(*) n FROM crm_capability_audit WHERE id = 'audit_noop_proj1'").first('n'),
+      ).toBe(1);
+
+      // 1b. Empty incoming mutation list with valid read-only expected record commits journal + rows.
+      const emptyValidRes = await runCommand({
+        env: fx!.env,
+        executionCtx: ctx,
+        actorId: 'owner1',
+        tokenHash: ownerHash,
+        via: 'ui',
+        name: 'test.atomic_ro',
+        envelope: {
+          requestId: 'req_empty_ok_1',
+          input: { sideEffectAuditId: 'audit_empty_ok_1' },
+          expected: { 'task-ro': 3 },
+        },
+        registry,
+      });
+      expect(emptyValidRes.status).toBe(200);
+      expect(emptyValidRes.body).toMatchObject({ ok: true, projections: [] });
+      expect(
+        await fx!.db.prepare("SELECT COUNT(*) n FROM crm_commands WHERE request_id = 'req_empty_ok_1'").first('n'),
+      ).toBe(1);
+      expect(
+        await fx!.db.prepare("SELECT COUNT(*) n FROM crm_capability_audit WHERE id = 'audit_empty_ok_1'").first('n'),
+      ).toBe(1);
+
+      if (permissionsEnabled) {
+        // 2. Empty incoming mutation list + read-only expected record: trigger RecordAccessError('access_reset_required')
+        // by bumping task-ro.seq right AFTER readWriteSnapshot and BEFORE loadScopeGraph!
+        const raw = fx!.db;
+        let bumpedForApply = false;
+        const driftDbForApply = interceptD1Batches(raw, async (target, stmts, sql) => {
+          const res = await target.batch(stmts);
+          if (!bumpedForApply && sql.some((s) => /SELECT enabled FROM access_state/i.test(s))) {
+            bumpedForApply = true;
+            await raw.prepare("UPDATE records SET seq = seq + 1 WHERE id = 'task-ro'").run();
+          }
+          return res;
+        });
+
+        let commitInvoked = false;
+        const directApply = await applyChanges(
+          { ...fx!.env, DB: driftDbForApply },
+          'owner1',
+          [],
+          {
+            atomic: true,
+            expect: new Map([['task-ro', 3]]),
+            commit: () => {
+              commitInvoked = true;
+              return [];
+            },
+          },
+        );
+        expect(bumpedForApply).toBe(true);
+        expect(commitInvoked).toBe(false);
+        expect(directApply.committed).not.toBe(true);
+        expect(directApply.authorizationError).toBe('access_reset_required');
+        expect(directApply.rejected).toBeGreaterThan(0);
+        expect(directApply.rejectedItems).toEqual([
+          { id: 'task-ro', collection: '', reason: 'access_changed_retry' },
+        ]);
+
+        // Same race through runCommand must NEVER return false { ok: true }!
+        const curRoSeq = (await raw.prepare("SELECT seq FROM records WHERE id = 'task-ro'").first<number>('seq'))!;
+        let bumpedForCmd = false;
+        const driftDbForCmd = interceptD1Batches(raw, async (target, stmts, sql) => {
+          const res = await target.batch(stmts);
+          if (!bumpedForCmd && sql.some((s) => /SELECT enabled FROM access_state/i.test(s))) {
+            bumpedForCmd = true;
+            await raw.prepare("UPDATE records SET seq = seq + 1 WHERE id = 'task-ro'").run();
+          }
+          return res;
+        });
+        const cmdDriftRes = await runCommand({
+          env: { ...fx!.env, DB: driftDbForCmd },
+          executionCtx: ctx,
+          actorId: 'owner1',
+          tokenHash: ownerHash,
+          via: 'ui',
+          name: 'test.atomic_ro',
+          envelope: {
+            requestId: 'req_ro_drift_1',
+            input: { sideEffectAuditId: 'audit_ro_drift_1' },
+            expected: { 'task-ro': curRoSeq },
+          },
+          registry,
+        });
+        expect(bumpedForCmd).toBe(true);
+        expect(cmdDriftRes.status).toBe(200);
+        expect(CommandErrorSchema.parse(cmdDriftRes.body)).toMatchObject({
+          ok: false,
+          error: 'stale',
+          retryable: true,
+        });
+        expect(
+          await raw.prepare("SELECT COUNT(*) n FROM crm_commands WHERE request_id = 'req_ro_drift_1'").first('n'),
+        ).toBe(0);
+        expect(
+          await raw.prepare("SELECT COUNT(*) n FROM crm_capability_audit WHERE id = 'audit_ro_drift_1'").first('n'),
+        ).toBe(0);
+
+        // 3. Empty incoming + empty expected (`forceRecordsCommit: true`) where access_state.enabled flips 1 -> 0
+        // between readWriteSnapshot and loadAccessContext -> RecordAccessError('access_reset_required') -> stale, 0 writes!
+        let flippedOff = false;
+        const flipOffDb = interceptD1Batches(raw, async (target, stmts, sql) => {
+          const res = await target.batch(stmts);
+          if (!flippedOff && sql.some((s) => /SELECT enabled FROM access_state/i.test(s))) {
+            flippedOff = true;
+            await raw.prepare('UPDATE access_state SET enabled = 0 WHERE id = 1').run();
+          }
+          return res;
+        });
+        const flipOffRes = await runCommand({
+          env: { ...fx!.env, DB: flipOffDb },
+          executionCtx: ctx,
+          actorId: 'owner1',
+          tokenHash: ownerHash,
+          via: 'ui',
+          name: 'test.atomic_ro',
+          envelope: {
+            requestId: 'req_flip_off_1',
+            input: { sideEffectAuditId: 'audit_flip_off_1', forceRecordsCommit: true },
+          },
+          registry,
+        });
+        expect(flippedOff).toBe(true);
+        expect(CommandErrorSchema.parse(flipOffRes.body)).toMatchObject({
+          ok: false,
+          error: 'stale',
+          retryable: true,
+        });
+        expect(
+          await raw.prepare("SELECT COUNT(*) n FROM crm_commands WHERE request_id = 'req_flip_off_1'").first('n'),
+        ).toBe(0);
+        expect(
+          await raw.prepare("SELECT COUNT(*) n FROM crm_capability_audit WHERE id = 'audit_flip_off_1'").first('n'),
+        ).toBe(0);
+        await raw.prepare('UPDATE access_state SET enabled = 1 WHERE id = 1').run();
+
+        // 4. Unauthorized read-only expected record in a private space with empty incoming -> forbidden (never false success!)
+        await raw.batch([
+          raw.prepare("INSERT INTO spaces(id, name, default_access, created_at) VALUES ('space-priv', 'Private', 'private', 1)"),
+          raw.prepare(
+            `INSERT INTO records(id, collection, data, field_ts, seq, space_id)
+             VALUES ('board-priv', 'boards', '{"name":"Secret"}', '{"name":1}', 10, 'space-priv'),
+                    ('task-priv', 'tasks', '{"title":"Secret","boardId":"board-priv","status":"todo"}', '{"title":1}', 11, 'space-priv')`,
+          ),
+          raw.prepare(
+            "INSERT INTO crm_capability_grants(user_id, capability, scope, granted_by, granted_at) VALUES ('member1', 'crm.access', '*', 'owner1', 1)",
+          ),
+        ]);
+        const memberHash = await tokenHashFor('member1');
+        const privRes = await runCommand({
+          env: fx!.env,
+          executionCtx: ctx,
+          actorId: 'member1',
+          tokenHash: memberHash,
+          via: 'ui',
+          name: 'test.atomic_ro',
+          envelope: {
+            requestId: 'req_priv_exp_1',
+            input: { sideEffectAuditId: 'audit_priv_exp_1' },
+            expected: { 'task-priv': 11 },
+          },
+          registry,
+        });
+        expect(privRes.status).toBe(200);
+        expect(CommandErrorSchema.parse(privRes.body)).toMatchObject({
+          ok: false,
+          error: 'forbidden',
+          retryable: false,
+        });
+        expect(
+          await raw.prepare("SELECT COUNT(*) n FROM crm_commands WHERE request_id = 'req_priv_exp_1'").first('n'),
+        ).toBe(0);
+        expect(
+          await raw.prepare("SELECT COUNT(*) n FROM crm_capability_audit WHERE id = 'audit_priv_exp_1'").first('n'),
+        ).toBe(0);
+
+        // 5. RecordAccessError('scope_graph_budget') with empty incoming + read-only expected -> budget_exceeded (never false success!)
+        let budgetHit = false;
+        const graphBudgetDb = interceptD1Batches(raw, async (target, stmts, sql) => {
+          if (!budgetHit && sql.some((s) => /WITH RECURSIVE scope_graph/i.test(s))) {
+            budgetHit = true;
+            return [
+              {
+                success: true,
+                meta: {} as D1Result['meta'],
+                results: Array.from({ length: 5001 }, (_, i) => ({
+                  id: `synthetic-${i}`,
+                  collection: 'pages',
+                  data: '{}',
+                  seq: 1,
+                  space_id: 'space-core',
+                })),
+              },
+            ];
+          }
+          return target.batch(stmts);
+        });
+        const latestRoSeq = (await raw.prepare("SELECT seq FROM records WHERE id = 'task-ro'").first<number>('seq'))!;
+        const budgetCmdRes = await runCommand({
+          env: { ...fx!.env, DB: graphBudgetDb },
+          executionCtx: ctx,
+          actorId: 'owner1',
+          tokenHash: ownerHash,
+          via: 'ui',
+          name: 'test.atomic_ro',
+          envelope: {
+            requestId: 'req_graph_bgt1',
+            input: { sideEffectAuditId: 'audit_graph_bgt1' },
+            expected: { 'task-ro': latestRoSeq },
+          },
+          registry,
+        });
+        expect(budgetHit).toBe(true);
+        expect(budgetCmdRes.status).toBe(200);
+        expect(CommandErrorSchema.parse(budgetCmdRes.body)).toMatchObject({
+          ok: false,
+          error: 'budget_exceeded',
+          retryable: false,
+        });
+        expect(
+          await raw.prepare("SELECT COUNT(*) n FROM crm_commands WHERE request_id = 'req_graph_bgt1'").first('n'),
+        ).toBe(0);
+        expect(
+          await raw.prepare("SELECT COUNT(*) n FROM crm_capability_audit WHERE id = 'audit_graph_bgt1'").first('n'),
+        ).toBe(0);
+      }
+    },
+  );
 });

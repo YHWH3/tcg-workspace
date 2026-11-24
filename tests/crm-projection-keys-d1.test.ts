@@ -143,6 +143,20 @@ describe.each([
         // When permissions are on, authorizeMutations rejects all _ keys except granted _crm_*
         expect(res.rejected).toBe(1);
         expect(res.rejectedItems?.[0]?.reason).toBe('protected_field');
+
+        // Even if a synthetic ProjectionGrant includes a non-_crm_ underscore key, mutationAccess.ts must NOT exempt it (N2).
+        const forgedGrant = { command: 'test.forged', keys: new Set(['_legacy', '_crm_stage']) };
+        const forgedRes = await applyChanges(
+          fx!.env,
+          'alice',
+          [{ id: 'task-1', collection: 'tasks', patch: { _legacy: 'v2' }, ts: now + 10 }],
+          { atomic: true, serverTs: true, projection: forgedGrant },
+        );
+        expect(forgedRes.rejected).toBe(1);
+        expect(forgedRes.changed).toBe(0);
+        expect(forgedRes.rejectedItems).toEqual([
+          { id: 'task-1', collection: 'tasks', reason: 'protected_field' },
+        ]);
       } else {
         // When permissions are off, non-_crm_ underscore fields retain legacy behavior
         expect(res.rejected).toBe(0);

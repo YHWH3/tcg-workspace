@@ -9,6 +9,7 @@ import { CORE_SPACE_ID, loadAccessContext, MAX_ACCESS_SPACES, spaceAccess, type 
 import { capabilityFence, LEVEL_READ, minLevel, need, type Needs } from './capability';
 import { loadScopeGraph, MAX_SCOPE_GRAPH_RECORDS, RecordAccessError, type ScopeGraphRecord } from './recordAccess';
 import { ownsThumbnail, thumbnailParentId } from '../shared/fileOwnership';
+import { isCrmProjectionKey } from '../shared/crm/projection';
 
 export interface AuthorityRow { id: string; collection: string; data: string; field_ts: string; seq: number }
 export interface AccessRejection { id: string; collection: string; reason: string }
@@ -63,7 +64,8 @@ export async function authorizeMutations(db: D1Database, userId: string, incomin
     // is resolved through the graph, including roots created in this call.
     if (!['pages', 'boards', 'moodboards'].includes(ch.collection)) delete ch.patch.spaceId;
     for (const field of Object.keys(ch.patch)) {
-      const allowedProjection = !!projection && ch.collection === 'tasks' && projection.keys.has(field);
+      const allowedProjection =
+        !!projection && ch.collection === 'tasks' && isCrmProjectionKey(field) && projection.keys.has(field);
       if ((field.startsWith('_') && !allowedProjection) || ['space_id', 'collection', 'uploadClaimHash', 'uploadClaim', 'uploadSubmission'].includes(field)
           || (field === 'id' && ch.patch.id !== ch.id)) reject(ch.id, ch.collection, 'protected_field');
     }

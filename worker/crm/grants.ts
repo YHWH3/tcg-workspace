@@ -86,12 +86,14 @@ function toActor(sessionRow: SessionUserRow, grantRows: GrantRow[]): CrmActor {
   };
 }
 
-function sessionQuery(db: D1Database, tokenHash: string, actorId: string, now: number): D1PreparedStatement {
+const SQLITE_NOW_MS = `CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)`;
+
+function sessionQuery(db: D1Database, tokenHash: string, actorId: string, now = Date.now()): D1PreparedStatement {
   return db
     .prepare(
       `SELECT u.id, u.disabled_at, COALESCE(u.workspace_role, u.role) AS canonicalRole
        FROM sessions s JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > ?`,
+       WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > MAX(?, ${SQLITE_NOW_MS})`,
     )
     .bind(tokenHash, actorId, now);
 }
@@ -107,19 +109,20 @@ function actorGrantsQuery(db: D1Database, actorId: string): D1PreparedStatement 
     .bind(actorId);
 }
 
-/** SC-5.2 Fence 1: actor session live, active, same canonical role, and (for non-owner) holds crm.access + crm.capabilities.manage. */
+/** SC-5.2 Fence 1: actor session live at the transactional write boundary (both fresh JS clock and SQLite clock),
+ * active, same canonical role, and (for non-owner) holds crm.access + crm.capabilities.manage. */
 export function actorFence(
   db: D1Database,
   actor: CrmActor,
   tokenHash: string,
-  now: number,
+  now = Date.now(),
 ): D1PreparedStatement {
   if (actor.role === 'owner') {
     return db
       .prepare(
         `SELECT CASE WHEN EXISTS (
            SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id
-           WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > ?
+           WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > MAX(?, ${SQLITE_NOW_MS})
              AND u.disabled_at IS NULL AND COALESCE(u.workspace_role, u.role) = 'owner'
          ) THEN 1 ELSE json_extract('{', '$') END`,
       )
@@ -129,7 +132,7 @@ export function actorFence(
     .prepare(
       `SELECT CASE WHEN EXISTS (
          SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > ?
+         WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > MAX(?, ${SQLITE_NOW_MS})
            AND u.disabled_at IS NULL AND COALESCE(u.workspace_role, u.role) = ?
        )
        AND EXISTS (
@@ -240,7 +243,7 @@ function makeCapabilityCommand(
       }
 
       const fences = [
-        actorFence(env.DB, actor, tokenHash, now),
+        () => actorFence(env.DB, actor, tokenHash),
         targetAccountFence(env.DB, target!),
         targetGrantStateFence(env.DB, target!.id, input.capability, input.scope, existingGrant),
       ];
