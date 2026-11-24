@@ -1,0 +1,5 @@
+# Handover bundle and private source material: keep local, never commit or push.
+# The repository is public; the handover says to share it only in an authorised project environment.
+input/
+# Prototype screenshots are regenerated on demand; keep them out of history.
+prototype/screenshots/
