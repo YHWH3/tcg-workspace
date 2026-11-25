@@ -12,10 +12,18 @@ import {
   readCapabilityAudit,
   readCrmStatus,
 } from './grants';
+import {
+  createS1IdentityCommandDefs,
+  readDuplicates,
+  readPersonDetail,
+} from './identity';
 import { isCrmEnabled } from './rules';
 
 export function createS0CommandRegistry(): CommandRegistry {
-  return createCommandRegistry(createCapabilityCommandDefs());
+  return createCommandRegistry([
+    ...createCapabilityCommandDefs(),
+    ...createS1IdentityCommandDefs(),
+  ]);
 }
 
 export const crmApi = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
@@ -28,24 +36,18 @@ crmApi.get('/status', async (c) => {
 });
 
 crmApi.post('/commands/:name', async (c) => {
-  // Exact SC-4.1 validation precedence:
-  // 1. 401 unauthenticated (requireAuth)
-  // 2. 404 not_found (CRM_ENABLED off)
   if (!isCrmEnabled(c.env)) {
     return c.json({ error: 'not_found' }, 404);
   }
-  // 3. 404 not_found (unregistered command)
   const name = c.req.param('name')!;
   const registry = createS0CommandRegistry();
   if (!registry.has(name)) {
     return c.json({ error: 'not_found' }, 404);
   }
-  // 4. 413 request_too_large (streamed UTF-8 byte enforcement via boundedRequestBody)
   const rawBytes = await boundedRequestBody(c.req.raw, MAX_COMMAND_BODY_BYTES);
   if (rawBytes === null) {
     return c.json({ error: 'request_too_large' }, 413);
   }
-  // 5. 400 invalid_body (strict UTF-8 + JSON + CommandRequestEnvelopeSchema)
   let decoded: string;
   try {
     decoded = new TextDecoder('utf-8', { fatal: true }).decode(rawBytes);
@@ -63,7 +65,6 @@ crmApi.post('/commands/:name', async (c) => {
     return c.json({ error: 'invalid_body' }, 400);
   }
 
-  // 6-8. Authority, wire parse, fine auth, idempotency, plan, atomic commit & recovery.
   const user = c.get('user');
   const outcome = await runCommand({
     env: c.env,
@@ -92,5 +93,20 @@ crmApi.get('/read/capability-audit', async (c) => {
   return c.json(outcome.body, outcome.status);
 });
 
-// Terminate all unmatched /api/crm/* paths with canonical 'not_found' (never fall through to admin or 'not found').
+crmApi.get('/read/person/:id', async (c) => {
+  const user = c.get('user');
+  const personId = c.req.param('id')!;
+  const outcome = await readPersonDetail(c.env, user.id, user.tokenHash, personId);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/duplicates', async (c) => {
+  const user = c.get('user');
+  const url = new URL(c.req.url);
+  const state = url.searchParams.get('state') ?? 'open';
+  const rawCursor = url.searchParams.has('cursor') ? (url.searchParams.get('cursor') ?? '') : undefined;
+  const outcome = await readDuplicates(c.env, user.id, user.tokenHash, state, rawCursor);
+  return c.json(outcome.body, outcome.status);
+});
+
 crmApi.all('*', (c) => c.json({ error: 'not_found' }, 404));

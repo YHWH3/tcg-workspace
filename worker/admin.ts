@@ -23,6 +23,12 @@ function adminSessionFence(env:Env,user:AuthUser,spaceId?:string){
  ${spaceId?`AND ${levelSql('?','?')}>=3`:''} THEN 1 ELSE json_extract('{','$') END`)
  .bind(user.tokenHash,user.id,Date.now(),...(spaceId?[spaceId,user.id]:[]));
 }
+function ownerSessionFence(env:Env,user:AuthUser){
+ return env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
+ WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.disabled_at IS NULL AND COALESCE(u.workspace_role,u.role)='owner')
+ THEN 1 ELSE json_extract('{','$') END`)
+ .bind(user.tokenHash,user.id,Date.now());
+}
 
 admin.post('/admin/files/migrate', requireAdmin, async c => {
   const cursor = c.req.query('after') ?? '0';
@@ -98,9 +104,9 @@ admin.get('/users', async (c) => {
   return c.json({ users: results.map(({ created_at: _created_at, ...u }) => ({...u,disabled:!!u.disabled})), seatsTotal: MAX_USERS });
 });
 
-type AccountState={id:string;disabled_at:number|null;canonicalRole:string};
+type AccountState={id:string;name:string;disabled_at:number|null;canonicalRole:string};
 const privilegedCount="(SELECT COUNT(*) FROM users WHERE disabled_at IS NULL AND COALESCE(workspace_role,role) IN ('owner','admin'))";
-function accountState(env:Env,id:string){return env.DB.prepare('SELECT id,disabled_at,COALESCE(workspace_role,role) AS canonicalRole FROM users WHERE id=?').bind(id).first<AccountState>();}
+function accountState(env:Env,id:string){return env.DB.prepare('SELECT id,name,disabled_at,COALESCE(workspace_role,role) AS canonicalRole FROM users WHERE id=?').bind(id).first<AccountState>();}
 function accountFence(env:Env,target:string,before:AccountState,protectLast=false,protectOwner=false){
  return env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at IS ? AND COALESCE(workspace_role,role)=? ${protectOwner?`AND COALESCE(workspace_role,role)!='owner'`:''} ${protectLast?`AND (disabled_at IS NOT NULL OR COALESCE(workspace_role,role) NOT IN ('owner','admin') OR ${privilegedCount}>1)`:''}) THEN 1 ELSE json_extract('{','$') END`).bind(target,before.disabled_at,before.canonicalRole);
 }
@@ -177,19 +183,67 @@ admin.delete('/invites/:code', requireAdmin, async (c) => {
 
 admin.patch('/users/:id', requireAdmin, async (c) => {
   const target=c.req.param('id')!,actor=c.get('user');
-  const body=await c.req.json<{role?:string}>().catch(()=>null);
-  if(body?.role!=='admin'&&body?.role!=='member')return c.json({error:'invalid role'},400);
-  if(target===actor.id)return c.json({error:'Cannot change your own role'},400);
+  const body=await c.req.json<{role?:unknown;name?:unknown}>().catch(()=>null);
+  if(!body||(body.role===undefined&&body.name===undefined))return c.json({error:'invalid update'},400);
+
+  let nextRole:'admin'|'member'|undefined;
+  if(body.role!==undefined){
+    if(body.role!=='admin'&&body.role!=='member')return c.json({error:'invalid role'},400);
+    nextRole=body.role;
+  }
+
+  let nextName:string|undefined;
+  if(body.name!==undefined){
+    if(typeof body.name!=='string')return c.json({error:'invalid_name'},400);
+    const trimmed=body.name.trim();
+    if(!trimmed||trimmed.length>80||/[\u0000-\u001F\u007F]/.test(trimmed))return c.json({error:'invalid_name'},400);
+    nextName=trimmed;
+  }
+
+  // Owner-only audited account renaming (checked live against canonical owner role in D1).
+  if(nextName!==undefined){
+    const actorRow=await accountState(c.env,actor.id);
+    if(!actorRow||actorRow.disabled_at!==null||actorRow.canonicalRole!=='owner'){
+      return c.json({error:'owner_only'},403);
+    }
+  }
+
+  if(nextRole!==undefined&&target===actor.id)return c.json({error:'Cannot change your own role'},400);
   const before=await accountState(c.env,target);if(!before)return c.json({error:'not found'},404);
-  if(before.canonicalRole==='owner')return c.json({error:OWNER_PROTECTED_ERROR},403);
-  if(before.canonicalRole==='guest')return c.json({error:'Guest roles must be managed through guest access'},400);
-  const role=body.role;
-  if(!await accountBatch(c.env,[adminSessionFence(c.env,actor),accountFence(c.env,target,before,role==='member',true),
-    c.env.DB.prepare('UPDATE users SET role=?,workspace_role=? WHERE id=?').bind(body.role,role,target),
-    c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.role',?,?,(SELECT generation FROM access_state WHERE id=1),?)")
-      .bind(crypto.randomUUID(),actor.id,target,JSON.stringify({role:before.canonicalRole}),JSON.stringify({role}),Date.now()),
-  ]))return c.json({error:'account_or_authority_changed'},409);
-  pokeLive(c.env,c.executionCtx);return c.json({ok:true});
+  if(nextRole!==undefined){
+    if(before.canonicalRole==='owner')return c.json({error:OWNER_PROTECTED_ERROR},403);
+    if(before.canonicalRole==='guest')return c.json({error:'Guest roles must be managed through guest access'},400);
+  }
+
+  const statements:D1PreparedStatement[]=[
+    nextName!==undefined?ownerSessionFence(c.env,actor):adminSessionFence(c.env,actor),
+    accountFence(c.env,target,before,nextRole==='member',nextRole!==undefined),
+  ];
+  const now=Date.now();
+  if(nextRole!==undefined&&nextName!==undefined){
+    statements.push(
+      c.env.DB.prepare('UPDATE users SET name=?,role=?,workspace_role=? WHERE id=?').bind(nextName,nextRole,nextRole,target),
+      c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.role',?,?,(SELECT generation FROM access_state WHERE id=1),?)")
+        .bind(crypto.randomUUID(),actor.id,target,JSON.stringify({role:before.canonicalRole}),JSON.stringify({role:nextRole}),now),
+      c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.rename',?,?,(SELECT generation FROM access_state WHERE id=1),?)")
+        .bind(crypto.randomUUID(),actor.id,target,JSON.stringify({name:before.name}),JSON.stringify({name:nextName}),now),
+    );
+  }else if(nextRole!==undefined){
+    statements.push(
+      c.env.DB.prepare('UPDATE users SET role=?,workspace_role=? WHERE id=?').bind(nextRole,nextRole,target),
+      c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.role',?,?,(SELECT generation FROM access_state WHERE id=1),?)")
+        .bind(crypto.randomUUID(),actor.id,target,JSON.stringify({role:before.canonicalRole}),JSON.stringify({role:nextRole}),now),
+    );
+  }else if(nextName!==undefined){
+    statements.push(
+      c.env.DB.prepare('UPDATE users SET name=? WHERE id=?').bind(nextName,target),
+      c.env.DB.prepare("INSERT INTO access_audit(id,actor_id,target_user_id,action,before_json,after_json,generation,created_at) VALUES(?,?,?,'user.rename',?,?,(SELECT generation FROM access_state WHERE id=1),?)")
+        .bind(crypto.randomUUID(),actor.id,target,JSON.stringify({name:before.name}),JSON.stringify({name:nextName}),now),
+    );
+  }
+  if(!await accountBatch(c.env,statements))return c.json({error:'account_or_authority_changed'},409);
+  pokeLive(c.env,c.executionCtx);
+  return c.json({ok:true,...(nextName!==undefined?{name:nextName}:{}),...(nextRole!==undefined?{role:nextRole}:{})});
 });
 
 // Phase 4 §5 (Workstream B): backfill after migration 0007 — resync date_index

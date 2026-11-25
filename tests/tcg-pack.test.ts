@@ -16,7 +16,7 @@ function danglingAuthoredReference(patch: Record<string, unknown>): boolean {
 describe('tcg-pack install pipeline', () => {
   it('author format → snapshot carries every database, view, page, template', () => {
     const s = bundle.snapshot;
-    expect(Object.keys(s.boards)).toHaveLength(17);
+    expect(Object.keys(s.boards)).toHaveLength(20);
     expect(Object.keys(s.views ?? {}).length).toBeGreaterThanOrEqual(50);
     expect(Object.keys(s.pages).length).toBeGreaterThanOrEqual(30);
     // 17 reusable page templates ship marked isTemplate.
@@ -47,6 +47,6 @@ describe('tcg-pack install pipeline', () => {
     expect(tplPages.length).toBeGreaterThanOrEqual(17);
     // Copied boards carry templateDbKey for dedupe.
     const keyed = plan!.writes.filter((w) => w.collection === 'boards' && typeof w.patch.templateDbKey === 'string');
-    expect(keyed.length).toBe(17);
+    expect(keyed.length).toBe(20);
   });
 });

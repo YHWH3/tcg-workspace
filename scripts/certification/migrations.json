@@ -178,5 +178,9 @@
   {
     "name": "0045_crm_foundation.sql",
     "sha256": "f3de59750de0318c03a867a6120934e46b4ab8e9ae597d93bd01114544d117b3"
+  },
+  {
+    "name": "0046_crm_p1_core.sql",
+    "sha256": "29ddb78d29fa77b7d5376d6320edb03498d7ef2449606d25d1f2260b0b548009"
   }
 ]

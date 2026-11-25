@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation } from 'react-router';
 import {
   AlertTriangle,
   ArrowLeft,
+  Building2,
   ChevronLeft,
   ChevronRight,
   CloudOff,
@@ -13,6 +14,7 @@ import {
   RefreshCw,
   Settings,
   Sun,
+  Users,
 } from 'lucide-react';
 import { AppSwitcher } from '../../core/AppSwitcher';
 import { authStore } from '../../core/auth';
@@ -248,10 +250,18 @@ export default function CrmShell() {
   const canManage = canManageCrmAccess(status);
   const navItems = [
     { to: '/crm', label: 'Home', icon: Home, end: true },
+    { to: '/crm/people', label: 'People', icon: Users, end: false },
+    { to: '/crm/organisations', label: 'Organisations', icon: Building2, end: false },
     ...(canManage ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }] : []),
   ];
 
-  const routeLabel = pathname.startsWith('/crm/settings') ? 'Accounts & capabilities' : 'Home';
+  const routeLabel = pathname.startsWith('/crm/settings')
+    ? 'Accounts & capabilities'
+    : pathname.startsWith('/crm/people')
+      ? 'People'
+      : pathname.startsWith('/crm/organisations')
+        ? 'Organisations'
+        : 'Home';
   const showSideRail = layout !== 'compact';
   const compactRail = layout === 'medium' ? effectiveCollapsed : railCollapsed;
 

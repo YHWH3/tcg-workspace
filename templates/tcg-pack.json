@@ -53,6 +53,165 @@
             "pairedFieldId": "f_program",
             "primary": false
           }
+        },
+        {
+          "id": "f_area",
+          "name": "Area",
+          "type": "select",
+          "options": [
+            {
+              "id": "experiences_learning",
+              "name": "Experiences and learning",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "spaces_network",
+              "name": "Spaces and network",
+              "color": "#22c55e"
+            },
+            {
+              "id": "community_support",
+              "name": "Community and support",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "collaboration_work",
+              "name": "Collaboration and work",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "culture_making",
+              "name": "Culture and making",
+              "color": "#ec4899"
+            }
+          ]
+        },
+        {
+          "id": "f_slug",
+          "name": "Slug",
+          "type": "text"
+        },
+        {
+          "id": "f_lead",
+          "name": "Lead",
+          "type": "person"
+        },
+        {
+          "id": "f_response_target",
+          "name": "Response target days",
+          "type": "number"
+        },
+        {
+          "id": "f_public_forms",
+          "name": "Public forms",
+          "type": "multi_select",
+          "options": [
+            {
+              "id": "ws",
+              "name": "ws",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "events",
+              "name": "events",
+              "color": "#22c55e"
+            },
+            {
+              "id": "lab",
+              "name": "lab",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "space",
+              "name": "space",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "community",
+              "name": "community",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "collab",
+              "name": "collab",
+              "color": "#ec4899"
+            },
+            {
+              "id": "roots",
+              "name": "roots",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "patron",
+              "name": "patron",
+              "color": "#22c55e"
+            },
+            {
+              "id": "intern",
+              "name": "intern",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "consulting",
+              "name": "consulting",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "arch",
+              "name": "arch",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "ff",
+              "name": "ff",
+              "color": "#ec4899"
+            },
+            {
+              "id": "book",
+              "name": "book",
+              "color": "#3b82f6"
+            }
+          ]
+        },
+        {
+          "id": "f_people",
+          "name": "People",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_programmes",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_applications",
+          "name": "Applications",
+          "type": "relation",
+          "relation": {
+            "target": "db_applications",
+            "pairedFieldId": "f_programme",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_opportunities",
+          "name": "Opportunities",
+          "type": "relation",
+          "relation": {
+            "target": "db_opportunities",
+            "pairedFieldId": "f_programme",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_events",
+          "name": "Events",
+          "type": "relation",
+          "relation": {
+            "target": "db_events",
+            "pairedFieldId": "f_programme",
+            "primary": false
+          }
         }
       ],
       "views": [
@@ -1653,6 +1812,32 @@
             "pairedFieldId": "f_events",
             "primary": false
           }
+        },
+        {
+          "id": "f_programme",
+          "name": "Programme",
+          "type": "relation",
+          "relation": {
+            "target": "db_programs",
+            "pairedFieldId": "f_events",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_timezone",
+          "name": "Time zone",
+          "type": "text"
+        },
+        {
+          "id": "f_activities",
+          "name": "Activities",
+          "type": "relation",
+          "relation": {
+            "target": "db_activities",
+            "pairedFieldId": "f_events",
+            "primary": false
+          }
         }
       ],
       "defaultViewId": "v_events_board",
@@ -1810,6 +1995,16 @@
               "id": "other",
               "name": "Other",
               "color": "#a3a3a3"
+            },
+            {
+              "id": "associated",
+              "name": "Associated",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "applied",
+              "name": "Applied",
+              "color": "#06b6d4"
             }
           ]
         },
@@ -2123,6 +2318,79 @@
             "target": "db_projects",
             "pairedFieldId": "f_opportunities",
             "primary": true
+          }
+        },
+        {
+          "id": "f_pipeline",
+          "name": "Pipeline",
+          "type": "select",
+          "options": [
+            {
+              "id": "partnership",
+              "name": "Partnership / collaboration",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "consulting",
+              "name": "Architecture / consulting",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "production",
+              "name": "Production",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "funding",
+              "name": "Funding / institutional",
+              "color": "#22c55e"
+            },
+            {
+              "id": "supply",
+              "name": "Supply",
+              "color": "#14b8a6"
+            }
+          ]
+        },
+        {
+          "id": "f_programme",
+          "name": "Programme",
+          "type": "relation",
+          "relation": {
+            "target": "db_programs",
+            "pairedFieldId": "f_opportunities",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_people",
+          "name": "People",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_opportunities",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_reciprocity",
+          "name": "Reciprocity notes",
+          "type": "text"
+        },
+        {
+          "id": "f_rights_credits",
+          "name": "Rights and credits",
+          "type": "text"
+        },
+        {
+          "id": "f_activities",
+          "name": "Activities",
+          "type": "relation",
+          "relation": {
+            "target": "db_activities",
+            "pairedFieldId": "f_opportunities",
+            "primary": false
           }
         }
       ],
@@ -3352,6 +3620,182 @@
           "id": "f_next_conversation",
           "name": "Next conversation",
           "type": "date"
+        },
+        {
+          "id": "f_preferred_name",
+          "name": "Preferred name",
+          "type": "text"
+        },
+        {
+          "id": "f_location",
+          "name": "Location",
+          "type": "text"
+        },
+        {
+          "id": "f_languages",
+          "name": "Languages",
+          "type": "multi_select",
+          "options": [
+            {
+              "id": "en",
+              "name": "English",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "ml",
+              "name": "Malayalam",
+              "color": "#22c55e"
+            },
+            {
+              "id": "hi",
+              "name": "Hindi",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "ta",
+              "name": "Tamil",
+              "color": "#8b5cf6"
+            }
+          ]
+        },
+        {
+          "id": "f_interests",
+          "name": "Interests",
+          "type": "multi_select",
+          "options": [
+            {
+              "id": "workshops",
+              "name": "Workshops",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "spaces",
+              "name": "Spaces",
+              "color": "#22c55e"
+            },
+            {
+              "id": "community",
+              "name": "Community",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "volunteering",
+              "name": "Volunteering",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "partnerships",
+              "name": "Partnerships",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "culture",
+              "name": "Culture",
+              "color": "#ec4899"
+            }
+          ]
+        },
+        {
+          "id": "f_source",
+          "name": "Source",
+          "type": "select",
+          "options": [
+            {
+              "id": "website",
+              "name": "Website form",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "whatsapp",
+              "name": "WhatsApp",
+              "color": "#22c55e"
+            },
+            {
+              "id": "instagram",
+              "name": "Instagram",
+              "color": "#ec4899"
+            },
+            {
+              "id": "facebook",
+              "name": "Facebook",
+              "color": "#6366f1"
+            },
+            {
+              "id": "email",
+              "name": "Email",
+              "color": "#06b6d4"
+            },
+            {
+              "id": "referral",
+              "name": "Referral",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "event",
+              "name": "Event",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "import",
+              "name": "Import",
+              "color": "#a3a3a3"
+            },
+            {
+              "id": "manual",
+              "name": "Manual",
+              "color": "#737373"
+            }
+          ]
+        },
+        {
+          "id": "f_programmes",
+          "name": "Programmes",
+          "type": "relation",
+          "relation": {
+            "target": "db_programs",
+            "pairedFieldId": "f_people",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_affiliations",
+          "name": "Affiliations",
+          "type": "relation",
+          "relation": {
+            "target": "db_affiliations",
+            "pairedFieldId": "f_person",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_applications",
+          "name": "Applications",
+          "type": "relation",
+          "relation": {
+            "target": "db_applications",
+            "pairedFieldId": "f_applicant",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_activities",
+          "name": "Activities",
+          "type": "relation",
+          "relation": {
+            "target": "db_activities",
+            "pairedFieldId": "f_people",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_opportunities",
+          "name": "Opportunities",
+          "type": "relation",
+          "relation": {
+            "target": "db_opportunities",
+            "pairedFieldId": "f_people",
+            "primary": false
+          }
         }
       ],
       "views": [
@@ -3800,6 +4244,78 @@
           "id": "f_next_conversation",
           "name": "Next conversation",
           "type": "date"
+        },
+        {
+          "id": "f_org_type",
+          "name": "Type",
+          "type": "select",
+          "options": [
+            {
+              "id": "school",
+              "name": "School or college",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "collective",
+              "name": "Collective or community",
+              "color": "#22c55e"
+            },
+            {
+              "id": "space_operator",
+              "name": "Space operator",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "studio",
+              "name": "Studio or practice",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "supplier",
+              "name": "Supplier or maker group",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "institution",
+              "name": "Institution",
+              "color": "#6366f1"
+            },
+            {
+              "id": "company",
+              "name": "Company",
+              "color": "#64748b"
+            },
+            {
+              "id": "other",
+              "name": "Other",
+              "color": "#a3a3a3"
+            }
+          ]
+        },
+        {
+          "id": "f_location",
+          "name": "Location",
+          "type": "text"
+        },
+        {
+          "id": "f_affiliations",
+          "name": "Affiliations",
+          "type": "relation",
+          "relation": {
+            "target": "db_affiliations",
+            "pairedFieldId": "f_org",
+            "primary": false
+          }
+        },
+        {
+          "id": "f_activities",
+          "name": "Activities",
+          "type": "relation",
+          "relation": {
+            "target": "db_activities",
+            "pairedFieldId": "f_orgs",
+            "primary": false
+          }
         }
       ],
       "views": [
@@ -3889,6 +4405,482 @@
         "soonDays": 3,
         "triage": false
       }
+    },
+    {
+      "id": "db_affiliations",
+      "key": "affiliations",
+      "name": "Affiliations",
+      "icon": "🤝",
+      "kind": "records",
+      "recordNoun": "Affiliation",
+      "showBuiltins": {
+        "assignee": false,
+        "due": false,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "active",
+          "name": "Active",
+          "color": "#22c55e"
+        },
+        {
+          "id": "ended",
+          "name": "Ended",
+          "color": "#a3a3a3"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_person",
+          "name": "Person",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_affiliations",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_org",
+          "name": "Organisation",
+          "type": "relation",
+          "relation": {
+            "target": "db_orgs",
+            "pairedFieldId": "f_affiliations",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_role",
+          "name": "Role",
+          "type": "text"
+        },
+        {
+          "id": "f_kind",
+          "name": "Kind",
+          "type": "select",
+          "options": [
+            {
+              "id": "member",
+              "name": "Member",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "staff",
+              "name": "Staff",
+              "color": "#22c55e"
+            },
+            {
+              "id": "founder",
+              "name": "Founder",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "contact",
+              "name": "Contact",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "student",
+              "name": "Student",
+              "color": "#f59e0b"
+            },
+            {
+              "id": "other",
+              "name": "Other",
+              "color": "#a3a3a3"
+            }
+          ]
+        },
+        {
+          "id": "f_from",
+          "name": "From",
+          "type": "date"
+        },
+        {
+          "id": "f_to",
+          "name": "To",
+          "type": "date"
+        }
+      ],
+      "defaultViewId": "v_affiliations_table",
+      "views": [
+        {
+          "id": "v_affiliations_table",
+          "key": "v_affiliations_table",
+          "name": "All affiliations",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "rel_f_person",
+              "rel_f_org",
+              "p_f_role",
+              "p_f_kind",
+              "status"
+            ],
+            "showSubrecords": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_applications",
+      "key": "applications",
+      "name": "Applications",
+      "icon": "📥",
+      "kind": "records",
+      "recordNoun": "Application",
+      "showBuiltins": {
+        "assignee": true,
+        "due": true,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "received",
+          "name": "Received",
+          "color": "#f59e0b"
+        },
+        {
+          "id": "in_review",
+          "name": "In review",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "needs_info",
+          "name": "Needs info",
+          "color": "#f97316"
+        },
+        {
+          "id": "conversation",
+          "name": "Conversation",
+          "color": "#8b5cf6"
+        },
+        {
+          "id": "accepted",
+          "name": "Accepted",
+          "color": "#22c55e"
+        },
+        {
+          "id": "declined",
+          "name": "Declined",
+          "color": "#ef4444"
+        },
+        {
+          "id": "withdrawn",
+          "name": "Withdrawn",
+          "color": "#a3a3a3"
+        },
+        {
+          "id": "not_now",
+          "name": "Not now",
+          "color": "#737373"
+        },
+        {
+          "id": "converted",
+          "name": "Converted",
+          "color": "#14b8a6"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_programme",
+          "name": "Programme",
+          "type": "relation",
+          "relation": {
+            "target": "db_programs",
+            "pairedFieldId": "f_applications",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_applicant",
+          "name": "Applicant",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_applications",
+            "primary": true,
+            "single": true
+          }
+        },
+        {
+          "id": "f_form",
+          "name": "Form",
+          "type": "text"
+        },
+        {
+          "id": "f_reviewer",
+          "name": "Reviewer",
+          "type": "person"
+        },
+        {
+          "id": "f_decision",
+          "name": "Decision",
+          "type": "select",
+          "options": [
+            {
+              "id": "accepted",
+              "name": "Accepted",
+              "color": "#22c55e"
+            },
+            {
+              "id": "declined",
+              "name": "Declined",
+              "color": "#ef4444"
+            },
+            {
+              "id": "withdrawn",
+              "name": "Withdrawn",
+              "color": "#a3a3a3"
+            },
+            {
+              "id": "not_now",
+              "name": "Not now",
+              "color": "#f59e0b"
+            }
+          ]
+        },
+        {
+          "id": "f_decision_reason",
+          "name": "Decision reason",
+          "type": "text"
+        },
+        {
+          "id": "f_avail_from",
+          "name": "Availability from",
+          "type": "date"
+        },
+        {
+          "id": "f_avail_to",
+          "name": "Availability to",
+          "type": "date"
+        },
+        {
+          "id": "f_activities",
+          "name": "Activities",
+          "type": "relation",
+          "relation": {
+            "target": "db_activities",
+            "pairedFieldId": "f_applications",
+            "primary": false
+          }
+        }
+      ],
+      "defaultViewId": "v_applications_table",
+      "views": [
+        {
+          "id": "v_applications_table",
+          "key": "v_applications_table",
+          "name": "All applications",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "rel_f_programme",
+              "rel_f_applicant",
+              "status",
+              "p_f_reviewer",
+              "dueDate"
+            ],
+            "groupBy": "rel_f_programme",
+            "showSubrecords": false
+          }
+        },
+        {
+          "id": "v_applications_board",
+          "key": "v_applications_board",
+          "name": "By stage",
+          "type": "board",
+          "config": {
+            "groupBy": "status"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db_activities",
+      "key": "activities",
+      "name": "Activities",
+      "icon": "🗓️",
+      "kind": "records",
+      "recordNoun": "Activity",
+      "showBuiltins": {
+        "assignee": true,
+        "due": true,
+        "priority": false
+      },
+      "columns": [
+        {
+          "id": "planned",
+          "name": "Planned",
+          "color": "#3b82f6"
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "color": "#22c55e"
+        }
+      ],
+      "fields": [
+        {
+          "id": "f_type",
+          "name": "Type",
+          "type": "select",
+          "options": [
+            {
+              "id": "call",
+              "name": "Call",
+              "color": "#3b82f6"
+            },
+            {
+              "id": "meeting",
+              "name": "Meeting",
+              "color": "#8b5cf6"
+            },
+            {
+              "id": "visit",
+              "name": "Visit",
+              "color": "#14b8a6"
+            },
+            {
+              "id": "note",
+              "name": "Note",
+              "color": "#a3a3a3"
+            },
+            {
+              "id": "follow_up",
+              "name": "Follow-up",
+              "color": "#f59e0b"
+            }
+          ]
+        },
+        {
+          "id": "f_when",
+          "name": "When",
+          "type": "text"
+        },
+        {
+          "id": "f_due",
+          "name": "Due",
+          "type": "date"
+        },
+        {
+          "id": "f_owner",
+          "name": "Owner",
+          "type": "person"
+        },
+        {
+          "id": "f_done",
+          "name": "Done",
+          "type": "checkbox"
+        },
+        {
+          "id": "f_summary",
+          "name": "Summary",
+          "type": "text"
+        },
+        {
+          "id": "f_people",
+          "name": "People",
+          "type": "relation",
+          "relation": {
+            "target": "db_people",
+            "pairedFieldId": "f_activities",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_orgs",
+          "name": "Organisations",
+          "type": "relation",
+          "relation": {
+            "target": "db_orgs",
+            "pairedFieldId": "f_activities",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_applications",
+          "name": "Applications",
+          "type": "relation",
+          "relation": {
+            "target": "db_applications",
+            "pairedFieldId": "f_activities",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_opportunities",
+          "name": "Opportunities",
+          "type": "relation",
+          "relation": {
+            "target": "db_opportunities",
+            "pairedFieldId": "f_activities",
+            "primary": true
+          }
+        },
+        {
+          "id": "f_events",
+          "name": "Events",
+          "type": "relation",
+          "relation": {
+            "target": "db_events",
+            "pairedFieldId": "f_activities",
+            "primary": true
+          }
+        }
+      ],
+      "defaultViewId": "v_activities_table",
+      "views": [
+        {
+          "id": "v_activities_table",
+          "key": "v_activities_table",
+          "name": "All activities",
+          "type": "table",
+          "config": {
+            "visible": [
+              "title",
+              "p_f_type",
+              "p_f_when",
+              "p_f_due",
+              "p_f_owner",
+              "p_f_done",
+              "rel_f_people"
+            ],
+            "showSubrecords": false
+          }
+        },
+        {
+          "id": "v_activities_mine",
+          "key": "v_activities_mine",
+          "name": "My follow-ups",
+          "type": "list",
+          "config": {
+            "filters": [
+              {
+                "key": "p_f_owner",
+                "op": "me"
+              },
+              {
+                "key": "p_f_done",
+                "op": "unchecked"
+              }
+            ],
+            "visible": [
+              "title",
+              "p_f_type",
+              "p_f_due",
+              "rel_f_people"
+            ]
+          }
+        }
+      ]
     }
   ],
   "pages": [
@@ -7331,5 +8323,5 @@
       ]
     }
   ],
-  "version": 11
+  "version": 12
 }

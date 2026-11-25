@@ -73,6 +73,7 @@ describe('CRM isolation & bundle boundaries', () => {
     for (const file of crmFiles) {
       const content = readFileSync(file, 'utf8');
       expect(content).not.toMatch(/['"]_crm_/);
+      expect(content).not.toMatch(/mutate\([^)]*crmProjectionKey/);
       expect(content).not.toMatch(/sendHere\(\s*['"]\/crm/);
     }
   });

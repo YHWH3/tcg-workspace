@@ -65,6 +65,8 @@ export interface ViewConfig {
   sorts?: SortSpec[];
   groupBy?: FieldKey | null;     // board view: 'status' (default) or a select/person field
   visible?: FieldKey[];          // table/list/gallery columns & card props, in order
+  columnWidths?: Record<string, number>; // persisted per saved view (CRM Grid)
+  collapsedGroups?: string[];    // persisted collapsed group keys per saved view
   cover?: 'cover' | `p_${string}` | null;  // gallery/board card image source
   showSubrecords?: boolean;      // default false on board/gallery, true (nested) on table
   mine?: boolean;                // shortcut filter: assignee = current user

@@ -17,6 +17,22 @@ import {
   type CommandResult,
   type CrmErrorCode,
 } from '../../../shared/crm/contracts';
+import {
+  CrmConsentDtoSchema,
+  CrmEndpointDtoSchema,
+  DuplicatesPageResponseSchema,
+  PersonDetailResponseSchema,
+  type AddEndpointInput,
+  type BackfillEndpointsInput,
+  type CrmConsentDto,
+  type CrmEndpointDto,
+  type DismissDuplicateInput,
+  type DuplicatesPageResponse,
+  type PersonDetailResponse,
+  type RecordConsentInput,
+  type RetireEndpointInput,
+  type SetPrimaryEndpointInput,
+} from '../../../shared/crm/identity';
 import type { PublicUser } from '../../../shared/types';
 import { api, ApiError, getToken } from '../../core/api';
 import {
@@ -493,6 +509,109 @@ export function deleteWorkspaceUser(userId: string): Promise<{ ok: boolean }> {
   });
 }
 
+export function renameWorkspaceUser(userId: string, name: string): Promise<{ ok: boolean; name?: string }> {
+  return callWorkspaceAdmin<{ ok: boolean; name?: string }>(`/api/users/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    body: { name },
+  });
+}
+
+/* ---------- S1 Identity commands & reads ---------- */
+
+const AddEndpointOutputSchema = z.object({
+  endpoint: CrmEndpointDtoSchema,
+  already: z.boolean(),
+}).strict();
+
+const RetireEndpointOutputSchema = z.object({
+  endpointId: z.string(),
+  retired: z.boolean(),
+}).strict();
+
+const SetPrimaryEndpointOutputSchema = z.object({
+  endpointId: z.string(),
+  personId: z.string(),
+}).strict();
+
+const RecordConsentOutputSchema = z.object({
+  consent: CrmConsentDtoSchema,
+}).strict();
+
+const DismissDuplicateOutputSchema = z.object({
+  candidateId: z.string(),
+  state: z.literal('dismissed'),
+}).strict();
+
+export const BackfillEndpointsOutputSchema = z.object({
+  dryRun: z.boolean(),
+  scanned: z.number().int(),
+  wouldCreate: z.number().int(),
+  created: z.number().int(),
+  alreadyPresent: z.number().int(),
+  skippedInvalid: z.number().int(),
+  conflicts: z.array(z.object({
+    personId: z.string(),
+    kind: z.enum(['email', 'phone']),
+    valueNorm: z.string(),
+    existingPersonId: z.string(),
+  }).strict()),
+  candidatesCreated: z.number().int(),
+  next: z.string().nullable(),
+}).strict();
+export type BackfillEndpointsOutput = z.infer<typeof BackfillEndpointsOutputSchema>;
+
+export function fetchPersonDetail(personId: string): Promise<PersonDetailResponse> {
+  return fetchCrmRead(`/api/crm/read/person/${encodeURIComponent(personId)}`, PersonDetailResponseSchema);
+}
+
+export function fetchDuplicates(state: 'open' | 'dismissed' = 'open', cursor?: string | null): Promise<DuplicatesPageResponse> {
+  const params = new URLSearchParams({ state });
+  if (cursor) params.set('cursor', cursor);
+  return fetchCrmRead(`/api/crm/read/duplicates?${params.toString()}`, DuplicatesPageResponseSchema);
+}
+
+export function addPersonEndpoint(
+  input: AddEndpointInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ endpoint: CrmEndpointDto; already: boolean }> | CommandError> {
+  return runCrmCommand('person.add_endpoint', { ...input }, AddEndpointOutputSchema, opts);
+}
+
+export function retirePersonEndpoint(
+  input: RetireEndpointInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ endpointId: string; retired: boolean }> | CommandError> {
+  return runCrmCommand('person.retire_endpoint', { ...input }, RetireEndpointOutputSchema, opts);
+}
+
+export function setPrimaryPersonEndpoint(
+  input: SetPrimaryEndpointInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ endpointId: string; personId: string }> | CommandError> {
+  return runCrmCommand('person.set_primary_endpoint', { ...input }, SetPrimaryEndpointOutputSchema, opts);
+}
+
+export function recordPersonConsent(
+  input: RecordConsentInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ consent: CrmConsentDto }> | CommandError> {
+  return runCrmCommand('person.record_consent', { ...input }, RecordConsentOutputSchema, opts);
+}
+
+export function dismissDuplicateCandidate(
+  input: DismissDuplicateInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ candidateId: string; state: 'dismissed' }> | CommandError> {
+  return runCrmCommand('duplicates.dismiss', { ...input }, DismissDuplicateOutputSchema, opts);
+}
+
+export function runEndpointBackfill(
+  input: BackfillEndpointsInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<BackfillEndpointsOutput> | CommandError> {
+  return runCrmCommand('endpoints.backfill', { ...input }, BackfillEndpointsOutputSchema, opts);
+}
+
 const COMMAND_ERROR_MESSAGES: Record<CrmErrorCode, string> = {
   unauthenticated: 'Your session expired. Sign in again to continue.',
   forbidden: 'You do not have permission to change this capability.',
@@ -533,7 +652,11 @@ export function describeCommandError(err: CommandError | CrmTransportError | unk
         case 'unknown_capability':
           return 'This capability is not supported in this CRM version.';
         case 'unknown_scope':
-          return 'Programme-scoped capabilities are not enabled yet.';
+          return 'That capability scope is not allowed or valid.';
+        case 'endpoint_in_use':
+          return 'This endpoint already belongs to another person (see Duplicate review).';
+        case 'invalid_endpoint_format':
+          return 'Enter a valid email address, phone number (with country code or 10-digit Indian mobile), or social handle.';
       }
     }
     return COMMAND_ERROR_MESSAGES[cmdErr.error] ?? 'Could not update capability. Refresh and retry.';
@@ -550,6 +673,12 @@ export function describeAccountError(err: unknown): { message: string; shouldRef
     const code = typeof body?.error === 'string' ? body.error : err.message;
     if (code === OWNER_PROTECTED_ERROR) {
       return { message: 'The owner account can only be changed by the owner.', shouldRefresh: true };
+    }
+    if (code === 'owner_only') {
+      return { message: 'Only the workspace owner can rename another account.', shouldRefresh: false };
+    }
+    if (code === 'invalid_name') {
+      return { message: 'Enter a valid account name (1 to 80 characters).', shouldRefresh: false };
     }
     if (code === 'account_or_authority_changed' || code === 'capacity_or_authority_changed') {
       return { message: 'Someone changed this account. The list has been refreshed.', shouldRefresh: true };

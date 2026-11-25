@@ -9,6 +9,7 @@ import {
   Copy,
   History,
   Lock,
+  Pencil,
   Plus,
   RefreshCw,
   ShieldAlert,
@@ -54,6 +55,7 @@ import {
   generateCrmRequestId,
   grantCrmCapability,
   isIdentityChangedError,
+  renameWorkspaceUser,
   revokeCrmCapability,
   updateWorkspaceUserRole,
   type WorkspaceInviteRow,
@@ -501,6 +503,9 @@ export function AccessSettings({
   const [auditError, setAuditError] = useState<string | null>(null);
 
   const [confirmAction, setConfirmAction] = useState<AccountConfirmAction | null>(null);
+  const [renameTarget, setRenameTarget] = useState<CapabilityOverviewAccount | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
   const [accountBusy, setAccountBusy] = useState<boolean>(false);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [inviteBusy, setInviteBusy] = useState<boolean>(false);
@@ -528,6 +533,7 @@ export function AccessSettings({
     setPendingByKey({});
     setFailedToggle(null);
     setConfirmAction(null);
+    setRenameTarget(null);
     setSheetAccountId(null);
     setOverviewError(null);
     setAuditError(null);
@@ -900,6 +906,44 @@ export function AccessSettings({
     }
   };
 
+  const handleRenameSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renameTarget || !status.owner || isOffline || renameBusy) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      setAccountError('Enter a valid account name (1 to 80 characters).');
+      return;
+    }
+    const startIdentity = currentCrmIdentityKey();
+    setRenameBusy(true);
+    setAccountError(null);
+    try {
+      await renameWorkspaceUser(renameTarget.userId, trimmed);
+      if (currentCrmIdentityKey() !== startIdentity) return;
+      if (renameTarget.userId === me?.id && me) {
+        const updatedUser = { ...me, name: trimmed };
+        authStore.set({ status: 'authed', user: updatedUser });
+        try {
+          localStorage.setItem('ws_user', JSON.stringify(updatedUser));
+        } catch {
+          /* ignore storage failures */
+        }
+      }
+      await loadAll();
+      if (currentCrmIdentityKey() !== startIdentity) return;
+      setAnnouncement(`Renamed ${renameTarget.name} to ${trimmed}.`);
+      setRenameTarget(null);
+    } catch (err) {
+      if (isIdentityChangedError(err) || currentCrmIdentityKey() !== startIdentity) return;
+      const mapped = describeAccountError(err);
+      setAccountError(mapped.message);
+      setAnnouncement(mapped.message);
+      if (mapped.shouldRefresh) await loadAll();
+    } finally {
+      if (currentCrmIdentityKey() === startIdentity) setRenameBusy(false);
+    }
+  };
+
   const tabs: { id: SettingsTab; label: string; icon: typeof Users }[] = [
     { id: 'accounts', label: 'Accounts', icon: Users },
     { id: 'capabilities', label: 'Capabilities', icon: SlidersHorizontal },
@@ -1060,7 +1104,9 @@ export function AccessSettings({
                 />
               </div>
               <p className="text-xs text-[var(--crm-text-muted)]">
-                People set their own name in Settings.
+                {status.owner
+                  ? 'As workspace owner, you can rename accounts or manage roles and access.'
+                  : 'People set their own name in Settings.'}
                 {seatsFull ? ' Free a place before creating another account.' : ''}
               </p>
             </div>
@@ -1152,6 +1198,22 @@ export function AccessSettings({
                           <SlidersHorizontal size={14} aria-hidden="true" />
                           <span>Capabilities</span>
                         </button>
+                        {status.owner && (
+                          <button
+                            type="button"
+                            className="crm-btn-secondary"
+                            aria-label={`Rename ${acc.name}`}
+                            disabled={accountBusy || renameBusy || isOffline}
+                            onClick={() => {
+                              setAccountError(null);
+                              setRenameValue(acc.name);
+                              setRenameTarget(acc);
+                            }}
+                          >
+                            <Pencil size={14} aria-hidden="true" />
+                            <span>Rename</span>
+                          </button>
+                        )}
 
                         {!isOwner && !isSelf && (
                           <>
@@ -1339,49 +1401,69 @@ export function AccessSettings({
                             </span>
                           </td>
                           <td>
-                            {isOwner || isSelf ? (
-                              <span
-                                className="text-xs text-[var(--crm-text-muted)]"
-                                aria-label="No account actions available"
-                              >
-                                —
-                              </span>
-                            ) : (
-                              <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {status.owner && (
                                 <button
                                   type="button"
                                   className="crm-btn-secondary !min-h-10 !px-3 !py-1.5 !text-xs"
-                                  disabled={accountBusy || isOffline}
+                                  aria-label={`Rename ${acc.name}`}
+                                  disabled={accountBusy || renameBusy || isOffline}
                                   onClick={() => {
                                     setAccountError(null);
-                                    setConfirmAction({
-                                      kind: acc.disabled ? 'enable' : 'disable',
-                                      account: acc,
-                                    });
+                                    setRenameValue(acc.name);
+                                    setRenameTarget(acc);
                                   }}
                                 >
-                                  {acc.disabled ? (
-                                    <UserCheck size={14} aria-hidden="true" />
-                                  ) : (
-                                    <UserMinus size={14} aria-hidden="true" />
-                                  )}
-                                  <span>{acc.disabled ? 'Restore' : 'Disable'}</span>
+                                  <Pencil size={14} aria-hidden="true" />
+                                  <span>Rename</span>
                                 </button>
-                                <button
-                                  type="button"
-                                  className="crm-btn-danger !min-h-10 !px-3 !py-1.5 !text-xs"
-                                  aria-label={`Remove ${acc.name}`}
-                                  disabled={accountBusy || isOffline}
-                                  onClick={() => {
-                                    setAccountError(null);
-                                    setConfirmAction({ kind: 'remove', account: acc });
-                                  }}
-                                >
-                                  <Trash2 size={14} aria-hidden="true" />
-                                  <span>Remove</span>
-                                </button>
-                              </div>
-                            )}
+                              )}
+                              {isOwner || isSelf ? (
+                                !status.owner && (
+                                  <span
+                                    className="text-xs text-[var(--crm-text-muted)]"
+                                    aria-label="No account actions available"
+                                  >
+                                    —
+                                  </span>
+                                )
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="crm-btn-secondary !min-h-10 !px-3 !py-1.5 !text-xs"
+                                    disabled={accountBusy || isOffline}
+                                    onClick={() => {
+                                      setAccountError(null);
+                                      setConfirmAction({
+                                        kind: acc.disabled ? 'enable' : 'disable',
+                                        account: acc,
+                                      });
+                                    }}
+                                  >
+                                    {acc.disabled ? (
+                                      <UserCheck size={14} aria-hidden="true" />
+                                    ) : (
+                                      <UserMinus size={14} aria-hidden="true" />
+                                    )}
+                                    <span>{acc.disabled ? 'Restore' : 'Disable'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="crm-btn-danger !min-h-10 !px-3 !py-1.5 !text-xs"
+                                    aria-label={`Remove ${acc.name}`}
+                                    disabled={accountBusy || isOffline}
+                                    onClick={() => {
+                                      setAccountError(null);
+                                      setConfirmAction({ kind: 'remove', account: acc });
+                                    }}
+                                  >
+                                    <Trash2 size={14} aria-hidden="true" />
+                                    <span>Remove</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1841,6 +1923,54 @@ export function AccessSettings({
               </button>
             </div>
           </div>
+        </AdaptiveDialog>
+      )}
+
+      {/* ---------------- Owner-Only Rename Dialog ---------------- */}
+      {renameTarget && status.owner && (
+        <AdaptiveDialog
+          title={`Rename ${renameTarget.name}`}
+          onClose={() => {
+            if (!renameBusy) setRenameTarget(null);
+          }}
+          guard={() => !renameBusy}
+        >
+          <form onSubmit={(e) => void handleRenameSubmit(e)} data-app="crm" className="space-y-4 text-sm text-[var(--crm-text)]">
+            <p className="text-xs text-[var(--crm-text-muted)]">
+              Changes are recorded in the workspace access audit log (`user.rename`). Only the workspace owner can rename another account.
+            </p>
+            <div>
+              <label htmlFor="crm-rename-account-input" className="mb-1 block text-xs font-medium text-[var(--crm-text-muted)]">
+                Display name
+              </label>
+              <input
+                id="crm-rename-account-input"
+                type="text"
+                maxLength={80}
+                required
+                className="crm-input"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="crm-btn-secondary"
+                disabled={renameBusy}
+                onClick={() => setRenameTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="crm-btn-primary"
+                disabled={renameBusy || isOffline || !renameValue.trim()}
+              >
+                {renameBusy ? 'Saving…' : 'Save name'}
+              </button>
+            </div>
+          </form>
         </AdaptiveDialog>
       )}
     </div>
