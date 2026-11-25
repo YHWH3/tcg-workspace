@@ -26,6 +26,12 @@ import {
   readCrmHome,
   readTimeline,
 } from './applications';
+import {
+  createS4ConversationCommandDefs,
+  readConversationDetail,
+  readConversations,
+} from './conversations';
+import { createS4FactCommandDefs, readFacts } from './facts';
 import { isCrmEnabled } from './rules';
 
 export function createS0CommandRegistry(): CommandRegistry {
@@ -34,6 +40,8 @@ export function createS0CommandRegistry(): CommandRegistry {
     ...createS1IdentityCommandDefs(),
     ...createS2ProgrammeCommandDefs(),
     ...createS2ApplicationCommandDefs(),
+    ...createS4FactCommandDefs(),
+    ...createS4ConversationCommandDefs(),
   ]);
 }
 
@@ -144,6 +152,35 @@ crmApi.get('/read/timeline', async (c) => {
 crmApi.get('/read/home', async (c) => {
   const user = c.get('user');
   const outcome = await readCrmHome(c.env, user.id, user.tokenHash);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/facts', async (c) => {
+  const user = c.get('user');
+  const url = new URL(c.req.url);
+  const outcome = await readFacts(c.env, user.id, user.tokenHash, {
+    programmeSlug: url.searchParams.get('programme'),
+    status: url.searchParams.get('status'),
+    includeStale: url.searchParams.get('includeStale') !== 'false',
+  });
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/conversations', async (c) => {
+  const user = c.get('user');
+  const url = new URL(c.req.url);
+  const cursor = url.searchParams.has('cursor') ? (url.searchParams.get('cursor') ?? '') : undefined;
+  const outcome = await readConversations(c.env, user.id, user.tokenHash, {
+    filter: url.searchParams.get('filter'),
+    channel: url.searchParams.get('channel'),
+    cursor,
+  });
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/conversation/:id', async (c) => {
+  const user = c.get('user');
+  const outcome = await readConversationDetail(c.env, user.id, user.tokenHash, c.req.param('id')!);
   return c.json(outcome.body, outcome.status);
 });
 

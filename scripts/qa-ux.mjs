@@ -34,7 +34,7 @@ if(projectPlan.projects.length>1){
 let owned,child,exitCode=1;
 const cleanup=()=>{child?.kill('SIGTERM');void owned?.stop();};process.once('SIGINT',cleanup);process.once('SIGTERM',cleanup);
 try{
-  owned=await startFixture({port:await freePort(),build:!skipBuild,tls,artifactDirectory:join(output,'fixture'),vars:{WEBSITE_INGEST_ENABLED:'true',WEBSITE_INGEST_SECRET:'ux-lab-disposable',...(crmMode?{CRM_ENABLED:'true'}:{})}});
+  owned=await startFixture({port:await freePort(),build:!skipBuild,tls,artifactDirectory:join(output,'fixture'),vars:{WEBSITE_INGEST_ENABLED:'true',WEBSITE_INGEST_SECRET:'ux-lab-disposable',...(crmMode?{CRM_ENABLED:'true',WORKSPACE_ENV:'local-test'}:{})}});
   const req=async(path,body,token)=>{
     const r=await fetch(owned.base+path,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw new Error(`Fixture setup ${path}: ${r.status}`);return j;
   };

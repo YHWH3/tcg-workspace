@@ -47,6 +47,30 @@ import {
   type TimelineResponse,
   type UpdateProgrammeProfileInput,
 } from '../../../shared/crm/programmes';
+import {
+  ConversationDetailResponseSchema,
+  ConversationsPageResponseSchema,
+  CrmConversationDtoSchema,
+  CrmFactDtoSchema,
+  CrmMessageDtoSchema,
+  FactsListResponseSchema,
+  type AddMessageNoteInput,
+  type AssignConversationInput,
+  type ConversationDetailResponse,
+  type ConversationsPageResponse,
+  type FactsListResponse,
+  type GenerateAiDraftInput,
+  type LinkConversationPersonInput,
+  type LogManualConversationInput,
+  type ProposeFactInput,
+  type RetireFactInput,
+  type RetryMessageInput,
+  type SaveMessageDraftInput,
+  type SendMessageInput,
+  type SetConversationStateInput,
+  type SimulateInboundInput,
+  type VerifyFactInput,
+} from '../../../shared/crm/conversations';
 import type { PublicUser } from '../../../shared/types';
 import { api, ApiError, getToken } from '../../core/api';
 import {
@@ -697,6 +721,144 @@ export function fetchTimeline(
 
 export function fetchCrmHome(): Promise<HomeSummaryResponse> {
   return fetchCrmRead('/api/crm/read/home', HomeSummaryResponseSchema);
+}
+
+// ---------------------------------------------------------------------------
+// S4 Conversations & Verified Facts APIs
+// ---------------------------------------------------------------------------
+
+export function fetchFacts(opts?: { programmeSlug?: string; status?: string; includeStale?: boolean }): Promise<FactsListResponse> {
+  const qs = new URLSearchParams();
+  if (opts?.programmeSlug) qs.set('programme', opts.programmeSlug);
+  if (opts?.status) qs.set('status', opts.status);
+  if (opts?.includeStale === false) qs.set('includeStale', 'false');
+  const q = qs.toString();
+  return fetchCrmRead(`/api/crm/read/facts${q ? `?${q}` : ''}`, FactsListResponseSchema);
+}
+
+export function proposeCrmFact(input: ProposeFactInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand('fact.propose', { ...input }, z.object({ fact: CrmFactDtoSchema }).strict(), opts);
+}
+
+export function verifyCrmFact(input: VerifyFactInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand('fact.verify', { ...input }, z.object({ fact: CrmFactDtoSchema }).strict(), opts);
+}
+
+export function retireCrmFact(input: RetireFactInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand('fact.retire', { ...input }, z.object({ fact: CrmFactDtoSchema }).strict(), opts);
+}
+
+export function fetchConversations(opts?: { filter?: string; channel?: string; cursor?: string }): Promise<ConversationsPageResponse> {
+  const qs = new URLSearchParams();
+  if (opts?.filter) qs.set('filter', opts.filter);
+  if (opts?.channel) qs.set('channel', opts.channel);
+  if (opts?.cursor) qs.set('cursor', opts.cursor);
+  const q = qs.toString();
+  return fetchCrmRead(`/api/crm/read/conversations${q ? `?${q}` : ''}`, ConversationsPageResponseSchema);
+}
+
+export function fetchConversationDetail(id: string): Promise<ConversationDetailResponse> {
+  return fetchCrmRead(`/api/crm/read/conversation/${encodeURIComponent(id)}`, ConversationDetailResponseSchema);
+}
+
+export function logManualConversation(input: LogManualConversationInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand(
+    'conversation.log_manual',
+    { ...input },
+    z.object({ conversation: CrmConversationDtoSchema, message: CrmMessageDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function simulateInboundConversation(input: SimulateInboundInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand(
+    'conversation.simulate_inbound',
+    { ...input },
+    z.object({
+      already: z.boolean(),
+      conversationId: z.string(),
+      messageId: z.string(),
+      personId: z.string().nullable(),
+    }).strict(),
+    opts,
+  );
+}
+
+export function linkConversationPerson(input: LinkConversationPersonInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand(
+    'conversation.link_person',
+    { ...input },
+    z.object({ conversationId: z.string(), personId: z.string() }).strict(),
+    opts,
+  );
+}
+
+export function assignConversation(input: AssignConversationInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand(
+    'conversation.assign',
+    { ...input },
+    z.object({ conversationId: z.string(), assigneeId: z.string().nullable() }).strict(),
+    opts,
+  );
+}
+
+export function setConversationState(input: SetConversationStateInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand(
+    'conversation.set_state',
+    { ...input },
+    z.object({ conversationId: z.string(), state: z.string() }).strict(),
+    opts,
+  );
+}
+
+export function addConversationNote(input: AddMessageNoteInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand(
+    'message.add_note',
+    { ...input },
+    z.object({ message: CrmMessageDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function saveConversationDraft(input: SaveMessageDraftInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand(
+    'message.save_draft',
+    { ...input },
+    z.object({ message: CrmMessageDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function sendConversationMessage(input: SendMessageInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand(
+    'message.send',
+    { ...input },
+    z.object({ message: CrmMessageDtoSchema, receiptId: z.string() }).strict(),
+    opts,
+  );
+}
+
+export function retryConversationMessage(input: RetryMessageInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand(
+    'message.retry',
+    { ...input },
+    z.object({ messageId: z.string(), receiptId: z.string() }).strict(),
+    opts,
+  );
+}
+
+export function generateAiConversationDraft(input: GenerateAiDraftInput, opts?: RunCrmCommandOptions) {
+  return runCrmCommand(
+    'message.generate_ai_draft',
+    { ...input },
+    z.object({
+      message: CrmMessageDtoSchema,
+      citedFactIds: z.array(z.string()),
+      unconfirmedItems: z.array(z.string()),
+      staleFactWarnings: z.array(z.string()),
+    }).strict(),
+    opts,
+  );
 }
 
 const COMMAND_ERROR_MESSAGES: Record<CrmErrorCode, string> = {

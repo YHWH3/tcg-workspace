@@ -50,6 +50,7 @@ import { BUNDLED, BUNDLED_AUTHORS, bundledTemplate } from './bundledTemplates';
 import { COLUMN_COLORS } from '../src/modules/boards/model';
 import { registerApprovalTools } from './mcpApprovals'; // P4-D
 import { registerWebsiteTools } from './website';
+import { registerCrmMcpTools } from './crm/mcp';
 import { serviceEnv, withReadGate } from './readAccess';
 import { shareAuthority } from './shareAccess';
 import { SearchError } from './search';
@@ -4723,6 +4724,7 @@ export function createWorkspaceServer(ctx: Ctx): McpServer {
   registerApprovalTools(server,reg,ctx);
   registerAssistantTools(server,ctx,toolHandlers);
   registerWebsiteTools(server,reg,ctx,ops=>write(ctx,ops as WriteOp[]));
+  registerCrmMcpTools(server, ctx);
   return server;
 }
 

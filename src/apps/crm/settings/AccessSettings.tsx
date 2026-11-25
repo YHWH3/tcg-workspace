@@ -1071,6 +1071,9 @@ export function AccessSettings({
               Automations
             </Link>
           )}
+          <Link to="/crm/settings/facts" className="crm-btn-secondary">
+            Knowledge
+          </Link>
           <button
             type="button"
             className="crm-btn-secondary"

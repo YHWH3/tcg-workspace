@@ -19,7 +19,7 @@ export type CapabilityKind = 'read' | 'write' | 'proposal';
 export type CapabilityModule =
   | 'search' | 'pages' | 'editor' | 'tasks' | 'databases' | 'properties' | 'views' | 'projects'
   | 'dashboards' | 'forms' | 'moodboards' | 'files' | 'comments' | 'approvals' | 'people' | 'inbox'
-  | 'automations' | 'history' | 'changesets' | 'workflows' | 'templates' | 'workspace';
+  | 'automations' | 'history' | 'changesets' | 'workflows' | 'templates' | 'workspace' | 'crm';
 
 export interface Capability {
   id: string;
@@ -84,6 +84,9 @@ export const CAPABILITIES: readonly Capability[] = [
   P('propose_workflow', 'workflows'), H('execute_preview', 'workflows'),
   // Templates
   R('list_templates', 'templates'), W('create_from_template', 'templates'), W('install_template', 'templates'),
+  // TCG CRM (read & proposal-only; outbound sending and access controls remain human-only)
+  R('crm_find_people', 'crm'), R('crm_person_profile', 'crm'), R('crm_conversations', 'crm'), R('crm_home', 'crm'), R('crm_facts', 'crm'),
+  P('crm_draft_message', 'crm'), P('crm_propose_triage', 'crm'), P('crm_propose_fact', 'crm'),
 ];
 
 const byId = new Map(CAPABILITIES.map((c) => [c.id, c]));

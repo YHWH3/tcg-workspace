@@ -12,6 +12,7 @@ import {
   FileCheck2,
   Home,
   Lock,
+  MessageSquare,
   Monitor,
   Moon,
   MoreHorizontal,
@@ -257,6 +258,7 @@ export default function CrmShell() {
 
   const navItems = [
     { to: '/crm', label: 'Home', icon: Home, end: true },
+    { to: '/crm/conversations', label: 'Inbox', icon: MessageSquare, end: false },
     { to: '/crm/people', label: 'People', icon: Users, end: false },
     { to: '/crm/organisations', label: 'Organisations', icon: Building2, end: false },
     { to: '/crm/programmes', label: 'Programmes', icon: Compass, end: false },
@@ -266,13 +268,13 @@ export default function CrmShell() {
       ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }]
       : canConfigureAny
         ? [{ to: '/crm/settings/programmes', label: 'Settings', icon: Settings, end: false }]
-        : []),
+        : [{ to: '/crm/settings/facts', label: 'Knowledge', icon: Compass, end: false }]),
   ];
 
   const compactNavItems = [
     { to: '/crm', label: 'Home', icon: Home, end: true },
+    { to: '/crm/conversations', label: 'Inbox', icon: MessageSquare, end: false },
     { to: '/crm/people', label: 'People', icon: Users, end: false },
-    { to: '/crm/activities', label: 'Tasks', icon: CalendarCheck2, end: false },
     ...(canManage
       ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }]
       : canConfigureAny
@@ -280,23 +282,27 @@ export default function CrmShell() {
         : []),
   ];
 
-  const routeLabel = pathname.startsWith('/crm/settings/automations')
-    ? 'Automation recipes'
-    : pathname.startsWith('/crm/settings/programmes')
-      ? 'Programme profiles'
-      : pathname.startsWith('/crm/settings')
-        ? 'Accounts & capabilities'
-        : pathname.startsWith('/crm/people')
-          ? 'People'
-          : pathname.startsWith('/crm/organisations')
-            ? 'Organisations'
-            : pathname.startsWith('/crm/programmes')
-              ? 'Programmes'
-              : pathname.startsWith('/crm/applications')
-                ? 'Applications'
-                : pathname.startsWith('/crm/activities')
-                  ? 'Activities'
-                  : 'Home';
+  const routeLabel = pathname.startsWith('/crm/settings/facts')
+    ? 'Verified knowledge'
+    : pathname.startsWith('/crm/settings/automations')
+      ? 'Automation recipes'
+      : pathname.startsWith('/crm/settings/programmes')
+        ? 'Programme profiles'
+        : pathname.startsWith('/crm/settings')
+          ? 'Accounts & capabilities'
+          : pathname.startsWith('/crm/conversations')
+            ? 'Conversations'
+            : pathname.startsWith('/crm/people')
+              ? 'People'
+              : pathname.startsWith('/crm/organisations')
+                ? 'Organisations'
+                : pathname.startsWith('/crm/programmes')
+                  ? 'Programmes'
+                  : pathname.startsWith('/crm/applications')
+                    ? 'Applications'
+                    : pathname.startsWith('/crm/activities')
+                      ? 'Activities'
+                      : 'Home';
   const showSideRail = layout !== 'compact';
   const compactRail = layout === 'medium' ? effectiveCollapsed : railCollapsed;
 

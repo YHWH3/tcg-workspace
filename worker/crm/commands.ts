@@ -121,13 +121,13 @@ export type CommandPlan<O> = CommandCommitPlan<O> | CommandRefusalPlan;
 export interface CommandDefinition<I = Record<string, unknown>, O = unknown> {
   name: string;
   projectionKeys?: readonly string[];
-  authorizeCoarse: (actor: CrmActor) => boolean;
+  authorizeCoarse: (actor: CrmActor, via?: CrmCommandChannel) => boolean;
   parseInput: (
     raw: Record<string, unknown>,
   ) =>
     | { ok: true; input: I }
     | { ok: false; error: CrmErrorCode; detail?: Record<string, unknown> };
-  authorizeFine?: (actor: CrmActor, input: I) => boolean;
+  authorizeFine?: (actor: CrmActor, input: I, via?: CrmCommandChannel) => boolean;
   authorizeReplay?: (
     actor: CrmActor,
     input: I,
@@ -137,6 +137,7 @@ export interface CommandDefinition<I = Record<string, unknown>, O = unknown> {
     env: Env;
     actor: CrmActor;
     tokenHash: string;
+    via: CrmCommandChannel;
     input: I;
     expected?: ReadonlyMap<string, number>;
     requestId: string;
@@ -281,7 +282,7 @@ export async function runCommand(args: {
   const actor = buildActor(sessionRow, grantsRes.results as unknown as GrantRow[]);
 
   // Coarse authority check BEFORE input parsing or idempotency disclosure (CR-03).
-  if (!canAccessCrmApi(actor) || !def.authorizeCoarse(actor)) {
+  if (!canAccessCrmApi(actor) || !def.authorizeCoarse(actor, via)) {
     return { status: 200, body: makeCommandError('forbidden') };
   }
 
@@ -292,7 +293,7 @@ export async function runCommand(args: {
   }
 
   // Fine authority check BEFORE idempotency inspection & target lookup.
-  if (def.authorizeFine && !def.authorizeFine(actor, parsed.input)) {
+  if (def.authorizeFine && !def.authorizeFine(actor, parsed.input, via)) {
     return { status: 200, body: makeCommandError('forbidden') };
   }
 
@@ -317,6 +318,7 @@ export async function runCommand(args: {
     env,
     actor,
     tokenHash,
+    via,
     input: parsed.input,
     expected: expectedMap,
     requestId: envelope.requestId,
