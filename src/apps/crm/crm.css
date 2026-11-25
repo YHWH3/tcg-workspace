@@ -1,0 +1,336 @@
+[data-app="crm"] {
+  --crm-bg: #F6F5F2;
+  --crm-surface: #FFFFFF;
+  --crm-surface-2: #EFEDE8;
+  --crm-border: #E2DFD8;
+  --crm-text: #1C1F24;
+  --crm-text-muted: #5B6270;
+  --crm-primary: #1F6FA8;
+  --crm-primary-contrast: #FFFFFF;
+  --crm-primary-soft: #E8F2FA;
+  --crm-accent: #B4532A;
+  --crm-accent-soft: #FAECE6;
+
+  --crm-status-clay: #B4532A;
+  --crm-status-ochre: #8A6100;
+  --crm-status-leaf: #2F7A4B;
+  --crm-status-river: #1F6FA8;
+  --crm-status-dusk: #6B4FA3;
+  --crm-status-berry: #A83A64;
+  --crm-status-stone: #5E6672;
+  --crm-status-ember: #B42318;
+  --crm-status-teal: #0E7C7B;
+  --crm-status-fg: #FFFFFF;
+
+  --crm-ok-bg: #E7F5EC;
+  --crm-ok-text: #1D5E36;
+  --crm-ok-border: #B3DEC2;
+  --crm-warn-bg: #FDF4E1;
+  --crm-warn-text: #6E4A00;
+  --crm-warn-border: #E8CF96;
+  --crm-err-bg: #FDECEB;
+  --crm-err-text: #8F1B12;
+  --crm-err-border: #F2B8B3;
+
+  --crm-radius-control: 6px;
+  --crm-radius-panel: 10px;
+  --crm-shadow-panel: 0 1px 2px rgba(28, 31, 36, 0.05), 0 4px 12px rgba(28, 31, 36, 0.04);
+  --crm-motion-ms: 150ms;
+
+  background-color: var(--crm-bg);
+  color: var(--crm-text);
+  font-family: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  line-height: 1.4;
+}
+
+.dark [data-app="crm"] {
+  --crm-bg: #0F1114;
+  --crm-surface: #14161A;
+  --crm-surface-2: #1C1F24;
+  --crm-border: #2A2E35;
+  --crm-text: #ECEDEF;
+  --crm-text-muted: #A3A9B3;
+  --crm-primary: #8CC4F0;
+  --crm-primary-contrast: #14161A;
+  --crm-primary-soft: #18293A;
+  --crm-accent: #F0A07A;
+  --crm-accent-soft: #312018;
+
+  --crm-status-clay: #F0A07A;
+  --crm-status-ochre: #E8C15A;
+  --crm-status-leaf: #7FD1A0;
+  --crm-status-river: #8CC4F0;
+  --crm-status-dusk: #C4AEF2;
+  --crm-status-berry: #F29BBE;
+  --crm-status-stone: #B8C0CC;
+  --crm-status-ember: #FF9C8F;
+  --crm-status-teal: #7BD8D6;
+  --crm-status-fg: #14161A;
+
+  --crm-ok-bg: #15281D;
+  --crm-ok-text: #8CE0AC;
+  --crm-ok-border: #285239;
+  --crm-warn-bg: #292112;
+  --crm-warn-text: #F0CA6C;
+  --crm-warn-border: #5C471D;
+  --crm-err-bg: #311716;
+  --crm-err-text: #FFA99E;
+  --crm-err-border: #692925;
+
+  --crm-shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 16px rgba(0, 0, 0, 0.28);
+}
+
+[data-app="crm"] *:focus-visible {
+  outline: 2px solid var(--crm-primary);
+  outline-offset: 2px;
+}
+
+[data-app="crm"] .crm-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  border-radius: var(--crm-radius-control);
+  background: var(--crm-primary);
+  color: var(--crm-primary-contrast);
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+[data-app="crm"] .crm-skip-link:focus {
+  left: 0.75rem;
+  top: 0.75rem;
+}
+
+[data-app="crm"] .crm-panel {
+  background-color: var(--crm-surface);
+  border: 1px solid var(--crm-border);
+  border-radius: var(--crm-radius-panel);
+  box-shadow: var(--crm-shadow-panel);
+}
+
+[data-app="crm"] .crm-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--crm-radius-control);
+  background-color: var(--crm-primary);
+  color: var(--crm-primary-contrast);
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: opacity var(--crm-motion-ms) ease;
+}
+
+[data-app="crm"] .crm-btn-primary:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+[data-app="crm"] .crm-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-app="crm"] .crm-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--crm-radius-control);
+  background-color: var(--crm-surface);
+  border: 1px solid var(--crm-border);
+  color: var(--crm-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background-color var(--crm-motion-ms) ease;
+}
+
+[data-app="crm"] .crm-btn-secondary:hover:not(:disabled) {
+  background-color: var(--crm-surface-2);
+}
+
+[data-app="crm"] .crm-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-app="crm"] .crm-btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--crm-radius-control);
+  background-color: var(--crm-err-bg);
+  border: 1px solid var(--crm-err-border);
+  color: var(--crm-err-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: opacity var(--crm-motion-ms) ease;
+}
+
+[data-app="crm"] .crm-btn-danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+[data-app="crm"] .crm-btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-app="crm"] .crm-input,
+[data-app="crm"] .crm-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.75rem;
+  border-radius: var(--crm-radius-control);
+  border: 1px solid var(--crm-border);
+  background-color: var(--crm-surface);
+  color: var(--crm-text);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+[data-app="crm"] .crm-select {
+  padding-right: 2rem;
+}
+
+[data-app="crm"] .crm-input::placeholder {
+  color: var(--crm-text-muted);
+  opacity: 1;
+}
+
+[data-app="crm"] .crm-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+[data-app="crm"] .crm-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 2.875rem;
+  height: 1.625rem;
+  min-width: 2.875rem;
+  padding: 0.1875rem;
+  border-radius: 999px;
+  border: 1px solid var(--crm-border);
+  background-color: var(--crm-surface-2);
+  transition: background-color var(--crm-motion-ms) ease, border-color var(--crm-motion-ms) ease;
+  cursor: pointer;
+}
+
+[data-app="crm"] .crm-switch-hit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+}
+
+[data-app="crm"] .crm-switch[aria-checked="true"] {
+  background-color: var(--crm-primary);
+  border-color: var(--crm-primary);
+}
+
+[data-app="crm"] .crm-switch:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+[data-app="crm"] .crm-switch-thumb {
+  display: block;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 999px;
+  background-color: var(--crm-text-muted);
+  transform: translateX(0);
+  transition: transform var(--crm-motion-ms) ease, background-color var(--crm-motion-ms) ease;
+}
+
+[data-app="crm"] .crm-switch[aria-checked="true"] .crm-switch-thumb {
+  background-color: var(--crm-primary-contrast);
+  transform: translateX(1.25rem);
+}
+
+[data-app="crm"] .crm-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--crm-border);
+  border-radius: var(--crm-radius-panel);
+  background-color: var(--crm-surface);
+}
+
+[data-app="crm"] .crm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+[data-app="crm"] .crm-table th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--crm-text-muted);
+  background-color: var(--crm-surface-2);
+  border-bottom: 1px solid var(--crm-border);
+  padding: 0.625rem 0.875rem;
+  white-space: nowrap;
+}
+
+[data-app="crm"] .crm-table td {
+  border-bottom: 1px solid var(--crm-border);
+  padding: 0.75rem 0.875rem;
+  vertical-align: middle;
+}
+
+[data-app="crm"] .crm-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+[data-app="crm"] .crm-table tbody tr:hover {
+  background-color: var(--crm-surface-2);
+}
+
+[data-app="crm"] .crm-sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: var(--crm-surface);
+}
+
+[data-app="crm"] .crm-table th.crm-sticky-col {
+  z-index: 2;
+  background-color: var(--crm-surface-2);
+}
+
+[data-app="crm"] .crm-table tbody tr:hover .crm-sticky-col {
+  background-color: var(--crm-surface-2);
+}
+
+[data-app="crm"] .crm-skeleton {
+  border-radius: var(--crm-radius-control);
+  background-color: var(--crm-surface-2);
+  animation: crm-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes crm-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-app="crm"],
+  [data-app="crm"] *,
+  [data-app="crm"] *::before,
+  [data-app="crm"] *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

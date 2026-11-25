@@ -67,7 +67,7 @@ export const test=base.extend({page:async({page,context,browser,browserName},use
     // requestfailed for every member. Only known read-only API diagnostics
     // that were already in flight when the old document navigated are expected.
     // New-document CORS failures cannot match this retained request snapshot.
-    const cancelledRead=/^Fetch API cannot load https:\/\/[^ ]+\/api\/(?:notifications\/badge|approvals|access|sync\/pull)(?:\?| )/.test(e.stack)&&navigations.some(n=>e.time>=n.time-20&&e.time<=n.time+200&&n.pending.some(url=>e.stack.startsWith('Fetch API cannot load '+url+' due to access control checks.')));
+    const cancelledRead=/^Fetch API cannot load https:\/\/[^ ]+\/api\/(?:notifications\/badge|approvals|access|sync\/pull|crm\/status)(?:\?| )/.test(e.stack)&&navigations.some(n=>e.time>=n.time-20&&e.time<=n.time+200&&n.pending.some(url=>e.stack.startsWith('Fetch API cannot load '+url+' due to access control checks.')));
     const injectedGroup=page._uxFaultWindows.some(w=>e.time>=w.start-20&&e.time<=w.end+300&&w.pending.some(url=>e.stack.startsWith('Fetch API cannot load '+url+' due to access control checks.')));
     return injected||injectedGroup||cancelledRead;
   });

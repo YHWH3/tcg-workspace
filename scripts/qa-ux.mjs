@@ -14,7 +14,7 @@ import {coverage} from './ux-lab/coverage.mjs';
 import {ensureLabTls} from './ux-lab/tls.mjs';
 const root=resolve(import.meta.dirname,'..'),output=resolve(process.env.UX_OUTPUT??join(root,'.artifacts/ux-lab',new Date().toISOString().replaceAll(':','-')));
 mkdirSync(output,{recursive:true});
-const args=process.argv.slice(2),record=args.includes('--record'),skipBuild=args.includes('--skip-build');
+const args=process.argv.slice(2),record=args.includes('--record'),skipBuild=args.includes('--skip-build'),crmMode=args.includes('--crm');
 if(args.some(a=>/^--(?:update-snapshots|ui|headed|debug|reporter|config|output)/.test(a)))throw new Error('Use --record for explicit local baseline capture; interactive/alternate config flags are not supported by this fixture owner');
 if(Boolean(process.env.UX_TLS_CERT)!==Boolean(process.env.UX_TLS_KEY))throw new Error('Set both UX_TLS_CERT and UX_TLS_KEY, or neither');
 const tls={cert:resolve(process.env.UX_TLS_CERT??join(root,'.artifacts/ux-lab/tls/cert.pem')),key:resolve(process.env.UX_TLS_KEY??join(root,'.artifacts/ux-lab/tls/key.pem'))};
@@ -28,13 +28,13 @@ if(process.env.NODE_EXTRA_CA_CERTS!==tls.cert||tlsRenewed){
 const source={sha:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),fingerprint:fingerprint(root)};
 const projectPlan=partitionProjects(args,requiredProjects);
 if(projectPlan.projects.length>1){
-  process.exitCode=await runIsolatedProjects({root,output,source,plan:projectPlan,record,skipBuild,originalArgs:args});
+  process.exitCode=await runIsolatedProjects({root,output,source,plan:projectPlan,record,skipBuild,crmMode,originalArgs:args});
   process.exit(process.exitCode);
 }
 let owned,child,exitCode=1;
 const cleanup=()=>{child?.kill('SIGTERM');void owned?.stop();};process.once('SIGINT',cleanup);process.once('SIGTERM',cleanup);
 try{
-  owned=await startFixture({port:await freePort(),build:!skipBuild,tls,artifactDirectory:join(output,'fixture'),vars:{WEBSITE_INGEST_ENABLED:'true',WEBSITE_INGEST_SECRET:'ux-lab-disposable'}});
+  owned=await startFixture({port:await freePort(),build:!skipBuild,tls,artifactDirectory:join(output,'fixture'),vars:{WEBSITE_INGEST_ENABLED:'true',WEBSITE_INGEST_SECRET:'ux-lab-disposable',...(crmMode?{CRM_ENABLED:'true'}:{})}});
   const req=async(path,body,token)=>{
     const r=await fetch(owned.base+path,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw new Error(`Fixture setup ${path}: ${r.status}`);return j;
   };
@@ -73,8 +73,8 @@ try{
   const authFile=join(output,'fixture-session.json');writeFileSync(authFile,JSON.stringify({base:owned.base,admin,disposable:true,owner:{config:owned.config,state:owned.state,directory:owned.directory,fixtureId:owned.fixtureId}}),{mode:0o600});
   // These ignored local reports can contain disposable session credentials in
   // traces. Never attach raw reports/traces to a public PR.
-  const env={...fixtureEnvironment(),UX_OUTPUT:output,UX_FIXTURE:authFile,NODE_EXTRA_CA_CERTS:tls.cert,PLAYWRIGHT_HTML_OPEN:'never'};
-  child=spawn(join(root,'node_modules/.bin/playwright'),['test','--config=scripts/ux-lab/playwright.config.mjs',...args.filter(a=>!['--record','--skip-build'].includes(a)),...(record?['--update-snapshots=all']:[])],{cwd:root,env,stdio:'inherit'});
+  const env={...fixtureEnvironment(),UX_OUTPUT:output,UX_FIXTURE:authFile,NODE_EXTRA_CA_CERTS:tls.cert,PLAYWRIGHT_HTML_OPEN:'never',...(crmMode?{UX_CRM:'1'}:{})};
+  child=spawn(join(root,'node_modules/.bin/playwright'),['test','--config=scripts/ux-lab/playwright.config.mjs',...args.filter(a=>!['--record','--skip-build','--crm'].includes(a)),...(record?['--update-snapshots=all']:[])],{cwd:root,env,stdio:'inherit'});
   exitCode=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',code=>resolve(code??1));});child=undefined;
   if(fingerprint(root)!==source.fingerprint)throw new Error('Tracked source changed during UX lab verification');
   const reportPath=join(output,'playwright.json'),report=existsSync(reportPath)?JSON.parse(readFileSync(reportPath,'utf8')):null;
@@ -84,12 +84,12 @@ try{
   const attachments=[];
   function readMetadata(suites){for(const s of suites??[]){for(const spec of s.specs??[])for(const t of spec.tests??[])for(const r of t.results??[])for(const a of r.attachments??[])if(a.body&&['runtime.json','exploration-replay.json'].includes(a.name))attachments.push({project:t.projectName,name:a.name,data:JSON.parse(Buffer.from(a.body,'base64').toString())});readMetadata(s.suites);}}
   readMetadata(report?.suites);
-  const summary={source,recordMode:record,selection:args,exitCode,stats:report?.stats??null,rows,runtimes:[...new Map(attachments.filter(a=>a.name==='runtime.json').map(a=>[a.project,a.data])).entries()].map(([project,data])=>({project,...data})),explorations:attachments.filter(a=>a.name==='exploration-replay.json'),surfaces:surfaces.map(s=>s.id),baselineReview:'GENERATED_REFERENCE_NOT_HUMAN_ACCEPTANCE',notCovered,scope:'Matrix: 3 engines × 3 viewport sizes × 2 themes. Only executed named states and bounded generated interactions count. No claim of all features/devices.',report:join(output,'html/index.html')};
+  const summary={source,recordMode:record,crmMode,selection:args,exitCode,stats:report?.stats??null,rows,runtimes:[...new Map(attachments.filter(a=>a.name==='runtime.json').map(a=>[a.project,a.data])).entries()].map(([project,data])=>({project,...data})),explorations:attachments.filter(a=>a.name==='exploration-replay.json'),surfaces:surfaces.map(s=>s.id),baselineReview:'GENERATED_REFERENCE_NOT_HUMAN_ACCEPTANCE',notCovered,scope:'Matrix: 3 engines × 3 viewport sizes × 2 themes. Only executed named states and bounded generated interactions count. No claim of all features/devices.',report:join(output,'html/index.html')};
   if(!rows.length)summary.exitCode=exitCode=1;
   coverage(summary,output);
-  if(!record&&!args.some(a=>/^--(?:project|grep)/.test(a))&&!summary.coverage.complete)summary.exitCode=exitCode=1;
+  if(!record&&!crmMode&&!args.some(a=>/^--(?:project|grep)/.test(a))&&!summary.coverage.complete)summary.exitCode=exitCode=1;
   writeFileSync(join(output,'summary.json'),JSON.stringify(summary,null,2));
-  if(record){const dir=join(root,'.artifacts/ux-lab/baselines');mkdirSync(dir,{recursive:true});writeFileSync(join(dir,'provenance.json'),JSON.stringify({source,recordedAt:new Date().toISOString(),review:'UNREVIEWED',output},null,2));}
+  if(record){const dir=join(root,'.artifacts/ux-lab',crmMode?'crm-baselines':'baselines');mkdirSync(dir,{recursive:true});writeFileSync(join(dir,'provenance.json'),JSON.stringify({source,recordedAt:new Date().toISOString(),review:'UNREVIEWED',output},null,2));}
   writeFileSync(join(output,'README.md'),`# UX lab results\n\nSource ${source.sha}; fingerprint ${source.fingerprint}.\n\nExit: ${exitCode}. Baselines: generated references, no human acceptance implied.\n\nOpen html/index.html for screenshots, accessibility failures and replay traces. Reports are local only: synthetic sessions may appear in traces.\n\nUncovered:\n${notCovered.map(s=>'- '+s).join('\n')}\n`);
   console.log(`UX lab exit ${exitCode}; local report ${summary.report}`);
 }finally{await owned?.stop();process.removeListener('SIGINT',cleanup);process.removeListener('SIGTERM',cleanup);}

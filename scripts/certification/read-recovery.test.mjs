@@ -18,3 +18,14 @@ test('settings recovery requires an online authenticated valid response; refusal
  for(const status of [401,403,500]){response=new Response('{}',{status});assert.deepEqual(await readRecoveryInBrowser(url),{online:true,status});}
  Object.defineProperty(globalThis,'navigator',{value:{onLine:false},configurable:true});assert.deepEqual(await readRecoveryInBrowser(url),{online:false,status:0});
 });
+test('crm status recovery validates CrmStatus shape',async t=>{
+ const saved=new Map(['navigator','localStorage','fetch'].map(k=>[k,Object.getOwnPropertyDescriptor(globalThis,k)]));
+ t.after(()=>{for(const [key,descriptor]of saved)descriptor?Object.defineProperty(globalThis,key,descriptor):Reflect.deleteProperty(globalThis,key);});
+ Object.defineProperty(globalThis,'navigator',{value:{onLine:true},configurable:true});globalThis.localStorage={getItem:()=> 'disposable'};
+ const statusUrl=origin+'/api/crm/status';
+ let response=new Response(JSON.stringify({contract:'crm-s0-v2',enabled:true,access:true,owner:true,capabilities:[]}));
+ globalThis.fetch=async()=>response;
+ assert.deepEqual(await readRecoveryInBrowser(statusUrl),{online:true,status:200});
+ response=new Response(JSON.stringify({contract:'wrong',enabled:true,access:true,owner:true,capabilities:[]}));
+ assert.deepEqual(await readRecoveryInBrowser(statusUrl),{online:true,status:0});
+});

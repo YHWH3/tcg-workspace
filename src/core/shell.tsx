@@ -24,6 +24,7 @@ import { countLocalPending, flushAndCountPending, onlineStore, retryRejected, sy
 import { createStore, useStore } from './store';
 import { setTheme, themeStore } from './theme';
 import { Avatar, Button, Dialog, Menu, Popover, Sheet } from './ui';
+import { AppSwitcher } from './AppSwitcher';
 import { cn } from './utils';
 
 export { useIsMobile } from './mobile';
@@ -481,10 +482,18 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-4 pb-1 pt-4">
-        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-neutral-900 text-[11px] font-bold text-white dark:bg-white dark:text-neutral-900">
-          {APP_NAME[0]}
-        </div>
-        <span className="text-sm font-semibold tracking-tight">{APP_NAME}</span>
+        <AppSwitcher
+          current="workspace"
+          onSelect={onNavigate}
+          fallback={
+            <>
+              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-neutral-900 text-[11px] font-bold text-white dark:bg-white dark:text-neutral-900">
+                {APP_NAME[0]}
+              </div>
+              <span className="text-sm font-semibold tracking-tight">{APP_NAME}</span>
+            </>
+          }
+        />
       </div>
       <div className="flex gap-1.5 px-2 py-2">
         <button

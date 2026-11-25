@@ -1,0 +1,507 @@
+import { z } from 'zod';
+import {
+  CapabilityAuditPageSchema,
+  CapabilityChangeOutputSchema,
+  CapabilityOverviewSchema,
+  CommandErrorSchema,
+  CrmHttpErrorSchema,
+  CrmRetryableHttpErrorSchema,
+  OWNER_PROTECTED_ERROR,
+  REQUEST_ID_PATTERN,
+  commandResultSchema,
+  type CapabilityAuditPage,
+  type CapabilityChangeInput,
+  type CapabilityChangeOutput,
+  type CapabilityOverview,
+  type CommandError,
+  type CommandResult,
+  type CrmErrorCode,
+} from '../../../shared/crm/contracts';
+import type { PublicUser } from '../../../shared/types';
+import { api, ApiError, getToken } from '../../core/api';
+import {
+  currentCrmIdentityKey,
+  handleCrmAuthFailure,
+  notifyCrmStatusUpdated,
+} from '../../core/crmStatus';
+
+export type CrmTransportFailureKind =
+  | 'offline'
+  | 'retryable_http'
+  | 'unauthenticated'
+  | 'forbidden'
+  | 'not_found'
+  | 'bad_response'
+  | 'http';
+
+export class CrmTransportError extends Error {
+  readonly kind: CrmTransportFailureKind;
+  readonly status: number;
+  readonly code?: string;
+  readonly retryable: boolean;
+  readonly requestId?: string;
+  readonly userMessage: string;
+
+  constructor(opts: {
+    kind: CrmTransportFailureKind;
+    status: number;
+    code?: string;
+    retryable: boolean;
+    requestId?: string;
+    userMessage: string;
+    message?: string;
+  }) {
+    super(opts.message ?? opts.userMessage);
+    this.name = 'CrmTransportError';
+    this.kind = opts.kind;
+    this.status = opts.status;
+    this.code = opts.code;
+    this.retryable = opts.retryable;
+    this.requestId = opts.requestId;
+    this.userMessage = opts.userMessage;
+  }
+}
+
+export function generateCrmRequestId(): string {
+  const raw =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID().replace(/-/g, '')
+      : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+  const id = `crm_${raw}`.slice(0, 64);
+  if (!REQUEST_ID_PATTERN.test(id)) {
+    throw new Error('Generated invalid requestId');
+  }
+  return id;
+}
+
+export interface RunCrmCommandOptions {
+  requestId?: string;
+  expected?: Record<string, number>;
+  maxTransientRetries?: number;
+  retryDelayMs?: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function runCrmCommand<O>(
+  name: string,
+  input: Record<string, unknown>,
+  outputSchema: z.ZodType<O>,
+  opts: RunCrmCommandOptions = {},
+): Promise<CommandResult<O> | CommandError> {
+  const requestId = opts.requestId ?? generateCrmRequestId();
+  if (!REQUEST_ID_PATTERN.test(requestId)) {
+    throw new Error('Invalid CRM command requestId');
+  }
+
+  const maxRetries = opts.maxTransientRetries ?? 1;
+  const retryDelayMs = opts.retryDelayMs ?? 250;
+  const resultSchema = commandResultSchema(outputSchema);
+  const envelope = {
+    requestId,
+    input,
+    ...(opts.expected && Object.keys(opts.expected).length > 0 ? { expected: opts.expected } : {}),
+  };
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const identityKey = currentCrmIdentityKey();
+    const token = getToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new CrmTransportError({
+        kind: 'offline',
+        status: 0,
+        code: 'offline',
+        retryable: true,
+        requestId,
+        userMessage: 'Capability changes need a connection',
+      });
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(`/api/crm/commands/${encodeURIComponent(name)}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(envelope),
+      });
+    } catch {
+      const online = typeof navigator === 'undefined' ? true : navigator.onLine;
+      if (online && attempt < maxRetries && currentCrmIdentityKey() === identityKey) {
+        if (retryDelayMs > 0) await sleep(retryDelayMs);
+        continue;
+      }
+      throw new CrmTransportError({
+        kind: 'offline',
+        status: 0,
+        code: 'network_error',
+        retryable: true,
+        requestId,
+        userMessage: online
+          ? 'Connection dropped before the server replied. Retry to confirm safely.'
+          : 'Capability changes need a connection',
+      });
+    }
+
+    const rawText = await res.text();
+    let parsedJson: unknown = null;
+    try {
+      parsedJson = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      parsedJson = null;
+    }
+
+    if (res.status === 401) {
+      handleCrmAuthFailure('unauthenticated', identityKey);
+      throw new CrmTransportError({
+        kind: 'unauthenticated',
+        status: 401,
+        code: 'unauthenticated',
+        retryable: false,
+        requestId,
+        userMessage: 'Your session expired. Sign in again to continue.',
+      });
+    }
+
+    if (res.status === 403 || res.status === 404) {
+      const httpErr = CrmHttpErrorSchema.safeParse(parsedJson);
+      const code = httpErr.success ? httpErr.data.error : res.status === 403 ? 'forbidden' : 'not_found';
+      handleCrmAuthFailure(res.status === 403 ? 'forbidden' : 'not_found', identityKey);
+      throw new CrmTransportError({
+        kind: res.status === 403 ? 'forbidden' : 'not_found',
+        status: res.status,
+        code,
+        retryable: false,
+        requestId,
+        userMessage:
+          res.status === 403
+            ? 'You no longer have permission to perform this change.'
+            : 'CRM is unavailable right now.',
+      });
+    }
+
+    if (res.status === 503) {
+      const retryableErr = CrmRetryableHttpErrorSchema.safeParse(parsedJson);
+      if (retryableErr.success) {
+        if (attempt < maxRetries && currentCrmIdentityKey() === identityKey) {
+          if (retryDelayMs > 0) await sleep(retryDelayMs);
+          continue;
+        }
+        throw new CrmTransportError({
+          kind: 'retryable_http',
+          status: 503,
+          code: retryableErr.data.error,
+          retryable: true,
+          requestId,
+          userMessage: 'The server was interrupted before confirming. Retry to finish safely.',
+        });
+      }
+    }
+
+    if (!res.ok) {
+      const httpErr = CrmHttpErrorSchema.safeParse(parsedJson);
+      throw new CrmTransportError({
+        kind: 'http',
+        status: res.status,
+        code: httpErr.success ? httpErr.data.error : undefined,
+        retryable: res.status >= 500,
+        requestId,
+        userMessage: 'The change could not be completed. Refresh and try again.',
+      });
+    }
+
+    const okResult = resultSchema.safeParse(parsedJson);
+    if (okResult.success) {
+      return okResult.data;
+    }
+
+    const cmdError = CommandErrorSchema.safeParse(parsedJson);
+    if (cmdError.success) {
+      if (cmdError.data.error === 'unauthenticated') {
+        handleCrmAuthFailure('unauthenticated', identityKey);
+      } else if (cmdError.data.error === 'forbidden') {
+        handleCrmAuthFailure('forbidden', identityKey);
+      }
+      return cmdError.data;
+    }
+
+    throw new CrmTransportError({
+      kind: 'bad_response',
+      status: res.status,
+      retryable: false,
+      requestId,
+      userMessage: 'The server returned an unexpected response.',
+    });
+  }
+
+  throw new CrmTransportError({
+    kind: 'retryable_http',
+    status: 503,
+    retryable: true,
+    requestId,
+    userMessage: 'The change could not be confirmed. Retry to verify.',
+  });
+}
+
+export async function grantCrmCapability(
+  input: CapabilityChangeInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<CapabilityChangeOutput> | CommandError> {
+  const payload = {
+    userId: input.userId,
+    capability: input.capability,
+    scope: input.scope,
+    ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+  };
+  const outcome = await runCrmCommand('capability.grant', payload, CapabilityChangeOutputSchema, opts);
+  if (outcome.ok && !outcome.result.already) {
+    await notifyCrmStatusUpdated(input.userId);
+  }
+  return outcome;
+}
+
+export async function revokeCrmCapability(
+  input: CapabilityChangeInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<CapabilityChangeOutput> | CommandError> {
+  const payload = {
+    userId: input.userId,
+    capability: input.capability,
+    scope: input.scope,
+    ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+  };
+  const outcome = await runCrmCommand('capability.revoke', payload, CapabilityChangeOutputSchema, opts);
+  if (outcome.ok && !outcome.result.already) {
+    await notifyCrmStatusUpdated(input.userId);
+  }
+  return outcome;
+}
+
+async function fetchCrmRead<T>(path: string, schema: z.ZodType<T>): Promise<T> {
+  const identityKey = currentCrmIdentityKey();
+  try {
+    const raw = await api<unknown>(path);
+    const parsed = schema.safeParse(raw);
+    if (!parsed.success) {
+      throw new CrmTransportError({
+        kind: 'bad_response',
+        status: 200,
+        retryable: false,
+        userMessage: 'The server returned an unexpected response.',
+      });
+    }
+    return parsed.data;
+  } catch (err) {
+    if (err instanceof CrmTransportError) throw err;
+    if (err instanceof ApiError) {
+      if (err.status === 401) {
+        handleCrmAuthFailure('unauthenticated', identityKey);
+        throw new CrmTransportError({
+          kind: 'unauthenticated',
+          status: 401,
+          code: 'unauthenticated',
+          retryable: false,
+          userMessage: 'Your session expired. Sign in again to continue.',
+        });
+      }
+      if (err.status === 403 || err.status === 404) {
+        handleCrmAuthFailure(err.status === 403 ? 'forbidden' : 'not_found', identityKey);
+        throw new CrmTransportError({
+          kind: err.status === 403 ? 'forbidden' : 'not_found',
+          status: err.status,
+          code: err.message,
+          retryable: false,
+          userMessage:
+            err.status === 403
+              ? 'You do not have permission to view CRM capability settings.'
+              : 'CRM is unavailable right now.',
+        });
+      }
+      if (err.status === 0) {
+        throw new CrmTransportError({
+          kind: 'offline',
+          status: 0,
+          code: 'offline',
+          retryable: true,
+          userMessage: 'Needs a connection to load CRM capability settings.',
+        });
+      }
+      throw new CrmTransportError({
+        kind: err.status === 503 ? 'retryable_http' : 'http',
+        status: err.status,
+        code: err.message,
+        retryable: err.status >= 500,
+        userMessage: 'Could not load CRM settings right now. Retry when connected.',
+      });
+    }
+    throw err;
+  }
+}
+
+export function fetchCapabilityOverview(): Promise<CapabilityOverview> {
+  return fetchCrmRead('/api/crm/read/capabilities', CapabilityOverviewSchema);
+}
+
+export function fetchCapabilityAudit(cursor?: string | null): Promise<CapabilityAuditPage> {
+  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  return fetchCrmRead(`/api/crm/read/capability-audit${qs}`, CapabilityAuditPageSchema);
+}
+
+export interface WorkspaceInviteRow {
+  code: string;
+  created_at: number;
+  used_by: string | null;
+  used_by_name?: string | null;
+}
+
+export interface WorkspaceUsersResponse {
+  users: PublicUser[];
+  seatsTotal: number;
+}
+
+async function callWorkspaceAdmin<T>(path: string, opts?: { method?: string; body?: unknown }): Promise<T> {
+  const identityKey = currentCrmIdentityKey();
+  try {
+    return await api<T>(path, opts);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      handleCrmAuthFailure('unauthenticated', identityKey);
+    }
+    throw err;
+  }
+}
+
+export function fetchWorkspaceAccounts(): Promise<[WorkspaceUsersResponse, { invites: WorkspaceInviteRow[] }]> {
+  return Promise.all([
+    callWorkspaceAdmin<WorkspaceUsersResponse>('/api/users'),
+    callWorkspaceAdmin<{ invites: WorkspaceInviteRow[] }>('/api/invites'),
+  ]);
+}
+
+export function createWorkspaceInvite(): Promise<{ code: string }> {
+  return callWorkspaceAdmin<{ code: string }>('/api/invites', { method: 'POST' });
+}
+
+export function deleteWorkspaceInvite(code: string): Promise<{ ok: boolean }> {
+  return callWorkspaceAdmin<{ ok: boolean }>(`/api/invites/${encodeURIComponent(code)}`, { method: 'DELETE' });
+}
+
+export function updateWorkspaceUserRole(userId: string, role: 'admin' | 'member'): Promise<{ ok: boolean }> {
+  return callWorkspaceAdmin<{ ok: boolean }>(`/api/users/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    body: { role },
+  });
+}
+
+export function disableWorkspaceUser(userId: string): Promise<{ ok: boolean; disabled: boolean; cleanupPending?: boolean }> {
+  return callWorkspaceAdmin<{ ok: boolean; disabled: boolean; cleanupPending?: boolean }>(
+    `/api/users/${encodeURIComponent(userId)}/disable`,
+    { method: 'POST' },
+  );
+}
+
+export function enableWorkspaceUser(userId: string): Promise<{ ok: boolean; disabled: boolean }> {
+  return callWorkspaceAdmin<{ ok: boolean; disabled: boolean }>(
+    `/api/users/${encodeURIComponent(userId)}/enable`,
+    { method: 'POST' },
+  );
+}
+
+export function deleteWorkspaceUser(userId: string): Promise<{ ok: boolean }> {
+  return callWorkspaceAdmin<{ ok: boolean }>(`/api/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
+}
+
+const COMMAND_ERROR_MESSAGES: Record<CrmErrorCode, string> = {
+  unauthenticated: 'Your session expired. Sign in again to continue.',
+  forbidden: 'You do not have permission to change this capability.',
+  not_found: 'That account was not found. Refresh the list and try again.',
+  stale: 'Account or capability state changed before saving. The list has been refreshed.',
+  idempotency_conflict: 'That request conflicted with an earlier change. Refresh and try again.',
+  invalid_input: 'That capability change is not allowed for this account.',
+  capacity_exceeded: 'Capacity limit reached.',
+  hold_expired: 'Hold expired before confirmation.',
+  window_closed: 'Messaging window is closed.',
+  consent_withdrawn: 'Consent has been withdrawn.',
+  provider_unavailable: 'Provider is temporarily unavailable. Retry shortly.',
+  currency_mismatch: 'Currency mismatch.',
+  approval_required: 'Approval is required before proceeding.',
+  budget_exceeded: 'The response exceeded the size limit.',
+  source_changed: 'The source record changed. Refresh and try again.',
+};
+
+export function describeCommandError(err: CommandError | CrmTransportError | unknown): string {
+  if (err instanceof CrmTransportError) {
+    return err.userMessage;
+  }
+  if (err && typeof err === 'object' && 'ok' in err && (err as CommandError).ok === false) {
+    const cmdErr = err as CommandError;
+    const reason = typeof cmdErr.detail?.reason === 'string' ? cmdErr.detail.reason : undefined;
+    if (cmdErr.error === 'invalid_input' && reason) {
+      switch (reason) {
+        case 'guest_not_eligible':
+          return 'Guests cannot hold CRM capabilities.';
+        case 'self_grant':
+          return 'You cannot change your own CRM capabilities.';
+        case 'owner_implicit':
+          return 'The workspace owner already holds every capability.';
+        case 'account_disabled':
+          return 'Disabled accounts cannot be granted CRM capabilities.';
+        case 'not_admin':
+          return 'Only admins can be granted Manage capabilities.';
+        case 'unknown_capability':
+          return 'This capability is not supported in this CRM version.';
+        case 'unknown_scope':
+          return 'Programme-scoped capabilities are not enabled yet.';
+      }
+    }
+    return COMMAND_ERROR_MESSAGES[cmdErr.error] ?? 'Could not update capability. Refresh and retry.';
+  }
+  if (err instanceof ApiError && err.status === 0) {
+    return 'Capability changes need a connection';
+  }
+  return 'Could not update capability. Refresh and retry.';
+}
+
+export function describeAccountError(err: unknown): { message: string; shouldRefresh: boolean } {
+  if (err instanceof ApiError) {
+    const body = err.body as { error?: unknown; message?: unknown } | null | undefined;
+    const code = typeof body?.error === 'string' ? body.error : err.message;
+    if (code === OWNER_PROTECTED_ERROR) {
+      return { message: 'The owner account can only be changed by the owner.', shouldRefresh: true };
+    }
+    if (code === 'account_or_authority_changed' || code === 'capacity_or_authority_changed') {
+      return { message: 'Someone changed this account. The list has been refreshed.', shouldRefresh: true };
+    }
+    if (code === 'capacity_full') {
+      return {
+        message: 'All seven active places are in use. Free a place before restoring access.',
+        shouldRefresh: true,
+      };
+    }
+    if (code === 'connector_cleanup_pending') {
+      return {
+        message: 'Account remains disabled. Retry when connector revocation is available.',
+        shouldRefresh: false,
+      };
+    }
+    if (code === 'authority_changed') {
+      return { message: 'Your admin access changed. The list has been refreshed.', shouldRefresh: true };
+    }
+    if (err.status === 0) {
+      return { message: 'Connection lost. Retry when connected.', shouldRefresh: false };
+    }
+    if (err.status === 401) {
+      return { message: 'Your session expired. Sign in again to continue.', shouldRefresh: false };
+    }
+    if (typeof body?.message === 'string' && body.message.trim()) {
+      return { message: body.message, shouldRefresh: false };
+    }
+  }
+  return { message: 'Account change failed. Refresh and try again.', shouldRefresh: false };
+}

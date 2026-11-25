@@ -9,12 +9,12 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 | **Principal engineering agent** | Neon (T3 Code; revised A-26) |
 | **PM & independent review** | ChatGPT |
 | **Owner & approver** | Paul |
-| **Repository & active branch** | `YHWH3/tcg-workspace`, branch `crm/s0-backend` (branched from reviewed baseline `crm/foundation` @ `8aa6f5300426029dc1db87e979fb871313190973`) |
+| **Repository & active branch** | `YHWH3/tcg-workspace`, branch `crm/s0-frontend` (branched from verified Stage 2 backend `crm/s0-backend` @ `98938ecb10164f705223615cbc42cc0c65d20bc8`) |
 | **Workspace baseline commit** | `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`codex/workspace-database-platform`) |
 | **Reviewed documentation baseline** | `8aa6f5300426029dc1db87e979fb871313190973` (`crm/foundation`, Checkpoint 1 accepted) |
 | **Active contract version** | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) (**Accepted**, superseding `crm-s0-v1`) |
-| **Current stage** | **Checkpoint 2 — S0 Backend & Security Review Gate** (Stage 1 Shared Contracts + Stage 2 Backend implemented & verified; awaiting ChatGPT line-by-line review before Stage 3 frontend) |
-| **Frontend code changed** | None (`src/` completely untouched) |
+| **Current stage** | **N3 — Stage 3 Frontend Review Checkpoint** (Stage 3 frontend, Commons demo, UX lab spec, and frontend unit suites complete & verified; awaiting frontend review & N4 full-matrix certification) |
+| **Frontend scope delivered** | Shared `AppSwitcher`, `crmStatusStore` (SC-2.3), lazy `CrmShell`, `Home` empty state, `AccessSettings` (Accounts, Capabilities, History), scoped `crm.css`, `demo:crm`, UX lab `--crm` integration |
 
 ---
 
@@ -23,25 +23,28 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 1. **Workspace takeover & input archive verification (24 Nov 2026)**
    - Verified clean repository checkout on branch `crm/foundation` at `d1742a09cb1972644ba869134208dc70a76524d7` and Workspace baseline `38c388a`.
    - Verified local confidential archive under `docs/crm/input/` (excluded from git via `docs/crm/.gitignore`; never committed).
-   - Audited Workspace baseline test & Worker internals (`worker/sync.ts`, `worker/mutationAccess.ts`, `worker/admin.ts`, `worker/auth.ts`, `worker/index.ts`, `worker/idempotency.ts`, `shared/stablejson.ts`, `worker/readAccess.ts`, `worker/forms.ts`, `worker/live.ts`, `worker/historyPersistence.ts`, `src/core/*`, `tests/sync-atomic.test.ts`, `tests/phase7-disable-d1.test.ts`, `scripts/access/selftest.mjs`, `scripts/certification/test-files.mjs`).
 2. **Checkpoint 1 — Closed S0 Contract Review findings CR-01 through CR-06 (`crm-s0-v2`, accepted at `8aa6f53`)**
    - Resolved CR-01 through CR-06 in [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md), updated [`01-DECISIONS.md`](01-DECISIONS.md) (revised A-26), [`S0-PLAN.md`](S0-PLAN.md), and [`BACKEND-S0-BRIEF.md`](BACKEND-S0-BRIEF.md).
-   - Accepted at Checkpoint 1 (`8aa6f53`) with two non-material implementation clarifications folded into Stage 2:
-     - Protected `/api/crm/read/capability-audit?cursor=` preserves `401 -> 404 -> 403 -> 400 invalid_cursor` AND rechecks live session, canonical role, and CRM capabilities in the same D1 `db.batch` snapshot as the returned audit rows.
-     - Stage 3 original Workspace screenshot baseline (`npm run qa:ux -- --record`) must be captured from an isolated checkout of `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444`, not from a post-backend-implementation working tree.
 3. **Stage 1 — Shared Contracts (`shared/crm/*`, branch `crm/s0-backend`)**
-   - Implemented [`shared/crm/capabilities.ts`](../../shared/crm/capabilities.ts) (13 capabilities, labels, scopes, guard).
-   - Implemented [`shared/crm/projection.ts`](../../shared/crm/projection.ts) (`_crm_` prefix, `isCrmProjectionKey`, `ProjectionGrant`).
-   - Implemented [`shared/crm/contracts.ts`](../../shared/crm/contracts.ts) (`crm-s0-v2` constants, bounds, 15 error codes & `CRM_ERROR_RETRYABLE`, `OWNER_PROTECTED_ERROR`, TypeScript interfaces, and strict Zod schemas).
-   - Verified with [`tests/crm-contract.test.ts`](../../tests/crm-contract.test.ts) (4/4 passing) and `npm run typecheck`.
+   - Implemented [`shared/crm/capabilities.ts`](../../shared/crm/capabilities.ts), [`shared/crm/projection.ts`](../../shared/crm/projection.ts), and [`shared/crm/contracts.ts`](../../shared/crm/contracts.ts).
 4. **Stage 2 — S0 Backend Implementation (`migrations/0045_crm_foundation.sql`, `worker/`, `scripts/`, 8 backend test suites)**
-   - Added [`migrations/0045_crm_foundation.sql`](../../migrations/0045_crm_foundation.sql) (`crm_commands`, `crm_capability_grants`, `crm_capability_audit` + append-only triggers) and registered its SHA-256 in [`scripts/certification/migrations.json`](../../scripts/certification/migrations.json); updated `RELEASE_MIGRATION_COUNT` / preflight count (44 -> 45), `scripts/access/selftest.mjs`, and `scripts/certification/test-files.mjs` + `test-files.test.mjs`.
-   - Implemented [`worker/crm/projection.ts`](../../worker/crm/projection.ts), [`worker/crm/rules.ts`](../../worker/crm/rules.ts), [`worker/crm/commands.ts`](../../worker/crm/commands.ts), [`worker/crm/grants.ts`](../../worker/crm/grants.ts), and [`worker/crm/index.ts`](../../worker/crm/index.ts).
-   - Updated [`worker/auth.ts`](../../worker/auth.ts) (`CRM_ENABLED?: string`), [`worker/mutationAccess.ts`](../../worker/mutationAccess.ts) (granted `_crm_` projection exemption on `tasks`), [`worker/sync.ts`](../../worker/sync.ts) (unconditional `_crm_` pre-check, filtered `authExisting` on projection rejections, dedicated single-batch `flushAtomicCommit` with `strictExpectationGuard`, `!authority` fence, `changes() = 1` assertion preserving `historyStatement`, committed `seq` capture), [`worker/admin.ts`](../../worker/admin.ts) (always-on SC-6 owner protection + `protectOwner` fence, always-on SC-7 disable revocation + explicit `DELETE` grant cleanup), and [`worker/index.ts`](../../worker/index.ts) (mounted `/api/crm` before `/api` admin).
-   - Added all 8 Stage 2 test suites proving every SC-1 through SC-9 requirement and N1 atomic-execution/concurrency proof on real local Miniflare D1 (committed at `49ab28cdb565aee27aefc42a9c301d70b4d59d98`).
-5. **N2 — Checkpoint 2 Targeted Backend Corrections (24 Nov 2026, `crm/s0-backend`)**
-   - **Session expiry fence at transactional write boundary**: Updated `actorFence()` and `sessionQuery()` in [`worker/crm/grants.ts`](../../worker/crm/grants.ts) and session checks in [`worker/crm/commands.ts`](../../worker/crm/commands.ts) to evaluate session expiry against `MAX(freshNow, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER))` using lazy commit-time fence factories (`() => actorFence(env.DB, actor, tokenHash)`) rather than a start-of-request `now`. Added regression tests in [`tests/crm-grants-d1.test.ts`](../../tests/crm-grants-d1.test.ts) covering real wall-clock expiry at the SQL write boundary for both `capability.grant` and `capability.revoke` plus JS clock jump between `plan()` and commit (both permission modes).
-   - **False-success protection & `_crm_` prefix guard**: Updated [`worker/sync.ts`](../../worker/sync.ts) so `RecordAccessError` in `applyChanges()` records explicit `authorizationError` and non-zero `rejected` / `rejectedItems` even when `incoming` is empty (read-only `expect` or `forceRecordsCommit`), and marks `committed: true` only after `flushAtomicCommit` commits its batch. Updated [`worker/crm/commands.ts`](../../worker/crm/commands.ts) to handle `authorizationError`, `conflicts`, `rejected`, `fenceAborted`/`conflict`, `partialError`, and enforce a hard fail-closed invariant (`!commitCallbackInvoked || applyResult.committed !== true`) so no command can ever report success if its commit callback never executed. Tightened [`worker/mutationAccess.ts`](../../worker/mutationAccess.ts) to require `isCrmProjectionKey(field)` directly before exempting granted keys on `tasks`. Added regression tests in [`tests/crm-commands-d1.test.ts`](../../tests/crm-commands-d1.test.ts) (both permission modes) and [`tests/crm-projection-keys-d1.test.ts`](../../tests/crm-projection-keys-d1.test.ts).
+   - Implemented [`migrations/0045_crm_foundation.sql`](../../migrations/0045_crm_foundation.sql), `worker/crm/*`, always-on Workspace hardenings in `worker/sync.ts`, `worker/mutationAccess.ts`, `worker/admin.ts`, and `/api/crm/*` mount in `worker/index.ts`.
+   - Passed Checkpoint 2 ChatGPT review at `98938ecb10164f705223615cbc42cc0c65d20bc8` (including N2 session expiry fence & atomic false-success protection).
+5. **N3 — Stage 3 Frontend Implementation (25 Nov 2026, branch `crm/s0-frontend`)**
+   - **Isolated Workspace baseline capture (`38c388a`)**: Recorded `.artifacts/ux-lab/baselines/` from a detached worktree of `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`provenance.json` confirms `source.sha = 38c388a...`). All **12 desktop & tablet projects** recorded `website-inbox.png` cleanly. Note: on unmodified `38c388a`, all **6 compact (`390x844`) projects** fail a pre-existing Workspace axe `target-size` check on `src/core/views/DatabasePage.tsx:402` (`.min-w-9` view options button overlapped by `+ View`); left untouched per S0 boundaries.
+   - **Core switching, status & routing**:
+     - Added [`src/core/crmStatus.ts`](../../src/core/crmStatus.ts): in-memory-only `crmStatusStore` bound to `(uid, token, accessClientStore.epoch, generation)` implementing all 6 SC-2.3 refresh/invalidation triggers (`ws_crm_status_update` storage hint, `ws-records-changed`, `focus`/`pageshow`/`visibilitychange`, WebSocket reconnect, `401 -> dropSession()`, `403`/`404`/`forbidden` synchronous state clearing, offline/online handling).
+     - Added [`src/core/AppSwitcher.tsx`](../../src/core/AppSwitcher.tsx): accessible APG menu button (`Workspace` / `CRM`, `Escape` focus return, `window` capture phase so nested mobile drawer `Sheet` stays open), rendering the exact Workspace fallback when `CRM_ENABLED` is off or `crm.access` is absent.
+     - Updated [`src/core/shell.tsx`](../../src/core/shell.tsx) (logo slot wrapped in `<AppSwitcher />`), extracted [`src/routes.tsx`](../../src/routes.tsx) with lazy `crm/*` route, and simplified [`src/App.tsx`](../../src/App.tsx).
+   - **Scoped CRM shell, Home & Settings**:
+     - Added [`src/apps/crm/crm.css`](../../src/apps/crm/crm.css): all selectors strictly scoped under `[data-app="crm"]` / `.dark [data-app="crm"]` using `08-UX-SPEC.md` §4 tokens; bundled as a separate CSS chunk.
+     - Added [`src/apps/crm/api.ts`](../../src/apps/crm/api.ts): `runCrmCommand` with `REQUEST_ID_PATTERN` IDs, verbatim `requestId` retry on `503 write_interrupted` / `processing_budget` / transient network drops, Zod response validation, auth failure clearing, and exhaustive SC-4/SC-5/SC-6 error mapping.
+     - Added [`src/apps/crm/CrmShell.tsx`](../../src/apps/crm/CrmShell.tsx), [`src/apps/crm/routes.tsx`](../../src/apps/crm/routes.tsx), and [`src/apps/crm/Home.tsx`](../../src/apps/crm/Home.tsx): exposes only S0 modules (Home empty state + Settings for capability managers), enforces SC-9 presence privacy (`sendHere('/')`), handles loading/offline/error/access-denied states, and adapts cleanly across desktop, tablet, and mobile.
+     - Added [`src/apps/crm/settings/AccessSettings.tsx`](../../src/apps/crm/settings/AccessSettings.tsx): ARIA tablist (`Accounts`, `Capabilities`, `History`) with URL-persisted tab/account state across reconnect barriers, live polite announcements, owner protection (`—` on owner row), seat counter, invite management, non-optimistic `role="switch"` toggles, inactive specialised grants warning (`effectiveAccess: false`), dormant `crm.capabilities.manage` handling, offline disabled switches, mobile full-screen capability sheet with focus return, and cursor-paged append-only History.
+   - **Demo fixture, UX lab & frontend unit suites**:
+     - Added `demo:crm` in [`package.json`](../../package.json), [`scripts/crm-demo/data.mjs`](../../scripts/crm-demo/data.mjs), and [`scripts/crm-demo/preview.mjs`](../../scripts/crm-demo/preview.mjs) (fictional Commons team).
+     - Added `--crm` mode in [`scripts/qa-ux.mjs`](../../scripts/qa-ux.mjs), [`scripts/ux-lab/playwright.config.mjs`](../../scripts/ux-lab/playwright.config.mjs), [`scripts/ux-lab/project-isolation.mjs`](../../scripts/ux-lab/project-isolation.mjs), [`scripts/ux-lab/read-recovery.mjs`](../../scripts/ux-lab/read-recovery.mjs), [`scripts/ux-lab/support.mjs`](../../scripts/ux-lab/support.mjs), [`scripts/certification/read-recovery.test.mjs`](../../scripts/certification/read-recovery.test.mjs), and [`scripts/ux-lab/crm-shell.spec.mjs`](../../scripts/ux-lab/crm-shell.spec.mjs).
+     - Added [`tests/crm-client-contract.test.ts`](../../tests/crm-client-contract.test.ts), [`tests/crm-routes.test.ts`](../../tests/crm-routes.test.ts), and [`tests/crm-isolation.test.ts`](../../tests/crm-isolation.test.ts).
 
 ---
 
@@ -51,21 +54,22 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 |---|---|---|
 | **Stage 0** | ChatGPT reviews & freezes `crm-s0-v2.md`; Paul authorises Stage 1–2 implementation | **Complete (Checkpoint 1 @ `8aa6f53`)** |
 | **Stage 1** | `shared/crm/capabilities.ts` -> `projection.ts` -> `contracts.ts` + `tests/crm-contract.test.ts` & `typecheck` | **Complete (4/4 passing)** |
-| **Stage 2** | `migrations/0045_crm_foundation.sql`, `worker/sync.ts`, `worker/mutationAccess.ts`, `worker/admin.ts`, `worker/auth.ts`, `worker/index.ts`, `worker/crm/*`, certification scripts, 8 backend test suites | **Complete — awaiting Checkpoint 2 review** |
-| **Stage 3** | Capture `npm run qa:ux -- --record` baseline from isolated `38c388a` checkout; implement `src/routes.tsx`, `AppSwitcher.tsx`, `crmStatus.ts`, `CrmShell.tsx`, `AccessSettings.tsx`, `crm.css`, `scripts/crm-demo/*`, `scripts/ux-lab/crm-shell.spec.mjs` | Not started (blocked on Checkpoint 2) |
-| **Stage 4** | Full S0 integration, `npm test` (A-24), `qa:ux` (off: 0 diff pixels; `--crm`: 18 projects + axe + WCAG 2.2 AA), `demo:crm -- --check`, keyboard walkthrough | Not started (Checkpoint 3) |
+| **Stage 2** | `migrations/0045_crm_foundation.sql`, `worker/sync.ts`, `worker/mutationAccess.ts`, `worker/admin.ts`, `worker/auth.ts`, `worker/index.ts`, `worker/crm/*`, certification scripts, 8 backend test suites | **Complete (Checkpoint 2 @ `98938ec`)** |
+| **Stage 3** | Capture `38c388a` baseline; implement `src/routes.tsx`, `AppSwitcher.tsx`, `crmStatus.ts`, `CrmShell.tsx`, `Home.tsx`, `AccessSettings.tsx`, `crm.css`, `scripts/crm-demo/*`, `scripts/ux-lab/crm-shell.spec.mjs`, frontend unit tests | **Complete — awaiting Frontend Review Checkpoint** |
+| **Stage 4 (N4)** | Full S0 integration: full `npm test` (A-24), full 18-project `qa:ux` & `qa:ux -- --crm`, Checkpoint 3 review -> Paul sign-off | Pending (reserved for N4) |
 
 ---
 
 ## Next Action
 
-**Stop at Review Gate (Checkpoint 2).** Present branch `crm/s0-backend` and the exact diffs of `worker/sync.ts`, `worker/mutationAccess.ts`, `worker/admin.ts`, `worker/index.ts`, `worker/auth.ts`, `worker/crm/*`, `shared/crm/*`, and `migrations/0045_crm_foundation.sql` to ChatGPT for independent backend & security review before starting Stage 3 frontend implementation.
+**Stop at Frontend Review Checkpoint (N3).** Review `crm/s0-frontend` implementation, targeted UX lab / demo results, and `.artifacts/crm-demo/*.png` screenshots before proceeding to N4 full-suite and 18-project visual regression certification.
 
 ---
 
 ## Blockers & Open Items
 
-- **Next gate (Checkpoint 2):** ChatGPT line-by-line backend & security review of `crm/s0-backend` and authorisation to proceed to Stage 3 frontend.
+- **Pre-existing `38c388a` compact baseline defect (out of S0 scope):** Unmodified `38c388a` fails axe `target-size` on `src/core/views/DatabasePage.tsx:402` (`.min-w-9` overlapped by `+ View` at 390 px width) across the 6 compact projects (`{chromium,firefox,webkit}-compact-{light,dark}`). All 12 desktop and tablet baseline projects pass and are recorded in `.artifacts/ux-lab/baselines/`.
+- **Reserved for N4:** Full 2,295+ Vitest suite under A-24 and full 18-project UX lab matrix (`qa:ux` and `qa:ux -- --crm`).
 - **Later-slice / production blockers (do NOT block local S0 development):**
   - Production owner verification on an owner-exported D1 copy before remote activation (`S0-PLAN.md` section 5.2).
   - Stabilisation of pre-existing flaky test group **SI-01** (`phase4-events-d1`, `phase8-commitments-d1`, `phase8-form-operations-d1`) before production release (`12-OPEN-DECISIONS.md`).
@@ -75,11 +79,14 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 
 ## Verification Evidence
 
-- **N2 targeted verification (24 Nov 2026, `crm/s0-backend`, post-corrections):**
-  - 12 targeted suites: `tests/crm-contract.test.ts` (4), `tests/crm-rules.test.ts` (5), `tests/crm-projection-keys-d1.test.ts` (12), `tests/crm-mcp-projection-d1.test.ts` (2), `tests/crm-commands-d1.test.ts` (8), `tests/crm-grants-d1.test.ts` (6), `tests/crm-disable-revocation-d1.test.ts` (6), `tests/admin-owner-protection-d1.test.ts` (6), `tests/crm-api-d1.test.ts` (5), `tests/sync-atomic.test.ts` (6), `tests/phase5-audit-interplay-d1.test.ts` (4), `tests/phase7-disable-d1.test.ts` (19) — **12/12 files passed, 83/83 tests passed (0 failed, 0 skipped)** (now 54 S0 tests across 9 CRM files).
-  - `npm run typecheck` passed (0 errors).
-  - Full 2,280+ test suite intentionally NOT re-run at N2 per Checkpoint 2 instructions; full A-24 regression certification will run after Stage 3 frontend integration.
-- **Prior Stage 1 & Stage 2 full certification (at `49ab28c`, 24 Nov 2026):**
-  - Full `npm test`: **227/227 files passed, 2,280/2,280 tests passed (0 failed, 0 skipped)** (baseline 2,230 + 50 initial S0 tests; all 3 SI-01 tests passed).
-  - `npm run build` passed; `npm run db:migrate:local` applied all 45 migrations; `node --test scripts/certification/*.test.mjs scripts/access/selftest.mjs` passed; `npm run demo:studio -- --check` passed.
-- **Not run (out of scope for N2 / Checkpoint 2):** Stage 3 frontend (`src/` untouched), full 2,284-test suite rerun, `npm run qa:ux`, `npm run demo:crm -- --check`, physical device/iOS Safari/screen-reader checks, remote migrations, production deployment.
+- **N3 Stage 3 Verification (25 Nov 2026, `crm/s0-frontend`):**
+  - **Vitest (targeted frontend + contract):** `tests/crm-client-contract.test.ts` (6), `tests/crm-routes.test.ts` (2), `tests/crm-isolation.test.ts` (3), `tests/crm-contract.test.ts` (4) — **4/4 files, 15/15 tests passed**.
+  - **Certification script tests:** `node --test scripts/certification/read-recovery.test.mjs scripts/certification/ux-project-isolation.test.mjs` — **8/8 tests passed**.
+  - **Typecheck & Build:** `npm run typecheck` (0 errors) and `npm run build` passed (`CrmShell` code-split into separate JS `62.61 kB` and CSS `6.78 kB` chunks).
+  - **Commons Demo:** `npm run demo:crm -- --check` passed (real switcher, `/crm`, Accounts, Capabilities grant/revoke + reload persistence, History, inactive-grant warning, Access Denied, 390 px WebKit mobile + full-screen sheet); screenshots saved under `.artifacts/crm-demo/`.
+  - **Targeted `--crm` UX Lab (7 projects):** `chromium-desktop-light`, `chromium-desktop-dark`, `chromium-tablet-light`, `chromium-compact-light`, `chromium-compact-dark`, `firefox-desktop-light`, `webkit-compact-light` — **all 7 projects passed (2/2 specs each)** including keyboard walkthrough, Escape focus return, ARIA tablist/combobox/switch, non-optimistic 503 retry, offline disable/reconnect recovery, live revocation unmount, 320×568 reflow, 200% text scaling, touch targets, and WCAG 2.2 AA axe checks.
+  - **Workspace 0-diff spot-check (CRM off):** `npm run qa:ux -- --skip-build --project=chromium-desktop-light --grep "visual reference: website inbox"` passed (0 pixel diffs against `38c388a` baseline).
+- **Not run (reserved for N4 or physical devices):**
+  - Full `npm test` (2,280+ backend + frontend suite) and full 18-project `qa:ux` / `qa:ux -- --crm` certification.
+  - Real physical iPhone/iPad/Android/Windows hardware, native 400% OS zoom, and human assistive-technology (VoiceOver/TalkBack/NVDA) testing.
+  - Remote D1 migrations, production `CRM_ENABLED` activation, or deployment.

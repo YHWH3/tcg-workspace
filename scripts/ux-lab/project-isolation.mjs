@@ -34,7 +34,7 @@ export function aggregateProjects(source,children,unchanged,interrupted=false,re
 }
 const hash=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
 /** Separate fixture lifetimes preserve real per-user quotas and test isolation. */
-export async function runIsolatedProjects({root,output,source,plan,record,skipBuild,originalArgs}){
+export async function runIsolatedProjects({root,output,source,plan,record,skipBuild,crmMode=false,originalArgs}){
  let child,interrupted=false;const children=[];
  const stop=()=>{interrupted=true;child?.kill('SIGINT');};process.once('SIGINT',stop);process.once('SIGTERM',stop);
  try{
@@ -51,9 +51,9 @@ export async function runIsolatedProjects({root,output,source,plan,record,skipBu
   }
  }finally{process.removeListener('SIGINT',stop);process.removeListener('SIGTERM',stop);}
  const combined=aggregateProjects(source,children,fingerprint(root)===source.fingerprint,interrupted,plan.projects);
- const summary={...combined,recordMode:record,selection:originalArgs,explorations:children.flatMap(c=>c.summary?.explorations??[]),surfaces:surfaces.map(s=>s.id),baselineReview:'GENERATED_REFERENCE_NOT_HUMAN_ACCEPTANCE',notCovered,scope:'Fresh disposable loopback HTTPS/D1 per engine/layout/theme project; only executed named states count. No physical-device or genuine human-approval claim.',report:join(output,'html/index.html'),projectIsolation:{strategy:'fresh_disposable_fixture_per_project',requested:plan.projects,children:children.map(c=>({project:c.project,exitCode:c.exitCode,signal:c.signal,summary:c.summaryPath,...(c.summary?{sha256:hash(c.summaryPath)}:{})}))}};
+ const summary={...combined,recordMode:record,crmMode,selection:originalArgs,explorations:children.flatMap(c=>c.summary?.explorations??[]),surfaces:surfaces.map(s=>s.id),baselineReview:'GENERATED_REFERENCE_NOT_HUMAN_ACCEPTANCE',notCovered,scope:'Fresh disposable loopback HTTPS/D1 per engine/layout/theme project; only executed named states count. No physical-device or genuine human-approval claim.',report:join(output,'html/index.html'),projectIsolation:{strategy:'fresh_disposable_fixture_per_project',requested:plan.projects,children:children.map(c=>({project:c.project,exitCode:c.exitCode,signal:c.signal,summary:c.summaryPath,...(c.summary?{sha256:hash(c.summaryPath)}:{})}))}};
  coverage(summary,output);
- if(!record&&!originalArgs.some(a=>/^--(?:project|grep)/.test(a))&&!summary.coverage.complete)summary.exitCode=1;
+ if(!record&&!crmMode&&!originalArgs.some(a=>/^--(?:project|grep)/.test(a))&&!summary.coverage.complete)summary.exitCode=1;
  writeFileSync(join(output,'summary.json'),JSON.stringify(summary,null,2));
  // Original reports remain intact; this combined report copies their suites for
  // inspection/export and explicitly identifies its project-report provenance.
@@ -61,7 +61,7 @@ export async function runIsolatedProjects({root,output,source,plan,record,skipBu
  writeFileSync(join(output,'playwright.json'),JSON.stringify({projectIsolation:true,source,stats:summary.stats,errors:raw.flatMap(r=>r.errors??[]),suites:raw.flatMap(r=>r.suites??[])},null,2));
  mkdirSync(join(output,'html'),{recursive:true});
  writeFileSync(join(output,'html/index.html'),`<!doctype html><meta charset="utf-8"><title>Isolated UX project reports</title><h1>Isolated UX project reports</h1><p>Exit ${summary.exitCode}. Each project used fresh disposable data. Generated references are not human acceptance.</p><p><a href="../coverage.html">Coverage matrix</a></p><ul>${children.map(c=>`<li><a href="../projects/${c.project}/html/index.html">${c.project}</a>: exit ${c.exitCode}</li>`).join('')}</ul>`);
- if(record){const directory=join(root,'.artifacts/ux-lab/baselines');mkdirSync(directory,{recursive:true});writeFileSync(join(directory,'provenance.json'),JSON.stringify({source,recordedAt:new Date().toISOString(),review:'UNREVIEWED',output,projectIsolation:summary.projectIsolation},null,2));}
+ if(record){const directory=join(root,'.artifacts/ux-lab',crmMode?'crm-baselines':'baselines');mkdirSync(directory,{recursive:true});writeFileSync(join(directory,'provenance.json'),JSON.stringify({source,recordedAt:new Date().toISOString(),review:'UNREVIEWED',output,projectIsolation:summary.projectIsolation},null,2));}
  console.log('Isolated UX matrix exit '+summary.exitCode+'; local report '+summary.report);
  return summary.exitCode;
 }
