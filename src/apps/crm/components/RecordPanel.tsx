@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import {
   AlertTriangle,
+  CalendarPlus,
   Check,
   ExternalLink,
   History,
@@ -36,7 +37,8 @@ import { useLayoutMode } from '../../../core/mobile';
 import { recordNoun, recordTitle, stagesOf } from '../../../core/records';
 import { useStore } from '../../../core/store';
 import { mutate, onlineStore } from '../../../core/sync/engine';
-import { Sheet } from '../../../core/ui';
+import { AdaptiveDialog, Sheet } from '../../../core/ui';
+import { QuickActivityComposer, type QuickActivityTarget } from './QuickActivityComposer';
 import { cn } from '../../../core/utils';
 import { FieldRow } from '../../../modules/boards/FieldValue';
 import { columnIdFor, type BoardRow, type TaskRow } from '../../../modules/boards/api';
@@ -124,6 +126,18 @@ export function RecordPanel({
   // S1 Affiliations quick-link state
   const [affPeerId, setAffPeerId] = useState('');
   const [affRole, setAffRole] = useState('');
+  const [followUpOpen, setFollowUpOpen] = useState(false);
+
+  const activityTarget: QuickActivityTarget | undefined =
+    entityKind === 'person'
+      ? { id: record.id, linkField: 'f_people' }
+      : entityKind === 'organisation'
+        ? { id: record.id, linkField: 'f_orgs' }
+        : entityKind === 'application'
+          ? { id: record.id, linkField: 'f_applications' }
+          : entityKind === 'opportunity'
+            ? { id: record.id, linkField: 'f_opportunities' }
+            : undefined;
 
   // Unified timeline state (S2+)
   const [tlItems, setTlItems] = useState<TimelineEntryDto[]>([]);
@@ -391,6 +405,18 @@ export function RecordPanel({
 
         <div className="flex shrink-0 items-center gap-1">
           {headerActions}
+          {activityTarget && (
+            <button
+              type="button"
+              onClick={() => setFollowUpOpen(true)}
+              aria-label="Log activity"
+              title="Log activity"
+              className="crm-btn-secondary !min-h-10 !px-2.5 !py-1 !text-xs"
+            >
+              <CalendarPlus size={13} aria-hidden="true" />
+              <span className="max-sm:sr-only">Follow-up</span>
+            </button>
+          )}
           <Link
             to={`/boards/${board.id}/tasks/${record.id}`}
             className="crm-btn-secondary !min-h-10 !px-2.5 !py-1 !text-xs"
@@ -943,20 +969,34 @@ export function RecordPanel({
     </div>
   );
 
-  if (layout === 'expanded') {
-    return (
-      <aside
-        aria-label={`${noun} details`}
-        className="w-[440px] shrink-0 border-l border-[var(--crm-border)] bg-[var(--crm-surface)]"
-      >
-        {content}
-      </aside>
-    );
-  }
-
   return (
-    <Sheet onClose={onClose} label={`${noun}: ${recordTitle(record)}`}>
-      {content}
-    </Sheet>
+    <>
+      {layout === 'expanded' ? (
+        <aside
+          aria-label={`${noun} details`}
+          className="w-[440px] shrink-0 border-l border-[var(--crm-border)] bg-[var(--crm-surface)]"
+        >
+          {content}
+        </aside>
+      ) : (
+        <Sheet onClose={onClose} label={`${noun}: ${recordTitle(record)}`}>
+          {content}
+        </Sheet>
+      )}
+      {followUpOpen && activityTarget && (
+        <AdaptiveDialog title={`Log activity for ${recordTitle(record)}`} onClose={() => setFollowUpOpen(false)}>
+          <div data-app="crm">
+            <QuickActivityComposer
+              initialTarget={activityTarget}
+              onCreated={() => {
+                setFollowUpOpen(false);
+                if (tab === 'timeline' && !isOffline && !renderTimeline) void loadTimeline();
+              }}
+              onCancel={() => setFollowUpOpen(false)}
+            />
+          </div>
+        </AdaptiveDialog>
+      )}
+    </>
   );
 }

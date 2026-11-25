@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Building2,
+  CalendarCheck2,
   ChevronLeft,
   ChevronRight,
   CloudOff,
@@ -260,6 +261,7 @@ export default function CrmShell() {
     { to: '/crm/organisations', label: 'Organisations', icon: Building2, end: false },
     { to: '/crm/programmes', label: 'Programmes', icon: Compass, end: false },
     { to: '/crm/applications', label: 'Applications', icon: FileCheck2, end: false },
+    { to: '/crm/activities', label: 'Activities', icon: CalendarCheck2, end: false },
     ...(canManage
       ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }]
       : canConfigureAny
@@ -270,7 +272,7 @@ export default function CrmShell() {
   const compactNavItems = [
     { to: '/crm', label: 'Home', icon: Home, end: true },
     { to: '/crm/people', label: 'People', icon: Users, end: false },
-    { to: '/crm/applications', label: 'Intake', icon: FileCheck2, end: false },
+    { to: '/crm/activities', label: 'Tasks', icon: CalendarCheck2, end: false },
     ...(canManage
       ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }]
       : canConfigureAny
@@ -278,19 +280,23 @@ export default function CrmShell() {
         : []),
   ];
 
-  const routeLabel = pathname.startsWith('/crm/settings/programmes')
-    ? 'Programme profiles'
-    : pathname.startsWith('/crm/settings')
-      ? 'Accounts & capabilities'
-      : pathname.startsWith('/crm/people')
-        ? 'People'
-        : pathname.startsWith('/crm/organisations')
-          ? 'Organisations'
-          : pathname.startsWith('/crm/programmes')
-            ? 'Programmes'
-            : pathname.startsWith('/crm/applications')
-              ? 'Applications'
-              : 'Home';
+  const routeLabel = pathname.startsWith('/crm/settings/automations')
+    ? 'Automation recipes'
+    : pathname.startsWith('/crm/settings/programmes')
+      ? 'Programme profiles'
+      : pathname.startsWith('/crm/settings')
+        ? 'Accounts & capabilities'
+        : pathname.startsWith('/crm/people')
+          ? 'People'
+          : pathname.startsWith('/crm/organisations')
+            ? 'Organisations'
+            : pathname.startsWith('/crm/programmes')
+              ? 'Programmes'
+              : pathname.startsWith('/crm/applications')
+                ? 'Applications'
+                : pathname.startsWith('/crm/activities')
+                  ? 'Activities'
+                  : 'Home';
   const showSideRail = layout !== 'compact';
   const compactRail = layout === 'medium' ? effectiveCollapsed : railCollapsed;
 

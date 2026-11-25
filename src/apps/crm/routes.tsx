@@ -2,12 +2,14 @@ import { useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router';
 import type { CrmStatus } from '../../../shared/crm/contracts';
 import { canManageCrmAccess } from '../../core/crmStatus';
+import { ActivitiesView } from './activities/ActivitiesView';
 import { ApplicationsView } from './applications/ApplicationsView';
 import { CrmHome } from './Home';
 import { OrganisationsView } from './organisations/OrganisationsView';
 import { PeopleView } from './people/PeopleView';
 import { ProgrammesView } from './programmes/ProgrammesView';
 import { AccessSettings } from './settings/AccessSettings';
+import { AutomationsSettings } from './settings/AutomationsSettings';
 import { ProgrammesSettings } from './settings/ProgrammesSettings';
 
 export function CrmRoutes({ status }: { status: CrmStatus }) {
@@ -15,7 +17,9 @@ export function CrmRoutes({ status }: { status: CrmStatus }) {
   const canManage = canManageCrmAccess(status);
 
   useEffect(() => {
-    if (pathname.startsWith('/crm/settings/programmes')) {
+    if (pathname.startsWith('/crm/settings/automations')) {
+      document.title = 'Automation recipes — TCG CRM';
+    } else if (pathname.startsWith('/crm/settings/programmes')) {
       document.title = 'Programme profiles — TCG CRM';
     } else if (pathname.startsWith('/crm/settings')) {
       document.title = 'Accounts & capabilities — TCG CRM';
@@ -27,6 +31,8 @@ export function CrmRoutes({ status }: { status: CrmStatus }) {
       document.title = 'Programmes — TCG CRM';
     } else if (pathname.startsWith('/crm/applications')) {
       document.title = 'Applications — TCG CRM';
+    } else if (pathname.startsWith('/crm/activities')) {
+      document.title = 'Activities — TCG CRM';
     } else {
       document.title = 'Home — TCG CRM';
     }
@@ -43,6 +49,8 @@ export function CrmRoutes({ status }: { status: CrmStatus }) {
       <Route path="programmes/:slug" element={<ProgrammesView status={status} />} />
       <Route path="applications" element={<ApplicationsView status={status} />} />
       <Route path="applications/:applicationId" element={<ApplicationsView status={status} />} />
+      <Route path="activities" element={<ActivitiesView status={status} />} />
+      <Route path="activities/:activityId" element={<ActivitiesView status={status} />} />
       <Route path="settings" element={<Navigate to={canManage ? '/crm/settings/access' : '/crm/settings/programmes'} replace />} />
       <Route
         path="settings/access"
@@ -51,6 +59,10 @@ export function CrmRoutes({ status }: { status: CrmStatus }) {
       <Route
         path="settings/programmes"
         element={<ProgrammesSettings status={status} />}
+      />
+      <Route
+        path="settings/automations"
+        element={<AutomationsSettings status={status} />}
       />
       <Route path="*" element={<Navigate to="/crm" replace />} />
     </Routes>

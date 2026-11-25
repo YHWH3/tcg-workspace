@@ -117,6 +117,11 @@ export function ProgrammesSettings({ status }: { status: CrmStatus }) {
               Accounts & capabilities
             </Link>
           )}
+          {(status.owner || status.capabilities.some((c) => c.capability === 'crm.configure' && c.scope === '*')) && (
+            <Link to="/crm/settings/automations" className="crm-btn-secondary">
+              Automations
+            </Link>
+          )}
           <button
             type="button"
             disabled={loading || isOffline}
