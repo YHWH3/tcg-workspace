@@ -1,15 +1,40 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { ArrowRight, Lock, ShieldCheck, Users } from 'lucide-react';
+import { ArrowRight, Clock, Lock, ShieldCheck, Users } from 'lucide-react';
 import { CRM_CAPABILITY_LABELS } from '../../../shared/crm/capabilities';
 import type { CrmStatus } from '../../../shared/crm/contracts';
+import type { HomeSummaryResponse } from '../../../shared/crm/programmes';
 import { authStore } from '../../core/auth';
 import { canManageCrmAccess } from '../../core/crmStatus';
 import { useStore } from '../../core/store';
+import { onlineStore } from '../../core/sync/engine';
+import { fetchCrmHome } from './api';
 
 export function CrmHome({ status }: { status: CrmStatus }) {
   const user = useStore(authStore).user;
+  const isOffline = !useStore(onlineStore);
   const canManage = canManageCrmAccess(status);
   const firstName = user?.name?.trim().split(/\s+/)[0] || 'there';
+
+  const [home, setHome] = useState<HomeSummaryResponse | null>(null);
+  useEffect(() => {
+    if (isOffline) return;
+    let active = true;
+    void fetchCrmHome()
+      .then((res) => {
+        if (active) setHome(res);
+      })
+      .catch(() => {
+        /* fallback cleanly to base summary */
+      });
+    return () => {
+      active = false;
+    };
+  }, [isOffline]);
+
+  const hasWork = Boolean(
+    home && (home.today.length > 0 || home.thisWeek.length > 0 || home.recently.length > 0),
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
@@ -38,40 +63,102 @@ export function CrmHome({ status }: { status: CrmStatus }) {
         </span>
       </header>
 
-      <section
-        aria-labelledby="crm-home-empty-title"
-        className="crm-panel p-6 sm:p-7"
-      >
-        <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 max-w-xl">
-            <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--crm-primary-soft)] text-[var(--crm-primary)]">
-              <Users size={20} aria-hidden="true" />
-            </div>
-            <h2 id="crm-home-empty-title" className="text-base font-semibold">
-              No CRM records here yet
+      {hasWork && home ? (
+        <section aria-labelledby="crm-my-work-title" className="crm-panel p-5 sm:p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--crm-border)] pb-3">
+            <h2 id="crm-my-work-title" className="text-base font-semibold flex items-center gap-2">
+              <Clock size={16} aria-hidden="true" />
+              <span>My work</span>
             </h2>
-            <p className="mt-1.5 text-sm text-[var(--crm-text-muted)]">
-              {canManage
-                ? 'CRM access rails are active. Manage workspace accounts, CRM capabilities, and audit history before adding programmes and people.'
-                : 'Your CRM access is active. People, conversations, bookings, and programme pipelines will appear here as they are enabled.'}
-            </p>
+            <div className="flex flex-wrap gap-2 text-xs text-[var(--crm-text-muted)] crm-tabular">
+              <span>{home.counts.pendingApprovals} approvals</span>
+              <span>·</span>
+              <span>{home.counts.ageingApplications} ageing apps</span>
+              <span>·</span>
+              <span>{home.counts.dueFollowUps} due follow-ups</span>
+            </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap gap-2">
-            {canManage ? (
-              <Link to="/crm/settings/access" className="crm-btn-primary">
-                <span>Manage accounts and capabilities</span>
-                <ArrowRight size={15} aria-hidden="true" />
-              </Link>
-            ) : (
-              <Link to="/" className="crm-btn-secondary">
-                <span>Open Workspace</span>
-                <ArrowRight size={15} aria-hidden="true" />
-              </Link>
-            )}
+          {home.today.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">Today</h3>
+              <ul className="space-y-1.5">
+                {home.today.slice(0, 6).map((item) => (
+                  <li key={item.id}>
+                    <Link
+                      to={item.route}
+                      className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-[var(--crm-border)] bg-[var(--crm-bg)] px-3 py-2 text-xs hover:bg-[var(--crm-surface-2)]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">{item.title}</p>
+                        <p className="truncate text-[var(--crm-text-muted)]">{item.subtitle}</p>
+                      </div>
+                      <ArrowRight size={14} aria-hidden="true" className="shrink-0 text-[var(--crm-text-muted)]" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {home.thisWeek.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">This week</h3>
+              <ul className="space-y-1.5">
+                {home.thisWeek.slice(0, 5).map((item) => (
+                  <li key={item.id}>
+                    <Link
+                      to={item.route}
+                      className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-[var(--crm-border)] bg-[var(--crm-bg)] px-3 py-2 text-xs hover:bg-[var(--crm-surface-2)]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">{item.title}</p>
+                        <p className="truncate text-[var(--crm-text-muted)]">{item.subtitle}</p>
+                      </div>
+                      <ArrowRight size={14} aria-hidden="true" className="shrink-0 text-[var(--crm-text-muted)]" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      ) : (
+        <section
+          aria-labelledby="crm-home-empty-title"
+          className="crm-panel p-6 sm:p-7"
+        >
+          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 max-w-xl">
+              <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--crm-primary-soft)] text-[var(--crm-primary)]">
+                <Users size={20} aria-hidden="true" />
+              </div>
+              <h2 id="crm-home-empty-title" className="text-base font-semibold">
+                No CRM records here yet
+              </h2>
+              <p className="mt-1.5 text-sm text-[var(--crm-text-muted)]">
+                {canManage
+                  ? 'CRM access rails are active. Manage workspace accounts, CRM capabilities, and audit history before adding programmes and people.'
+                  : 'Your CRM access is active. People, conversations, bookings, and programme pipelines will appear here as they are enabled.'}
+              </p>
+            </div>
+
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {canManage ? (
+                <Link to="/crm/settings/access" className="crm-btn-primary">
+                  <span>Manage accounts and capabilities</span>
+                  <ArrowRight size={15} aria-hidden="true" />
+                </Link>
+              ) : (
+                <Link to="/" className="crm-btn-secondary">
+                  <span>Open Workspace</span>
+                  <ArrowRight size={15} aria-hidden="true" />
+                </Link>
+              )}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       <section aria-labelledby="crm-capabilities-summary" className="crm-panel p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--crm-border)] pb-3">

@@ -1,6 +1,7 @@
 import {
   ALL_SCOPE,
   CRM_CAPABILITIES,
+  PROGRAMME_SCOPED,
   isCrmCapability,
   type CrmCapability,
   type CrmScope,
@@ -12,6 +13,7 @@ import {
   type CapabilityInvalidReason,
   type CrmErrorCode,
 } from '../../shared/crm/contracts';
+import { parseProgrammeScope } from '../../shared/crm/programmes';
 import type { Env } from '../auth';
 
 export type CanonicalRole = 'owner' | 'admin' | 'member' | 'guest';
@@ -187,7 +189,18 @@ export function parseCapabilityChangeInput(
     };
   }
 
-  if (parsed.data.scope !== ALL_SCOPE) {
+  const parsedScope = parseProgrammeScope(parsed.data.scope);
+  if (!parsedScope.ok) {
+    return {
+      ok: false,
+      error: 'invalid_input',
+      detail: {
+        reason: 'unknown_scope' satisfies CapabilityInvalidReason,
+        fields: { scope: 'unknown_scope' },
+      },
+    };
+  }
+  if (parsedScope.slug !== ALL_SCOPE && !PROGRAMME_SCOPED.has(parsed.data.capability)) {
     return {
       ok: false,
       error: 'invalid_input',
@@ -203,7 +216,7 @@ export function parseCapabilityChangeInput(
     input: {
       userId: parsed.data.userId,
       capability: parsed.data.capability,
-      scope: ALL_SCOPE,
+      scope: parsed.data.scope,
       ...(trimmedReason ? { reason: trimmedReason } : {}),
     },
   };

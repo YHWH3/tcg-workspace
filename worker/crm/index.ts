@@ -17,12 +17,23 @@ import {
   readDuplicates,
   readPersonDetail,
 } from './identity';
+import {
+  createS2ProgrammeCommandDefs,
+  readProgrammes,
+} from './programmes';
+import {
+  createS2ApplicationCommandDefs,
+  readCrmHome,
+  readTimeline,
+} from './applications';
 import { isCrmEnabled } from './rules';
 
 export function createS0CommandRegistry(): CommandRegistry {
   return createCommandRegistry([
     ...createCapabilityCommandDefs(),
     ...createS1IdentityCommandDefs(),
+    ...createS2ProgrammeCommandDefs(),
+    ...createS2ApplicationCommandDefs(),
   ]);
 }
 
@@ -106,6 +117,33 @@ crmApi.get('/read/duplicates', async (c) => {
   const state = url.searchParams.get('state') ?? 'open';
   const rawCursor = url.searchParams.has('cursor') ? (url.searchParams.get('cursor') ?? '') : undefined;
   const outcome = await readDuplicates(c.env, user.id, user.tokenHash, state, rawCursor);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/programmes', async (c) => {
+  const user = c.get('user');
+  const outcome = await readProgrammes(c.env, user.id, user.tokenHash);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/timeline', async (c) => {
+  const user = c.get('user');
+  const url = new URL(c.req.url);
+  const subjectId = url.searchParams.get('subject') ?? '';
+  const cursor = url.searchParams.has('cursor') ? (url.searchParams.get('cursor') ?? '') : undefined;
+  const rawLimit = url.searchParams.get('limit');
+  const limit = rawLimit ? Number(rawLimit) : undefined;
+  const outcome = await readTimeline(c.env, user.id, user.tokenHash, {
+    subjectId,
+    cursor,
+    limit: typeof limit === 'number' && Number.isFinite(limit) ? limit : undefined,
+  });
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/home', async (c) => {
+  const user = c.get('user');
+  const outcome = await readCrmHome(c.env, user.id, user.tokenHash);
   return c.json(outcome.body, outcome.status);
 });
 

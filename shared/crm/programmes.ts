@@ -270,3 +270,135 @@ export function programmeForWebsiteForm(formId: string | null | undefined): Regi
   if (formId.startsWith('vol-')) return CRM_PROGRAMME_BY_SLUG.get('volunteering-internships');
   return CRM_PROGRAMMES.find((p) => p.defaultProfile.forms.includes(formId));
 }
+
+// ---------------------------------------------------------------------------
+// S2 / S3 Wire Contracts (Programmes, Applications, Timeline, Home My Work)
+// ---------------------------------------------------------------------------
+
+export const UpdateProgrammeProfileInputSchema = z.object({
+  slug: z.string().min(1).max(64),
+  profile: ProgrammeProfileV1Schema,
+  expectedRev: z.number().int().min(1).optional(),
+  programmeRecordId: z.string().min(1).max(128).optional(),
+}).strict();
+export type UpdateProgrammeProfileInput = z.infer<typeof UpdateProgrammeProfileInputSchema>;
+
+export const ProgrammeSummaryDtoSchema = z.object({
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  area: CrmWorkAreaSchema,
+  recordId: z.string().nullable(),
+  rev: z.number().int().min(0),
+  updatedAt: z.number().int().nullable(),
+  updatedBy: z.string().nullable(),
+  canConfigure: z.boolean(),
+  profile: ProgrammeProfileV1Schema,
+  counts: z.object({
+    applications: z.number().int().nonnegative(),
+    opportunities: z.number().int().nonnegative(),
+    events: z.number().int().nonnegative(),
+    people: z.number().int().nonnegative(),
+  }).strict(),
+}).strict();
+export type ProgrammeSummaryDto = z.infer<typeof ProgrammeSummaryDtoSchema>;
+
+export const ProgrammesListResponseSchema = z.object({
+  programmes: z.array(ProgrammeSummaryDtoSchema),
+  partial: z.boolean(),
+}).strict();
+export type ProgrammesListResponse = z.infer<typeof ProgrammesListResponseSchema>;
+
+export const CreateApplicationFromSubmissionInputSchema = z.object({
+  submissionId: z.string().min(1).max(128),
+  programmeSlug: z.string().min(1).max(64).optional(),
+  personId: z.string().min(1).max(128).optional(),
+  applicationsBoardId: z.string().min(1).max(128).optional(),
+  reviewerId: z.string().min(1).max(128).optional(),
+  note: z.string().max(1000).optional(),
+}).strict();
+export type CreateApplicationFromSubmissionInput = z.infer<typeof CreateApplicationFromSubmissionInputSchema>;
+
+export const APPLICATION_CONVERT_TARGETS = ['project', 'opportunity', 'event'] as const;
+export type ApplicationConvertTarget = typeof APPLICATION_CONVERT_TARGETS[number];
+
+export const ConvertApplicationInputSchema = z.object({
+  applicationId: z.string().min(1).max(128),
+  targetKind: z.enum(APPLICATION_CONVERT_TARGETS),
+  targetBoardId: z.string().min(1).max(128),
+  title: z.string().trim().min(1).max(200).optional(),
+  pipelineId: z.string().min(1).max(64).optional(),
+}).strict();
+export type ConvertApplicationInput = z.infer<typeof ConvertApplicationInputSchema>;
+
+export const TIMELINE_ENTRY_KINDS = [
+  'submission',
+  'application',
+  'activity',
+  'conversation',
+  'approval',
+  'conversion',
+  'consent',
+  'workspace_activity',
+] as const;
+export type TimelineEntryKind = typeof TIMELINE_ENTRY_KINDS[number];
+
+export const TimelineEntryDtoSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(TIMELINE_ENTRY_KINDS),
+  ts: z.number().int().nonnegative(),
+  title: z.string().min(1),
+  subtitle: z.string().nullable(),
+  actorName: z.string().nullable(),
+  linkToRecordId: z.string().nullable().optional(),
+  boardId: z.string().nullable().optional(),
+  conversationId: z.string().nullable().optional(),
+  meta: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+export type TimelineEntryDto = z.infer<typeof TimelineEntryDtoSchema>;
+
+export const TimelineResponseSchema = z.object({
+  subjectId: z.string().min(1),
+  items: z.array(TimelineEntryDtoSchema),
+  next: z.string().nullable(),
+  partial: z.boolean(),
+}).strict();
+export type TimelineResponse = z.infer<typeof TimelineResponseSchema>;
+
+export const HOME_ITEM_KINDS = [
+  'followup_overdue',
+  'followup_due',
+  'approval_pending',
+  'application_ageing',
+  'conversation_unanswered',
+  'recent_record',
+] as const;
+export type HomeItemKind = typeof HOME_ITEM_KINDS[number];
+
+export const HomeWorkItemDtoSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(HOME_ITEM_KINDS),
+  title: z.string().min(1),
+  subtitle: z.string(),
+  dueTs: z.number().int().nullable(),
+  updatedTs: z.number().int().nonnegative(),
+  route: z.string().min(1),
+  urgency: z.enum(['high', 'normal', 'low']),
+  recordId: z.string().nullable().optional(),
+  boardId: z.string().nullable().optional(),
+  conversationId: z.string().nullable().optional(),
+}).strict();
+export type HomeWorkItemDto = z.infer<typeof HomeWorkItemDtoSchema>;
+
+export const HomeSummaryResponseSchema = z.object({
+  today: z.array(HomeWorkItemDtoSchema),
+  thisWeek: z.array(HomeWorkItemDtoSchema),
+  recently: z.array(HomeWorkItemDtoSchema),
+  counts: z.object({
+    ageingApplications: z.number().int().nonnegative(),
+    pendingApprovals: z.number().int().nonnegative(),
+    dueFollowUps: z.number().int().nonnegative(),
+    unansweredConversations: z.number().int().nonnegative(),
+  }).strict(),
+  partial: z.boolean(),
+}).strict();
+export type HomeSummaryResponse = z.infer<typeof HomeSummaryResponseSchema>;

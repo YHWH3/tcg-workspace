@@ -161,7 +161,7 @@ describe('CRM capability rules (SC-2, SC-5, SC-9)', () => {
       detail: { reason: 'unknown_capability', fields: { capability: 'unknown_capability' } },
     });
 
-    // Step 5: known capability with non-'*' scope returns unknown_scope
+    // Step 5: known capability with invalid scope returns unknown_scope
     expect(
       parseCapabilityChangeInput({
         userId: 'bob',
@@ -172,6 +172,58 @@ describe('CRM capability rules (SC-2, SC-5, SC-9)', () => {
       ok: false,
       error: 'invalid_input',
       detail: { reason: 'unknown_scope', fields: { scope: 'unknown_scope' } },
+    });
+    expect(
+      parseCapabilityChangeInput({
+        userId: 'bob',
+        capability: 'crm.configure',
+        scope: 'programme:unknown-slug',
+      }),
+    ).toEqual({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'unknown_scope', fields: { scope: 'unknown_scope' } },
+    });
+    // Non-scoped capability rejects valid programme scope
+    expect(
+      parseCapabilityChangeInput({
+        userId: 'bob',
+        capability: 'crm.send:email',
+        scope: 'programme:common-lab',
+      }),
+    ).toEqual({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'unknown_scope', fields: { scope: 'unknown_scope' } },
+    });
+    // Scoped capability accepts registered programme:<slug>
+    expect(
+      parseCapabilityChangeInput({
+        userId: 'bob',
+        capability: 'crm.configure',
+        scope: 'programme:common-lab',
+      }),
+    ).toEqual({
+      ok: true,
+      input: {
+        userId: 'bob',
+        capability: 'crm.configure',
+        scope: 'programme:common-lab',
+      },
+    });
+    expect(
+      parseCapabilityChangeInput({
+        userId: 'bob',
+        capability: 'crm.restricted.read',
+        scope: 'programme:tribal-habitat-workshop',
+      }),
+    ).toEqual({
+      ok: true,
+      input: {
+        userId: 'bob',
+        capability: 'crm.restricted.read',
+        scope: 'programme:tribal-habitat-workshop',
+      },
     });
   });
 

@@ -529,4 +529,73 @@ describe.each([false, true])('SC-2 & SC-5 capability.grant / capability.revoke (
       nowSpy.mockRestore();
     }
   });
+
+  it('supports programme:<slug> grants for PROGRAMME_SCOPED capabilities while rejecting non-scoped or unknown slugs', async () => {
+    await setup(false);
+
+    // Activate member1 and check PROGRAMME_SCOPED capability crm.configure on common-lab
+    const grantAccess = await exec('owner1', 'capability.grant', 'req_pg_acc_01', {
+      userId: 'member1',
+      capability: 'crm.access',
+      scope: '*',
+    });
+    expect(CapabilityChangeResultSchema.parse(grantAccess.body).ok).toBe(true);
+
+    // Reject unknown slug
+    const badSlug = await exec('owner1', 'capability.grant', 'req_pg_bad_01', {
+      userId: 'member1',
+      capability: 'crm.configure',
+      scope: 'programme:not-a-real-programme',
+    });
+    expect(CommandErrorSchema.parse(badSlug.body)).toMatchObject({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'unknown_scope' },
+    });
+
+    // Reject programme scope on non-scoped capability
+    const nonScoped = await exec('owner1', 'capability.grant', 'req_pg_non_01', {
+      userId: 'member1',
+      capability: 'crm.send:email',
+      scope: 'programme:common-lab',
+    });
+    expect(CommandErrorSchema.parse(nonScoped.body)).toMatchObject({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'unknown_scope' },
+    });
+
+    // Valid scoped grant + status exposure + revoke
+    const scopedGrant = await exec('owner1', 'capability.grant', 'req_pg_ok_01', {
+      userId: 'member1',
+      capability: 'crm.configure',
+      scope: 'programme:common-lab',
+    });
+    expect(CapabilityChangeResultSchema.parse(scopedGrant.body)).toMatchObject({
+      ok: true,
+      result: {
+        already: false,
+        grant: { userId: 'member1', capability: 'crm.configure', scope: 'programme:common-lab', held: true },
+      },
+    });
+
+    const status = await readCrmStatus(fx!.env, 'member1', await tokenHashFor('member1'));
+    expect(status.status).toBe(200);
+    if (status.status === 200) {
+      expect(status.body.capabilities).toContainEqual({
+        capability: 'crm.configure',
+        scope: 'programme:common-lab',
+      });
+    }
+
+    const scopedRevoke = await exec('owner1', 'capability.revoke', 'req_pg_rev_01', {
+      userId: 'member1',
+      capability: 'crm.configure',
+      scope: 'programme:common-lab',
+    });
+    expect(CapabilityChangeResultSchema.parse(scopedRevoke.body)).toMatchObject({
+      ok: true,
+      result: { already: false, grant: { scope: 'programme:common-lab', held: false } },
+    });
+  });
 });

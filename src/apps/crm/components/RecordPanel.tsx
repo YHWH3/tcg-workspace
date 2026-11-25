@@ -28,6 +28,7 @@ import {
   type CrmEndpointKind,
   type PersonDetailResponse,
 } from '../../../../shared/crm/identity';
+import type { TimelineEntryDto } from '../../../../shared/crm/programmes';
 import { isCrmProjectionKey } from '../../../../shared/crm/projection';
 import { fieldsOf } from '../../../../shared/fields';
 import { link, unlinkEnds, useLinks } from '../../../core/links';
@@ -44,6 +45,7 @@ import {
   CrmTransportError,
   describeCommandError,
   fetchPersonDetail,
+  fetchTimeline,
   recordPersonConsent,
   retirePersonEndpoint,
   setPrimaryPersonEndpoint,
@@ -122,6 +124,37 @@ export function RecordPanel({
   // S1 Affiliations quick-link state
   const [affPeerId, setAffPeerId] = useState('');
   const [affRole, setAffRole] = useState('');
+
+  // Unified timeline state (S2+)
+  const [tlItems, setTlItems] = useState<TimelineEntryDto[]>([]);
+  const [tlNext, setTlNext] = useState<string | null>(null);
+  const [tlLoading, setTlLoading] = useState(false);
+  const [tlError, setTlError] = useState<string | null>(null);
+  const [tlPartial, setTlPartial] = useState(false);
+
+  const loadTimeline = useCallback(async (cursor?: string) => {
+    setTlLoading(true);
+    setTlError(null);
+    try {
+      const res = await fetchTimeline(record.id, cursor);
+      setTlItems((prev) => (cursor ? [...prev, ...res.items] : res.items));
+      setTlNext(res.next);
+      setTlPartial(res.partial);
+    } catch (err) {
+      setTlError(describeCommandError(err));
+    } finally {
+      setTlLoading(false);
+    }
+  }, [record.id]);
+
+  useEffect(() => {
+    setTlItems([]);
+    setTlNext(null);
+    setTlError(null);
+    if (tab === 'timeline' && !isOffline && !renderTimeline) {
+      void loadTimeline();
+    }
+  }, [record.id, tab, isOffline, renderTimeline, loadTimeline]);
 
   const loadDetail = useCallback(async () => {
     if (entityKind !== 'person') return;
@@ -822,15 +855,87 @@ export function RecordPanel({
           renderTimeline ? (
             renderTimeline(record.id)
           ) : (
-            <div className="space-y-2 rounded-lg border border-[var(--crm-border)] bg-[var(--crm-bg)] p-4 text-xs text-[var(--crm-text-muted)]">
-              <div className="flex items-center gap-2 font-semibold text-[var(--crm-text)]">
-                <History size={14} aria-hidden="true" />
-                <span>Relationship timeline</span>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[var(--crm-text)]">
+                  <History size={14} aria-hidden="true" />
+                  <span>Relationship timeline</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={tlLoading || isOffline}
+                  onClick={() => void loadTimeline()}
+                  className="crm-btn-secondary !min-h-8 !px-2.5 !py-1 !text-xs"
+                >
+                  <RefreshCw size={12} aria-hidden="true" className={tlLoading ? 'animate-spin' : ''} />
+                  <span>Refresh</span>
+                </button>
               </div>
-              <p>
-                Created {record.createdAt ? new Date(Number(record.createdAt)).toLocaleDateString() : 'recently'}.
-                Unified cross-channel timeline activates in full once Programmes, Enquiries, Activities and Conversations connect.
-              </p>
+              {isOffline && (
+                <p className="rounded-lg border border-[var(--crm-warn-border)] bg-[var(--crm-warn-bg)] px-3 py-2 text-xs text-[var(--crm-warn-text)]">
+                  Offline: live server timeline entries are unavailable until reconnected.
+                </p>
+              )}
+              {tlPartial && (
+                <p className="rounded-lg border border-[var(--crm-border)] bg-[var(--crm-bg)] px-3 py-2 text-[11px] text-[var(--crm-text-muted)]">
+                  Showing bounded recent history (older or inaccessible items omitted).
+                </p>
+              )}
+              {tlError && (
+                <p role="alert" className="text-xs text-[var(--crm-err-text)]">
+                  {tlError}
+                </p>
+              )}
+              {tlLoading && tlItems.length === 0 ? (
+                <p className="text-xs text-[var(--crm-text-muted)]">Loading timeline…</p>
+              ) : tlItems.length === 0 ? (
+                <p className="rounded-lg border border-[var(--crm-border)] bg-[var(--crm-bg)] p-4 text-xs text-[var(--crm-text-muted)]">
+                  No timeline entries yet. Linked submissions, applications, activities, approvals, consents, and conversations appear here chronologically.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {tlItems.map((item) => (
+                    <li
+                      key={item.id}
+                      className="rounded-lg border border-[var(--crm-border)] bg-[var(--crm-bg)] p-3 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="rounded-full bg-[var(--crm-surface-2)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">
+                          {item.kind.replace(/_/g, ' ')}
+                        </span>
+                        <span className="crm-tabular text-[11px] text-[var(--crm-text-muted)]">
+                          {item.ts > 0 ? new Date(item.ts).toLocaleString() : ''}
+                        </span>
+                      </div>
+                      <p className="mt-1 font-semibold text-[var(--crm-text)]">{item.title}</p>
+                      {item.subtitle && (
+                        <p className="mt-0.5 text-[var(--crm-text-muted)]">{item.subtitle}</p>
+                      )}
+                      {item.linkToRecordId && item.boardId && (
+                        <Link
+                          to={`/boards/${item.boardId}/tasks/${item.linkToRecordId}`}
+                          className="mt-1.5 inline-flex items-center gap-1 font-medium text-[var(--crm-primary)] hover:underline"
+                        >
+                          <ExternalLink size={11} aria-hidden="true" />
+                          <span>Open in Workspace</span>
+                        </Link>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {tlNext && !isOffline && (
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    disabled={tlLoading}
+                    onClick={() => void loadTimeline(tlNext)}
+                    className="crm-btn-secondary !min-h-9 !text-xs"
+                  >
+                    {tlLoading ? 'Loading…' : 'Load older'}
+                  </button>
+                </div>
+              )}
             </div>
           )
         )}

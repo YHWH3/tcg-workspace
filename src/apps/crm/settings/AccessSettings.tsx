@@ -25,8 +25,10 @@ import {
   ALL_SCOPE,
   CRM_CAPABILITIES,
   CRM_CAPABILITY_LABELS,
+  PROGRAMME_SCOPED,
   type CrmCapability,
 } from '../../../../shared/crm/capabilities';
+import { CRM_PROGRAMMES, CRM_PROGRAMME_BY_SLUG, programmeScopeForSlug } from '../../../../shared/crm/programmes';
 import {
   MAX_CAPABILITY_REASON_CHARS,
   type CapabilityAuditItem,
@@ -72,6 +74,7 @@ interface FailedToggle {
   userId: string;
   capability: CrmCapability;
   targetHeld: boolean;
+  scope?: string;
   reason?: string;
   requestId: string;
   message: string;
@@ -129,7 +132,7 @@ interface CapabilityMatrixProps {
     account: CapabilityOverviewAccount,
     capability: CrmCapability,
     targetHeld: boolean,
-    retryOpts?: { requestId: string; reason?: string },
+    retryOpts?: { requestId: string; reason?: string; scope?: string },
   ) => void;
 }
 
@@ -146,6 +149,7 @@ function CapabilityMatrix({
   onToggle,
 }: CapabilityMatrixProps) {
   const reasonId = useId();
+  const [scopeDraftByCap, setScopeDraftByCap] = useState<Record<string, string>>({});
   const isSelf = account.userId === actorId;
   const hasDormantManage =
     account.role === 'member' &&
@@ -264,6 +268,7 @@ function CapabilityMatrix({
                 onToggle(account, failedToggle.capability, failedToggle.targetHeld, {
                   requestId: failedToggle.requestId,
                   reason: failedToggle.reason,
+                  scope: failedToggle.scope,
                 })
               }
             >
@@ -426,6 +431,84 @@ function CapabilityMatrix({
                       </button>
                     </span>
                   </div>
+
+                  {PROGRAMME_SCOPED.has(capability) && (
+                    <div className="mt-2 basis-full rounded-lg border border-[var(--crm-border)] bg-[var(--crm-bg)] p-2.5 text-xs">
+                      <p className="font-semibold text-[var(--crm-text-muted)]">Programme-specific scopes</p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {account.grants
+                          .filter((g) => g.capability === capability && g.scope !== ALL_SCOPE)
+                          .map((sg) => {
+                            const slug = sg.scope.startsWith('programme:') ? sg.scope.slice('programme:'.length) : sg.scope;
+                            const label = CRM_PROGRAMME_BY_SLUG.get(slug)?.name ?? slug;
+                            const scKey = `${account.userId}:${capability}:${sg.scope}`;
+                            const scPending = Boolean(pendingByKey[scKey]);
+                            return (
+                              <span
+                                key={sg.scope}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--crm-border)] bg-[var(--crm-surface)] px-2.5 py-1"
+                              >
+                                <span className="font-medium">{label}</span>
+                                <button
+                                  type="button"
+                                  disabled={Boolean(disabledReason) || scPending}
+                                  onClick={() =>
+                                    onToggle(account, capability, false, {
+                                      requestId: generateCrmRequestId(),
+                                      scope: sg.scope,
+                                    })
+                                  }
+                                  aria-label={`Revoke ${meta.label} for ${label}`}
+                                  className="min-h-7 rounded px-1.5 font-semibold text-[var(--crm-err-text)] hover:underline"
+                                >
+                                  Revoke
+                                </button>
+                              </span>
+                            );
+                          })}
+                      </div>
+                      {!isSelf && account.role !== 'guest' && !account.disabled && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <select
+                            aria-label={`${meta.label} programme scope`}
+                            className="crm-select !min-h-10 !max-w-xs !py-1 !text-xs"
+                            value={scopeDraftByCap[capability] ?? ''}
+                            onChange={(e) =>
+                              setScopeDraftByCap((prev) => ({ ...prev, [capability]: e.target.value }))
+                            }
+                          >
+                            <option value="">Choose programme to add…</option>
+                            {CRM_PROGRAMMES.filter(
+                              (p) =>
+                                !account.grants.some(
+                                  (g) => g.capability === capability && g.scope === programmeScopeForSlug(p.slug),
+                                ),
+                            ).map((p) => (
+                              <option key={p.slug} value={p.slug}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={Boolean(disabledReason) || !(scopeDraftByCap[capability] ?? '')}
+                            onClick={() => {
+                              const slug = scopeDraftByCap[capability];
+                              if (!slug) return;
+                              onToggle(account, capability, true, {
+                                requestId: generateCrmRequestId(),
+                                scope: programmeScopeForSlug(slug),
+                              });
+                              setScopeDraftByCap((prev) => ({ ...prev, [capability]: '' }));
+                            }}
+                            className="crm-btn-secondary !min-h-10 !px-3 !py-1 !text-xs"
+                          >
+                            Grant scope
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -696,15 +779,17 @@ export function AccessSettings({
     account: CapabilityOverviewAccount,
     capability: CrmCapability,
     targetHeld: boolean,
-    retryOpts?: { requestId: string; reason?: string },
+    retryOpts?: { requestId: string; reason?: string; scope?: string },
   ) => {
-    const key = `${account.userId}:${capability}:${ALL_SCOPE}`;
+    const targetScope = retryOpts?.scope ?? ALL_SCOPE;
+    const key = `${account.userId}:${capability}:${targetScope}`;
     if (pendingByKey[key]) return;
     if (isOffline) {
       setFailedToggle({
         userId: account.userId,
         capability,
         targetHeld,
+        scope: targetScope,
         requestId: retryOpts?.requestId ?? generateCrmRequestId(),
         message: 'Capability changes need a connection',
         retryable: true,
@@ -725,7 +810,7 @@ export function AccessSettings({
       const payload = {
         userId: account.userId,
         capability,
-        scope: ALL_SCOPE,
+        scope: targetScope,
         ...(effectiveReason ? { reason: effectiveReason } : {}),
       };
       const outcome = targetHeld
@@ -747,6 +832,7 @@ export function AccessSettings({
           userId: account.userId,
           capability,
           targetHeld,
+          scope: targetScope,
           reason: effectiveReason,
           requestId: generateCrmRequestId(),
           message: msg,
@@ -765,6 +851,7 @@ export function AccessSettings({
         userId: account.userId,
         capability,
         targetHeld,
+        scope: targetScope,
         reason: effectiveReason,
         requestId,
         message: msg,
@@ -973,18 +1060,25 @@ export function AccessSettings({
           <p className="text-xs font-medium text-[var(--crm-text-muted)]">Settings</p>
           <h1 className="mt-0.5 text-xl font-semibold leading-tight">Accounts and capabilities</h1>
         </div>
-        <button
-          type="button"
-          className="crm-btn-secondary"
-          disabled={loadingOverview || isOffline}
-          onClick={() => {
-            void loadAll();
-            if (tab === 'history') void loadAudit();
-          }}
-        >
-          <RefreshCw size={15} aria-hidden="true" className={loadingOverview ? 'animate-spin' : ''} />
-          <span>Refresh</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {(status.owner || status.capabilities.some((c) => c.capability === 'crm.configure')) && (
+            <Link to="/crm/settings/programmes" className="crm-btn-secondary">
+              Programme profiles
+            </Link>
+          )}
+          <button
+            type="button"
+            className="crm-btn-secondary"
+            disabled={loadingOverview || isOffline}
+            onClick={() => {
+              void loadAll();
+              if (tab === 'history') void loadAudit();
+            }}
+          >
+            <RefreshCw size={15} aria-hidden="true" className={loadingOverview ? 'animate-spin' : ''} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </header>
 
       <div role="status" aria-live="polite" className="sr-only">

@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import {
   CRM_CAPABILITIES,
+  PROGRAMME_SCOPED,
   type CrmCapability,
   type CrmScope,
 } from './capabilities';
+import { parseProgrammeScope } from './programmes';
 
 export const CRM_CONTRACT_VERSION = 'crm-s0-v2' as const;
 
@@ -237,16 +239,25 @@ export const CapabilityChangeRequestInputSchema = z.object({
 export interface CapabilityChangeInput {
   userId: string;
   capability: CrmCapability;
-  scope: '*';
+  scope: CrmScope;
   reason?: string; // trimmed, at most 500 characters (omitted when blank)
 }
 
 export const CapabilityChangeInputSchema = z.object({
   userId: z.string().min(1).max(64),
   capability: CrmCapabilitySchema,
-  scope: S0ScopeSchema,
+  scope: CrmScopeSchema,
   reason: z.string().min(1).max(MAX_CAPABILITY_REASON_CHARS).optional(),
-}).strict();
+}).strict().superRefine((val, ctx) => {
+  const parsedScope = parseProgrammeScope(val.scope);
+  if (!parsedScope.ok) {
+    ctx.addIssue({ code: 'custom', path: ['scope'], message: 'unknown_scope' });
+    return;
+  }
+  if (parsedScope.slug !== '*' && !PROGRAMME_SCOPED.has(val.capability)) {
+    ctx.addIssue({ code: 'custom', path: ['scope'], message: 'unknown_scope' });
+  }
+});
 
 export interface CapabilityChangeOutput {
   already: boolean; // true: no grant/audit state change (still writes crm_commands journal)

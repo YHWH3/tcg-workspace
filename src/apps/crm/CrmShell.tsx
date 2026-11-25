@@ -7,10 +7,13 @@ import {
   ChevronLeft,
   ChevronRight,
   CloudOff,
+  Compass,
+  FileCheck2,
   Home,
   Lock,
   Monitor,
   Moon,
+  MoreHorizontal,
   RefreshCw,
   Settings,
   Sun,
@@ -24,7 +27,7 @@ import { useLayoutMode } from '../../core/mobile';
 import { useStore } from '../../core/store';
 import { onlineStore } from '../../core/sync/engine';
 import { useTheme, type Theme } from '../../core/theme';
-import { Avatar } from '../../core/ui';
+import { Avatar, Sheet } from '../../core/ui';
 import { cn } from '../../core/utils';
 import { CrmRoutes } from './routes';
 import './crm.css';
@@ -248,20 +251,46 @@ export default function CrmShell() {
 
   const status = crm.data;
   const canManage = canManageCrmAccess(status);
+  const canConfigureAny = status.owner || status.capabilities.some((c) => c.capability === 'crm.configure');
+  const [moreOpen, setMoreOpen] = useState(false);
+
   const navItems = [
     { to: '/crm', label: 'Home', icon: Home, end: true },
     { to: '/crm/people', label: 'People', icon: Users, end: false },
     { to: '/crm/organisations', label: 'Organisations', icon: Building2, end: false },
-    ...(canManage ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }] : []),
+    { to: '/crm/programmes', label: 'Programmes', icon: Compass, end: false },
+    { to: '/crm/applications', label: 'Applications', icon: FileCheck2, end: false },
+    ...(canManage
+      ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }]
+      : canConfigureAny
+        ? [{ to: '/crm/settings/programmes', label: 'Settings', icon: Settings, end: false }]
+        : []),
   ];
 
-  const routeLabel = pathname.startsWith('/crm/settings')
-    ? 'Accounts & capabilities'
-    : pathname.startsWith('/crm/people')
-      ? 'People'
-      : pathname.startsWith('/crm/organisations')
-        ? 'Organisations'
-        : 'Home';
+  const compactNavItems = [
+    { to: '/crm', label: 'Home', icon: Home, end: true },
+    { to: '/crm/people', label: 'People', icon: Users, end: false },
+    { to: '/crm/applications', label: 'Intake', icon: FileCheck2, end: false },
+    ...(canManage
+      ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }]
+      : canConfigureAny
+        ? [{ to: '/crm/settings/programmes', label: 'Settings', icon: Settings, end: false }]
+        : []),
+  ];
+
+  const routeLabel = pathname.startsWith('/crm/settings/programmes')
+    ? 'Programme profiles'
+    : pathname.startsWith('/crm/settings')
+      ? 'Accounts & capabilities'
+      : pathname.startsWith('/crm/people')
+        ? 'People'
+        : pathname.startsWith('/crm/organisations')
+          ? 'Organisations'
+          : pathname.startsWith('/crm/programmes')
+            ? 'Programmes'
+            : pathname.startsWith('/crm/applications')
+              ? 'Applications'
+              : 'Home';
   const showSideRail = layout !== 'compact';
   const compactRail = layout === 'medium' ? effectiveCollapsed : railCollapsed;
 
@@ -432,7 +461,7 @@ export default function CrmShell() {
               aria-label="CRM navigation"
               className="pb-safe flex shrink-0 items-stretch border-t border-[var(--crm-border)] bg-[var(--crm-surface)]"
             >
-              {navItems.map((item) => {
+              {compactNavItems.map((item) => {
                 const Icon = item.icon;
                 return (
                   <NavLink
@@ -441,7 +470,7 @@ export default function CrmShell() {
                     end={item.end}
                     className={({ isActive }) =>
                       cn(
-                        'flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-xs font-medium transition-colors',
+                        'flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium transition-colors',
                         isActive
                           ? 'text-[var(--crm-primary)] font-semibold'
                           : 'text-[var(--crm-text-muted)]',
@@ -449,11 +478,40 @@ export default function CrmShell() {
                     }
                   >
                     <Icon size={18} aria-hidden="true" />
-                    <span>{item.label}</span>
+                    <span className="truncate max-w-full">{item.label}</span>
                   </NavLink>
                 );
               })}
+              <button
+                type="button"
+                aria-label="More CRM sections"
+                onClick={() => setMoreOpen(true)}
+                className="flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium text-[var(--crm-text-muted)]"
+              >
+                <MoreHorizontal size={18} aria-hidden="true" />
+                <span className="truncate max-w-full">More</span>
+              </button>
             </nav>
+          )}
+          {moreOpen && (
+            <Sheet side="bottom" onClose={() => setMoreOpen(false)} label="More CRM sections">
+              <div data-app="crm" className="space-y-1 p-4 bg-[var(--crm-surface)] text-[var(--crm-text)]">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.to}
+                      to={item.to}
+                      onClick={() => setMoreOpen(false)}
+                      className="flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium hover:bg-[var(--crm-surface-2)]"
+                    >
+                      <Icon size={17} aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </Sheet>
           )}
         </div>
       </div>

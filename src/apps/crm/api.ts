@@ -33,6 +33,20 @@ import {
   type RetireEndpointInput,
   type SetPrimaryEndpointInput,
 } from '../../../shared/crm/identity';
+import {
+  APPLICATION_CONVERT_TARGETS,
+  HomeSummaryResponseSchema,
+  ProgrammeSummaryDtoSchema,
+  ProgrammesListResponseSchema,
+  TimelineResponseSchema,
+  type ConvertApplicationInput,
+  type CreateApplicationFromSubmissionInput,
+  type HomeSummaryResponse,
+  type ProgrammeSummaryDto,
+  type ProgrammesListResponse,
+  type TimelineResponse,
+  type UpdateProgrammeProfileInput,
+} from '../../../shared/crm/programmes';
 import type { PublicUser } from '../../../shared/types';
 import { api, ApiError, getToken } from '../../core/api';
 import {
@@ -612,6 +626,79 @@ export function runEndpointBackfill(
   return runCrmCommand('endpoints.backfill', { ...input }, BackfillEndpointsOutputSchema, opts);
 }
 
+// ---------------------------------------------------------------------------
+// S2 Programmes, Enquiries, Applications, Timeline & Home My Work APIs
+// ---------------------------------------------------------------------------
+
+const UpdateProgrammeProfileOutputSchema = z.object({
+  programme: ProgrammeSummaryDtoSchema,
+  already: z.boolean(),
+}).strict();
+
+const CreateApplicationOutputSchema = z.object({
+  applicationId: z.string().min(1),
+  already: z.boolean(),
+  personId: z.string().nullable(),
+  programmeSlug: z.string().nullable(),
+}).strict();
+
+const ConvertApplicationOutputSchema = z.object({
+  applicationId: z.string().min(1),
+  convertedRecordId: z.string().min(1),
+  targetKind: z.enum(APPLICATION_CONVERT_TARGETS),
+  already: z.boolean(),
+}).strict();
+
+export function fetchProgrammes(): Promise<ProgrammesListResponse> {
+  return fetchCrmRead('/api/crm/read/programmes', ProgrammesListResponseSchema);
+}
+
+export function updateProgrammeProfile(
+  input: UpdateProgrammeProfileInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ programme: ProgrammeSummaryDto; already: boolean }> | CommandError> {
+  return runCrmCommand('programme.update_profile', { ...input }, UpdateProgrammeProfileOutputSchema, opts);
+}
+
+export function createApplicationFromSubmission(
+  input: CreateApplicationFromSubmissionInput,
+  opts?: RunCrmCommandOptions,
+): Promise<
+  | CommandResult<{ applicationId: string; already: boolean; personId: string | null; programmeSlug: string | null }>
+  | CommandError
+> {
+  return runCrmCommand('application.create_from_submission', { ...input }, CreateApplicationOutputSchema, opts);
+}
+
+export function convertApplication(
+  input: ConvertApplicationInput,
+  opts?: RunCrmCommandOptions,
+): Promise<
+  | CommandResult<{
+      applicationId: string;
+      convertedRecordId: string;
+      targetKind: ConvertApplicationInput['targetKind'];
+      already: boolean;
+    }>
+  | CommandError
+> {
+  return runCrmCommand('application.convert', { ...input }, ConvertApplicationOutputSchema, opts);
+}
+
+export function fetchTimeline(
+  subjectId: string,
+  cursor?: string,
+  limit = 30,
+): Promise<TimelineResponse> {
+  const qs = new URLSearchParams({ subject: subjectId, limit: String(limit) });
+  if (cursor) qs.set('cursor', cursor);
+  return fetchCrmRead(`/api/crm/read/timeline?${qs.toString()}`, TimelineResponseSchema);
+}
+
+export function fetchCrmHome(): Promise<HomeSummaryResponse> {
+  return fetchCrmRead('/api/crm/read/home', HomeSummaryResponseSchema);
+}
+
 const COMMAND_ERROR_MESSAGES: Record<CrmErrorCode, string> = {
   unauthenticated: 'Your session expired. Sign in again to continue.',
   forbidden: 'You do not have permission to change this capability.',
@@ -657,6 +744,14 @@ export function describeCommandError(err: CommandError | CrmTransportError | unk
           return 'This endpoint already belongs to another person (see Duplicate review).';
         case 'invalid_endpoint_format':
           return 'Enter a valid email address, phone number (with country code or 10-digit Indian mobile), or social handle.';
+        case 'unknown_programme_slug':
+          return 'Unknown TCG programme slug.';
+        case 'invalid_programme_profile':
+          return 'Please review the programme profile fields and try again.';
+        case 'applications_board_missing':
+          return 'Install the TCG Operating Pack in Workspace or CRM before creating applications.';
+        case 'target_board_not_found':
+          return 'Choose a valid destination database for conversion.';
       }
     }
     return COMMAND_ERROR_MESSAGES[cmdErr.error] ?? 'Could not update capability. Refresh and retry.';
