@@ -142,8 +142,8 @@ export function PeopleView({ status }: { status: CrmStatus }) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1">
-      <div className="min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6">
         <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-xl font-semibold leading-tight">People</h1>

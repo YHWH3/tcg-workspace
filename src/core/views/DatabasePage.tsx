@@ -240,11 +240,11 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
           })}
           </div>
           {view?.id && (
-            <div className="min-w-0 max-md:shrink-0">
+            <div className="shrink-0">
               <ViewTabMenu key={view.id} view={view} board={board} onCreated={id => pickView({ ...view, id })} onDeleted={() => navigate(`/boards/${board.id}`)} />
             </div>
           )}
-          <div className="min-w-0 max-md:shrink-0">
+          <div className="shrink-0">
             <Popover adaptive label="Add a database view" align="right"
               trigger={
                 <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-xs font-medium text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800" aria-label="New view">

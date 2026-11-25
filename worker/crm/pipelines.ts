@@ -237,6 +237,7 @@ export async function readPatrons(
     const tier = d[`p_${WI_FIELD.tier}`];
     const isPatron =
       family === 'patron' ||
+      family === 'patrons' ||
       (typeof event === 'string' && event.startsWith('patron.')) ||
       (typeof tier === 'string' && (PATRON_TIERS as readonly string[]).includes(tier));
     if (isPatron) {

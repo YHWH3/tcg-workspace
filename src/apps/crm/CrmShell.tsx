@@ -134,6 +134,7 @@ export default function CrmShell() {
   const layout = useLayoutMode();
   const { pathname } = useLocation();
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   // Presence path privacy (SC-9): never broadcast /crm/* paths over LiveRoom while
   // Workspace permissions may be off.
@@ -256,7 +257,6 @@ export default function CrmShell() {
   const status = crm.data;
   const canManage = canManageCrmAccess(status);
   const canConfigureAny = status.owner || status.capabilities.some((c) => c.capability === 'crm.configure');
-  const [moreOpen, setMoreOpen] = useState(false);
 
   const navItems = [
     { to: '/crm', label: 'Home', icon: Home, end: true },
@@ -315,12 +315,12 @@ export default function CrmShell() {
   const compactRail = layout === 'medium' ? effectiveCollapsed : railCollapsed;
 
   return (
-    <div data-app="crm" className="vv-fit px-safe flex min-h-0 flex-col">
+    <div data-app="crm" className="vv-fit px-safe relative flex min-h-0 flex-col overflow-hidden">
       <a href="#crm-main" className="crm-skip-link">
         Skip to content
       </a>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {showSideRail && (
           <aside
             aria-label="CRM sidebar"
@@ -472,7 +472,7 @@ export default function CrmShell() {
             </div>
           )}
 
-          <main id="crm-main" className="min-h-0 flex-1 overflow-y-auto">
+          <main id="crm-main" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
             <CrmRoutes status={status} />
           </main>
 

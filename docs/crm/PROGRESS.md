@@ -12,9 +12,9 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 | **Repository & active branch** | `YHWH3/tcg-workspace`, branch `crm/p1-core` (branched from verified S0 commit `70b8bb1b73a4af23038a3b1d6623205c0dd3a81e`) |
 | **Workspace baseline commit** | `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`codex/workspace-database-platform`) |
 | **Reviewed documentation baseline** | `8aa6f5300426029dc1db87e979fb871313190973` (`crm/foundation`, Checkpoint 1 accepted) |
-| **Active contract version** | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) (S0 accepted) + `contracts/crm-p1-v1.md` (P1 Core CRM, in progress) |
-| **Current stage** | **P1 — Autonomous Cross-Platform Core CRM Implementation (Milestone 5 S9 complete -> advancing into Commons Demo expansion & P1 Certification)** |
-| **Overall P1 status** | **Milestone 0–5 (S1–S4, S9) verified & complete:** closed compact blocker (`108/108`), completed S1 (`4bdd470`), S2 (`c66740e`), S3 (`14789fa`), S4 (`ce330a7`), and S9 (5 pipelines + accessible stage controls, idempotent `opportunity.handoff_project`, and strictly read-only `GET /read/patrons` / Patrons mirror). Advancing into Milestone 6 (`Demo & P1 Package Certification`). |
+| **Active contract version** | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) (S0 accepted) + [`contracts/crm-p1-v1.md`](contracts/crm-p1-v1.md) (P1 Core CRM, implemented & certified) |
+| **Current stage** | **P1 — Package Review Checkpoint (S1, S2, S3, S4 & S9 implemented, Demo expanded & Cross-Platform Certified on `crm/p1-core`)** |
+| **Overall P1 status** | **P1 Complete (Milestones 0–6):** closed compact Workspace blocker & cross-viewport tablet/settings accessibility defects (`18/18` Workspace projects, `1,944/1,944` tests), completed S1 (`4bdd470`), S2 (`c66740e`), S3 (`14789fa`), S4 (`ce330a7`), S9 (`e5d854a`), expanded Commons demo (`21` light/dark screenshots), and passed full 18-project S0 + P1 CRM UX certification (`90/90` tests across `126` baselines at `maxDiffPixels: 0`). Waiting at P1 package review boundary. |
 
 ---
 
@@ -89,7 +89,19 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
      - Implemented idempotent `opportunity.handoff_project` (`_crm_project_id` projection + `f_projects`/`f_program`/`f_people`/`f_orgs`/`related` links) and strictly read-only `GET /api/crm/read/patrons` backed by `ReadGate` over `board-website-inbox` without exposing any patron write commands.
    - **Frontend ([`src/apps/crm/pipeline/PipelineView.tsx`](../../src/apps/crm/pipeline/PipelineView.tsx), [`src/apps/crm/members/PatronsView.tsx`](../../src/apps/crm/members/PatronsView.tsx), [`src/apps/crm/api.ts`](../../src/apps/crm/api.ts), [`src/apps/crm/routes.tsx`](../../src/apps/crm/routes.tsx), [`src/apps/crm/CrmShell.tsx`](../../src/apps/crm/CrmShell.tsx)):**
      - Delivered responsive 5-pipeline Grid + Board views with accessible `>=44px` stage `<select>` controls (zero drag-only lock-in), Opportunity detail handoff action & Workspace link, and the strictly read-only Patrons mirror with search and tier filter.
-   - **S9 Verification:** `npm run typecheck`, `npm run build`, and targeted Vitest (`tests/crm-p1-pipelines-patrons-d1.test.ts`, `tests/crm-isolation.test.ts`, `tests/crm-routes.test.ts`) **3/3 files, 7/7 tests passed**.
+   - **S9 Verification:** `npm run typecheck`, `npm run build`, and targeted Vitest (`tests/crm-p1-pipelines-patrons-d1.test.ts`, `tests/crm-isolation.test.ts`, `tests/crm-routes.test.ts`) **3/3 files, 7/7 tests passed**. Commit `e5d854a`.
+13. **P1 Milestone 6 — Commons Demo Expansion, Cross-Platform UX Matrix & Full P1 Package Certification (25–26 Nov 2026, branch `crm/p1-core`):**
+   - **Commons Fixture & Walkthrough (`scripts/crm-demo/data.mjs`, `scripts/crm-demo/preview.mjs`):**
+     - Expanded Riverbank Commons into an integrated realistic S1–S4 + S9 fixture (`5` accounts, `30` people including duplicate collisions, `8` organisations, `12` affiliations, `14` programmes, `3` verified facts, `5` activities, `6` opportunities across all `5` pipelines, `3` patrons, website enquiries, backfill/consent/WhatsApp+Call+note+grounded AI draft+handoff) producing **21** deterministic desktop/tablet/mobile light/dark screenshots under `.artifacts/crm-demo/`.
+   - **P1 Cross-Platform UX Lab Suite (`scripts/ux-lab/crm-workflows.spec.mjs`):**
+     - Added deterministic S1–S4 + S9 browser workflows asserting Protocol 3 sync push, pack installation alongside pre-existing Website inbox, duplicate review & dismissal, relationship timeline, Overdue/Today/Done activities + My Work, simulated WhatsApp/Call conversations + grounded AI drafts, 5-pipeline views & `>=44px` stage selector controls, idempotent Project handoff, read-only Patrons view, 320px reflow, 200% text scaling, touch-target geometry, WCAG 2.2 AA axe checks, and P1 visual baselines (`crm-people.png`, `crm-conversations.png`, `crm-pipelines.png`, `crm-patrons.png`).
+   - **Cross-Browser Accessibility, Layout & Projection Fixes:**
+     - `worker/crm/pipelines.ts`: matched both `'patron'` and `'patrons'` families in `readPatrons()`.
+     - `src/apps/crm/hooks/useCrmDatabases.ts`: required full core CRM pack databases in `needsPackInstall` even when `board-website-people` already exists.
+     - `src/apps/crm/CrmShell.tsx`, `CrmGrid.tsx`, `RecordPanel.tsx`, `ConversationsView.tsx`, `PeopleView.tsx`, `OrganisationsView.tsx`, `PipelineView.tsx`, `ApplicationsView.tsx`: fixed React Rules of Hooks order on cold `/crm/*` reload, added desktop `relative overflow-hidden` scroll containment, focusable `role="region"` scroll containers, checkbox/sticky column target spacing (`!left-10`, `tabIndex={-1}` gridcells), contrast-safe note/endpoint tokens, removed mismatched `aria-label`, and immediate post-command `syncNow()`.
+     - `src/apps/crm/crm.css`: added `-webkit-appearance: none; appearance: none;` + light/dark chevrons on `.crm-select` so Safari/WebKit honors `min-height: 2.75rem` (`44px`) on `<select>` controls.
+     - `src/core/views/DatabasePage.tsx` & `scripts/ux-lab/playwright.config.mjs`: extended the N4 `max-md:shrink-0` fix on `ViewTabMenu` and `+ View` wrappers to `shrink-0` across all viewports (eliminating pre-existing 820px tablet `target-size` overlap on `ux-records`) and recorded a separate 6-tablet baseline set under `.artifacts/ux-lab/baselines-tablet-a11y-fix/`.
+     - `src/core/settings.tsx`: fixed pre-existing WCAG 2.2 AA `color-contrast` violations caught by Firefox on Settings AI connectors (`Revoke` button `text-red-700 dark:text-red-300`, password status error fallback, and `Connected apps` `legend`/`p` `text-neutral-600 dark:text-neutral-400`).
 
 ---
 
@@ -97,10 +109,33 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 
 | Artifact Set | Source & Method | Coverage | Status |
 |---|---|---|---|
-| **Original Workspace baselines** (`.artifacts/ux-lab/baselines/`) | Unmodified isolated checkout of `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`fingerprint: 87796aa3f5f95da3ee1aa6f37004690d58da32cea00e0d51373e32429101b1ec`) | 12 desktop & tablet projects (`website-inbox.png` + `provenance.json`) | **Unchanged**; 12/12 pass `maxDiffPixels: 0` |
-| **Corrected compact Workspace baselines** (`.artifacts/ux-lab/baselines-compact-a11y-fix/`) | Isolated detached checkout of `38c388a` (`baseFingerprint: 87796aa3...`) + ONLY `src/core/views/DatabasePage.tsx` compact patch (`patchSha256: 7a02a0ae2a79104a8116fa265b0eb35f5e85c0de0c9818db007333ee45638379`) | 6 compact `390×844` projects (`website-inbox.png`, `compact-a11y-fix.patch`, `provenance.json`) | **6/6 pass** `maxDiffPixels: 0` + WCAG 2.2 AA axe |
-| **CRM explicit visual baselines** (`.artifacts/ux-lab/crm-baselines/`) | Recorded via `npm run qa:ux -- --crm --record --skip-build` (`2026-11-25T07-52-56.672Z`) and verified independently via `npm run qa:ux -- --crm --skip-build` (`2026-11-25T08-03-52.557Z`) | All 18 projects × 3 PNGs = **54 visual references** (`crm-home.png`, `crm-settings-capabilities.png`, `crm-access-denied.png`) + `provenance.json` | **18/18 projects (36/36 specs) pass** at `maxDiffPixels: 0` |
-| **Commons demo screenshots** (`.artifacts/crm-demo/`) | Generated by `npm run demo:crm -- --check` against real Worker + D1 (`CRM_ENABLED=true`) | Light & dark desktop + compact mobile walkthrough screenshots | Passed (`CRM Commons demo checks passed`) |
+| **Original Workspace baselines** (`.artifacts/ux-lab/baselines/`) | Unmodified isolated checkout of `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`fingerprint: 87796aa3f5f95da3ee1aa6f37004690d58da32cea00e0d51373e32429101b1ec`, recorded `2026-11-25T01:21:51.352Z`) | 6 desktop projects verified unchanged (original 12 desktop/tablet baselines preserved untouched) | **Desktop 6/6 pass** `maxDiffPixels: 0` |
+| **Corrected compact Workspace baselines** (`.artifacts/ux-lab/baselines-compact-a11y-fix/`) | Isolated detached checkout of `38c388a` (`baseFingerprint: 87796aa3...`) + ONLY `src/core/views/DatabasePage.tsx` compact patch (`patchSha256: 7a02a0ae2a79104a8116fa265b0eb35f5e85c0de0c9818db007333ee45638379`, recorded `2026-11-25T06:44:09.353Z`) | 6 compact `390×844` projects (`website-inbox.png`, `compact-a11y-fix.patch`, `provenance.json`) | **6/6 pass** `maxDiffPixels: 0` + WCAG 2.2 AA axe |
+| **Corrected tablet Workspace baselines** (`.artifacts/ux-lab/baselines-tablet-a11y-fix/`) | Isolated detached checkout of `38c388a` (`baseFingerprint: 87796aa3...`) + ONLY `src/core/views/DatabasePage.tsx` `shrink-0` wrapper patch (`patchSha256: 3c5edf178569c004378dd39c8b88a79b0df7270675485cfb202b9cc5df88261b`, recorded `2026-11-25T12:43:46.939Z`) | 6 tablet `820×1180` projects (`website-inbox.png`, `tablet-a11y-fix.patch`, `provenance.json`) | **6/6 pass** `maxDiffPixels: 0` + WCAG 2.2 AA axe |
+| **CRM explicit visual baselines** (`.artifacts/ux-lab/crm-baselines/`) | Recorded via `npm run qa:ux -- --crm --record --skip-build` (`2026-11-25T13:32:13.854Z`) and verified independently on the final tree via `npm run qa:ux -- --crm --skip-build` (`2026-11-25T16:39:57.938Z`) | All 18 projects × 7 PNGs = **126 visual references** (`crm-home.png`, `crm-settings-capabilities.png`, `crm-access-denied.png`, `crm-people.png`, `crm-conversations.png`, `crm-pipelines.png`, `crm-patrons.png`) + `provenance.json` | **18/18 projects (90/90 tests) pass** at `maxDiffPixels: 0` |
+| **Commons demo screenshots** (`.artifacts/crm-demo/`) | Generated by `npm run demo:crm -- --check` against real Worker + D1 (`CRM_ENABLED=true`, `WORKSPACE_ENV=local-test`, fingerprint `79480143868470589cfd993dda52b5c26a981588d1bf06f16a861fca46f37b74`) | **21** light & dark desktop, tablet, and compact mobile walkthrough PNGs + `ready.json` | Passed (`CRM Commons demo checks passed`) |
+
+---
+
+## P1 Integrated Certification Evidence (25–26 Nov 2026, `crm/p1-core`)
+
+Checks matching the final code fingerprint (`79480143868470589cfd993dda52b5c26a981588d1bf06f16a861fca46f37b74`):
+
+- **Typecheck & Build:** `npm run typecheck` (0 errors) and `npm run build` passed cleanly (Worker + client + classic-script `sw.js`).
+- **Local D1 Migrations, Pack & Certification Scripts:**
+  - `npm run db:migrate:local` succeeded (`No migrations to apply!`, 46 migrations applied cleanly).
+  - `node scripts/_validate-tcg-pack.mjs`: passed (`TCG Operating Pack`: `20` databases (`209` fields, `86` paired + `12` one-way relation fields), `78` views, `38` pages (`17` templates), `1` link, `103.0 KB`).
+  - `node --test scripts/certification/*.test.mjs scripts/access/selftest.mjs`: **153/153 tests passed** (`0` failed, `0` skipped).
+- **Demos:**
+  - `npm run demo:studio -- --check`: passed (`Seeded 36 records and 19 views`, `.artifacts/studio-demo/run-tOzJhL`).
+  - `npm run demo:crm -- --check`: passed (`5` accounts, `30` people, `8` organisations, `14` programmes, `6` opportunities, `3` patrons, `3` facts; `21` screenshots + `ready.json` in `.artifacts/crm-demo/`).
+- **Full 18-Project CRM UX Matrix (`npm run qa:ux -- --crm --skip-build`):**
+  - Run `.artifacts/ux-lab/2026-11-25T16-39-47.071Z`: **18/18 projects passed (`exitCode: 0`, `projectsComplete: true`, `90/90` expected, `0` unexpected, `0` skipped, `0` flaky)** across all 126 visual references (`maxDiffPixels: 0`), verifying S0 & P1 workflows, keyboard navigation, WCAG 2.2 AA axe checks, `320px` reflow, `200%` text scaling, and `>=44px` touch targets across Chromium, Firefox, and WebKit × compact, tablet, and desktop × light and dark.
+- **Full 18-Project Workspace CRM-off UX Matrix (`npm run qa:ux -- --skip-build`):**
+  - Run `.artifacts/ux-lab/2026-11-25T16-58-36.690Z`: **18/18 projects passed (`exitCode: 0`, `projectsComplete: true`, `coverage.complete: true`, `1,944/1,944` expected, `0` unexpected, `0` skipped, `0` flaky)** against untouched desktop baselines (`.artifacts/ux-lab/baselines/`) and isolated corrected compact/tablet baselines.
+
+Prior full Vitest suite run (`npm test`, immediately prior to the final CSS/JSX/Playwright-config accessibility edits in `DatabasePage.tsx`, `crm.css`, `settings.tsx`, and `playwright.config.mjs` — none of which are imported by `tests/`):
+- **237/237 test files, 2,316/2,316 tests passed** (`0` failures, `0` skipped; zero A-24 `SI-01` flakes).
 
 ---
 
@@ -112,11 +147,11 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 | **Stage 1** | `shared/crm/capabilities.ts` -> `projection.ts` -> `contracts.ts` + `tests/crm-contract.test.ts` & `typecheck` | **Complete (4/4 passing)** |
 | **Stage 2** | `migrations/0045_crm_foundation.sql`, `worker/sync.ts`, `worker/mutationAccess.ts`, `worker/admin.ts`, `worker/auth.ts`, `worker/index.ts`, `worker/crm/*`, certification scripts, 8 backend test suites | **Complete (Checkpoint 2 @ `98938ec`)** |
 | **Stage 3** | Original `38c388a` baseline, `src/routes.tsx`, `AppSwitcher.tsx`, `crmStatus.ts`, `CrmShell.tsx`, `Home.tsx`, `AccessSettings.tsx`, `crm.css`, `scripts/crm-demo/*`, `scripts/ux-lab/crm-shell.spec.mjs`, frontend unit tests | **Complete (`e9c0102`)** |
-| **Stage 4 (N4)** | Targeted N4 corrections + full S0 integrated certification gate (`S0-PLAN.md` §8) | **CRM & unit/build/demo gates PASS; full 18-project Workspace `qa:ux` BLOCKED by pre-existing compact `finance.spec.mjs:46` defect (awaiting owner decision at Checkpoint 3)** |
+| **Stage 4 (N4)** | Targeted N4 corrections + S0 certification (`70b8bb1`) | **Complete (`70b8bb1`; S0 compact Workspace blocker closed in P1 Milestone 0 `566615e` and full 18-project Workspace certification passed `1,944/1,944` at P1 Milestone 6)** |
 
 ---
 
-## Verification Evidence (25 Nov 2026, `crm/s0-frontend`)
+## Verification Evidence (25 Nov 2026, `crm/s0-frontend` Historical Reference)
 
 - **Full Vitest suite (`npm test`):** **230/230 files, 2,299/2,299 tests passed** (0 failures, 0 skipped; A-24 SI-01 tolerance not needed). Includes **69 S0 tests across 12 files**:
   - `tests/crm-contract.test.ts` (4)
@@ -131,28 +166,15 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
   - `tests/crm-client-contract.test.ts` (10 — N4 additions covering retry-delay account switch, epoch bump, delayed 200/401/403 discard, stale protected read discard, same-identity `requestId` reuse, and fallback polling)
   - `tests/crm-isolation.test.ts` (3)
   - `tests/crm-routes.test.ts` (2)
-- **Typecheck & Build:** `npm run typecheck` (0 errors) and `npm run build` passed (`CrmShell` code-split into `64.32 kB` JS and `6.78 kB` CSS chunks).
-- **Local D1 Migrations & Certification Scripts:**
-  - `npm run db:migrate:local` succeeded (`No migrations to apply!`).
-  - `node --test scripts/certification/*.test.mjs scripts/access/selftest.mjs`: **153/153 tests passed**.
-- **Demos:**
-  - `npm run demo:studio -- --check`: passed (`Seeded 36 records and 19 views`, `.artifacts/studio-demo/run-dxrkOr`).
-  - `npm run demo:crm -- --check`: passed (`.artifacts/crm-demo/`).
-- **Full 18-Project CRM UX Matrix:**
-  - `npm run qa:ux -- --crm --record --skip-build`: **18/18 projects, 36/36 tests expected (`exitCode: 0`)**, capturing 54 explicit baselines under `.artifacts/ux-lab/crm-baselines/`.
-  - `npm run qa:ux -- --crm --skip-build`: **18/18 projects, 36/36 tests expected (`exitCode: 0`, `projectsComplete: true`)** with `maxDiffPixels: 0` across all 54 baselines, verifying keyboard navigation, Escape focus return, ARIA tablist/combobox/switch, non-optimistic 503 retry, offline disable/reconnect recovery, automatic remote capability revocation & admin demotion without manual Refresh, retained manual Refresh revocation, 320×568 reflow, 200% text scaling, ≥44×44 touch targets, and WCAG 2.2 AA axe checks across Chromium, Firefox, and WebKit × light and dark × compact, tablet, and desktop.
-- **Workspace CRM-off UX Verification:**
-  - `npm run qa:ux -- --skip-build --grep "visual reference: website inbox"`: **18/18 projects passed (`exitCode: 0`)** — 12/12 desktop & tablet match unmodified `38c388a` (`maxDiffPixels: 0`); 6/6 compact match `.artifacts/ux-lab/baselines-compact-a11y-fix/` (`maxDiffPixels: 0`, zero axe violations).
-  - `npm run qa:ux -- --skip-build --project=chromium-desktop-light`: **108/108 tests passed (`exitCode: 0`)**.
-  - `npm run qa:ux -- --skip-build --project=chromium-compact-light`: **107/108 passed**, **1 failed** (`scripts/ux-lab/finance.spec.mjs:46` — see Blockers below).
+- Historical N4 `typecheck`, `build`, demos, and 18-project CRM checks preserved in git history (`70b8bb1`).
 
 ---
 
 ## Blockers & Open Items
 
-1. **Pre-existing compact Workspace accessibility defect (`scripts/ux-lab/finance.spec.mjs:46`, `src/core/views/TableView.tsx:281`) — RESOLVED in P1 Milestone 0:**
-   - Closed via compact-only scroll container adjustment in `src/core/views/DatabasePage.tsx`; verified passing on all 3 compact engines (`chromium-compact-light`, `firefox-compact-light`, `webkit-compact-light`), `108/108` full `chromium-compact-light`, and `18/18` `website-inbox` visual regression at `maxDiffPixels: 0`. Full 18-project Workspace `qa:ux` sweep runs in the Milestone 6 P1 certification gate.
-2. **Harness transient note:** During two unfiltered multi-project `qa:ux` starts, Wrangler's local dev HTTPS server returned a transient HTTP 500 `Error: Network connection lost.` on `POST /api/approvals` during fixture seeding before subsequent passes succeeded without code changes.
+1. **Workspace cross-platform UX defects (`DatabasePage.tsx`, `settings.tsx`) — RESOLVED & CERTIFIED (`18/18`, `1,944/1,944`):**
+   - Closed compact Database scroll clipping (`566615e`), tablet `ViewTabMenu`/`+ View` `shrink-0` target-size overlap (`DatabasePage.tsx` + `baselines-tablet-a11y-fix/`), and Settings AI connectors WCAG AA contrast (`settings.tsx`), achieving `18/18` project passes (`1,944/1,944` tests) across Chromium, Firefox, and WebKit × light and dark × compact, tablet, and desktop.
+2. **Harness transient note:** Earlier during two N4 multi-project `qa:ux` starts, Wrangler's local dev HTTPS server returned a transient HTTP 500 `Error: Network connection lost.` on `POST /api/approvals` during fixture seeding; not observed during P1 certification runs.
 3. **NOT RUN (unavailable / out-of-scope external gates):**
    - Real physical iPhone, iPad, Android, and Windows hardware (Emulated WebKit is not real iOS Safari).
    - Native 400% OS/browser zoom.

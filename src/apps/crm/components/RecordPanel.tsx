@@ -409,8 +409,7 @@ export function RecordPanel({
             <button
               type="button"
               onClick={() => setFollowUpOpen(true)}
-              aria-label="Log activity"
-              title="Log activity"
+              title="Log follow-up activity"
               className="crm-btn-secondary !min-h-10 !px-2.5 !py-1 !text-xs"
             >
               <CalendarPlus size={13} aria-hidden="true" />
@@ -487,7 +486,12 @@ export function RecordPanel({
       </div>
 
       {/* Body */}
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
+      <div
+        role="region"
+        aria-label="Record details content"
+        tabIndex={0}
+        className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4"
+      >
         {actionError && (
           <div
             role="alert"
@@ -603,7 +607,7 @@ export function RecordPanel({
                           key={ep.id}
                           className={cn(
                             'flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--crm-border)] p-2.5 text-xs',
-                            retired && 'opacity-60',
+                            retired && 'bg-[var(--crm-surface-2)]',
                           )}
                         >
                           <div className="min-w-0 flex-1">
@@ -929,9 +933,12 @@ export function RecordPanel({
                         <span className="rounded-full bg-[var(--crm-surface-2)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">
                           {item.kind.replace(/_/g, ' ')}
                         </span>
-                        <span className="crm-tabular text-[11px] text-[var(--crm-text-muted)]">
+                        <time
+                          dateTime={item.ts > 0 ? new Date(item.ts).toISOString() : undefined}
+                          className="crm-tabular text-[11px] text-[var(--crm-text-muted)]"
+                        >
                           {item.ts > 0 ? new Date(item.ts).toLocaleString() : ''}
-                        </span>
+                        </time>
                       </div>
                       <p className="mt-1 font-semibold text-[var(--crm-text)]">{item.title}</p>
                       {item.subtitle && (

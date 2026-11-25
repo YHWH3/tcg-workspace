@@ -11,7 +11,9 @@ const projects=['chromium','firefox','webkit'].flatMap(browserName=>[
     ? '.artifacts/ux-lab/crm-baselines'
     : size.label==='compact'
       ? '.artifacts/ux-lab/baselines-compact-a11y-fix'
-      : '.artifacts/ux-lab/baselines';
+      : size.label==='tablet'
+        ? '.artifacts/ux-lab/baselines-tablet-a11y-fix'
+        : '.artifacts/ux-lab/baselines';
   return {
     name:`${browserName}-${size.label}-${colorScheme}`,
     snapshotPathTemplate:resolve(`${baselineRoot}/{projectName}/{arg}{ext}`),

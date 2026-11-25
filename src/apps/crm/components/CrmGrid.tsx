@@ -700,7 +700,7 @@ export function CrmGrid({
         </div>
       ) : (
         /* Desktop / Tablet ARIA grid with collapsible coloured groups, sticky first col & persisted resize */
-        <div ref={gridContainerRef} className="space-y-4">
+        <div ref={gridContainerRef} className="min-w-0 w-full max-w-full space-y-4">
           {groups.map((grp, gIdx) => {
             const gLabel = cfg.groupBy
               ? groupKeyLabel(board, cfg.groupBy, grp.key)
@@ -712,7 +712,7 @@ export function CrmGrid({
             return (
               <section
                 key={grp.key || 'all'}
-                className="crm-panel overflow-hidden"
+                className="crm-panel relative min-w-0 w-full max-w-full overflow-hidden"
                 style={{ borderLeft: `4px solid ${accent}` }}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 bg-[var(--crm-surface-2)] px-3.5 py-2">
@@ -751,7 +751,12 @@ export function CrmGrid({
                 </div>
 
                 {!collapsed && (
-                  <div className="overflow-x-auto">
+                  <div
+                    role="region"
+                    aria-label={`${String(board.name ?? noun)} — ${gLabel}`}
+                    tabIndex={0}
+                    className="w-full max-w-full overflow-x-auto"
+                  >
                     <table
                       role="grid"
                       aria-label={`${String(board.name ?? noun)} — ${gLabel}`}
@@ -771,7 +776,7 @@ export function CrmGrid({
                                 key={col.key}
                                 scope="col"
                                 style={{ width: w, minWidth: w }}
-                                className={cn('relative select-none', cIdx === 0 && 'crm-sticky-col')}
+                                className={cn('relative select-none', cIdx === 0 && 'crm-sticky-col !left-10')}
                               >
                                 <div className="flex items-center justify-between gap-1 pr-2">
                                   {isProjection ? (
@@ -842,7 +847,7 @@ export function CrmGrid({
                               key={rec.id}
                               className={cn(isSelectedRow && 'bg-[var(--crm-primary-soft)]')}
                             >
-                              <td className="crm-sticky-col !px-2">
+                              <td className="crm-sticky-col !w-10 !px-2">
                                 <input
                                   type="checkbox"
                                   aria-label={`Select ${recordTitle(rec)}`}
@@ -867,10 +872,10 @@ export function CrmGrid({
                                     data-grid-cell="1"
                                     data-grid-row={rowIndex}
                                     data-grid-col={cIdx}
-                                    tabIndex={rowIndex === 0 && cIdx === 0 ? 0 : -1}
+                                    tabIndex={-1}
                                     style={{ width: w, minWidth: w, maxWidth: w + 80 }}
                                     className={cn(
-                                      isFirst && 'crm-sticky-col',
+                                      isFirst && 'crm-sticky-col !left-10',
                                       '!py-1.5 !px-2 align-middle outline-none focus:ring-2 focus:ring-inset focus:ring-[var(--crm-primary)]',
                                     )}
                                     onKeyDown={(e) => {

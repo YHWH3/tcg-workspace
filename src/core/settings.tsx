@@ -526,7 +526,7 @@ function PasswordSection() {
           >
             Update
           </Button>
-          {msg && <span className={cn('text-xs', msg.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500')}>{msg.text}</span>}
+          {msg && <span className={cn('text-xs', msg.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-700 dark:text-red-300')}>{msg.text}</span>}
         </div>
       </div>
     </Section>
@@ -737,15 +737,15 @@ function AIConnectorsSection() {
             {grants.map((g) => (
               <li key={g.id} className="space-y-2 px-3 py-3 text-sm">
                 <div className="flex flex-wrap items-center gap-3"><span className="min-w-0 flex-1 break-words font-medium">{g.clientName}</span>
-                <button className="min-h-10 px-2 text-xs font-medium text-red-500" onClick={()=>void revoke(g.id).catch(()=>setConnectionError('Revocation failed. Retry while connected.'))}>Revoke</button></div>
-                {g.connection ? <fieldset className="space-y-1"><legend className="text-xs text-neutral-500">Authorized spaces — uncheck to remove access</legend>
+                <button className="min-h-10 px-2 text-xs font-medium text-red-700 dark:text-red-300" onClick={()=>void revoke(g.id).catch(()=>setConnectionError('Revocation failed. Retry while connected.'))}>Revoke</button></div>
+                {g.connection ? <fieldset className="space-y-1"><legend className="text-xs text-neutral-600 dark:text-neutral-400">Authorized spaces — uncheck to remove access</legend>
                   {JSON.parse(g.connection.spaces_json).map((id:string)=><label key={id} className="flex min-h-10 items-center gap-2 break-words">
                     <input type="checkbox" checked disabled={g.connection!.revoked_at!==null||reducingConnection===g.connectionId} onChange={()=>{
                       setReducingConnection(g.connectionId??'');void api(`/api/oauth/connections/${g.connection!.id}`,{method:'PATCH',body:{spaces:JSON.parse(g.connection!.spaces_json).filter((s:string)=>s!==id),expectedVersion:g.connection!.version}})
                         .then(load).catch(()=>setConnectionError('Access changed or the request failed. Reload and retry.')).finally(()=>setReducingConnection(''));
                     }}/>{spaces.find(s=>s.id===id)?.name??'Unavailable space'}
                   </label>)}
-                  {reducingConnection===g.connectionId&&<p role="status">Updating connection access…</p>}<p className="text-xs text-neutral-500">To add spaces, connect again and authorize a new connection.</p>
+                  {reducingConnection===g.connectionId&&<p role="status">Updating connection access…</p>}<p className="text-xs text-neutral-600 dark:text-neutral-400">To add spaces, connect again and authorize a new connection.</p>
                 </fieldset>:<p className="text-xs text-amber-700 dark:text-amber-400">Legacy connection. Reconnect to select spaces. It cannot access a permission-enabled workspace.</p>}
               </li>
             ))}

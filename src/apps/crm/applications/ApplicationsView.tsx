@@ -26,7 +26,7 @@ import { authStore } from '../../../core/auth';
 import { db, type LocalRow } from '../../../core/db';
 import { recordTitle } from '../../../core/records';
 import { useStore } from '../../../core/store';
-import { onlineStore } from '../../../core/sync/engine';
+import { onlineStore, syncNow } from '../../../core/sync/engine';
 import { AdaptiveDialog } from '../../../core/ui';
 import { approvalsApi, type Approval } from '../../../modules/approvals/api';
 import { useUsers } from '../../../core/users';
@@ -381,6 +381,7 @@ export function ApplicationsView({ status }: { status: CrmStatus }) {
         { requestId: generateCrmRequestId() },
       );
       if (outcome.ok) {
+        await syncNow();
         setSubTab('applications');
         navigate(`/crm/applications/${outcome.result.applicationId}`);
       } else {
@@ -417,6 +418,7 @@ export function ApplicationsView({ status }: { status: CrmStatus }) {
         { requestId: generateCrmRequestId() },
       );
       if (outcome.ok) {
+        await syncNow();
         setConvertOpen(false);
         setConvertTitle('');
       } else {

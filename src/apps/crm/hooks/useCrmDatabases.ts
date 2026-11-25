@@ -61,7 +61,13 @@ export function useCrmDatabases(): CrmDatabasesState {
     const eventsDb = findBoardByKey(boards, 'events');
     const placesDb = findBoardByKey(boards, 'places');
     const websiteInboxDb = boards.find((b) => !b.deleted && b.id === WEBSITE_INBOX_ID);
-    const needsPackInstall = !peopleDb && !orgsDb && !programsDb;
+    const needsPackInstall =
+      !peopleDb ||
+      !orgsDb ||
+      !programsDb ||
+      !applicationsDb ||
+      !activitiesDb ||
+      !opportunitiesDb;
     return {
       peopleDb,
       orgsDb,

@@ -13,7 +13,7 @@ import { CRM_PROJECTION } from '../../../../shared/crm/projection';
 import type { CrmStatus } from '../../../../shared/crm/contracts';
 import { recordTitle, stagesOf } from '../../../core/records';
 import { useStore } from '../../../core/store';
-import { mutate, onlineStore } from '../../../core/sync/engine';
+import { mutate, onlineStore, syncNow } from '../../../core/sync/engine';
 import { columnIdFor, type TaskRow } from '../../../modules/boards/api';
 import {
   describeCommandError,
@@ -74,6 +74,7 @@ export function PipelineView({ status }: { status: CrmStatus }) {
         { requestId: generateCrmRequestId() },
       );
       if (!res.ok) setHandoffError(describeCommandError(res));
+      else await syncNow();
     } catch (err) {
       setHandoffError(describeCommandError(err));
     } finally {
@@ -104,8 +105,8 @@ export function PipelineView({ status }: { status: CrmStatus }) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 overflow-hidden">
-      <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-hidden px-3 py-4 sm:px-6 sm:py-6">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden px-3 py-4 sm:px-6 sm:py-6">
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs font-medium text-[var(--crm-text-muted)]">Opportunities</p>
@@ -196,7 +197,12 @@ export function PipelineView({ status }: { status: CrmStatus }) {
             emptyBody="Use + Add below or convert an application to begin tracking partnerships, grants, consulting, production, or supply deals."
           />
         ) : (
-          <div className="min-h-0 flex-1 overflow-x-auto pb-2">
+          <div
+            role="region"
+            aria-label="Pipeline stages"
+            tabIndex={0}
+            className="min-h-0 flex-1 overflow-x-auto pb-2"
+          >
             <div className="flex gap-3 min-w-max">
               {cols.map((stage) => {
                 const cards = opportunities.filter((r) => columnIdFor(r, opportunitiesDb) === stage.id);

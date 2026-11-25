@@ -463,7 +463,12 @@ export function ConversationsView(_props: { status: CrmStatus }) {
             </select>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-[var(--crm-border)]">
+          <div
+            role="region"
+            aria-label="Conversation threads"
+            tabIndex={0}
+            className="min-h-0 flex-1 overflow-y-auto divide-y divide-[var(--crm-border)]"
+          >
             {listLoading && !listData ? (
               <p className="p-4 text-xs text-[var(--crm-text-muted)]">Loading conversations…</p>
             ) : !listData || listData.items.length === 0 ? (
@@ -485,9 +490,12 @@ export function ConversationsView(_props: { status: CrmStatus }) {
                       <span className="rounded bg-[var(--crm-surface-2)] px-1.5 py-0.5 text-[10px] font-semibold uppercase">
                         {c.channel.replace('_', ' ')}
                       </span>
-                      <span className="crm-tabular text-[11px] text-[var(--crm-text-muted)]">
+                      <time
+                        dateTime={new Date(c.lastMessageAt).toISOString()}
+                        className="crm-tabular text-[11px] text-[var(--crm-text-muted)]"
+                      >
                         {new Date(c.lastMessageAt).toLocaleDateString()}
-                      </span>
+                      </time>
                     </div>
                     <p className="mt-1 truncate text-sm font-semibold">{c.subject}</p>
                     <p className="mt-0.5 truncate text-[var(--crm-text-muted)]">
@@ -603,7 +611,12 @@ export function ConversationsView(_props: { status: CrmStatus }) {
                 )}
 
                 {/* Messages stream */}
-                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                <div
+                  role="region"
+                  aria-label="Conversation messages"
+                  tabIndex={0}
+                  className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4"
+                >
                   {detail.messages.map((m) => {
                     const isNote = m.direction === 'note';
                     const isDraft = m.status === 'draft';
@@ -632,9 +645,12 @@ export function ConversationsView(_props: { status: CrmStatus }) {
                                     : `Sent by ${m.authorName ?? 'team'} (${m.status})`}
                             </span>
                           </span>
-                          <span className="crm-tabular opacity-75">
+                          <time
+                            dateTime={new Date(m.createdAt).toISOString()}
+                            className={isNote ? 'crm-tabular text-[var(--crm-warn-text)]' : 'crm-tabular text-[var(--crm-text-muted)]'}
+                          >
                             {new Date(m.createdAt).toLocaleString()}
-                          </span>
+                          </time>
                         </div>
                         <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-[var(--crm-text)]">
                           {m.bodyText}
