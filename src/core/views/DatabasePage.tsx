@@ -138,7 +138,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
 
   return (
     <div ref={container.ref} className="flex h-full min-h-0 min-w-0">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col max-md:overflow-y-auto">
         <header className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-neutral-200/70 px-4 py-2.5 dark:border-neutral-800/70">
           <h1 className="flex items-center gap-2 text-base font-semibold tracking-tight">
             <span>{String(board.icon ?? (isRecordsDb(board) ? '🗃️' : '🗂️'))}</span>
@@ -274,7 +274,7 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
         </div>
 
         {/* the active view */}
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden max-md:flex-none max-md:overflow-visible">
           {view && (
             <BulkSelectionProvider rows={selectionRows}>
               {(view.type === 'table' || view.type === 'list') && <BulkActionBar board={board} />}

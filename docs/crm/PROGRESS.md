@@ -9,12 +9,12 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 | **Principal engineering agent** | Neon (T3 Code; revised A-26) |
 | **PM & independent review** | ChatGPT |
 | **Owner & approver** | Paul |
-| **Repository & active branch** | `YHWH3/tcg-workspace`, branch `crm/s0-frontend` (branched from verified Stage 2 backend `crm/s0-backend` @ `98938ecb10164f705223615cbc42cc0c65d20bc8`) |
+| **Repository & active branch** | `YHWH3/tcg-workspace`, branch `crm/p1-core` (branched from verified S0 commit `70b8bb1b73a4af23038a3b1d6623205c0dd3a81e`) |
 | **Workspace baseline commit** | `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`codex/workspace-database-platform`) |
 | **Reviewed documentation baseline** | `8aa6f5300426029dc1db87e979fb871313190973` (`crm/foundation`, Checkpoint 1 accepted) |
-| **Active contract version** | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) (**Accepted**, superseding `crm-s0-v1`) |
-| **Current stage** | **N4 — Final S0 Corrections & Integrated Certification (Checkpoint 3 Review)** |
-| **Overall S0 acceptance status** | **BLOCKED AT FULL 18-PROJECT WORKSPACE CRM-OFF `qa:ux` GATE BY PRE-EXISTING WORKSPACE DEFECT (`finance.spec.mjs:46` / `TableView.tsx:281`).** All CRM N4 corrections, unit/D1 tests (2,299/2,299), typecheck, build, migrations, cert scripts (153/153), demos, 18-project CRM UX matrix (36/36, 54 visual references at 0 diff pixels), 18-project Workspace `website-inbox` visual regression (18/18, 0 diff pixels), and desktop full Workspace suite (108/108) **PASS**. |
+| **Active contract version** | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) (S0 accepted) + `contracts/crm-p1-v1.md` (P1 Core CRM, in progress) |
+| **Current stage** | **P1 — Autonomous Cross-Platform Core CRM Implementation (Milestone 0 complete: S0 compact Workspace accessibility defect closed)** |
+| **Overall P1 status** | **Milestone 0 verified & complete:** closed pre-existing compact `finance.spec.mjs:46` blocker (`108/108` `chromium-compact-light`, `3/3` compact engines on `Finance desk: Products database`, `18/18` `website-inbox` visual regression at `0` diff pixels); advancing into P1 slices `S1 -> S2 -> S3 -> S4 -> S9`. |
 
 ---
 
@@ -44,6 +44,12 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
      - Added explicit CRM visual reference assertions (`toHaveScreenshot`, `maxDiffPixels: 0`) for `crm-home.png`, `crm-settings-capabilities.png` (masking dynamic `<time>` paragraph container), and `crm-access-denied.png` across all 18 projects.
    - **Narrow compact Workspace accessibility fix ([`src/core/views/DatabasePage.tsx`](../../src/core/views/DatabasePage.tsx), [`scripts/ux-lab/playwright.config.mjs`](../../scripts/ux-lab/playwright.config.mjs)):**
      - Wrapped `ViewTabMenu` and `+ View` `Popover` in `min-w-0 max-md:shrink-0` in `DatabasePage.tsx`, eliminating the 390 px overlap with `.min-w-9` while leaving tablet/desktop layout (`>= 768px`) byte-identical (`maxDiffPixels: 0` against original `38c388a`).
+7. **P1 Milestone 0 — Governance Model & S0 Compact Workspace Blocker Closure (25 Nov 2026, branch `crm/p1-core`):**
+   - **Governance & Roadmap ([`11-ROADMAP.md`](11-ROADMAP.md), [`01-DECISIONS.md`](01-DECISIONS.md) A-27, [`08-UX-SPEC.md`](08-UX-SPEC.md), [`07-CONTRACTS.md`](07-CONTRACTS.md)):**
+     - Recorded package execution strategy (`P0: S0`, `P1: S1+S2+S3+S4+S9`, `P2: S10`, `P3: S5+S11+S12`, `P4: S6+S7+S8`, `P5: S13`, `P6: S14+S15`), permanent mandatory desktop/tablet/phone cross-platform parity & WCAG 2.2 AA policy, and owner-only audited account rename clarification for S1.
+   - **Compact Finance / Database accessibility fix ([`src/core/views/DatabasePage.tsx`](../../src/core/views/DatabasePage.tsx)):**
+     - Applied compact-only scroll sizing (`max-md:overflow-y-auto` on the inner database column and `max-md:flex-none max-md:overflow-visible` on the active view wrapper) so expanding `Common Cupboard price and cost` on `390×844` never clips `+ New record` (`TableView.tsx:281`), while keeping tablet and desktop (`>=768px`) untouched.
+     - Verified: `npm run qa:ux -- --skip-build --project=chromium-compact-light --project=firefox-compact-light --project=webkit-compact-light --grep "Finance desk: Products database"` passed 3/3; `npm run qa:ux -- --skip-build --grep "visual reference: website inbox"` passed 18/18 at `maxDiffPixels: 0`; full `npm run qa:ux -- --skip-build --project=chromium-compact-light` passed **108/108**.
 
 ---
 
@@ -104,10 +110,8 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 
 ## Blockers & Open Items
 
-1. **CERTIFICATION BLOCKER — Pre-existing compact Workspace accessibility defect (`scripts/ux-lab/finance.spec.mjs:46`, `src/core/views/TableView.tsx:281`):**
-   - **Failure:** In `Finance desk: Products database economics and missing-value states preserve text Margin` (`Finance zero price whole-page accessibility`), axe `target-size` fails on `.hover:text-neutral-800` (`+ New record` button in `TableView.tsx:281`) at `390×844` compact height because the expanded budget alert partially clips the button (`101×11 px`, safe clickable diameter `12 px < 24 px`).
-   - **Provenance & Scope Proof:** Verified independently across `chromium-compact-light`, `firefox-compact-light`, `webkit-compact-light`, **and on an unmodified checkout of baseline commit `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`UNMODIFIED_38C388A_FINANCE_EXIT=1`)**. Because it is outside the authorised `DatabasePage.tsx` view-tab overlap fix, it is reported here rather than broadening repair scope automatically (per N4 §3 & §5).
-   - **Effect:** Blocks an unfiltered 18-project `npm run qa:ux` pass on all compact viewports (`390×844`) until the owner authorises either fixing the compact `TableView` / `DatabasePage` vertical scroll sizing or waiving/deferring this pre-existing Workspace defect.
+1. **Pre-existing compact Workspace accessibility defect (`scripts/ux-lab/finance.spec.mjs:46`, `src/core/views/TableView.tsx:281`) — RESOLVED in P1 Milestone 0:**
+   - Closed via compact-only scroll container adjustment in `src/core/views/DatabasePage.tsx`; verified passing on all 3 compact engines (`chromium-compact-light`, `firefox-compact-light`, `webkit-compact-light`), `108/108` full `chromium-compact-light`, and `18/18` `website-inbox` visual regression at `maxDiffPixels: 0`. Full 18-project Workspace `qa:ux` sweep runs in the Milestone 6 P1 certification gate.
 2. **Harness transient note:** During two unfiltered multi-project `qa:ux` starts, Wrangler's local dev HTTPS server returned a transient HTTP 500 `Error: Network connection lost.` on `POST /api/approvals` during fixture seeding before subsequent passes succeeded without code changes.
 3. **NOT RUN (unavailable / out-of-scope external gates):**
    - Real physical iPhone, iPad, Android, and Windows hardware (Emulated WebKit is not real iOS Safari).

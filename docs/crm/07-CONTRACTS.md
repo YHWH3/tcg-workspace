@@ -104,7 +104,7 @@ Errors specific to these commands: `forbidden` (actor lacks the right), `invalid
 | Disable, re-enable | `POST /api/users/:id/disable`, `/enable` (`:108-142`) | Owner or admin, audited in `access_audit`; re-enable respects the seven-account cap |
 | Remove | `DELETE /api/users/:id` (`:206-215`) | Owner or admin, not oneself |
 | Rename oneself | `PATCH /api/me` (`worker/auth.ts:454-475`) | Every account (A-20: people set their own names) |
-| Rename another account | **New in S1:** `PATCH /api/users/:id` accepts `name`, owner or admin, audited in `access_audit` as `user.rename` | — |
+| Rename another account | **New in S1:** `PATCH /api/users/:id` accepts `name`, **owner-only** (`403` for non-owners), audited in `access_audit` as `user.rename` | — |
 
 **Owner protection (approved, A-23; built in S0).** Contract for the three routes that can change another account's role or status:
 

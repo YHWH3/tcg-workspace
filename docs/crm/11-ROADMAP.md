@@ -15,6 +15,20 @@ Everything here needs your approval before work starts. Nothing in this file has
 
 Real credentials, real messages, real payments and remote migrations happen only after the matching gate in section 4 is approved by you.
 
+## 1.1 Consolidated package execution strategy (adopted November 2026)
+
+Every vertical slice below (`S0`–`S15`) and all of its original functional requirements remain preserved, grouped into seven autonomous local delivery packages ending at explicit review boundaries:
+
+- **P0: S0** — Foundation, capability model, `_crm_` projection guards, owner protection, CRM shell, accounts/capabilities/history settings, Commons skeleton.
+- **P1: S1, S2, S3, S4, and S9** — Core CRM (People & Organisations, Programmes & Applications & Unified Timeline, Activities & My Work, Conversations Core & Verified Facts & Grounded AI Drafts/MCP, Opportunity Pipelines & Read-Only Patrons).
+- **P2: S10** — Contact merge and unmerge (`crm.merge`, alias resolution in all ingest paths).
+- **P3: S5, S11, and S12** — Communications adapters (Zoho Mail, WhatsApp Cloud, Instagram, Facebook Page).
+- **P4: S6, S7, and S8** — Bookings & editions, manual financial operations ledger, and Common Roots memberships.
+- **P5: S13** — Payment-provider integration and webhook reconciliation.
+- **P6: S14 and S15** — Reporting dashboards and final release certification.
+
+Each package executes slice-by-slice with separate commits per completed slice, targeted tests per slice, and a full cross-platform certification gate before package handoff. Full functional parity across desktop (`1440×900`), tablet (`820×1180`), and phone (`390×844`, `320×568` reflow, WCAG 2.2 AA, `>=44×44` touch targets, no hover/drag-only controls) is mandatory on every slice; mobile functional or accessibility defects block acceptance.
+
 ## 2. Vertical slices
 
 Each slice is end-to-end (data, server, UI, AI where relevant, tests) and leaves the system usable. Within each slice, development proceeds **backend-first** (shared contract -> backend + tests -> independent review -> frontend against the verified API -> integration), avoiding building large backend surface in isolation from its UI. Dependencies are listed; slices without a dependency on each other can run in parallel.

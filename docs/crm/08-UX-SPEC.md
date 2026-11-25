@@ -54,7 +54,7 @@ Rail collapses to icons; the record panel opens as an overlay at about 70 % widt
 
 ### 2.3 Phone (below 768 px)
 
-Bottom bar: Home, Conversations, People, Programmes, More. Grids become **cards in groups** (title, status chip, two chosen fields, next action). The panel is a full-screen sheet with tabs as a segmented control. The composer docks above the keyboard. All commands are available; dense multi-select editing is replaced with per-card actions and a bulk-select mode.
+Bottom bar: Home, Conversations, People, Programmes, More. Grids become **cards in groups** (title, status chip, two chosen fields, next action). The panel is a full-screen sheet with tabs as a segmented control. The composer docks above the keyboard using visual-viewport and safe-area sizing (`vv-fit` / `px-safe`). All commands are available; dense multi-select editing is replaced with per-card actions and a bulk-select mode, and every drag or hover interaction provides explicit accessible button/menu equivalents (`>=44×44` px touch targets). Mobile functional or WCAG 2.2 AA defects block slice acceptance (`01-DECISIONS.md` A-27, `docs/architecture/cross-platform-responsive-web.md`).
 
 ## 3. Navigation
 
