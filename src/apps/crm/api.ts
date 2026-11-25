@@ -71,6 +71,11 @@ import {
   type SimulateInboundInput,
   type VerifyFactInput,
 } from '../../../shared/crm/conversations';
+import {
+  PatronsReadResponseSchema,
+  type HandoffOpportunityToProjectInput,
+  type PatronsReadResponse,
+} from '../../../shared/crm/pipelines';
 import type { PublicUser } from '../../../shared/types';
 import { api, ApiError, getToken } from '../../core/api';
 import {
@@ -859,6 +864,26 @@ export function generateAiConversationDraft(input: GenerateAiDraftInput, opts?: 
     }).strict(),
     opts,
   );
+}
+
+// ---------------------------------------------------------------------------
+// S9 Pipelines & Patrons APIs
+// ---------------------------------------------------------------------------
+
+export function handoffOpportunityToProject(
+  input: HandoffOpportunityToProjectInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ opportunityId: string; projectId: string; already: boolean }> | CommandError> {
+  return runCrmCommand(
+    'opportunity.handoff_project',
+    { ...input },
+    z.object({ opportunityId: z.string(), projectId: z.string(), already: z.boolean() }).strict(),
+    opts,
+  );
+}
+
+export function fetchPatrons(): Promise<PatronsReadResponse> {
+  return fetchCrmRead('/api/crm/read/patrons', PatronsReadResponseSchema);
 }
 
 const COMMAND_ERROR_MESSAGES: Record<CrmErrorCode, string> = {

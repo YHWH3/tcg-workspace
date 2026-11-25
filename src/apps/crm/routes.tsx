@@ -6,8 +6,10 @@ import { ActivitiesView } from './activities/ActivitiesView';
 import { ApplicationsView } from './applications/ApplicationsView';
 import { ConversationsView } from './conversations/ConversationsView';
 import { CrmHome } from './Home';
+import { PatronsView } from './members/PatronsView';
 import { OrganisationsView } from './organisations/OrganisationsView';
 import { PeopleView } from './people/PeopleView';
+import { PipelineView } from './pipeline/PipelineView';
 import { ProgrammesView } from './programmes/ProgrammesView';
 import { AccessSettings } from './settings/AccessSettings';
 import { AutomationsSettings } from './settings/AutomationsSettings';
@@ -39,6 +41,10 @@ export function CrmRoutes({ status }: { status: CrmStatus }) {
       document.title = 'Activities — TCG CRM';
     } else if (pathname.startsWith('/crm/conversations')) {
       document.title = 'Conversations — TCG CRM';
+    } else if (pathname.startsWith('/crm/pipelines')) {
+      document.title = 'Pipelines — TCG CRM';
+    } else if (pathname.startsWith('/crm/patrons')) {
+      document.title = 'Patrons — TCG CRM';
     } else {
       document.title = 'Home — TCG CRM';
     }
@@ -59,6 +65,9 @@ export function CrmRoutes({ status }: { status: CrmStatus }) {
       <Route path="activities/:activityId" element={<ActivitiesView status={status} />} />
       <Route path="conversations" element={<ConversationsView status={status} />} />
       <Route path="conversations/:conversationId" element={<ConversationsView status={status} />} />
+      <Route path="pipelines" element={<PipelineView status={status} />} />
+      <Route path="pipelines/:opportunityId" element={<PipelineView status={status} />} />
+      <Route path="patrons" element={<PatronsView status={status} />} />
       <Route path="settings" element={<Navigate to={canManage ? '/crm/settings/access' : '/crm/settings/programmes'} replace />} />
       <Route
         path="settings/access"

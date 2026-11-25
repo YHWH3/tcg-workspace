@@ -13,8 +13,8 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 | **Workspace baseline commit** | `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`codex/workspace-database-platform`) |
 | **Reviewed documentation baseline** | `8aa6f5300426029dc1db87e979fb871313190973` (`crm/foundation`, Checkpoint 1 accepted) |
 | **Active contract version** | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) (S0 accepted) + `contracts/crm-p1-v1.md` (P1 Core CRM, in progress) |
-| **Current stage** | **P1 — Autonomous Cross-Platform Core CRM Implementation (Milestone 4 S4 complete -> advancing into S9 Pipelines & Read-Only Patrons)** |
-| **Overall P1 status** | **Milestone 0–4 (S1–S4) verified & complete:** closed compact blocker (`108/108`), completed S1 (`4bdd470`), S2 (`c66740e`), S3 (`14789fa`), and S4 (Conversations Core, simulated local-test adapter, append-only note separation, consent/24h window enforcement, Verified Facts store with staleness tracking, grounded AI drafts, and 8 read/proposal-only CRM MCP tools). Advancing into S9 (`S9 -> Demo & P1 Certification`). |
+| **Current stage** | **P1 — Autonomous Cross-Platform Core CRM Implementation (Milestone 5 S9 complete -> advancing into Commons Demo expansion & P1 Certification)** |
+| **Overall P1 status** | **Milestone 0–5 (S1–S4, S9) verified & complete:** closed compact blocker (`108/108`), completed S1 (`4bdd470`), S2 (`c66740e`), S3 (`14789fa`), S4 (`ce330a7`), and S9 (5 pipelines + accessible stage controls, idempotent `opportunity.handoff_project`, and strictly read-only `GET /read/patrons` / Patrons mirror). Advancing into Milestone 6 (`Demo & P1 Package Certification`). |
 
 ---
 
@@ -82,7 +82,14 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
      - Implemented simulated local-test-only delivery/inbound adapter, fact lifecycle (`fact.propose`/`verify`/`retire`, `GET /read/facts`), full conversation & message commands (human-only `via === 'ui'` send/retry, consent withdrawal + window checks, internal note outbox separation, grounded draft generation), `/read/conversations` + `/read/conversation/:id`, and `registerCrmMcpTools` enforcing `ReadGate` observation and runtime `CRM_ENABLED` + `crm.access` checks.
    - **Frontend & Harness ([`src/apps/crm/conversations/ConversationsView.tsx`](../../src/apps/crm/conversations/ConversationsView.tsx), [`src/apps/crm/settings/FactsSettings.tsx`](../../src/apps/crm/settings/FactsSettings.tsx), [`scripts/qa-ux.mjs`](../../scripts/qa-ux.mjs)):**
      - Delivered responsive 3-pane desktop / 2-pane tablet / dedicated `.vv-fit` mobile Conversations inbox + composer (`Reply` vs `Internal note`, AI draft citations, consent/window locks, local-test `Simulate`), Verified Facts settings, and `--crm` `WORKSPACE_ENV: 'local-test'` UX-lab wiring without touching `wrangler.jsonc`.
-   - **S4 Verification:** `npm run typecheck`, `npm run build`, and targeted Vitest (`tests/crm-p1-conversations-d1.test.ts`, `tests/crm-p1-mcp-d1.test.ts`, `tests/assistant-registry.test.ts`, `tests/crm-isolation.test.ts`, `tests/crm-routes.test.ts`) **5/5 files, 14/14 tests passed**.
+   - **S4 Verification:** `npm run typecheck`, `npm run build`, and targeted Vitest (`tests/crm-p1-conversations-d1.test.ts`, `tests/crm-p1-mcp-d1.test.ts`, `tests/assistant-registry.test.ts`, `tests/crm-isolation.test.ts`, `tests/crm-routes.test.ts`) **5/5 files, 14/14 tests passed**. Commit `ce330a7`.
+12. **P1 Milestone 5 (S9) — Pipelines, Project Handoff & Read-Only Patrons (25 Nov 2026, branch `crm/p1-core`):**
+   - **Shared & Backend ([`shared/crm/pipelines.ts`](../../shared/crm/pipelines.ts), [`worker/crm/pipelines.ts`](../../worker/crm/pipelines.ts), [`worker/crm/index.ts`](../../worker/crm/index.ts)):**
+     - Defined the 5 canonical TCG pipelines (`partnership`, `consulting`, `production`, `funding`, `supply`) matching `db_opportunities.f_pipeline`.
+     - Implemented idempotent `opportunity.handoff_project` (`_crm_project_id` projection + `f_projects`/`f_program`/`f_people`/`f_orgs`/`related` links) and strictly read-only `GET /api/crm/read/patrons` backed by `ReadGate` over `board-website-inbox` without exposing any patron write commands.
+   - **Frontend ([`src/apps/crm/pipeline/PipelineView.tsx`](../../src/apps/crm/pipeline/PipelineView.tsx), [`src/apps/crm/members/PatronsView.tsx`](../../src/apps/crm/members/PatronsView.tsx), [`src/apps/crm/api.ts`](../../src/apps/crm/api.ts), [`src/apps/crm/routes.tsx`](../../src/apps/crm/routes.tsx), [`src/apps/crm/CrmShell.tsx`](../../src/apps/crm/CrmShell.tsx)):**
+     - Delivered responsive 5-pipeline Grid + Board views with accessible `>=44px` stage `<select>` controls (zero drag-only lock-in), Opportunity detail handoff action & Workspace link, and the strictly read-only Patrons mirror with search and tier filter.
+   - **S9 Verification:** `npm run typecheck`, `npm run build`, and targeted Vitest (`tests/crm-p1-pipelines-patrons-d1.test.ts`, `tests/crm-isolation.test.ts`, `tests/crm-routes.test.ts`) **3/3 files, 7/7 tests passed**.
 
 ---
 

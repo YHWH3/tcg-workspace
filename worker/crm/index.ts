@@ -32,6 +32,7 @@ import {
   readConversations,
 } from './conversations';
 import { createS4FactCommandDefs, readFacts } from './facts';
+import { createS9PipelineCommandDefs, readPatrons } from './pipelines';
 import { isCrmEnabled } from './rules';
 
 export function createS0CommandRegistry(): CommandRegistry {
@@ -42,6 +43,7 @@ export function createS0CommandRegistry(): CommandRegistry {
     ...createS2ApplicationCommandDefs(),
     ...createS4FactCommandDefs(),
     ...createS4ConversationCommandDefs(),
+    ...createS9PipelineCommandDefs(),
   ]);
 }
 
@@ -181,6 +183,12 @@ crmApi.get('/read/conversations', async (c) => {
 crmApi.get('/read/conversation/:id', async (c) => {
   const user = c.get('user');
   const outcome = await readConversationDetail(c.env, user.id, user.tokenHash, c.req.param('id')!);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/patrons', async (c) => {
+  const user = c.get('user');
+  const outcome = await readPatrons(c.env, user.id, user.tokenHash);
   return c.json(outcome.body, outcome.status);
 });
 

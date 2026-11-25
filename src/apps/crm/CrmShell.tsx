@@ -3,6 +3,8 @@ import { Link, NavLink, useLocation } from 'react-router';
 import {
   AlertTriangle,
   ArrowLeft,
+  Award,
+  Briefcase,
   Building2,
   CalendarCheck2,
   ChevronLeft,
@@ -264,6 +266,8 @@ export default function CrmShell() {
     { to: '/crm/programmes', label: 'Programmes', icon: Compass, end: false },
     { to: '/crm/applications', label: 'Applications', icon: FileCheck2, end: false },
     { to: '/crm/activities', label: 'Activities', icon: CalendarCheck2, end: false },
+    { to: '/crm/pipelines', label: 'Pipelines', icon: Briefcase, end: false },
+    { to: '/crm/patrons', label: 'Patrons', icon: Award, end: false },
     ...(canManage
       ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }]
       : canConfigureAny
@@ -302,7 +306,11 @@ export default function CrmShell() {
                     ? 'Applications'
                     : pathname.startsWith('/crm/activities')
                       ? 'Activities'
-                      : 'Home';
+                      : pathname.startsWith('/crm/pipelines')
+                        ? 'Pipelines'
+                        : pathname.startsWith('/crm/patrons')
+                          ? 'Patrons'
+                          : 'Home';
   const showSideRail = layout !== 'compact';
   const compactRail = layout === 'medium' ? effectiveCollapsed : railCollapsed;
 
