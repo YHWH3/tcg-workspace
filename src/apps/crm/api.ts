@@ -32,7 +32,8 @@ export type CrmTransportFailureKind =
   | 'forbidden'
   | 'not_found'
   | 'bad_response'
-  | 'http';
+  | 'http'
+  | 'identity_changed';
 
 export class CrmTransportError extends Error {
   readonly kind: CrmTransportFailureKind;
@@ -85,6 +86,55 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export function isIdentityChangedError(err: unknown): boolean {
+  return err instanceof CrmTransportError && err.kind === 'identity_changed';
+}
+
+interface CrmSessionBinding {
+  identityKey: string;
+  token: string;
+  storageUid: string | null;
+}
+
+function captureCrmSessionBinding(requestId?: string): CrmSessionBinding {
+  const identityKey = currentCrmIdentityKey();
+  const token = getToken();
+  const storageUid = typeof localStorage !== 'undefined' ? localStorage.getItem('ws_uid') : null;
+  if (!identityKey || !token) {
+    throw new CrmTransportError({
+      kind: 'unauthenticated',
+      status: 401,
+      code: 'unauthenticated',
+      retryable: false,
+      requestId,
+      userMessage: 'Your session expired. Sign in again to continue.',
+    });
+  }
+  return { identityKey, token, storageUid };
+}
+
+function isSameSession(binding: CrmSessionBinding): boolean {
+  if (currentCrmIdentityKey() !== binding.identityKey) return false;
+  if (getToken() !== binding.token) return false;
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('ws_uid') !== binding.storageUid) {
+    return false;
+  }
+  return true;
+}
+
+function assertSameSession(binding: CrmSessionBinding, requestId?: string): void {
+  if (!isSameSession(binding)) {
+    throw new CrmTransportError({
+      kind: 'identity_changed',
+      status: 0,
+      code: 'identity_changed',
+      retryable: false,
+      requestId,
+      userMessage: 'Signed-in account changed before the request completed.',
+    });
+  }
+}
+
 export async function runCrmCommand<O>(
   name: string,
   input: Record<string, unknown>,
@@ -105,11 +155,16 @@ export async function runCrmCommand<O>(
     ...(opts.expected && Object.keys(opts.expected).length > 0 ? { expected: opts.expected } : {}),
   };
 
+  // Bind the entire command lifecycle (and any retries) to the original user,
+  // token, and access epoch so a replacement account's credentials can never be reused.
+  const binding = captureCrmSessionBinding(requestId);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${binding.token}`,
+  };
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const identityKey = currentCrmIdentityKey();
-    const token = getToken();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers.Authorization = `Bearer ${token}`;
+    assertSameSession(binding, requestId);
 
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       throw new CrmTransportError({
@@ -130,9 +185,11 @@ export async function runCrmCommand<O>(
         body: JSON.stringify(envelope),
       });
     } catch {
+      assertSameSession(binding, requestId);
       const online = typeof navigator === 'undefined' ? true : navigator.onLine;
-      if (online && attempt < maxRetries && currentCrmIdentityKey() === identityKey) {
+      if (online && attempt < maxRetries) {
         if (retryDelayMs > 0) await sleep(retryDelayMs);
+        assertSameSession(binding, requestId);
         continue;
       }
       throw new CrmTransportError({
@@ -147,7 +204,10 @@ export async function runCrmCommand<O>(
       });
     }
 
+    assertSameSession(binding, requestId);
     const rawText = await res.text();
+    assertSameSession(binding, requestId);
+
     let parsedJson: unknown = null;
     try {
       parsedJson = rawText ? JSON.parse(rawText) : null;
@@ -156,7 +216,7 @@ export async function runCrmCommand<O>(
     }
 
     if (res.status === 401) {
-      handleCrmAuthFailure('unauthenticated', identityKey);
+      handleCrmAuthFailure('unauthenticated', binding.identityKey);
       throw new CrmTransportError({
         kind: 'unauthenticated',
         status: 401,
@@ -170,7 +230,7 @@ export async function runCrmCommand<O>(
     if (res.status === 403 || res.status === 404) {
       const httpErr = CrmHttpErrorSchema.safeParse(parsedJson);
       const code = httpErr.success ? httpErr.data.error : res.status === 403 ? 'forbidden' : 'not_found';
-      handleCrmAuthFailure(res.status === 403 ? 'forbidden' : 'not_found', identityKey);
+      handleCrmAuthFailure(res.status === 403 ? 'forbidden' : 'not_found', binding.identityKey);
       throw new CrmTransportError({
         kind: res.status === 403 ? 'forbidden' : 'not_found',
         status: res.status,
@@ -187,8 +247,9 @@ export async function runCrmCommand<O>(
     if (res.status === 503) {
       const retryableErr = CrmRetryableHttpErrorSchema.safeParse(parsedJson);
       if (retryableErr.success) {
-        if (attempt < maxRetries && currentCrmIdentityKey() === identityKey) {
+        if (attempt < maxRetries) {
           if (retryDelayMs > 0) await sleep(retryDelayMs);
+          assertSameSession(binding, requestId);
           continue;
         }
         throw new CrmTransportError({
@@ -216,15 +277,17 @@ export async function runCrmCommand<O>(
 
     const okResult = resultSchema.safeParse(parsedJson);
     if (okResult.success) {
+      assertSameSession(binding, requestId);
       return okResult.data;
     }
 
     const cmdError = CommandErrorSchema.safeParse(parsedJson);
     if (cmdError.success) {
+      assertSameSession(binding, requestId);
       if (cmdError.data.error === 'unauthenticated') {
-        handleCrmAuthFailure('unauthenticated', identityKey);
+        handleCrmAuthFailure('unauthenticated', binding.identityKey);
       } else if (cmdError.data.error === 'forbidden') {
-        handleCrmAuthFailure('forbidden', identityKey);
+        handleCrmAuthFailure('forbidden', binding.identityKey);
       }
       return cmdError.data;
     }
@@ -251,6 +314,7 @@ export async function grantCrmCapability(
   input: CapabilityChangeInput,
   opts?: RunCrmCommandOptions,
 ): Promise<CommandResult<CapabilityChangeOutput> | CommandError> {
+  const binding = captureCrmSessionBinding(opts?.requestId);
   const payload = {
     userId: input.userId,
     capability: input.capability,
@@ -258,8 +322,10 @@ export async function grantCrmCapability(
     ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
   };
   const outcome = await runCrmCommand('capability.grant', payload, CapabilityChangeOutputSchema, opts);
+  assertSameSession(binding, opts?.requestId);
   if (outcome.ok && !outcome.result.already) {
-    await notifyCrmStatusUpdated(input.userId);
+    await notifyCrmStatusUpdated(input.userId, binding.identityKey);
+    assertSameSession(binding, opts?.requestId);
   }
   return outcome;
 }
@@ -268,6 +334,7 @@ export async function revokeCrmCapability(
   input: CapabilityChangeInput,
   opts?: RunCrmCommandOptions,
 ): Promise<CommandResult<CapabilityChangeOutput> | CommandError> {
+  const binding = captureCrmSessionBinding(opts?.requestId);
   const payload = {
     userId: input.userId,
     capability: input.capability,
@@ -275,16 +342,19 @@ export async function revokeCrmCapability(
     ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
   };
   const outcome = await runCrmCommand('capability.revoke', payload, CapabilityChangeOutputSchema, opts);
+  assertSameSession(binding, opts?.requestId);
   if (outcome.ok && !outcome.result.already) {
-    await notifyCrmStatusUpdated(input.userId);
+    await notifyCrmStatusUpdated(input.userId, binding.identityKey);
+    assertSameSession(binding, opts?.requestId);
   }
   return outcome;
 }
 
 async function fetchCrmRead<T>(path: string, schema: z.ZodType<T>): Promise<T> {
-  const identityKey = currentCrmIdentityKey();
+  const binding = captureCrmSessionBinding();
   try {
     const raw = await api<unknown>(path);
+    assertSameSession(binding);
     const parsed = schema.safeParse(raw);
     if (!parsed.success) {
       throw new CrmTransportError({
@@ -294,12 +364,14 @@ async function fetchCrmRead<T>(path: string, schema: z.ZodType<T>): Promise<T> {
         userMessage: 'The server returned an unexpected response.',
       });
     }
+    assertSameSession(binding);
     return parsed.data;
   } catch (err) {
     if (err instanceof CrmTransportError) throw err;
+    assertSameSession(binding);
     if (err instanceof ApiError) {
       if (err.status === 401) {
-        handleCrmAuthFailure('unauthenticated', identityKey);
+        handleCrmAuthFailure('unauthenticated', binding.identityKey);
         throw new CrmTransportError({
           kind: 'unauthenticated',
           status: 401,
@@ -309,7 +381,7 @@ async function fetchCrmRead<T>(path: string, schema: z.ZodType<T>): Promise<T> {
         });
       }
       if (err.status === 403 || err.status === 404) {
-        handleCrmAuthFailure(err.status === 403 ? 'forbidden' : 'not_found', identityKey);
+        handleCrmAuthFailure(err.status === 403 ? 'forbidden' : 'not_found', binding.identityKey);
         throw new CrmTransportError({
           kind: err.status === 403 ? 'forbidden' : 'not_found',
           status: err.status,
@@ -364,12 +436,16 @@ export interface WorkspaceUsersResponse {
 }
 
 async function callWorkspaceAdmin<T>(path: string, opts?: { method?: string; body?: unknown }): Promise<T> {
-  const identityKey = currentCrmIdentityKey();
+  const binding = captureCrmSessionBinding();
   try {
-    return await api<T>(path, opts);
+    const res = await api<T>(path, opts);
+    assertSameSession(binding);
+    return res;
   } catch (err) {
+    if (err instanceof CrmTransportError) throw err;
+    assertSameSession(binding);
     if (err instanceof ApiError && err.status === 401) {
-      handleCrmAuthFailure('unauthenticated', identityKey);
+      handleCrmAuthFailure('unauthenticated', binding.identityKey);
     }
     throw err;
   }

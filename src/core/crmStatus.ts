@@ -9,6 +9,8 @@ import { createStore, useStore } from './store';
 
 export const CRM_STATUS_STORAGE_HINT_KEY = 'ws_crm_status_update';
 export const LAST_APP_STORAGE_KEY = 'ws_last_app';
+/** Fallback authority poll interval when LiveRoom WebSocket is disconnected (e.g. Protocol 3). */
+export const CRM_FALLBACK_POLL_MS = 4_000;
 
 export type CrmStatusPhase = 'idle' | 'loading' | 'ready' | 'unauthed' | 'offline' | 'error';
 
@@ -220,7 +222,13 @@ export function handleCrmAuthFailure(
   void refreshCrmStatus({ force: true });
 }
 
-export async function notifyCrmStatusUpdated(userId?: string): Promise<CrmStatus | null> {
+export async function notifyCrmStatusUpdated(
+  userId?: string,
+  expectedIdentityKey?: string,
+): Promise<CrmStatus | null> {
+  if (expectedIdentityKey && currentCrmIdentityKey() !== expectedIdentityKey) {
+    return null;
+  }
   try {
     if (typeof localStorage !== 'undefined') {
       const targetId = userId ?? authStore.get().user?.id ?? '';
@@ -229,6 +237,9 @@ export async function notifyCrmStatusUpdated(userId?: string): Promise<CrmStatus
     }
   } catch {
     /* localStorage is hint-only; server status refresh remains authoritative */
+  }
+  if (expectedIdentityKey && currentCrmIdentityKey() !== expectedIdentityKey) {
+    return null;
   }
   return refreshCrmStatus({ force: true });
 }
@@ -307,7 +318,17 @@ export function startCrmStatus(): () => void {
     document.addEventListener('visibilitychange', onVisibility);
   }
 
+  const pollTimer = setInterval(() => {
+    if (liveStore.get().connected) return;
+    if (!currentCrmIdentityKey()) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    if (!crmStatusStore.get().data?.enabled) return;
+    void refreshCrmStatus({ force: true });
+  }, CRM_FALLBACK_POLL_MS);
+
   const cleanup = () => {
+    clearInterval(pollTimer);
     unsubAuth();
     unsubAccess();
     unsubLive();

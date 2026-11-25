@@ -34,7 +34,7 @@ import {
 } from '../../../../shared/crm/contracts';
 import type { PublicUser } from '../../../../shared/types';
 import { authStore } from '../../../core/auth';
-import { useCrmStatus } from '../../../core/crmStatus';
+import { currentCrmIdentityKey, useCrmStatus } from '../../../core/crmStatus';
 import { useLayoutMode } from '../../../core/mobile';
 import { useStore } from '../../../core/store';
 import { onlineStore } from '../../../core/sync/engine';
@@ -53,6 +53,7 @@ import {
   fetchWorkspaceAccounts,
   generateCrmRequestId,
   grantCrmCapability,
+  isIdentityChangedError,
   revokeCrmCapability,
   updateWorkspaceUserRole,
   type WorkspaceInviteRow,
@@ -392,9 +393,16 @@ function CapabilityMatrix({
                     </div>
                     <p className="mt-1 text-xs text-[var(--crm-text-muted)]">{meta.description}</p>
                     <p className="mt-1 text-[11px] text-[var(--crm-text-muted)]">
-                      {grant
-                        ? `Granted by ${grantedByName} · ${formatTimestamp(grant.grantedAt)}`
-                        : 'Not granted'}
+                      {grant ? (
+                        <>
+                          Granted by {grantedByName} ·{' '}
+                          <time dateTime={new Date(grant.grantedAt).toISOString()}>
+                            {formatTimestamp(grant.grantedAt)}
+                          </time>
+                        </>
+                      ) : (
+                        'Not granted'
+                      )}
                       {disabledReason ? ` · ${disabledReason}` : ''}
                     </p>
                   </div>
@@ -507,6 +515,7 @@ export function AccessSettings({
   });
   const loadGenRef = useRef(0);
   const auditGenRef = useRef(0);
+  const lastIdentityRef = useRef(currentCrmIdentityKey());
 
   const clearProtectedState = useCallback(() => {
     loadGenRef.current += 1;
@@ -530,6 +539,7 @@ export function AccessSettings({
       clearProtectedState();
       return;
     }
+    const startIdentity = currentCrmIdentityKey();
     const gen = ++loadGenRef.current;
     setLoadingOverview(true);
     setOverviewError(null);
@@ -538,20 +548,26 @@ export function AccessSettings({
         fetchCapabilityOverview(),
         fetchWorkspaceAccounts(),
       ]);
-      if (loadGenRef.current !== gen) return;
+      if (loadGenRef.current !== gen || currentCrmIdentityKey() !== startIdentity) return;
       setOverview(capRes.accounts);
       setWorkspaceUsers(usersRes.users);
       setSeatsTotal(usersRes.seatsTotal);
       setInvites(invitesRes.invites);
     } catch (err) {
-      if (loadGenRef.current !== gen) return;
+      if (
+        loadGenRef.current !== gen ||
+        isIdentityChangedError(err) ||
+        currentCrmIdentityKey() !== startIdentity
+      ) {
+        return;
+      }
       setOverviewError(
         err instanceof CrmTransportError
           ? err.userMessage
           : 'Could not load CRM accounts and capabilities. Retry when connected.',
       );
     } finally {
-      if (loadGenRef.current === gen) {
+      if (loadGenRef.current === gen && currentCrmIdentityKey() === startIdentity) {
         setLoadingOverview(false);
       }
     }
@@ -560,13 +576,14 @@ export function AccessSettings({
   const loadAudit = useCallback(
     async (cursor?: string | null) => {
       if (!canManage) return;
+      const startIdentity = currentCrmIdentityKey();
       const gen = ++auditGenRef.current;
       if (cursor) setLoadingMoreAudit(true);
       else setLoadingAudit(true);
       setAuditError(null);
       try {
         const page = await fetchCapabilityAudit(cursor);
-        if (auditGenRef.current !== gen) return;
+        if (auditGenRef.current !== gen || currentCrmIdentityKey() !== startIdentity) return;
         setAuditItems((prev) => {
           if (!cursor || !prev) return page.items;
           const seen = new Set(prev.map((i) => i.id));
@@ -574,14 +591,20 @@ export function AccessSettings({
         });
         setAuditNext(page.next);
       } catch (err) {
-        if (auditGenRef.current !== gen) return;
+        if (
+          auditGenRef.current !== gen ||
+          isIdentityChangedError(err) ||
+          currentCrmIdentityKey() !== startIdentity
+        ) {
+          return;
+        }
         setAuditError(
           err instanceof CrmTransportError
             ? err.userMessage
             : 'Could not load capability history. Retry when connected.',
         );
       } finally {
-        if (auditGenRef.current === gen) {
+        if (auditGenRef.current === gen && currentCrmIdentityKey() === startIdentity) {
           setLoadingAudit(false);
           setLoadingMoreAudit(false);
         }
@@ -592,6 +615,11 @@ export function AccessSettings({
 
   // Synchronously drop in-memory protected data whenever authority disappears or identity/revision changes.
   useEffect(() => {
+    const currentIdentity = currentCrmIdentityKey();
+    if (currentIdentity !== lastIdentityRef.current) {
+      lastIdentityRef.current = currentIdentity;
+      clearProtectedState();
+    }
     if (!canManage) {
       clearProtectedState();
       return;
@@ -679,6 +707,7 @@ export function AccessSettings({
       return;
     }
 
+    const startIdentity = currentCrmIdentityKey();
     const requestId = retryOpts?.requestId ?? generateCrmRequestId();
     const effectiveReason = retryOpts ? retryOpts.reason : reasonInput.trim() || undefined;
     const capLabel = CRM_CAPABILITY_LABELS[capability].label;
@@ -696,9 +725,11 @@ export function AccessSettings({
       const outcome = targetHeld
         ? await grantCrmCapability(payload, { requestId })
         : await revokeCrmCapability(payload, { requestId });
+      if (currentCrmIdentityKey() !== startIdentity) return;
 
       if (outcome.ok) {
         await Promise.all([loadAll(), auditItems !== null ? loadAudit() : Promise.resolve()]);
+        if (currentCrmIdentityKey() !== startIdentity) return;
         setAnnouncement(
           outcome.result.already
             ? `${capLabel} for ${account.name} was already ${targetHeld ? 'granted' : 'revoked'}.`
@@ -721,6 +752,7 @@ export function AccessSettings({
         }
       }
     } catch (err) {
+      if (isIdentityChangedError(err) || currentCrmIdentityKey() !== startIdentity) return;
       const msg = describeCommandError(err);
       const retryable = err instanceof CrmTransportError ? err.retryable : false;
       setFailedToggle({
@@ -734,41 +766,50 @@ export function AccessSettings({
       });
       setAnnouncement(msg);
     } finally {
-      setPendingByKey((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
+      if (currentCrmIdentityKey() === startIdentity) {
+        setPendingByKey((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      }
     }
   };
 
   const handleRoleChange = async (account: CapabilityOverviewAccount, nextRole: 'admin' | 'member') => {
     if (isOffline || nextRole === account.role) return;
+    const startIdentity = currentCrmIdentityKey();
     setAccountError(null);
     setAccountBusy(true);
     try {
       await updateWorkspaceUserRole(account.userId, nextRole);
+      if (currentCrmIdentityKey() !== startIdentity) return;
       await loadAll();
+      if (currentCrmIdentityKey() !== startIdentity) return;
       setAnnouncement(`Changed ${account.name} to ${roleLabel(nextRole)}.`);
     } catch (err) {
+      if (isIdentityChangedError(err) || currentCrmIdentityKey() !== startIdentity) return;
       const mapped = describeAccountError(err);
       setAccountError(mapped.message);
       setAnnouncement(mapped.message);
       if (mapped.shouldRefresh) await loadAll();
     } finally {
-      setAccountBusy(false);
+      if (currentCrmIdentityKey() === startIdentity) setAccountBusy(false);
     }
   };
 
   const handleConfirmAccountAction = async () => {
     if (!confirmAction || isOffline) return;
+    const startIdentity = currentCrmIdentityKey();
     setAccountBusy(true);
     setAccountError(null);
     try {
       const target = confirmAction.account;
       if (confirmAction.kind === 'disable') {
         const res = await disableWorkspaceUser(target.userId);
+        if (currentCrmIdentityKey() !== startIdentity) return;
         await Promise.all([loadAll(), auditItems !== null ? loadAudit() : Promise.resolve()]);
+        if (currentCrmIdentityKey() !== startIdentity) return;
         if (res.cleanupPending) {
           setAccountError(
             'Access is disabled. Connector cleanup is pending. Retry Disable access to complete cleanup.',
@@ -780,42 +821,51 @@ export function AccessSettings({
         }
       } else if (confirmAction.kind === 'enable') {
         await enableWorkspaceUser(target.userId);
+        if (currentCrmIdentityKey() !== startIdentity) return;
         await loadAll();
+        if (currentCrmIdentityKey() !== startIdentity) return;
         setConfirmAction(null);
         setAnnouncement(
           `Restored workspace access for ${target.name}. CRM capabilities remain revoked until granted again.`,
         );
       } else {
         await deleteWorkspaceUser(target.userId);
+        if (currentCrmIdentityKey() !== startIdentity) return;
         await Promise.all([loadAll(), auditItems !== null ? loadAudit() : Promise.resolve()]);
+        if (currentCrmIdentityKey() !== startIdentity) return;
         setConfirmAction(null);
         setAnnouncement(`Removed ${target.name} from the workspace.`);
       }
     } catch (err) {
+      if (isIdentityChangedError(err) || currentCrmIdentityKey() !== startIdentity) return;
       const mapped = describeAccountError(err);
       setAccountError(mapped.message);
       setAnnouncement(mapped.message);
       if (mapped.shouldRefresh) await loadAll();
     } finally {
-      setAccountBusy(false);
+      if (currentCrmIdentityKey() === startIdentity) setAccountBusy(false);
     }
   };
 
   const handleCreateInvite = async () => {
     if (isOffline || seatsFull || inviteBusy) return;
+    const startIdentity = currentCrmIdentityKey();
     setInviteBusy(true);
     setAccountError(null);
     try {
       const { code } = await createWorkspaceInvite();
+      if (currentCrmIdentityKey() !== startIdentity) return;
       await loadAll();
+      if (currentCrmIdentityKey() !== startIdentity) return;
       setAnnouncement(`Created invite code ${code}.`);
     } catch (err) {
+      if (isIdentityChangedError(err) || currentCrmIdentityKey() !== startIdentity) return;
       const mapped = describeAccountError(err);
       setAccountError(mapped.message);
       setAnnouncement(mapped.message);
       if (mapped.shouldRefresh) await loadAll();
     } finally {
-      setInviteBusy(false);
+      if (currentCrmIdentityKey() === startIdentity) setInviteBusy(false);
     }
   };
 
@@ -833,12 +883,16 @@ export function AccessSettings({
 
   const handleDeleteInvite = async (code: string) => {
     if (isOffline) return;
+    const startIdentity = currentCrmIdentityKey();
     setAccountError(null);
     try {
       await deleteWorkspaceInvite(code);
+      if (currentCrmIdentityKey() !== startIdentity) return;
       await loadAll();
+      if (currentCrmIdentityKey() !== startIdentity) return;
       setAnnouncement(`Deleted unused invite ${code}.`);
     } catch (err) {
+      if (isIdentityChangedError(err) || currentCrmIdentityKey() !== startIdentity) return;
       const mapped = describeAccountError(err);
       setAccountError(mapped.message);
       setAnnouncement(mapped.message);

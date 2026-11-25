@@ -6,7 +6,18 @@ const projects=['chromium','firefox','webkit'].flatMap(browserName=>[
   {label:'compact',width:390,height:844,touch:true},
   {label:'tablet',width:820,height:1180,touch:true},
   {label:'desktop',width:1440,height:900,touch:false},
-].flatMap(size=>['light','dark'].map(colorScheme=>({name:`${browserName}-${size.label}-${colorScheme}`,use:{browserName,colorScheme,viewport:{width:size.width,height:size.height},hasTouch:size.touch,deviceScaleFactor:1,...(browserName==='chromium'?{launchOptions:{args:['--ignore-certificate-errors']}}:{})}}))));
+].flatMap(size=>['light','dark'].map(colorScheme=>{
+  const baselineRoot=crmMode
+    ? '.artifacts/ux-lab/crm-baselines'
+    : size.label==='compact'
+      ? '.artifacts/ux-lab/baselines-compact-a11y-fix'
+      : '.artifacts/ux-lab/baselines';
+  return {
+    name:`${browserName}-${size.label}-${colorScheme}`,
+    snapshotPathTemplate:resolve(`${baselineRoot}/{projectName}/{arg}{ext}`),
+    use:{browserName,colorScheme,viewport:{width:size.width,height:size.height},hasTouch:size.touch,deviceScaleFactor:1,...(browserName==='chromium'?{launchOptions:{args:['--ignore-certificate-errors']}}:{})},
+  };
+})));
 export default defineConfig({
   testDir:'.',
   testMatch:crmMode?'crm-*.spec.mjs':'*.spec.mjs',

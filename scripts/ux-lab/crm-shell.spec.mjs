@@ -4,7 +4,7 @@ import { navigateReady } from '../navigation-ready.mjs';
 
 async function createMember(suffix) {
   const { code } = await request('/api/invites');
-  const username = `crm-ux-${suffix}-${randomUUID().slice(0, 8)}`;
+  const username = `commons-${suffix}`;
   const password = randomUUID();
   const res = await fetch(fixture.base + '/api/auth/signup', {
     method: 'POST',
@@ -51,11 +51,9 @@ test('CRM switcher, Home empty state, and Accounts/Capabilities/History accessib
     await expect(page).toHaveURL(/\/crm$/);
     await expect(page.getByRole('heading', { name: /Welcome,/ })).toBeVisible();
     await expect(page.getByText('13 of 13 enabled')).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
     await health(page, 'crm-home', info);
-    await info.attach('crm-home', {
-      body: await page.screenshot({ fullPage: true, animations: 'disabled' }),
-      contentType: 'image/png',
-    });
+    await expect(page.locator('[data-app="crm"]')).toHaveScreenshot('crm-home.png');
 
     // Navigate to Accounts & capabilities settings
     await page.getByRole('link', { name: 'Settings' }).click();
@@ -91,12 +89,16 @@ test('CRM switcher, Home empty state, and Accounts/Capabilities/History accessib
     const capTab = page.getByRole('tab', { name: 'Capabilities', exact: true });
     await expect(capTab).toHaveAttribute('aria-selected', 'true');
 
-    // Verify inactive specialised grants warning on inactiveGrantUser
+    // Verify inactive specialised grants warning on inactiveGrantUser and assert CRM Settings visual reference
     const combo = page.getByRole('combobox', { name: 'Account', exact: true });
     await combo.selectOption(inactiveGrantUser.user.id);
     await expect(
       page.getByText('Specialised grants are inactive until Open the CRM is granted'),
     ).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    await expect(page.locator('[data-app="crm"]')).toHaveScreenshot('crm-settings-capabilities.png', {
+      mask: [page.locator('[data-app="crm"] p:has(time)')],
+    });
 
     // Select teammate and toggle via keyboard Space -> real grant -> non-optimistic failure -> revoke
     await combo.selectOption(teammate.user.id);
@@ -154,9 +156,19 @@ test('CRM switcher, Home empty state, and Accounts/Capabilities/History accessib
   }
 });
 
-test('CRM access denied, live revocation unmount, 320px reflow and 200% text scaling', async ({ page, browser }, info) => {
+test('CRM access denied, automatic and manual revocation, 320px reflow and 200% text scaling', async ({ page, browser }, info) => {
   const member = await createMember('denied');
-  const memberCtx = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' });
+  const memberCtx = await browser.newContext({
+    viewport: info.project.use.viewport,
+    colorScheme: info.project.use.colorScheme,
+    hasTouch: info.project.use.hasTouch,
+    deviceScaleFactor: info.project.use.deviceScaleFactor,
+    reducedMotion: info.project.use.reducedMotion,
+    locale: info.project.use.locale,
+    timezoneId: info.project.use.timezoneId,
+    ignoreHTTPSErrors: true,
+    serviceWorkers: 'block',
+  });
   await memberCtx.route('**/*', (route) =>
     new URL(route.request().url()).origin === new URL(fixture.base).origin
       ? route.continue()
@@ -166,6 +178,7 @@ test('CRM access denied, live revocation unmount, 320px reflow and 200% text sca
     localStorage.setItem('ws_token', s.token);
     localStorage.setItem('ws_uid', s.user.id);
     localStorage.setItem('ws_user', JSON.stringify(s.user));
+    localStorage.setItem('ws_theme', 'system');
   }, member);
   const memberPage = await memberCtx.newPage();
 
@@ -175,8 +188,11 @@ test('CRM access denied, live revocation unmount, 320px reflow and 200% text sca
     await expect(memberPage.getByTestId('app-switcher-trigger')).toHaveCount(0);
     await navigateReady(memberPage, fixture.base + '/crm');
     await expect(memberPage.getByRole('heading', { name: "You don't have access to this" })).toBeVisible();
+    await memberPage.evaluate(() => document.fonts.ready);
+    await health(memberPage, 'crm-access-denied', info);
+    await expect(memberPage.locator('[data-app="crm"]')).toHaveScreenshot('crm-access-denied.png');
 
-    // Grant admin + crm.access + crm.capabilities.manage, then verify live revocation clears Settings
+    // Grant admin + crm.access + crm.capabilities.manage
     await request(`/api/users/${member.user.id}`, { role: 'admin' }, 'PATCH');
     for (const capability of ['crm.access', 'crm.capabilities.manage']) {
       await request('/api/crm/commands/capability.grant', {
@@ -187,8 +203,39 @@ test('CRM access denied, live revocation unmount, 320px reflow and 200% text sca
 
     await navigateReady(memberPage, fixture.base + '/crm/settings/access');
     await expect(memberPage.getByRole('heading', { name: 'Accounts and capabilities' })).toBeVisible();
+    await expect(memberPage.getByRole('tablist')).toBeVisible();
 
-    // Owner revokes crm.access -> member loses access and unmounts protected Settings
+    // 1. Automatic capability revocation (NO manual Refresh, reload, or focus/visibility click)
+    await request('/api/crm/commands/capability.revoke', {
+      requestId: 'ux_' + randomUUID().replace(/-/g, ''),
+      input: { userId: member.user.id, capability: 'crm.capabilities.manage', scope: '*' },
+    });
+    await expect(memberPage.getByRole('heading', { name: "You don't have access to this" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(memberPage.getByRole('heading', { name: 'Accounts and capabilities' })).toHaveCount(0);
+    await expect(memberPage.getByRole('tablist')).toHaveCount(0);
+
+    // 2. Automatic remote admin demotion (NO manual Refresh)
+    await request('/api/crm/commands/capability.grant', {
+      requestId: 'ux_' + randomUUID().replace(/-/g, ''),
+      input: { userId: member.user.id, capability: 'crm.capabilities.manage', scope: '*' },
+    });
+    await navigateReady(memberPage, fixture.base + '/crm/settings/access');
+    await expect(memberPage.getByRole('heading', { name: 'Accounts and capabilities' })).toBeVisible();
+
+    await request(`/api/users/${member.user.id}`, { role: 'member' }, 'PATCH');
+    await expect(memberPage.getByRole('heading', { name: "You don't have access to this" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(memberPage.getByRole('heading', { name: 'Accounts and capabilities' })).toHaveCount(0);
+    await expect(memberPage.getByRole('tablist')).toHaveCount(0);
+
+    // 3. Retained manual-refresh revocation test (re-promote admin -> revoke crm.access -> click Refresh)
+    await request(`/api/users/${member.user.id}`, { role: 'admin' }, 'PATCH');
+    await navigateReady(memberPage, fixture.base + '/crm/settings/access');
+    await expect(memberPage.getByRole('heading', { name: 'Accounts and capabilities' })).toBeVisible();
+
     await request('/api/crm/commands/capability.revoke', {
       requestId: 'ux_' + randomUUID().replace(/-/g, ''),
       input: { userId: member.user.id, capability: 'crm.access', scope: '*' },
@@ -197,6 +244,7 @@ test('CRM access denied, live revocation unmount, 320px reflow and 200% text sca
     await expect(memberPage.getByRole('heading', { name: "You don't have access to this" })).toBeVisible({
       timeout: 15_000,
     });
+    await expect(memberPage.getByRole('heading', { name: 'Accounts and capabilities' })).toHaveCount(0);
 
     // 320x568 reflow and 200% text scaling on owner CRM Home & Settings
     await navigateReady(page, fixture.base + '/crm');

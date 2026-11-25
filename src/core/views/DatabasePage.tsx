@@ -239,29 +239,35 @@ export function DatabasePage({ recordId: propRecordId }: { recordId?: string }) 
             );
           })}
           </div>
-          {view?.id && <ViewTabMenu key={view.id} view={view} board={board} onCreated={id => pickView({ ...view, id })} onDeleted={() => navigate(`/boards/${board.id}`)} />}
-          <Popover adaptive label="Add a database view" align="right"
-            trigger={
-              <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-xs font-medium text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800" aria-label="New view">
-                <Plus size={14} aria-hidden="true" /> View
-              </button>
-            }
-          >
-            {(close) => (
-              <NewViewMenu
-                board={board}
-                hasStages={cols.length > 0}
-                onForms={() => { close(); navigate(`/forms/${board.id}`); }}
-                onCreate={(t, cfg) => {
-                  close();
-                  void createView(board.id, t, undefined, cfg).then((id) => {
-                    rememberView(board.id, id);
-                    navigate(`/boards/${board.id}/views/${id}`);
-                  });
-                }}
-              />
-            )}
-          </Popover>
+          {view?.id && (
+            <div className="min-w-0 max-md:shrink-0">
+              <ViewTabMenu key={view.id} view={view} board={board} onCreated={id => pickView({ ...view, id })} onDeleted={() => navigate(`/boards/${board.id}`)} />
+            </div>
+          )}
+          <div className="min-w-0 max-md:shrink-0">
+            <Popover adaptive label="Add a database view" align="right"
+              trigger={
+                <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-xs font-medium text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800" aria-label="New view">
+                  <Plus size={14} aria-hidden="true" /> View
+                </button>
+              }
+            >
+              {(close) => (
+                <NewViewMenu
+                  board={board}
+                  hasStages={cols.length > 0}
+                  onForms={() => { close(); navigate(`/forms/${board.id}`); }}
+                  onCreate={(t, cfg) => {
+                    close();
+                    void createView(board.id, t, undefined, cfg).then((id) => {
+                      rememberView(board.id, id);
+                      navigate(`/boards/${board.id}/views/${id}`);
+                    });
+                  }}
+                />
+              )}
+            </Popover>
+          </div>
           </div>
         <div className="border-b border-neutral-200/70 px-3 py-1 dark:border-neutral-800/70">
           <ViewToolbar board={board} view={view!} noun={noun} />

@@ -67,6 +67,7 @@ vi.mock('../src/core/live', () => ({
 }));
 
 import {
+  CRM_FALLBACK_POLL_MS,
   CRM_STATUS_STORAGE_HINT_KEY,
   crmStatusStore,
   notifyCrmStatusUpdated,
@@ -78,7 +79,10 @@ import {
   CrmTransportError,
   describeAccountError,
   describeCommandError,
+  fetchCapabilityAudit,
+  fetchCapabilityOverview,
   grantCrmCapability,
+  isIdentityChangedError,
   runCrmCommand,
 } from '../src/apps/crm/api';
 import { CapabilityChangeOutputSchema } from '../shared/crm/contracts';
@@ -413,5 +417,285 @@ describe('CRM client status store & command contract (SC-1, SC-2.3, SC-4)', () =
       message: 'Someone changed this account. The list has been refreshed.',
       shouldRefresh: true,
     });
+  });
+
+  it('aborts retry and never reuses replacement credentials when account switches during network or 503 retry delay', async () => {
+    const fetchMock = vi.mocked(fetch);
+
+    // 1. Account switch during transient network retry delay
+    fetchMock.mockImplementationOnce(async (_url, init) => {
+      const auth = (init?.headers as Record<string, string>)?.Authorization;
+      expect(auth).toBe('Bearer token-a');
+      setTimeout(() => {
+        mock.uid = 'user-b';
+        mock.token = 'token-b';
+        storageMap.set('ws_uid', 'user-b');
+        storageMap.set('ws_token', 'token-b');
+      }, 0);
+      throw new TypeError('network down');
+    });
+
+    let errNet: unknown;
+    try {
+      await runCrmCommand(
+        'capability.grant',
+        { userId: 'u2', capability: 'crm.access', scope: '*' },
+        CapabilityChangeOutputSchema,
+        { maxTransientRetries: 1, retryDelayMs: 25 },
+      );
+    } catch (err) {
+      errNet = err;
+    }
+    expect(isIdentityChangedError(errNet)).toBe(true);
+    expect((errNet as CrmTransportError).retryable).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mock.dropSession).not.toHaveBeenCalled();
+
+    // Reset back to user-a for 503 retry account-switch check
+    fetchMock.mockClear();
+    mock.uid = 'user-a';
+    mock.token = 'token-a';
+    storageMap.set('ws_uid', 'user-a');
+    storageMap.set('ws_token', 'token-a');
+
+    // 2. Account switch during 503 retry delay
+    fetchMock.mockImplementationOnce(async () => {
+      setTimeout(() => {
+        mock.uid = 'user-b';
+        mock.token = 'token-b';
+        storageMap.set('ws_uid', 'user-b');
+        storageMap.set('ws_token', 'token-b');
+      }, 0);
+      return new Response(JSON.stringify({ error: 'write_interrupted', retryable: true }), { status: 503 });
+    });
+
+    let err503: unknown;
+    try {
+      await runCrmCommand(
+        'capability.grant',
+        { userId: 'u2', capability: 'crm.access', scope: '*' },
+        CapabilityChangeOutputSchema,
+        { maxTransientRetries: 1, retryDelayMs: 25 },
+      );
+    } catch (err) {
+      err503 = err;
+    }
+    expect(isIdentityChangedError(err503)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // 3. Same-user access epoch bump during 503 retry delay
+    fetchMock.mockClear();
+    mock.uid = 'user-a';
+    mock.token = 'token-a';
+    mock.epoch = 0;
+    storageMap.set('ws_uid', 'user-a');
+    storageMap.set('ws_token', 'token-a');
+    fetchMock.mockImplementationOnce(async () => {
+      setTimeout(() => {
+        mock.epoch = 1;
+      }, 0);
+      return new Response(JSON.stringify({ error: 'processing_budget', retryable: true }), { status: 503 });
+    });
+
+    let errEpoch: unknown;
+    try {
+      await runCrmCommand(
+        'capability.grant',
+        { userId: 'u2', capability: 'crm.access', scope: '*' },
+        CapabilityChangeOutputSchema,
+        { maxTransientRetries: 1, retryDelayMs: 25 },
+      );
+    } catch (err) {
+      errEpoch = err;
+    }
+    expect(isIdentityChangedError(errEpoch)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards delayed 200, 401, and 403 command outcomes and stale protected reads after account switch', async () => {
+    const fetchMock = vi.mocked(fetch);
+
+    // Delayed 200 ok from user-a after switching to user-b
+    const d200 = deferred<Response>();
+    fetchMock.mockImplementationOnce(() => d200.promise);
+    const pendingGrant = grantCrmCapability({ userId: 'u2', capability: 'crm.access', scope: '*' });
+
+    mock.uid = 'user-b';
+    mock.token = 'token-b';
+    storageMap.set('ws_uid', 'user-b');
+    storageMap.set('ws_token', 'token-b');
+
+    d200.resolve(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          commandId: 'cmd-stale',
+          result: { already: false, grant: { userId: 'u2', capability: 'crm.access', scope: '*', held: true } },
+          projections: [],
+        }),
+        { status: 200 },
+      ),
+    );
+    await expect(pendingGrant).rejects.toSatisfy((e) => isIdentityChangedError(e));
+    expect(storageMap.has(CRM_STATUS_STORAGE_HINT_KEY)).toBe(false);
+    expect(mock.api).not.toHaveBeenCalled();
+
+    // Delayed 401 from old session must not drop replacement user-b session
+    const d401 = deferred<Response>();
+    fetchMock.mockImplementationOnce(() => d401.promise);
+    const pending401 = runCrmCommand(
+      'capability.grant',
+      { userId: 'u2', capability: 'crm.access', scope: '*' },
+      CapabilityChangeOutputSchema,
+    );
+    mock.uid = 'user-c';
+    mock.token = 'token-c';
+    storageMap.set('ws_uid', 'user-c');
+    storageMap.set('ws_token', 'token-c');
+    d401.resolve(new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401 }));
+    await expect(pending401).rejects.toSatisfy((e) => isIdentityChangedError(e));
+    expect(mock.dropSession).not.toHaveBeenCalled();
+
+    // Delayed 403 must not clear user-c's CRM status store
+    crmStatusStore.set({
+      status: 'ready',
+      data: {
+        contract: 'crm-s0-v2',
+        enabled: true,
+        access: true,
+        owner: true,
+        capabilities: [{ capability: 'crm.access', scope: '*' }],
+      },
+      offline: false,
+      error: null,
+      revision: 3,
+    });
+    const d403 = deferred<Response>();
+    fetchMock.mockImplementationOnce(() => d403.promise);
+    const pending403 = runCrmCommand(
+      'capability.grant',
+      { userId: 'u2', capability: 'crm.access', scope: '*' },
+      CapabilityChangeOutputSchema,
+    );
+    mock.uid = 'user-d';
+    mock.token = 'token-d';
+    storageMap.set('ws_uid', 'user-d');
+    storageMap.set('ws_token', 'token-d');
+    d403.resolve(new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 }));
+    await expect(pending403).rejects.toSatisfy((e) => isIdentityChangedError(e));
+    expect(crmStatusStore.get().data?.owner).toBe(true);
+
+    // Delayed protected read responses (fetchCapabilityOverview & fetchCapabilityAudit)
+    const overviewDef = deferred<unknown>();
+    mock.api.mockReturnValueOnce(overviewDef.promise);
+    const pendingOverview = fetchCapabilityOverview();
+    mock.uid = 'user-e';
+    mock.token = 'token-e';
+    storageMap.set('ws_uid', 'user-e');
+    storageMap.set('ws_token', 'token-e');
+    overviewDef.resolve({ contract: 'crm-s0-v2', accounts: [] });
+    await expect(pendingOverview).rejects.toSatisfy((e) => isIdentityChangedError(e));
+
+    const { ApiError } = await import('../src/core/api');
+    const auditDef = deferred<unknown>();
+    mock.api.mockReturnValueOnce(auditDef.promise);
+    const pendingAudit = fetchCapabilityAudit();
+    mock.uid = 'user-f';
+    mock.token = 'token-f';
+    storageMap.set('ws_uid', 'user-f');
+    storageMap.set('ws_token', 'token-f');
+    auditDef.reject(new ApiError(401, 'unauthenticated'));
+    await expect(pendingAudit).rejects.toSatisfy((e) => isIdentityChangedError(e));
+    expect(mock.dropSession).not.toHaveBeenCalled();
+  });
+
+  it('reuses identical requestId and bound credentials on legitimate same-identity network retry', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const seen: { requestId: string; auth?: string }[] = [];
+
+    fetchMock
+      .mockImplementationOnce(async (_url, init) => {
+        seen.push({
+          requestId: JSON.parse(String(init?.body)).requestId,
+          auth: (init?.headers as Record<string, string>)?.Authorization,
+        });
+        throw new TypeError('transient socket reset');
+      })
+      .mockImplementationOnce(async (_url, init) => {
+        seen.push({
+          requestId: JSON.parse(String(init?.body)).requestId,
+          auth: (init?.headers as Record<string, string>)?.Authorization,
+        });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            commandId: 'cmd-net-ok',
+            result: { already: false, grant: { userId: 'u2', capability: 'crm.access', scope: '*', held: true } },
+            projections: [],
+          }),
+          { status: 200 },
+        );
+      });
+
+    const res = await runCrmCommand(
+      'capability.grant',
+      { userId: 'u2', capability: 'crm.access', scope: '*' },
+      CapabilityChangeOutputSchema,
+      { retryDelayMs: 0 },
+    );
+    expect(res.ok).toBe(true);
+    expect(seen).toHaveLength(2);
+    expect(seen[0].requestId).toBe(seen[1].requestId);
+    expect(seen[0].auth).toBe('Bearer token-a');
+    expect(seen[1].auth).toBe('Bearer token-a');
+  });
+
+  it('polls authority automatically when CRM is enabled without a live socket and stays silent when CRM is off or WS is connected', async () => {
+    vi.useFakeTimers();
+    try {
+      mock.api.mockResolvedValue({
+        contract: 'crm-s0-v2',
+        enabled: true,
+        access: true,
+        owner: false,
+        capabilities: [{ capability: 'crm.access', scope: '*' }],
+      });
+
+      const stop = startCrmStatus();
+      cleanups.push(stop);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mock.api).toHaveBeenCalledTimes(1);
+
+      // Disconnected live socket + CRM enabled -> polls after CRM_FALLBACK_POLL_MS
+      await vi.advanceTimersByTimeAsync(CRM_FALLBACK_POLL_MS);
+      expect(mock.api).toHaveBeenCalledTimes(2);
+
+      // Connected live socket -> relies on pokeLive ws-records-changed (zero polling)
+      mock.liveConnected = true;
+      for (const fn of mock.liveListeners) fn();
+      await vi.advanceTimersByTimeAsync(1);
+      const countAtConnect = mock.api.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(CRM_FALLBACK_POLL_MS * 2);
+      expect(mock.api).toHaveBeenCalledTimes(countAtConnect);
+
+      // CRM disabled -> zero polling even without live socket
+      stop();
+      mock.api.mockReset();
+      mock.liveConnected = false;
+      mock.api.mockResolvedValue({
+        contract: 'crm-s0-v2',
+        enabled: false,
+        access: false,
+        owner: false,
+        capabilities: [],
+      });
+      cleanups.push(startCrmStatus());
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mock.api).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(CRM_FALLBACK_POLL_MS * 3);
+      expect(mock.api).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
