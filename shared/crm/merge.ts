@@ -182,6 +182,9 @@ export const UnmergeConflictDtoSchema = z.object({
     'duplicate_changed',
     'form_identity_changed',
     'consent_changed',
+    'booking_changed',
+    'membership_changed',
+    'financial_history_changed',
   ]),
   entityId: z.string(),
   message: z.string(),
@@ -247,6 +250,10 @@ export interface MergeJournalMovedPayload {
     action: 'repointed' | 'retired_duplicate' | 'demoted_primary';
   }[];
   movedConversationIds: { id: string; preRev: number }[];
+  movedBookings?: { id: string; preRev: number }[];
+  movedParticipants?: { id: string; preRev: number }[];
+  movedMemberships?: { id: string; preRev: number }[];
+  movedScreenings?: { participantId: string; preRev: number }[];
   duplicateUpdates: {
     id: string;
     priorPersonAId: string;

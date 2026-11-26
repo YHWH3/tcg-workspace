@@ -339,6 +339,8 @@ export const TIMELINE_ENTRY_KINDS = [
   'conversion',
   'consent',
   'workspace_activity',
+  'booking',
+  'membership',
 ] as const;
 export type TimelineEntryKind = typeof TIMELINE_ENTRY_KINDS[number];
 
@@ -371,6 +373,9 @@ export const HOME_ITEM_KINDS = [
   'application_ageing',
   'conversation_unanswered',
   'recent_record',
+  'hold_expiring',
+  'paid_without_seat',
+  'membership_renewal_due',
 ] as const;
 export type HomeItemKind = typeof HOME_ITEM_KINDS[number];
 

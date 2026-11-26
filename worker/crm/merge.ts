@@ -632,11 +632,38 @@ export async function readMergePreview(
     approvalsAndSuggestions: pendingReviewCount,
   };
 
+  const [p4LedgerRes, p4PayReqRes, p4RefundRes, p4BkRes, p4PtRes, p4MemRes, p4ScrRes] = await env.DB.batch([
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_ledger_entries WHERE person_id = ?`).bind(loser.id),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_payment_requests WHERE person_id = ?`).bind(loser.id),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_refund_requests WHERE person_id = ?`).bind(loser.id),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_bookings WHERE booker_person_id = ?`).bind(loser.id),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_participants WHERE person_id = ?`).bind(loser.id),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_memberships WHERE person_id = ?`).bind(loser.id),
+    env.DB
+      .prepare(
+        `SELECT COUNT(*) AS n FROM crm_screenings s
+         JOIN crm_participants p ON p.id = s.participant_id
+         WHERE p.person_id = ?`,
+      )
+      .bind(loser.id),
+  ]);
+  const loserFinancialCount =
+    Number((p4LedgerRes.results[0] as { n: number } | undefined)?.n ?? 0) +
+    Number((p4PayReqRes.results[0] as { n: number } | undefined)?.n ?? 0) +
+    Number((p4RefundRes.results[0] as { n: number } | undefined)?.n ?? 0);
+  const loserBookingsCount = Number((p4BkRes.results[0] as { n: number } | undefined)?.n ?? 0);
+  const loserParticipantsCount = Number((p4PtRes.results[0] as { n: number } | undefined)?.n ?? 0);
+  const loserMembershipsCount = Number((p4MemRes.results[0] as { n: number } | undefined)?.n ?? 0);
+  const loserScreeningsCount = Number((p4ScrRes.results[0] as { n: number } | undefined)?.n ?? 0);
+
   const budget = checkMergeBudget(referenceCounts);
   const estBoundIds = 2 + subCount + fileCount + loserLinksCount * 2;
   const budgetReasons = [...budget.budgetReasons];
   if (estBoundIds > MAX_EXPECTED_ENTRIES) {
     budgetReasons.push(`atomic_commit_limit_exceeded:${estBoundIds}>${MAX_EXPECTED_ENTRIES}`);
+  }
+  if (loserFinancialCount > 0) {
+    budgetReasons.push('loser_has_financial_history_cannot_rewrite_ledger');
   }
 
   const selfAliases = aliasSelfRes.results as unknown as AliasRow[];
@@ -650,6 +677,21 @@ export async function readMergePreview(
   const warnings: string[] = [];
   if (alreadyMerged) {
     warnings.push('One of the selected records is already merged or archived.');
+  }
+  if (loserFinancialCount > 0) {
+    warnings.push(
+      `The secondary person has ${loserFinancialCount} financial ledger/payment/refund record(s). Append-only financial history cannot be rewritten during merge; make this contact the canonical survivor instead.`,
+    );
+  }
+  if (loserBookingsCount > 0 || loserParticipantsCount > 0 || loserMembershipsCount > 0) {
+    warnings.push(
+      `The secondary person has ${loserBookingsCount} booking(s), ${loserParticipantsCount} participant link(s), and ${loserMembershipsCount} membership(s) that will be moved atomically.`,
+    );
+  }
+  if (loserScreeningsCount > 0) {
+    warnings.push(
+      `The secondary person has ${loserScreeningsCount} restricted screening record(s); programme-scoped crm.restricted.read authority is required to merge.`,
+    );
   }
   if (blocksCount > 0) {
     warnings.push(
@@ -1080,6 +1122,65 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
       }
       if (survivor.data.archived === true || loser.data.archived === true) {
         return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'record_archived' } };
+      }
+
+      // Cross-module P4 contact-reference inventory (bookings, participants, screenings, memberships, append-only ledger)
+      const [p4LedgerRes, p4PayReqRes, p4RefundRes, p4BookingsRes, p4ParticipantsRes, p4MembershipsRes, p4ScreeningsRes] =
+        await env.DB.batch([
+          env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_ledger_entries WHERE person_id = ?`).bind(loser.id),
+          env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_payment_requests WHERE person_id = ?`).bind(loser.id),
+          env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_refund_requests WHERE person_id = ?`).bind(loser.id),
+          env.DB.prepare(`SELECT id, rev FROM crm_bookings WHERE booker_person_id = ?`).bind(loser.id),
+          env.DB.prepare(`SELECT id, rev FROM crm_participants WHERE person_id = ?`).bind(loser.id),
+          env.DB.prepare(`SELECT id, rev FROM crm_memberships WHERE person_id = ?`).bind(loser.id),
+          env.DB
+            .prepare(
+              `SELECT s.participant_id, s.programme_slug, s.rev
+               FROM crm_screenings s
+               JOIN crm_participants p ON p.id = s.participant_id
+               WHERE p.person_id = ?`,
+            )
+            .bind(loser.id),
+        ]);
+      const loserLedgerCount = Number((p4LedgerRes.results[0] as { n: number } | undefined)?.n ?? 0);
+      const loserPayReqCount = Number((p4PayReqRes.results[0] as { n: number } | undefined)?.n ?? 0);
+      const loserRefundCount = Number((p4RefundRes.results[0] as { n: number } | undefined)?.n ?? 0);
+      if (loserLedgerCount > 0 || loserPayReqCount > 0 || loserRefundCount > 0) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: {
+            reason: 'loser_has_financial_history_cannot_rewrite_ledger',
+            ledgerEntries: loserLedgerCount,
+            paymentRequests: loserPayReqCount,
+            refundRequests: loserRefundCount,
+          },
+        };
+      }
+      const loserBookings = p4BookingsRes.results as unknown as { id: string; rev: number }[];
+      const loserParticipants = p4ParticipantsRes.results as unknown as { id: string; rev: number }[];
+      const loserMemberships = p4MembershipsRes.results as unknown as { id: string; rev: number }[];
+      const loserScreenings = p4ScreeningsRes.results as unknown as {
+        participant_id: string;
+        programme_slug: string;
+        rev: number;
+      }[];
+      const unauthorizedScreeningProgrammes = [
+        ...new Set(
+          loserScreenings
+            .filter((s) => !evaluateCapability(actor, 'crm.restricted.read', `programme:${s.programme_slug}`))
+            .map((s) => s.programme_slug),
+        ),
+      ];
+      if (unauthorizedScreeningProgrammes.length > 0) {
+        return {
+          kind: 'refuse',
+          error: 'forbidden',
+          detail: {
+            reason: 'restricted_screening_authority_required',
+            programmes: unauthorizedScreeningProgrammes,
+          },
+        };
       }
 
       const allEndpoints = epRes.results as unknown as EndpointRow[];
@@ -1711,6 +1812,40 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
         transitiveAliasesUpdated: transitiveJournal.length,
       };
 
+      // P4 operational contact references repoint (bookings, participants, memberships)
+      const p4MoveStmts: D1PreparedStatement[] = [];
+      const movedBookings: { id: string; preRev: number }[] = [];
+      for (const b of loserBookings) {
+        movedBookings.push({ id: b.id, preRev: b.rev });
+        p4MoveStmts.push(
+          env.DB
+            .prepare(`UPDATE crm_bookings SET booker_person_id = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND booker_person_id = ? AND rev = ?`)
+            .bind(survivor.id, now, b.id, loser.id, b.rev),
+          changesOneFence(env.DB),
+        );
+      }
+      const movedParticipants: { id: string; preRev: number }[] = [];
+      for (const pt of loserParticipants) {
+        movedParticipants.push({ id: pt.id, preRev: pt.rev });
+        p4MoveStmts.push(
+          env.DB
+            .prepare(`UPDATE crm_participants SET person_id = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND person_id = ? AND rev = ?`)
+            .bind(survivor.id, now, pt.id, loser.id, pt.rev),
+          changesOneFence(env.DB),
+        );
+      }
+      const movedMemberships: { id: string; preRev: number }[] = [];
+      for (const m of loserMemberships) {
+        movedMemberships.push({ id: m.id, preRev: m.rev });
+        p4MoveStmts.push(
+          env.DB
+            .prepare(`UPDATE crm_memberships SET person_id = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND person_id = ? AND rev = ?`)
+            .bind(survivor.id, now, m.id, loser.id, m.rev),
+          changesOneFence(env.DB),
+        );
+      }
+      const movedScreenings = loserScreenings.map((s) => ({ participantId: s.participant_id, preRev: s.rev }));
+
       const journalPayload: MergeJournalMovedPayload = {
         version: 1,
         preSurvivorRev: survivor.seq,
@@ -1725,6 +1860,10 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
         movedFileIds,
         movedEndpoints,
         movedConversationIds,
+        movedBookings,
+        movedParticipants,
+        movedMemberships,
+        movedScreenings,
         duplicateUpdates: dupJournal,
         movedFormPeopleKeys,
         transitiveAliases: transitiveJournal,
@@ -1737,6 +1876,7 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
         ...demoteStmts,
         ...repointEndpointStmts,
         ...convStmts,
+        ...p4MoveStmts,
         ...dupStmts,
         ...fkStmts,
         ...aliasStmts,
@@ -1809,6 +1949,13 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
                  AND (SELECT COUNT(*) FROM crm_consents c
                       WHERE c.person_id IN (?1, ?2)
                          OR c.person_id IN (SELECT alias_id FROM crm_person_aliases WHERE survivor_id IN (?1, ?2))) = ?13
+                 AND (SELECT COUNT(*) FROM crm_ledger_entries WHERE person_id = ?2) = 0
+                 AND (SELECT COUNT(*) FROM crm_payment_requests WHERE person_id = ?2) = 0
+                 AND (SELECT COUNT(*) FROM crm_refund_requests WHERE person_id = ?2) = 0
+                 AND (SELECT COUNT(*) FROM crm_bookings WHERE booker_person_id = ?2) = ?14
+                 AND (SELECT COUNT(*) FROM crm_participants WHERE person_id = ?2) = ?15
+                 AND (SELECT COUNT(*) FROM crm_memberships WHERE person_id = ?2) = ?16
+                 AND (SELECT COUNT(*) FROM crm_screenings s JOIN crm_participants p ON p.id = s.participant_id WHERE p.person_id = ?2) = ?17
                THEN 1 ELSE json_extract('{', '$') END`,
             )
             .bind(
@@ -1825,6 +1972,10 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
               survivorAliasCount,
               transitiveAliases.length,
               totalConsentCount,
+              loserBookings.length,
+              loserParticipants.length,
+              loserMemberships.length,
+              loserScreenings.length,
             ),
         () =>
           env.DB
@@ -2407,6 +2558,94 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
         });
       }
 
+      // Check P4 moved operational references (bookings, participants, memberships, screenings) & post-merge financial entries
+      const movedBookingList = moved.movedBookings ?? [];
+      const movedParticipantList = moved.movedParticipants ?? [];
+      const movedMembershipList = moved.movedMemberships ?? [];
+      const movedScreeningList = moved.movedScreenings ?? [];
+
+      const [curBkRes, curPtRes, curMemRes, curScrRes, postFinRes] = await env.DB.batch([
+        env.DB
+          .prepare(`SELECT id, booker_person_id, rev FROM crm_bookings WHERE id IN (SELECT value FROM json_each(?))`)
+          .bind(JSON.stringify(movedBookingList.map((b) => b.id))),
+        env.DB
+          .prepare(`SELECT id, person_id, rev FROM crm_participants WHERE id IN (SELECT value FROM json_each(?))`)
+          .bind(JSON.stringify(movedParticipantList.map((p) => p.id))),
+        env.DB
+          .prepare(`SELECT id, person_id, rev FROM crm_memberships WHERE id IN (SELECT value FROM json_each(?))`)
+          .bind(JSON.stringify(movedMembershipList.map((m) => m.id))),
+        env.DB
+          .prepare(`SELECT participant_id, programme_slug, rev FROM crm_screenings WHERE participant_id IN (SELECT value FROM json_each(?))`)
+          .bind(JSON.stringify(movedScreeningList.map((s) => s.participantId))),
+        env.DB
+          .prepare(
+            `SELECT id FROM crm_ledger_entries
+             WHERE person_id = ?1
+                OR (object_type = 'booking' AND object_id IN (SELECT value FROM json_each(?2)))
+                OR (object_type = 'membership' AND object_id IN (SELECT value FROM json_each(?3)))
+             LIMIT 10`,
+          )
+          .bind(loser.id, JSON.stringify(movedBookingList.map((b) => b.id)), JSON.stringify(movedMembershipList.map((m) => m.id))),
+      ]);
+
+      const curBkById = new Map((curBkRes.results as unknown as { id: string; booker_person_id: string; rev: number }[]).map((r) => [r.id, r]));
+      for (const mb of movedBookingList) {
+        const cur = curBkById.get(mb.id);
+        if (!cur || cur.booker_person_id !== survivor.id || cur.rev !== mb.preRev + 1) {
+          conflicts.push({
+            code: 'booking_changed',
+            entityId: mb.id,
+            message: `Booking ${mb.id} changed after merge.`,
+          });
+        }
+      }
+      const curPtById = new Map((curPtRes.results as unknown as { id: string; person_id: string | null; rev: number }[]).map((r) => [r.id, r]));
+      for (const mp of movedParticipantList) {
+        const cur = curPtById.get(mp.id);
+        if (!cur || cur.person_id !== survivor.id || cur.rev !== mp.preRev + 1) {
+          conflicts.push({
+            code: 'booking_changed',
+            entityId: mp.id,
+            message: `Participant ${mp.id} changed after merge.`,
+          });
+        }
+      }
+      const curMemById = new Map((curMemRes.results as unknown as { id: string; person_id: string; rev: number }[]).map((r) => [r.id, r]));
+      for (const mm of movedMembershipList) {
+        const cur = curMemById.get(mm.id);
+        if (!cur || cur.person_id !== survivor.id || cur.rev !== mm.preRev + 1) {
+          conflicts.push({
+            code: 'membership_changed',
+            entityId: mm.id,
+            message: `Membership ${mm.id} changed after merge.`,
+          });
+        }
+      }
+      const curScrById = new Map((curScrRes.results as unknown as { participant_id: string; programme_slug: string; rev: number }[]).map((r) => [r.participant_id, r]));
+      for (const ms of movedScreeningList) {
+        const cur = curScrById.get(ms.participantId);
+        if (!cur || cur.rev !== ms.preRev) {
+          conflicts.push({
+            code: 'booking_changed',
+            entityId: ms.participantId,
+            message: `Screening for participant ${ms.participantId} changed after merge.`,
+          });
+        } else if (!evaluateCapability(actor, 'crm.restricted.read', `programme:${cur.programme_slug}`)) {
+          return {
+            kind: 'refuse',
+            error: 'forbidden',
+            detail: { reason: 'restricted_screening_authority_required', programme: cur.programme_slug },
+          };
+        }
+      }
+      for (const fin of postFinRes.results as unknown as { id: string }[]) {
+        conflicts.push({
+          code: 'financial_history_changed',
+          entityId: fin.id,
+          message: `Append-only ledger entry ${fin.id} exists for a moved booking or membership; unmerge cannot split financial history.`,
+        });
+      }
+
       if (conflicts.length > 0) {
         return {
           kind: 'refuse',
@@ -2651,12 +2890,39 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
         );
       }
 
+      const p4RestoreStmts: D1PreparedStatement[] = [];
+      for (const mb of movedBookingList) {
+        p4RestoreStmts.push(
+          env.DB
+            .prepare(`UPDATE crm_bookings SET booker_person_id = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND booker_person_id = ? AND rev = ?`)
+            .bind(loser.id, now, mb.id, survivor.id, mb.preRev + 1),
+          changesOneFence(env.DB),
+        );
+      }
+      for (const mp of movedParticipantList) {
+        p4RestoreStmts.push(
+          env.DB
+            .prepare(`UPDATE crm_participants SET person_id = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND person_id = ? AND rev = ?`)
+            .bind(loser.id, now, mp.id, survivor.id, mp.preRev + 1),
+          changesOneFence(env.DB),
+        );
+      }
+      for (const mm of movedMembershipList) {
+        p4RestoreStmts.push(
+          env.DB
+            .prepare(`UPDATE crm_memberships SET person_id = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND person_id = ? AND rev = ?`)
+            .bind(loser.id, now, mm.id, survivor.id, mm.preRev + 1),
+          changesOneFence(env.DB),
+        );
+      }
+
       const unmergeId = `umg_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
 
       const rows: D1PreparedStatement[] = [
         ...epRestoreDemoteStmts,
         ...epRestoreMainStmts,
         ...convRestoreStmts,
+        ...p4RestoreStmts,
         ...dupRestoreStmts,
         ...fkRestoreStmts,
         ...aliasRestoreStmts,

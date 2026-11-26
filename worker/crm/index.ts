@@ -44,6 +44,7 @@ import {
   readConversations,
 } from './conversations';
 import { createS4FactCommandDefs, readFacts } from './facts';
+import { createS8MembershipCommandDefs, readMembershipsOverview } from './memberships';
 import { createS10MergeCommandDefs, readMergeHistory, readMergePreview } from './merge';
 import { createS7MoneyCommandDefs, readMoneyOverview } from './money';
 import { createS9PipelineCommandDefs, readPatrons } from './pipelines';
@@ -61,6 +62,7 @@ export function createS0CommandRegistry(): CommandRegistry {
     ...createP3ChannelCommandDefs(),
     ...createS6BookingCommandDefs(),
     ...createS7MoneyCommandDefs(),
+    ...createS8MembershipCommandDefs(),
     ...createS9PipelineCommandDefs(),
   ]);
 }
@@ -253,6 +255,12 @@ crmApi.get('/read/booking/:id/screening', async (c) => {
 crmApi.get('/read/money', async (c) => {
   const user = c.get('user');
   const outcome = await readMoneyOverview(c.env, user.id, user.tokenHash);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/memberships', async (c) => {
+  const user = c.get('user');
+  const outcome = await readMembershipsOverview(c.env, user.id, user.tokenHash);
   return c.json(outcome.body, outcome.status);
 });
 

@@ -14,6 +14,7 @@ import {
 } from '../../shared/crm/programmes';
 import { addDays, daysBetween, parseDateOnly, toDateOnlyInZone, dateOnlyStartInZone, workspaceToday } from '../../shared/dates';
 import { normalizeEmail } from '../../shared/crm/identity';
+import { evaluateEffectiveMembershipState, type MembershipState } from '../../shared/crm/operations';
 import { CRM_PROJECTION } from '../../shared/crm/projection';
 import { linkId } from '../../shared/linkid';
 import type { Mutation } from '../../shared/types';
@@ -807,6 +808,81 @@ export async function readTimeline(
     });
   }
 
+  const [p4BookingsRes, p4MembershipsRes] = await env.DB.batch([
+    env.DB
+      .prepare(
+        `SELECT b.id, b.edition_id, b.state, b.seats, b.payment_status, b.updated_at, e.title AS edition_title, e.event_record_id
+         FROM crm_bookings b
+         JOIN crm_editions e ON e.id = b.edition_id
+         WHERE b.booker_person_id = ?
+         ORDER BY b.updated_at DESC
+         LIMIT 30`,
+      )
+      .bind(subject.id),
+    env.DB
+      .prepare(
+        `SELECT m.id, m.state, m.member_identifier, m.valid_until, m.payment_status, m.updated_at, s.name AS scheme_name, s.renewal_notice_days
+         FROM crm_memberships m
+         JOIN crm_membership_schemes s ON s.id = m.scheme_id
+         WHERE m.person_id = ?
+         ORDER BY m.updated_at DESC
+         LIMIT 20`,
+      )
+      .bind(subject.id),
+  ]);
+  const p4BkRows = p4BookingsRes.results as unknown as {
+    id: string;
+    edition_id: string;
+    state: string;
+    seats: number;
+    payment_status: string;
+    updated_at: number;
+    edition_title: string;
+    event_record_id: string;
+  }[];
+  const readableEdEvents =
+    p4BkRows.length > 0
+      ? await loadReadableTaskRecords(env, gate, [...new Set(p4BkRows.map((b) => b.event_record_id))])
+      : new Map();
+
+  for (const b of p4BkRows) {
+    if (!readableEdEvents.has(b.event_record_id)) continue;
+    entries.push({
+      id: `bk:${b.id}`,
+      kind: 'booking',
+      ts: b.updated_at,
+      title: `Booking: ${b.edition_title}`,
+      subtitle: `${b.seats} seat(s) · ${b.state} · ${b.payment_status}`,
+      actorName: null,
+      linkToRecordId: b.event_record_id,
+    });
+  }
+  for (const m of p4MembershipsRes.results as unknown as {
+    id: string;
+    state: MembershipState;
+    member_identifier: string | null;
+    valid_until: number | null;
+    payment_status: string;
+    updated_at: number;
+    scheme_name: string;
+    renewal_notice_days: number | null;
+  }[]) {
+    const eff = evaluateEffectiveMembershipState({
+      storedState: m.state,
+      validUntil: m.valid_until,
+      renewalNoticeDays: m.renewal_notice_days,
+      now: batchNow,
+    });
+    entries.push({
+      id: `mem:${m.id}`,
+      kind: 'membership',
+      ts: m.updated_at,
+      title: `${m.scheme_name}${m.member_identifier ? ` (${m.member_identifier})` : ''}`,
+      subtitle: `Status: ${eff} · ${m.payment_status}`,
+      actorName: null,
+    });
+  }
+
   entries.sort((a, b) => (b.ts !== a.ts ? b.ts - a.ts : b.id.localeCompare(a.id)));
 
   const filtered = parsedCursor
@@ -1213,6 +1289,108 @@ export async function readCrmHome(
         urgency: 'low',
         recordId: rec.id,
         boardId: rec.boardId,
+      });
+    }
+  }
+
+  // P4 Home operational reminders (expiring holds, paid-without-seat, membership renewals due/lapsed)
+  const [p4HomeBookingsRes, p4HomeMemRes] = await env.DB.batch([
+    env.DB
+      .prepare(
+        `SELECT b.id, b.edition_id, b.booker_person_id, b.state, b.seats, b.hold_expires_at, b.updated_at,
+                e.title AS edition_title, e.event_record_id
+         FROM crm_bookings b
+         JOIN crm_editions e ON e.id = b.edition_id
+         WHERE b.state = 'paid_without_seat'
+            OR (b.state IN ('held', 'awaiting_payment', 'offered') AND b.hold_expires_at IS NOT NULL AND b.hold_expires_at > ? AND b.hold_expires_at <= ?)
+         ORDER BY COALESCE(b.hold_expires_at, b.updated_at) ASC
+         LIMIT 25`,
+      )
+      .bind(now, now + 86_400_000),
+    env.DB
+      .prepare(
+        `SELECT m.id, m.person_id, m.state, m.valid_until, m.updated_at, s.name AS scheme_name, s.renewal_notice_days
+         FROM crm_memberships m
+         JOIN crm_membership_schemes s ON s.id = m.scheme_id
+         WHERE m.state IN ('active', 'renewal_due', 'lapsed') AND m.valid_until IS NOT NULL
+         ORDER BY m.valid_until ASC
+         LIMIT 40`,
+      ),
+  ]);
+  const p4HomeBookings = p4HomeBookingsRes.results as unknown as {
+    id: string;
+    edition_id: string;
+    booker_person_id: string;
+    state: string;
+    seats: number;
+    hold_expires_at: number | null;
+    updated_at: number;
+    edition_title: string;
+    event_record_id: string;
+  }[];
+  const p4HomeMems = p4HomeMemRes.results as unknown as {
+    id: string;
+    person_id: string;
+    state: MembershipState;
+    valid_until: number | null;
+    updated_at: number;
+    scheme_name: string;
+    renewal_notice_days: number | null;
+  }[];
+  const p4LinkedIds = [
+    ...new Set([
+      ...p4HomeBookings.flatMap((b) => [b.booker_person_id, b.event_record_id]),
+      ...p4HomeMems.map((m) => m.person_id),
+    ]),
+  ];
+  const p4Readable = p4LinkedIds.length > 0 ? await loadReadableTaskRecords(env, gate, p4LinkedIds) : new Map();
+
+  for (const b of p4HomeBookings) {
+    if (!p4Readable.has(b.booker_person_id) || !p4Readable.has(b.event_record_id)) continue;
+    const bookerName = extractTitle(p4Readable.get(b.booker_person_id)!.data);
+    if (b.state === 'paid_without_seat') {
+      shared.push({
+        id: `bk_pws:${b.id}`,
+        kind: 'paid_without_seat',
+        title: `Paid without seat: ${bookerName}`,
+        subtitle: `${b.edition_title} · ${b.seats} seat(s) — human review required`,
+        dueTs: b.updated_at,
+        updatedTs: b.updated_at,
+        route: `/crm/bookings?edition=${encodeURIComponent(b.edition_id)}`,
+        urgency: 'high',
+      });
+    } else {
+      today.push({
+        id: `bk_hold:${b.id}`,
+        kind: 'hold_expiring',
+        title: `Hold expiring: ${bookerName}`,
+        subtitle: `${b.edition_title} · ${b.seats} seat(s)`,
+        dueTs: b.hold_expires_at,
+        updatedTs: b.updated_at,
+        route: `/crm/bookings?edition=${encodeURIComponent(b.edition_id)}`,
+        urgency: 'high',
+      });
+    }
+  }
+  for (const m of p4HomeMems) {
+    if (!p4Readable.has(m.person_id)) continue;
+    const eff = evaluateEffectiveMembershipState({
+      storedState: m.state,
+      validUntil: m.valid_until,
+      renewalNoticeDays: m.renewal_notice_days,
+      now,
+    });
+    if (eff === 'renewal_due' || eff === 'lapsed') {
+      const personName = extractTitle(p4Readable.get(m.person_id)!.data);
+      thisWeek.push({
+        id: `mem_ren:${m.id}`,
+        kind: 'membership_renewal_due',
+        title: `${eff === 'lapsed' ? 'Membership lapsed' : 'Renewal due'}: ${personName}`,
+        subtitle: m.scheme_name,
+        dueTs: m.valid_until,
+        updatedTs: m.updated_at,
+        route: '/crm/memberships',
+        urgency: eff === 'lapsed' ? 'high' : 'normal',
       });
     }
   }

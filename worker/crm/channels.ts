@@ -1590,9 +1590,16 @@ export async function pollCrmChannelAccount(
 export async function runCrmScheduledSweep(env: Env, now = Date.now()): Promise<{
   outbox: OutboxSweepSummary;
   polledAccounts: number;
+  expiredHolds: number;
 }> {
   const outbox = await processCrmOutbox(env, now, { limit: 6 });
   let polledAccounts = 0;
+  let expiredHolds = 0;
+
+  if (hasD1Budget(env.DB, 6)) {
+    const { sweepExpiredBookingHolds } = await import('./bookings');
+    expiredHolds = await sweepExpiredBookingHolds(env.DB, now, 8);
+  }
 
   if (hasD1Budget(env.DB, 10)) {
     const pullAccounts = await env.DB
@@ -1613,7 +1620,7 @@ export async function runCrmScheduledSweep(env: Env, now = Date.now()): Promise<
     }
   }
 
-  return { outbox, polledAccounts };
+  return { outbox, polledAccounts, expiredHolds };
 }
 
 /* ---------- Commands: Channel Accounts, Templates, Review & Outbox ---------- */
