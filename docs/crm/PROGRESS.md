@@ -9,12 +9,12 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 | **Principal engineering agent** | Neon (T3 Code; revised A-26) |
 | **PM & independent review** | ChatGPT |
 | **Owner & approver** | Paul |
-| **Repository & active branch** | `YHWH3/tcg-workspace`, branch `crm/p2-integrity` (branched from verified P1 commit `ef39f6c306f462bb8c4a552823b6cce782568b90`) |
+| **Repository & active branch** | `YHWH3/tcg-workspace`, branch `crm/p3-communications` (branched from `crm/p2-integrity` commit `6ef8ab645a9b3e0f15e0bce3f01893809598b7cf`) |
 | **Workspace baseline commit** | `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`codex/workspace-database-platform`) |
 | **Reviewed documentation baseline** | `8aa6f5300426029dc1db87e979fb871313190973` (`crm/foundation`, Checkpoint 1 accepted) |
-| **Active contract version** | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) + [`contracts/crm-p1-v1.md`](contracts/crm-p1-v1.md) + [`contracts/crm-p2-v1.md`](contracts/crm-p2-v1.md) (P2 / S10) |
-| **Current stage** | **P2 — Data Integrity, P1 Hardening & Reversible Contact Merge (Core Verified, Comprehensive Browser Certification Paused at Safe Checkpoint on `crm/p2-integrity`)** |
-| **Overall P2 status** | **P2 Implementation Complete (`28b3971`..`494fdb8`):** P1 hardening complete and verified (`tests/crm-p2-hardening-d1.test.ts`); S10 schema, contract, atomic merge/unmerge engine, alias-aware ingestion/messaging/MCP, responsive compare/merge & unmerge UI, and demo/UX workflows implemented and core-verified (`9/9` targeted Vitest suites `80/80`, `npm run typecheck`, `npm run build`, `18/18` CRM UX baseline recording `108/108`). Comprehensive non-record CRM & Workspace browser matrices intentionally paused at checkpoint to conserve quota (see deferred checks below). |
+| **Active contract version** | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) + [`contracts/crm-p1-v1.md`](contracts/crm-p1-v1.md) + [`contracts/crm-p2-v1.md`](contracts/crm-p2-v1.md) + [`contracts/crm-p3-v1.md`](contracts/crm-p3-v1.md) (P3 / S5 + S11 + S12) |
+| **Current stage** | **P3 — Communications & Targeted P2 Hardening (Complete & Core-Verified on `crm/p3-communications`, Stopped at P3 Review Boundary)** |
+| **Overall P3 status** | **P3 Implementation Complete (`a7d0700`..`2484fd4`):** All 6 P2 independent review findings closed & committed separately (`352b9c1`); A-28 risk-based testing strategy recorded (`a7d0700`); migration `0048_crm_communications.sql` + contract `crm-p3-v1.md` + S5 Zoho Mail, S11 WhatsApp Cloud, S12 Instagram/Facebook adapters & signed webhooks + responsive Channels/Templates/Delivery Review & Inbox UI implemented (`7b8e12a`..`0ec5a01`); verified via `32/32` CRM & adjacent Workspace Vitest suites (`187/187`), `153/153` certification selftests, `17/17` `release:preflight`, `verify-p3-communications.mjs`, Studio demo, and CRM demo (`29` desktop/tablet/mobile screenshots, `p2MergeVerified: true`, `p3CommunicationsVerified: true`). Real provider connections remain disabled; comprehensive 18-project browser matrices remain deferred to P4 and P6 per A-28. |
 
 ---
 
@@ -116,6 +116,27 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
     - Added S10 client reads/commands & conflict extractors in [`src/apps/crm/api.ts`](../../src/apps/crm/api.ts) and [`tests/crm-p2-merge-client.test.ts`](../../tests/crm-p2-merge-client.test.ts).
     - Delivered accessible responsive [`MergeCompareDialog.tsx`](../../src/apps/crm/people/MergeCompareDialog.tsx), [`MergeHistoryTab.tsx`](../../src/apps/crm/people/MergeHistoryTab.tsx), [`PeopleView.tsx`](../../src/apps/crm/people/PeopleView.tsx) URL-persisted tabs & identity-scoped confirmation banner across Protocol 3 revalidation remounts, and archived/alias handling in [`RecordPanel.tsx`](../../src/apps/crm/components/RecordPanel.tsx).
     - Expanded `scripts/crm-demo/` (`data.mjs`, `preview.mjs` Part D) and `scripts/ux-lab/crm-workflows.spec.mjs` (`P2 S10`), and moved variable `<time className="crm-tabular block">` to its own line in `MergeHistoryTab.tsx` (`494fdb8`) for screenshot mask stability.
+18. **P3 Milestone 0 — Risk-Based Testing & Certification Cadence (`a7d0700`, branch `crm/p3-communications`):**
+    - Recorded **A-28** in [`01-DECISIONS.md`](01-DECISIONS.md) and [`11-ROADMAP.md`](11-ROADMAP.md): targeted high-signal unit/integration/security/responsive checks per intermediate package while scheduling full 18-project CRM + Workspace cross-browser certification matrices for **P4** and **P6** (preserving deferred P2 certification requirements explicitly).
+19. **P3 Milestone 1 — Closed All 6 P2 Independent Review Findings (`352b9c1`, branch `crm/p3-communications`):**
+    - Required valid reviewed `expectedRevisions` on both `person.merge` and `person.unmerge` (`shared/crm/merge.ts`, `worker/crm/merge.ts`, `src/apps/crm/people/MergeHistoryTab.tsx`).
+    - Fenced the complete affected reference set (records, links, endpoints, consents, conversations, duplicate decisions, `form_people_keys`) against concurrent additions and mutations.
+    - Evaluated effective consent using the latest append-only row per `(person, channel, scope)` independently of paginated history limits, with strict SQL/application-level parity.
+    - Refused or safely redirected consequential writes against merged/archived person aliases across `worker/crm/{identity,conversations,applications,pipelines}.ts`.
+    - Detected post-merge operational-state changes (endpoints, duplicate decisions, `form_people_keys`, consents) before allowing `person.unmerge`.
+    - Re-verified current linked-record `ReadGate` authority on `person.merge` and `person.unmerge` idempotent replays (`tests/crm-p2-merge-d1.test.ts`, `tests/crm-p2-merge-client.test.ts`).
+20. **P3 Milestone 2 — P3 Contract, Migration `0048` & Shared Channel Schemas (`7b8e12a`, branch `crm/p3-communications`):**
+    - Verified official Zoho Mail REST API, Meta WhatsApp Cloud API, and Meta Instagram/Facebook Messaging API documentation; authored [`contracts/crm-p3-v1.md`](contracts/crm-p3-v1.md).
+    - Added [`migrations/0048_crm_communications.sql`](../../migrations/0048_crm_communications.sql) (SHA-256 `98c1cc35502e08aabf8539326dba9c9f54cbfbfaa31621c2f7bea05023963611`; safe FK-preserving `crm_messages` rebuild adding `review_required` + RFC 5322 threading columns, channel polling leases/cursors, template lifecycle columns, and outbox review/backoff columns) and registered all 48 migrations across certification manifests (`scripts/certification/migrations.json`, `scripts/release-rehearsal.mjs`, `scripts/release-preflight.mjs`).
+    - Built pure channel, RFC 5322 header threading, messaging-window, opt-out keyword, and DTO/command schemas in [`shared/crm/channels.ts`](../../shared/crm/channels.ts) (`tests/crm-p3-channels.test.ts`).
+21. **P3 Milestone 3 — S5 Zoho Mail Adapter, Durable Polling & Outbox Review (`5c5e99b`, branch `crm/p3-communications`):**
+    - Implemented [`worker/crm/adapters/types.ts`](../../worker/crm/adapters/types.ts), [`worker/crm/adapters/zohoMail.ts`](../../worker/crm/adapters/zohoMail.ts) (disabled by default, regional `mail.zoho.*`/`accounts.zoho.*` host allowlist, Worker-secret binding check, `askReceipt: 'no'` honoring P-16, header-only RFC 5322 threading), and [`worker/crm/channels.ts`](../../worker/crm/channels.ts) (durable cursor/lease polling, exponential outbox backoff `30s -> 2m -> 10m`, ambiguous outcome -> `review_required` with human resolution `message.resolve_review`).
+    - Hooked `runCrmScheduledSweep()` inside phase 10 of [`worker/reminders.ts`](../../worker/reminders.ts) strictly gated by `isCrmEnabled(env) && hasD1Budget(env.DB, 10)`, preserving `SCHEDULED_PHASE_COUNT = 10` and zero DB work when CRM is disabled (`tests/crm-p3-zoho-d1.test.ts`).
+22. **P3 Milestone 4 — S11 WhatsApp Cloud & S12 Instagram/Facebook Adapters + Signed Webhooks (`5ff872f`, branch `crm/p3-communications`):**
+    - Implemented [`worker/crm/adapters/whatsappCloud.ts`](../../worker/crm/adapters/whatsappCloud.ts) (24h window + approved template enforcement, `wamid` idempotency, monotonic `sent < delivered < read` receipts, `STOP`/opt-out -> withdrawn consent + cancel queued non-transactional outbox), [`worker/crm/adapters/metaMessaging.ts`](../../worker/crm/adapters/metaMessaging.ts) (`igsid:`/`psid:` scoped identities, 24h standard + 7-day human-only `HUMAN_AGENT` tag when approved, `is_echo` skip), and [`worker/crm/webhooks.ts`](../../worker/crm/webhooks.ts) (GET handshake + constant-time raw-body HMAC-SHA256 `X-Hub-Signature-256`, mounted at `/api/crm/webhooks/:provider` in `worker/index.ts`, `tests/crm-p3-meta-d1.test.ts`).
+23. **P3 Milestone 5 — Responsive Channels Settings UI, Inbox Controls & Deterministic Verification (`0ec5a01`, `2484fd4`, branch `crm/p3-communications`):**
+    - Built [`src/apps/crm/settings/ChannelsSettings.tsx`](../../src/apps/crm/settings/ChannelsSettings.tsx) (`/crm/settings/channels`: Channel accounts, Templates lifecycle, Delivery & human review queue) and enhanced [`src/apps/crm/conversations/ConversationsView.tsx`](../../src/apps/crm/conversations/ConversationsView.tsx) (closed-window WhatsApp template picker, 7-day `HUMAN_AGENT` indicator, RFC 5322 threading indicator, inline human review actions, `tests/crm-p3-channels-client.test.ts`).
+    - Added deterministic local verification script [`scripts/verify-p3-communications.mjs`](../../scripts/verify-p3-communications.mjs), extended [`scripts/crm-demo/preview.mjs`](../../scripts/crm-demo/preview.mjs) (Part E) with desktop/mobile Channels checks, updated `release-preflight` to 48 migrations, and documented controlled parallel local execution & optional manual-only `workflow_dispatch` CI certification in [`contracts/crm-p3-v1.md`](contracts/crm-p3-v1.md) section 10.
 
 ---
 
@@ -127,11 +148,40 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 | **Corrected compact Workspace baselines** (`.artifacts/ux-lab/baselines-compact-a11y-fix/`) | Isolated detached checkout of `38c388a` (`baseFingerprint: 87796aa3...`) + ONLY `src/core/views/DatabasePage.tsx` compact patch (`patchSha256: 7a02a0ae2a79104a8116fa265b0eb35f5e85c0de0c9818db007333ee45638379`, recorded `2026-11-25T06:44:09.353Z`) | 6 compact `390×844` projects (`website-inbox.png`, `compact-a11y-fix.patch`, `provenance.json`) | **6/6 pass** `maxDiffPixels: 0` + WCAG 2.2 AA axe |
 | **Corrected tablet Workspace baselines** (`.artifacts/ux-lab/baselines-tablet-a11y-fix/`) | Isolated detached checkout of `38c388a` (`baseFingerprint: 87796aa3...`) + ONLY `src/core/views/DatabasePage.tsx` `shrink-0` wrapper patch (`patchSha256: 3c5edf178569c004378dd39c8b88a79b0df7270675485cfb202b9cc5df88261b`, recorded `2026-11-25T12:43:46.939Z`) | 6 tablet `820×1180` projects (`website-inbox.png`, `tablet-a11y-fix.patch`, `provenance.json`) | **6/6 pass** `maxDiffPixels: 0` + WCAG 2.2 AA axe |
 | **CRM explicit visual baselines** (`.artifacts/ux-lab/crm-baselines/`) | Recorded via `npm run qa:ux -- --crm --record --skip-build` on `494fdb8` (`2026-11-26T15:08:58.285Z`, fingerprint `4da6f6b0b6975684eb2fd53415a549883b97356309ab0c9413f5c1146fd9edb4`) | All 18 projects × 9 PNGs = **162 visual references** (`crm-home.png`, `crm-settings-capabilities.png`, `crm-access-denied.png`, `crm-people.png`, `crm-conversations.png`, `crm-pipelines.png`, `crm-patrons.png`, `crm-merge-preview.png`, `crm-merge-history.png`) + `provenance.json` | **18/18 baseline recording passed (`108/108` tests)**; full non-record verification paused after `chromium-compact-light` (`6/6`) and `chromium-compact-dark` (`6/6`) |
-| **Commons demo screenshots** (`.artifacts/crm-demo/`) | Generated by `npm run demo:crm -- --check` on `db5482d` (`CRM_ENABLED=true`, `WORKSPACE_ENV=local-test`, fingerprint `26753f09ff18c004f4637f4d066d0a9577b8131cfc8554e73e75a44f2af7ca5d`) | **26** light & dark desktop, tablet, and compact mobile walkthrough PNGs + `ready.json` (`p2MergeVerified: true`) | Passed on `db5482d` (pending post-`494fdb8` rerun) |
+| **Commons demo screenshots** (`.artifacts/crm-demo/`) | Generated by `npm run demo:crm -- --check` on `2484fd4` (`CRM_ENABLED=true`, `WORKSPACE_ENV=local-test`, fingerprint `6c2c328dc13a2c1a4dad30fab33a84ba33c8d4e7a64e57d9da84568ecb887cba`) | **29** light & dark desktop, tablet, and compact mobile walkthrough PNGs (incl. `channels-desktop-light.png`, `channels-desktop-dark.png`, `channels-mobile-light.png`) + `ready.json` (`p2MergeVerified: true`, `p3CommunicationsVerified: true`) | **Passed on `2484fd4`** |
 
 ---
 
-## P2 Verification & Deferred Certification Checkpoint (26 Nov 2026, `crm/p2-integrity`)
+## P3 Verification & Deferred Certification Checkpoint (27 Nov 2026, `crm/p3-communications`)
+
+### Verified on Current Source (`2484fd4`, fingerprint `6c2c328dc13a2c1a4dad30fab33a84ba33c8d4e7a64e57d9da84568ecb887cba`)
+
+- **All CRM + P2/P3-Adjacent Workspace Vitest Suites:** **32/32 files, 187/187 tests passed** (`0` failed, `0` skipped, `139.74s`):
+  - All 26 `tests/crm-*.test.ts` suites (S0, P1, P2 hardening & merge + all 6 P2 review closures, P3 `crm-p3-channels` (4), `crm-p3-zoho-d1` (3), `crm-p3-meta-d1` (3), `crm-p3-channels-client` (2)).
+  - Adjacent Workspace suites: `tests/phase4-reminders-d1.test.ts`, `tests/phase4-forms-d1.test.ts`, `tests/website-ingest-d1.test.ts`, `tests/admin-owner-protection-d1.test.ts`, `tests/assistant-registry.test.ts`, `tests/tcg-pack.test.ts`.
+  - Plus `tests/phase5-search-d1.test.ts` verified **9/9 passed** (`74.19s`) in isolation (full sequential 245-file `npm test` under `maxWorkers: 1` exceeded a 600s wait window and was replaced under A-28 by the complete 32-suite targeted regression run).
+- **Deterministic P3 Gate (`node scripts/verify-p3-communications.mjs`):** Passed all steps (`typecheck`, `build`, `14` core P2/P3 Vitest suites `42/42`, `tcg-pack` validation `20` databases / `78` views / `38` pages, certification selftests).
+- **Certification Selftests & Release Preflight:**
+  - `node --test scripts/certification/*.test.mjs scripts/access/selftest.mjs`: **153/153 passed** (`0` failed, `0` skipped).
+  - `npm run release:preflight`: **17 PASS / 0 FAIL** (including `48 immutable migration hashes`, `fifteen-minute Cron`, `secret values absent from config`, `built package matches deployment contract`).
+  - `npm run db:migrate:local`: `0048_crm_communications.sql` applied cleanly (`48` total migrations).
+- **Demos & Targeted Responsive Browser Verification:**
+  - `npm run demo:studio -- --check`: **passed**.
+  - `npm run demo:crm -- --check`: **passed** (**29** screenshots across Chromium `1440×900` light/dark, tablet `820×1180`, and WebKit mobile `390×844` light/dark; verified Parts A–E including P3 `/crm/settings/channels` Channels/Templates/Delivery tabs and zero horizontal overflow on desktop and mobile WebKit).
+
+### Deferred / Outstanding Certification & External Gates (Per A-28)
+
+1. **Full 18-project CRM UX visual regression matrix (`npm run qa:ux -- --crm`)** — deferred from P2 (`494fdb8`) and P3 (`2484fd4`) to the **P4** and **P6** certification milestones under **A-28** (including new P3 Channels/Templates/Delivery visual baselines when scheduled).
+2. **Full 18-project Workspace CRM-off UX regression matrix (`npm run qa:ux`)** — deferred from P2 and P3 to **P4** and **P6** under **A-28** (preserved baselines untouched under `.artifacts/ux-lab/baselines/`, `baselines-compact-a11y-fix/`, and `baselines-tablet-a11y-fix/`).
+3. **Full 245-file sequential `npm test` sweep** — deferred to P4 certification (all 32 CRM + adjacent Workspace suites + `phase5-search-d1` passed `196/196` on `2484fd4`).
+4. **Real provider verification (NOT RUN — simulated/mocked transport only):**
+   - Simulated/mocked tests verify internal adapter contracts, state transitions, signature checks, window/template/opt-out rules, backoff, and human review flows only — they do **not** establish real Zoho Mail, Meta WhatsApp Cloud, or Meta Instagram/Facebook live API compatibility.
+   - Real provider activation remains blocked on unresolved owner/provider decisions **`O-04`** (WhatsApp number strategy & WABA/Phone Number ID), **`O-20`** (Zoho data centre, plan/API access, and Sent sync), **`O-21`** (Zoho polling cadence), **`O-17`** (retention/erasure policy), **`P-16`** (no open/click tracking confirmation), and **`P-20`** ("Conversations" naming & `Asia/Kolkata` default), plus Meta `HUMAN_AGENT` approval and Worker secret provisioning.
+5. **External `NOT RUN` gates (unchanged):** real physical hardware, native 400% OS zoom, human assistive-technology assessment, and remote D1 migrations / production activation / deploy.
+
+---
+
+## P2 Verification & Deferred Certification Checkpoint (Historical Reference, `crm/p2-integrity` @ `494fdb8`)
 
 ### Verified on Current Source (`494fdb8`, fingerprint `4da6f6b0b6975684eb2fd53415a549883b97356309ab0c9413f5c1146fd9edb4`)
 
