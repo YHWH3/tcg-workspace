@@ -9,12 +9,12 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 | **Principal engineering agent** | Neon (T3 Code; revised A-26) |
 | **PM & independent review** | ChatGPT |
 | **Owner & approver** | Paul |
-| **Repository & active branch** | `YHWH3/tcg-workspace`, branch `crm/p1-core` (branched from verified S0 commit `70b8bb1b73a4af23038a3b1d6623205c0dd3a81e`) |
+| **Repository & active branch** | `YHWH3/tcg-workspace`, branch `crm/p2-integrity` (branched from verified P1 commit `ef39f6c306f462bb8c4a552823b6cce782568b90`) |
 | **Workspace baseline commit** | `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`codex/workspace-database-platform`) |
 | **Reviewed documentation baseline** | `8aa6f5300426029dc1db87e979fb871313190973` (`crm/foundation`, Checkpoint 1 accepted) |
-| **Active contract version** | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) (S0 accepted) + [`contracts/crm-p1-v1.md`](contracts/crm-p1-v1.md) (P1 Core CRM, implemented & certified) |
-| **Current stage** | **P1 — Package Review Checkpoint (S1, S2, S3, S4 & S9 implemented, Demo expanded & Cross-Platform Certified on `crm/p1-core`)** |
-| **Overall P1 status** | **P1 Complete (Milestones 0–6):** closed compact Workspace blocker & cross-viewport tablet/settings accessibility defects (`18/18` Workspace projects, `1,944/1,944` tests), completed S1 (`4bdd470`), S2 (`c66740e`), S3 (`14789fa`), S4 (`ce330a7`), S9 (`e5d854a`), expanded Commons demo (`21` light/dark screenshots), and passed full 18-project S0 + P1 CRM UX certification (`90/90` tests across `126` baselines at `maxDiffPixels: 0`). Waiting at P1 package review boundary. |
+| **Active contract version** | [`contracts/crm-s0-v2.md`](contracts/crm-s0-v2.md) + [`contracts/crm-p1-v1.md`](contracts/crm-p1-v1.md) + [`contracts/crm-p2-v1.md`](contracts/crm-p2-v1.md) (P2 / S10) |
+| **Current stage** | **P2 — Data Integrity, P1 Hardening & Reversible Contact Merge (Core Verified, Comprehensive Browser Certification Paused at Safe Checkpoint on `crm/p2-integrity`)** |
+| **Overall P2 status** | **P2 Implementation Complete (`28b3971`..`494fdb8`):** P1 hardening complete and verified (`tests/crm-p2-hardening-d1.test.ts`); S10 schema, contract, atomic merge/unmerge engine, alias-aware ingestion/messaging/MCP, responsive compare/merge & unmerge UI, and demo/UX workflows implemented and core-verified (`9/9` targeted Vitest suites `80/80`, `npm run typecheck`, `npm run build`, `18/18` CRM UX baseline recording `108/108`). Comprehensive non-record CRM & Workspace browser matrices intentionally paused at checkpoint to conserve quota (see deferred checks below). |
 
 ---
 
@@ -102,6 +102,20 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
      - `src/apps/crm/crm.css`: added `-webkit-appearance: none; appearance: none;` + light/dark chevrons on `.crm-select` so Safari/WebKit honors `min-height: 2.75rem` (`44px`) on `<select>` controls.
      - `src/core/views/DatabasePage.tsx` & `scripts/ux-lab/playwright.config.mjs`: extended the N4 `max-md:shrink-0` fix on `ViewTabMenu` and `+ View` wrappers to `shrink-0` across all viewports (eliminating pre-existing 820px tablet `target-size` overlap on `ux-records`) and recorded a separate 6-tablet baseline set under `.artifacts/ux-lab/baselines-tablet-a11y-fix/`.
      - `src/core/settings.tsx`: fixed pre-existing WCAG 2.2 AA `color-contrast` violations caught by Firefox on Settings AI connectors (`Revoke` button `text-red-700 dark:text-red-300`, password status error fallback, and `Connected apps` `legend`/`p` `text-neutral-600 dark:text-neutral-400`).
+14. **P2 Milestone 1 — Bounded P1 Hardening (`28b3971`, branch `crm/p2-integrity`):**
+    - Enforced ReadGate + atomic SC-2.2 authority rechecks across `readCrmHome()`, conversation, application, pipeline, and patron reads (`worker/crm/applications.ts`, `worker/crm/conversations.ts`, `worker/crm/pipelines.ts`, `worker/crm/read.ts`).
+    - Reconciled AI draft & fact proposal MCP handlers with frozen `ai_previews`, request-ID deduplication, connector revocation fences, and human-only approval/send boundaries (`worker/crm/mcp.ts`, `worker/crm/facts.ts`).
+    - Hardened messaging delivery fences & `via` preservation and enforced My Work owner isolation, per-programme `responseTargetDays`, and `workspace_settings.time_zone` boundaries (`tests/crm-p2-hardening-d1.test.ts`).
+15. **P2 Milestone 2 — S10 Merge Contract, Migration 0047 & Pure Helpers (`647926b`, branch `crm/p2-integrity`):**
+    - Authored [`contracts/crm-p2-v1.md`](contracts/crm-p2-v1.md) and [`migrations/0047_crm_merge.sql`](../../migrations/0047_crm_merge.sql) (`crm_person_aliases`, append-only `crm_merges` & `crm_merge_unmerges` with UPDATE/DELETE triggers); registered SHA-256 across release/certification manifests (`47` migrations).
+    - Added `CRM_PROJECTION.mergedInto` ([`shared/crm/projection.ts`](../../shared/crm/projection.ts)) and pure field/endpoint/consent/budget helpers in [`shared/crm/merge.ts`](../../shared/crm/merge.ts) with unit tests in [`tests/crm-p2-merge.test.ts`](../../tests/crm-p2-merge.test.ts).
+16. **P2 Milestone 3 — S10 Backend Merge, Reversible Unmerge & Alias Resolution (`037c876`, branch `crm/p2-integrity`):**
+    - Implemented [`worker/crm/merge.ts`](../../worker/crm/merge.ts) (`readMergePreview`, `readMergeHistory`, atomic `person.merge` under 45-call D1 budget & `MAX_EXPECTED_ENTRIES = 100`, revision-aware conflict-detecting `person.unmerge` for `admin|owner`), mounted under [`worker/crm/index.ts`](../../worker/crm/index.ts).
+    - Wired canonical alias resolution & non-broadening consent rules across `worker/crm/{identity,conversations,applications,pipelines,mcp}.ts`, `worker/websiteIngest.ts`, and `worker/forms.ts`, verified in [`tests/crm-p2-merge-d1.test.ts`](../../tests/crm-p2-merge-d1.test.ts).
+17. **P2 Milestone 4 — S10 Responsive Merge UI, Demo Walkthrough & Timestamp Fix (`db5482d`, `494fdb8`, branch `crm/p2-integrity`):**
+    - Added S10 client reads/commands & conflict extractors in [`src/apps/crm/api.ts`](../../src/apps/crm/api.ts) and [`tests/crm-p2-merge-client.test.ts`](../../tests/crm-p2-merge-client.test.ts).
+    - Delivered accessible responsive [`MergeCompareDialog.tsx`](../../src/apps/crm/people/MergeCompareDialog.tsx), [`MergeHistoryTab.tsx`](../../src/apps/crm/people/MergeHistoryTab.tsx), [`PeopleView.tsx`](../../src/apps/crm/people/PeopleView.tsx) URL-persisted tabs & identity-scoped confirmation banner across Protocol 3 revalidation remounts, and archived/alias handling in [`RecordPanel.tsx`](../../src/apps/crm/components/RecordPanel.tsx).
+    - Expanded `scripts/crm-demo/` (`data.mjs`, `preview.mjs` Part D) and `scripts/ux-lab/crm-workflows.spec.mjs` (`P2 S10`), and moved variable `<time className="crm-tabular block">` to its own line in `MergeHistoryTab.tsx` (`494fdb8`) for screenshot mask stability.
 
 ---
 
@@ -112,12 +126,46 @@ This file is the live engineering checkpoint for the TCG CRM project. The canoni
 | **Original Workspace baselines** (`.artifacts/ux-lab/baselines/`) | Unmodified isolated checkout of `38c388ac1787b0ff14e8e26d7abd1bf8c6bd0444` (`fingerprint: 87796aa3f5f95da3ee1aa6f37004690d58da32cea00e0d51373e32429101b1ec`, recorded `2026-11-25T01:21:51.352Z`) | 6 desktop projects verified unchanged (original 12 desktop/tablet baselines preserved untouched) | **Desktop 6/6 pass** `maxDiffPixels: 0` |
 | **Corrected compact Workspace baselines** (`.artifacts/ux-lab/baselines-compact-a11y-fix/`) | Isolated detached checkout of `38c388a` (`baseFingerprint: 87796aa3...`) + ONLY `src/core/views/DatabasePage.tsx` compact patch (`patchSha256: 7a02a0ae2a79104a8116fa265b0eb35f5e85c0de0c9818db007333ee45638379`, recorded `2026-11-25T06:44:09.353Z`) | 6 compact `390×844` projects (`website-inbox.png`, `compact-a11y-fix.patch`, `provenance.json`) | **6/6 pass** `maxDiffPixels: 0` + WCAG 2.2 AA axe |
 | **Corrected tablet Workspace baselines** (`.artifacts/ux-lab/baselines-tablet-a11y-fix/`) | Isolated detached checkout of `38c388a` (`baseFingerprint: 87796aa3...`) + ONLY `src/core/views/DatabasePage.tsx` `shrink-0` wrapper patch (`patchSha256: 3c5edf178569c004378dd39c8b88a79b0df7270675485cfb202b9cc5df88261b`, recorded `2026-11-25T12:43:46.939Z`) | 6 tablet `820×1180` projects (`website-inbox.png`, `tablet-a11y-fix.patch`, `provenance.json`) | **6/6 pass** `maxDiffPixels: 0` + WCAG 2.2 AA axe |
-| **CRM explicit visual baselines** (`.artifacts/ux-lab/crm-baselines/`) | Recorded via `npm run qa:ux -- --crm --record --skip-build` (`2026-11-25T13:32:13.854Z`) and verified independently on the final tree via `npm run qa:ux -- --crm --skip-build` (`2026-11-25T16:39:57.938Z`) | All 18 projects × 7 PNGs = **126 visual references** (`crm-home.png`, `crm-settings-capabilities.png`, `crm-access-denied.png`, `crm-people.png`, `crm-conversations.png`, `crm-pipelines.png`, `crm-patrons.png`) + `provenance.json` | **18/18 projects (90/90 tests) pass** at `maxDiffPixels: 0` |
-| **Commons demo screenshots** (`.artifacts/crm-demo/`) | Generated by `npm run demo:crm -- --check` against real Worker + D1 (`CRM_ENABLED=true`, `WORKSPACE_ENV=local-test`, fingerprint `79480143868470589cfd993dda52b5c26a981588d1bf06f16a861fca46f37b74`) | **21** light & dark desktop, tablet, and compact mobile walkthrough PNGs + `ready.json` | Passed (`CRM Commons demo checks passed`) |
+| **CRM explicit visual baselines** (`.artifacts/ux-lab/crm-baselines/`) | Recorded via `npm run qa:ux -- --crm --record --skip-build` on `494fdb8` (`2026-11-26T15:08:58.285Z`, fingerprint `4da6f6b0b6975684eb2fd53415a549883b97356309ab0c9413f5c1146fd9edb4`) | All 18 projects × 9 PNGs = **162 visual references** (`crm-home.png`, `crm-settings-capabilities.png`, `crm-access-denied.png`, `crm-people.png`, `crm-conversations.png`, `crm-pipelines.png`, `crm-patrons.png`, `crm-merge-preview.png`, `crm-merge-history.png`) + `provenance.json` | **18/18 baseline recording passed (`108/108` tests)**; full non-record verification paused after `chromium-compact-light` (`6/6`) and `chromium-compact-dark` (`6/6`) |
+| **Commons demo screenshots** (`.artifacts/crm-demo/`) | Generated by `npm run demo:crm -- --check` on `db5482d` (`CRM_ENABLED=true`, `WORKSPACE_ENV=local-test`, fingerprint `26753f09ff18c004f4637f4d066d0a9577b8131cfc8554e73e75a44f2af7ca5d`) | **26** light & dark desktop, tablet, and compact mobile walkthrough PNGs + `ready.json` (`p2MergeVerified: true`) | Passed on `db5482d` (pending post-`494fdb8` rerun) |
 
 ---
 
-## P1 Integrated Certification Evidence (25–26 Nov 2026, `crm/p1-core`)
+## P2 Verification & Deferred Certification Checkpoint (26 Nov 2026, `crm/p2-integrity`)
+
+### Verified on Current Source (`494fdb8`, fingerprint `4da6f6b0b6975684eb2fd53415a549883b97356309ab0c9413f5c1146fd9edb4`)
+
+- **Targeted P2 Core & Hardening Vitest Suites:** **9/9 files, 80/80 tests passed** (`0` failed, `0` skipped):
+  - `tests/website-ingest-d1.test.ts` (34)
+  - `tests/phase4-forms-d1.test.ts` (16)
+  - `tests/crm-p2-hardening-d1.test.ts` (4 — ReadGate, SC-2.2 races, frozen AI previews, messaging fences, My Work/timezone)
+  - `tests/crm-p2-merge-d1.test.ts` (4 — preview, atomic merge, clean unmerge, conflict refusal, budget/race/revocation, alias resolution & MCP refusal)
+  - `tests/crm-client-contract.test.ts` (10)
+  - `tests/crm-isolation.test.ts` (3)
+  - `tests/crm-p2-merge-client.test.ts` (3)
+  - `tests/crm-p2-merge.test.ts` (4)
+  - `tests/crm-routes.test.ts` (2)
+- **Typecheck & Build:** `npm run typecheck` (0 errors) and `npm run build` (Worker + client + classic-script `sw.js`) passed cleanly on `494fdb8`.
+- **18-Project CRM Baseline Recording (`npm run qa:ux -- --crm --record --skip-build`):** Run `.artifacts/ux-lab/2026-11-26T14-47-30.362Z` passed **18/18 projects (`108/108` tests)** across Chromium, Firefox, WebKit × compact/tablet/desktop × light/dark, exercising S0, P1, and P2 S10 merge/unmerge/conflict/320px/accessibility checks and writing **162** CRM baselines.
+- **Partial Non-Record CRM Verification (`npm run qa:ux -- --crm --skip-build`):** Run `.artifacts/ux-lab/2026-11-26T15-10-08.564Z` passed `chromium-compact-light` (**6/6**) and `chromium-compact-dark` (**6/6**) at `maxDiffPixels: 0` before being intentionally paused mid-run (`chromium-tablet-light`) at owner direction to conserve model quota.
+
+### Verified on Immediately Prior Commit (`db5482d`, prior to the 10-line `<time>` JSX wrap in `MergeHistoryTab.tsx` `494fdb8`)
+
+- **Full Vitest suite (`npm test`):** **241/241 test files, 2,331/2,331 tests passed** (`0` failures, `0` skipped, `0` A-24 flakes).
+- **Local D1 Migrations & Pack:** `npm run db:migrate:local` applied `0047_crm_merge.sql` cleanly (`47` total migrations); `node scripts/_validate-tcg-pack.mjs` passed (`20` databases, `78` views, `38` pages, `1` link).
+- **Certification Scripts (`node --test scripts/certification/*.test.mjs scripts/access/selftest.mjs`):** **153/153 passed** (`0` failed, `0` skipped).
+- **Demos:** `npm run demo:studio -- --check` (`Seeded 36 records and 19 views`, `.artifacts/studio-demo/run-IutvIK`) and `npm run demo:crm -- --check` (`p2MergeVerified: true`, **26** screenshots in `.artifacts/crm-demo/`) passed.
+
+### Deferred / Outstanding Certification Checks (NOT RUN / PAUSED on `494fdb8`)
+
+1. **Full 18-project non-record CRM visual regression matrix** (`npm run qa:ux -- --crm --skip-build`) against `494fdb8` baselines (paused cleanly during `chromium-tablet-light`; `chromium-compact-light` and `chromium-compact-dark` passed 6/6 each).
+2. **Full 18-project Workspace CRM-off UX regression matrix** (`npm run qa:ux -- --skip-build`) on `494fdb8` against the untouched preserved baselines under `.artifacts/ux-lab/baselines/`, `baselines-compact-a11y-fix/`, and `baselines-tablet-a11y-fix/`.
+3. **Post-`494fdb8` re-run** of full 241-file `npm test`, `node --test scripts/certification/*.test.mjs scripts/access/selftest.mjs`, `node scripts/_validate-tcg-pack.mjs`, and Studio/CRM demos (all passed on `db5482d` immediately before `494fdb8`).
+4. **External `NOT RUN` gates (unchanged):** real physical hardware, native 400% OS zoom, human assistive-technology assessment, and remote D1 migrations / production activation / deploy.
+
+---
+
+## P1 Integrated Certification Evidence (Historical Reference, `crm/p1-core` @ `ef39f6c`)
 
 Checks matching the final code fingerprint (`79480143868470589cfd993dda52b5c26a981588d1bf06f16a861fca46f37b74`):
 
