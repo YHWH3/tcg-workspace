@@ -23,6 +23,12 @@ export const CRM_PROJECTION = {
   lastOutboundAt: crmProjectionKey('last_outbound_at'),
   projectId: crmProjectionKey('project_id'),
   mergedInto: crmProjectionKey('merged_into'),
+  bookingStatus: crmProjectionKey('booking_status'),
+  paymentStatus: crmProjectionKey('payment_status'),
+  membershipStatus: crmProjectionKey('membership_status'),
+  membershipValidUntil: crmProjectionKey('membership_valid_until'),
+  editionBookedSeats: crmProjectionKey('edition_booked_seats'),
+  editionHeldSeats: crmProjectionKey('edition_held_seats'),
 } as const;
 
 export const isCrmProjectionKey = (key: string): boolean => key.startsWith(CRM_PROJECTION_PREFIX);

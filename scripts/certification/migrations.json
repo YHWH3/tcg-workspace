@@ -190,5 +190,9 @@
   {
     "name": "0048_crm_communications.sql",
     "sha256": "98c1cc35502e08aabf8539326dba9c9f54cbfbfaa31621c2f7bea05023963611"
+  },
+  {
+    "name": "0049_crm_operations.sql",
+    "sha256": "fefdc94add239578c7bad5245802aa1d74c09a297ce873a181a5c9f5b60d1d3f"
   }
 ]
