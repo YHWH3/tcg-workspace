@@ -27,11 +27,13 @@ import {
   type RetireEndpointInput,
   type SetPrimaryEndpointInput,
 } from '../../shared/crm/identity';
+import { resolveEffectiveConsentsWithAliases } from '../../shared/crm/merge';
 import { propKey, fieldsOf } from '../../shared/fields';
 import type { Env } from '../auth';
 import { createReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
+import { loadAliasesForSurvivor, resolveCanonicalPersonId } from './merge';
 import {
   actorGrantsStmt,
   crmActorFence,
@@ -184,18 +186,6 @@ async function loadBoardData(db: D1Database, boardId: unknown): Promise<Record<s
   } catch {
     return null;
   }
-}
-
-function latestConsentsFromHistory(rows: readonly ConsentRow[]): CrmConsentDto[] {
-  const seen = new Set<string>();
-  const latest: CrmConsentDto[] = [];
-  for (const r of rows) {
-    const k = `${r.channel}\0${r.scope}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    latest.push(mapConsent(r));
-  }
-  return latest;
 }
 
 function addEndpointCommand(): CommandDefinition<
@@ -528,9 +518,15 @@ function recordConsentCommand(): CommandDefinition<RecordConsentInput, { consent
       const person = await loadReadableTaskRecord(env, actor.id, input.personId);
       if (!person) return { kind: 'refuse', error: 'not_found' };
 
+      const aliases = await loadAliasesForSurvivor(env.DB, person.id);
+      const consentPersonIds = [person.id, ...aliases.keys()];
       const historyRes = await env.DB
-        .prepare(`SELECT * FROM crm_consents WHERE person_id = ? ORDER BY recorded_at DESC, id DESC LIMIT 100`)
-        .bind(person.id)
+        .prepare(
+          `SELECT * FROM crm_consents
+           WHERE person_id IN (SELECT value FROM json_each(?))
+           ORDER BY recorded_at DESC, id DESC LIMIT 150`,
+        )
+        .bind(JSON.stringify(consentPersonIds))
         .all<ConsentRow>();
 
       const newRow: ConsentRow = {
@@ -544,7 +540,8 @@ function recordConsentCommand(): CommandDefinition<RecordConsentInput, { consent
         recorded_by: actor.id,
         recorded_at: now,
       };
-      const latest = latestConsentsFromHistory([newRow, ...historyRes.results]);
+      const allDtos = [mapConsent(newRow), ...historyRes.results.map(mapConsent)];
+      const latest = resolveEffectiveConsentsWithAliases(person.id, allDtos, aliases);
       const summary = computeConsentSummary(latest);
       const expectMap = new Map<string, number>([[person.id, expected?.get(person.id) ?? person.seq]]);
 
@@ -980,6 +977,12 @@ export async function readPersonDetail(
   if (!person) return { status: 404, body: { error: 'not_found' } };
 
   const batchNow = Date.now();
+  const [aliasesMap, canonicalInfo] = await Promise.all([
+    loadAliasesForSurvivor(env.DB, person.id),
+    resolveCanonicalPersonId(env.DB, person.id),
+  ]);
+  const consentPersonIds = [person.id, ...aliasesMap.keys()];
+
   const [sessionRes, grantsRes, epRes, consentRes, dupRes] = await env.DB.batch([
     sessionAuthStmt(env.DB, actorId, tokenHash, batchNow),
     actorGrantsStmt(env.DB, actorId),
@@ -987,8 +990,12 @@ export async function readPersonDetail(
       .prepare(`SELECT * FROM crm_endpoints WHERE person_id = ? ORDER BY retired_at IS NOT NULL ASC, is_primary DESC, created_at ASC`)
       .bind(person.id),
     env.DB
-      .prepare(`SELECT * FROM crm_consents WHERE person_id = ? ORDER BY recorded_at DESC, id DESC LIMIT 50`)
-      .bind(person.id),
+      .prepare(
+        `SELECT * FROM crm_consents
+         WHERE person_id IN (SELECT value FROM json_each(?))
+         ORDER BY recorded_at DESC, id DESC LIMIT 150`,
+      )
+      .bind(JSON.stringify(consentPersonIds)),
     env.DB
       .prepare(
         `SELECT d.*, ra.data AS a_data, rb.data AS b_data
@@ -1010,7 +1017,7 @@ export async function readPersonDetail(
 
   const endpoints = (epRes.results as unknown as EndpointRow[]).map(mapEndpoint);
   const consentHistory = (consentRes.results as unknown as ConsentRow[]).map(mapConsent);
-  const latestConsents = latestConsentsFromHistory(consentRes.results as unknown as ConsentRow[]);
+  const latestConsents = resolveEffectiveConsentsWithAliases(person.id, consentHistory, aliasesMap);
 
   const dupRows = dupRes.results as unknown as DuplicateRow[];
   const peerIds = dupRows.map((d) => (d.person_a_id === person.id ? d.person_b_id : d.person_a_id));
@@ -1043,6 +1050,11 @@ export async function readPersonDetail(
     body: PersonDetailResponseSchema.parse({
       personId: person.id,
       rev: person.seq,
+      mergedInto:
+        (typeof person.data._crm_merged_into === 'string' && person.data._crm_merged_into
+          ? person.data._crm_merged_into
+          : null) ?? canonicalInfo.mergedInto,
+      aliases: [...aliasesMap.keys()].sort(),
       endpoints,
       latestConsents,
       consentHistory,

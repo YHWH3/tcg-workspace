@@ -148,6 +148,7 @@ export interface CommandDefinition<I = Record<string, unknown>, O = unknown> {
     input: I;
     expected?: ReadonlyMap<string, number>;
     requestId: string;
+    commandId: string;
     now: number;
   }) => Promise<CommandPlan<O>>;
   mapConstraintError?: (err: unknown) => CommandError | null;
@@ -320,6 +321,7 @@ export async function runCommand(args: {
   const expectedMap = envelope.expected
     ? new Map<string, number>(Object.entries(envelope.expected))
     : undefined;
+  const commandId = crypto.randomUUID();
 
   const plan = await def.plan({
     env,
@@ -329,6 +331,7 @@ export async function runCommand(args: {
     input: parsed.input,
     expected: expectedMap,
     requestId: envelope.requestId,
+    commandId,
     now,
   });
 
@@ -336,7 +339,6 @@ export async function runCommand(args: {
     return { status: 200, body: makeCommandError(plan.error, plan.detail) };
   }
 
-  const commandId = crypto.randomUUID();
   const baseEnvelope: CommandResult<unknown> = {
     ok: true,
     commandId,

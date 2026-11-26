@@ -131,7 +131,17 @@ export const PersonMergeInputSchema = z.object({
   loserId: z.string().min(1).max(128),
   confirm: z.literal(true),
   fieldResolutions: z.record(z.string().min(1).max(128), MergeFieldChoiceSchema).optional(),
-  primaryEndpoints: z.record(CrmEndpointKindSchema, z.string().min(1).max(64)).optional(),
+  primaryEndpoints: z
+    .object({
+      email: z.string().min(1).max(64),
+      phone: z.string().min(1).max(64),
+      whatsapp: z.string().min(1).max(64),
+      instagram: z.string().min(1).max(64),
+      facebook: z.string().min(1).max(64),
+    })
+    .partial()
+    .strict()
+    .optional(),
   note: z.string().max(500).optional(),
 }).strict();
 export type PersonMergeInput = z.infer<typeof PersonMergeInputSchema>;

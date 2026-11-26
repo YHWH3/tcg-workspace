@@ -22,9 +22,8 @@ A canonical Person record (`collection = 'tasks'`, People database `db_people` /
      - Recomputed deterministically via `linkId(kind, fieldId, nextFrom, nextTo)`.
      - Collisions already present on Survivor are soft-deleted on Loser and recorded for exact unmerge (`existedOnSurvivorBefore: true`).
      - Self-links where Survivor and Loser referenced each other (`nextFrom === nextTo`) are soft-deleted and recorded (`newLinkId: null`).
-   - `collection = 'comments'` (`targetType = 'task'`, `targetId = loserId`) -> repointed to `survivorId`.
    - `collection = 'files'` (`parentType = 'task'`, `parentId = loserId`) -> repointed to `survivorId`.
-   - `collection = 'blocks'` (`pageId = loserId`): left intact on the archived Loser record so note/page history stays inspectable, while Loser displays `_crm_merged_into` banner / canonical link.
+   - `collection = 'comments'` (`targetType = 'task'`, `targetId = loserId`) and `collection = 'blocks'` (`pageId = loserId`): left intact on the archived Loser record (honoring Workspace Phase 5 immutability of `comments.targetId` in `worker/mutationAccess.ts` while keeping note/comment audit history inspectable via the archived alias record).
 2. **CRM Server-Only Operational Tables (`migrations/0046_crm_p1_core.sql`, `migrations/0047_crm_merge.sql`):**
    - `crm_endpoints` (`person_id`): active/retired endpoints repointed to `survivorId`; exact active normalized collisions on Survivor cause Loser's duplicate endpoint to be retired cleanly (`retired_at`), while preserving at most one active `is_primary = 1` per `(person_id, kind)` and recording exact prior states in the merge journal.
    - `crm_consents` (`person_id`): strictly append-only (`BEFORE UPDATE`/`DELETE` triggers). Never rewritten during merge or unmerge; `resolveEffectiveConsentsWithAliases()` reads `[canonicalId, ...activeAliases]` such that a pre-merge `'withdrawn'` status always blocks pre-merge `'granted'` until explicitly re-granted on Survivor *after* `effective_at`.

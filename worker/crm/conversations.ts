@@ -33,6 +33,7 @@ import {
   type SimulateInboundInput,
 } from '../../shared/crm/conversations';
 import { normalizeEndpoint } from '../../shared/crm/identity';
+import { resolveEffectiveConsentsWithAliases } from '../../shared/crm/merge';
 import {
   CRM_PROGRAMME_BY_SLUG,
   ProgrammeProfileV1Schema,
@@ -47,6 +48,7 @@ import { pokeLive } from '../sync';
 import { deliverViaSimulatedAdapter, isLocalTestSimulatedMode } from './adapters/simulated';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
 import { mapFactRow, type FactRow } from './facts';
+import { loadAliasesForSurvivor, resolveCanonicalPersonId } from './merge';
 import {
   actorGrantsStmt,
   crmActorFence,
@@ -152,21 +154,67 @@ function convRevFence(
 function consentNotWithdrawnFence(db: D1Database, personId: string, channel: string): D1PreparedStatement {
   return db
     .prepare(
-      `SELECT CASE WHEN COALESCE((
-         SELECT status FROM crm_consents
-         WHERE person_id = ? AND channel IN (?, 'any')
-         ORDER BY
-           CASE
-             WHEN channel = ? AND scope = 'transactional' THEN 0
-             WHEN channel = 'any' AND scope = 'transactional' THEN 1
-             ELSE 2
-           END ASC,
-           recorded_at DESC,
-           id DESC
-         LIMIT 1
-       ), 'unrecorded') != 'withdrawn' THEN 1 ELSE json_extract('{', '$') END`,
+      `SELECT CASE WHEN NOT EXISTS (
+         SELECT 1 WHERE COALESCE((
+           SELECT status FROM crm_consents
+           WHERE person_id = ?1 AND channel IN (?2, 'any')
+           ORDER BY
+             CASE
+               WHEN channel = ?2 AND scope = 'transactional' THEN 0
+               WHEN channel = 'any' AND scope = 'transactional' THEN 1
+               ELSE 2
+             END ASC,
+             recorded_at DESC,
+             id DESC
+           LIMIT 1
+         ), 'unrecorded') = 'withdrawn'
+       ) AND NOT EXISTS (
+         SELECT 1 FROM crm_person_aliases a
+         WHERE a.survivor_id = ?1
+           AND COALESCE((
+             SELECT c.status FROM crm_consents c
+             WHERE c.person_id = a.alias_id AND c.channel IN (?2, 'any')
+             ORDER BY
+               CASE
+                 WHEN c.channel = ?2 AND c.scope = 'transactional' THEN 0
+                 WHEN c.channel = 'any' AND c.scope = 'transactional' THEN 1
+                 ELSE 2
+               END ASC,
+               c.recorded_at DESC,
+               c.id DESC
+             LIMIT 1
+           ), 'unrecorded') = 'withdrawn'
+           AND COALESCE((
+             SELECT c2.recorded_at FROM crm_consents c2
+             WHERE c2.person_id = ?1 AND c2.channel IN (?2, 'any')
+             ORDER BY
+               CASE
+                 WHEN c2.channel = ?2 AND c2.scope = 'transactional' THEN 0
+                 WHEN c2.channel = 'any' AND c2.scope = 'transactional' THEN 1
+                 ELSE 2
+               END ASC,
+               c2.recorded_at DESC,
+               c2.id DESC
+             LIMIT 1
+           ), -1) <= MAX(
+             a.effective_at,
+             COALESCE((
+               SELECT c3.recorded_at FROM crm_consents c3
+               WHERE c3.person_id = a.alias_id AND c3.channel IN (?2, 'any')
+               ORDER BY
+                 CASE
+                   WHEN c3.channel = ?2 AND c3.scope = 'transactional' THEN 0
+                   WHEN c3.channel = 'any' AND c3.scope = 'transactional' THEN 1
+                   ELSE 2
+                 END ASC,
+                 c3.recorded_at DESC,
+                 c3.id DESC
+               LIMIT 1
+             ), 0)
+           )
+       ) THEN 1 ELSE json_extract('{', '$') END`,
     )
-    .bind(personId, channel, channel);
+    .bind(personId, channel);
 }
 
 function activeEndpointFence(db: D1Database, endpointId: string, personId: string): D1PreparedStatement {
@@ -300,16 +348,18 @@ async function loadConsentAndEndpointsForPerson(
     return { withdrawn: false, consentStatus: 'unrecorded', primaryEndpointId: null, primaryEndpoint: null };
   }
   const epKind = channel === 'call' || channel === 'in_person' ? 'phone' : channel;
+  const aliases = await loadAliasesForSurvivor(db, personId);
+  const consentIds = [personId, ...aliases.keys()];
   const [consRes, epRes] = await db.batch([
     db
       .prepare(
-        `SELECT channel, scope, status, recorded_at, id
+        `SELECT id, person_id, channel, scope, status, source, evidence_ref, recorded_by, recorded_at
          FROM crm_consents
-         WHERE person_id = ? AND channel IN (?, 'any')
+         WHERE person_id IN (SELECT value FROM json_each(?)) AND channel IN (?, 'any')
          ORDER BY recorded_at DESC, id DESC
-         LIMIT 20`,
+         LIMIT 100`,
       )
-      .bind(personId, channel),
+      .bind(JSON.stringify(consentIds), channel),
     db
       .prepare(
         `SELECT id, value_norm, is_primary FROM crm_endpoints
@@ -319,15 +369,33 @@ async function loadConsentAndEndpointsForPerson(
       .bind(personId, epKind),
   ]);
 
-  const consRows = consRes.results as unknown as {
-    channel: string;
-    scope: string;
-    status: 'granted' | 'withdrawn';
-  }[];
-  // Check exact channel transactional -> any transactional -> latest recorded
-  const specificTrans = consRows.find((r) => r.channel === channel && r.scope === 'transactional');
-  const anyTrans = consRows.find((r) => r.channel === 'any' && r.scope === 'transactional');
-  const effective = specificTrans ?? anyTrans ?? consRows[0];
+  const consDtos = (
+    consRes.results as unknown as {
+      id: string;
+      person_id: string;
+      channel: 'email' | 'whatsapp' | 'instagram' | 'facebook' | 'any';
+      scope: 'transactional' | 'updates' | 'documentation' | 'publication';
+      status: 'granted' | 'withdrawn';
+      source: string;
+      evidence_ref: string | null;
+      recorded_by: string;
+      recorded_at: number;
+    }[]
+  ).map((r) => ({
+    id: r.id,
+    personId: r.person_id,
+    channel: r.channel,
+    scope: r.scope,
+    status: r.status,
+    source: r.source,
+    evidenceRef: r.evidence_ref,
+    recordedBy: r.recorded_by,
+    recordedAt: r.recorded_at,
+  }));
+  const resolved = resolveEffectiveConsentsWithAliases(personId, consDtos, aliases);
+  const specificTrans = resolved.find((r) => r.channel === channel && r.scope === 'transactional');
+  const anyTrans = resolved.find((r) => r.channel === 'any' && r.scope === 'transactional');
+  const effective = specificTrans ?? anyTrans ?? resolved[0];
 
   const eps = epRes.results as unknown as { id: string; value_norm: string; is_primary: number }[];
   return {
@@ -531,7 +599,8 @@ function simulateInboundCommand(): CommandDefinition<
         .bind(input.channel, norm)
         .first<{ person_id: string }>();
 
-      const matchedPerson = epMatch ? await loadReadableTaskRecord(env, actor.id, epMatch.person_id) : null;
+      const resolvedMatchId = epMatch ? (await resolveCanonicalPersonId(env.DB, epMatch.person_id)).canonicalId : null;
+      const matchedPerson = resolvedMatchId ? await loadReadableTaskRecord(env, actor.id, resolvedMatchId) : null;
       const personId = matchedPerson?.id ?? null;
 
       // Reuse existing thread if matching externalThreadId or open channel+person

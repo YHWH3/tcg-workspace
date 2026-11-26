@@ -22,6 +22,7 @@ import {collectFormOperations,FormOperationsChanged} from './formOperations';
 import {RecordAccessError} from './recordAccess';
 export {collectFormOperations,formOperationsStatements,formOperationsProjection} from './formOperations';
 import { applyChanges, pokeLive } from './sync';
+import { resolveCanonicalPersonId } from './crm/merge';
 import { beginChangeset } from './changesets';
 import { getRec, listBy } from './records';
 import { requireAuth, type Env, type AuthUser } from './auth';
@@ -896,12 +897,18 @@ export async function resumeSubmission(env:Bindings,submissionId:string,ctx:{wai
         const emailKey=peopleEmailKey(form.peopleMatch.emailField),email=normalizeEmail(res.coerced[emailKey]);
         if(email) {
           match=findPersonMatch(emailKey,email,res.coerced.title,existing.map(r=>({id:r.id,data:r.data,title:r.data.title})));
-          const candidate=match.kind==='email'?match.personId:`person_${(await sha256Hex(form.databaseId+'|'+emailKey+'|'+email)).slice(0,48)}`;
-          await env.DB.prepare('INSERT OR IGNORE INTO form_people_keys(database_id,field_key,email,record_id) VALUES(?,?,?,?)').bind(form.databaseId,emailKey,email,candidate).run();
-          const reserved=await env.DB.prepare('SELECT record_id FROM form_people_keys WHERE database_id=? AND field_key=? AND email=?').bind(form.databaseId,emailKey,email).first<{record_id:string}>();
+          let initialCandidate = match.kind==='email'?match.personId:`person_${(await sha256Hex(form.databaseId+'|'+emailKey+'|'+email)).slice(0,48)}`;
+          if (match.kind === 'email') {
+            initialCandidate = (await resolveCanonicalPersonId(env.DB, initialCandidate)).canonicalId;
+          } else {
+            const epMatch = await env.DB.prepare(`SELECT COALESCE(a.survivor_id, e.person_id) AS id FROM crm_endpoints e LEFT JOIN crm_person_aliases a ON a.alias_id = e.person_id WHERE e.kind = 'email' AND e.value_norm = ? AND e.retired_at IS NULL LIMIT 1`).bind(email).first<{ id: string }>();
+            if (epMatch?.id) initialCandidate = epMatch.id;
+          }
+          await env.DB.prepare('INSERT OR IGNORE INTO form_people_keys(database_id,field_key,email,record_id) VALUES(?,?,?,?)').bind(form.databaseId,emailKey,email,initialCandidate).run();
+          const reserved=await env.DB.prepare('SELECT COALESCE(a.survivor_id, k.record_id) AS record_id FROM form_people_keys k LEFT JOIN crm_person_aliases a ON a.alias_id = k.record_id WHERE k.database_id=? AND k.field_key=? AND k.email=?').bind(form.databaseId,emailKey,email).first<{record_id:string}>();
           recordId=reserved!.record_id;
           const person=await getRec(env,recordId);
-          if(person&&!person.data.deleted) match={kind:'email',personId:recordId,personTitle:String(person.data.title??'')};
+          if(person&&!person.data.deleted&&person.data.archived!==true) match={kind:'email',personId:recordId,personTitle:String(person.data.title??'')};
           res.coerced[emailKey]=email;
         }
       }

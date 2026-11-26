@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { CRM_PROJECTION } from '../../shared/crm/projection';
+import { resolveEffectiveConsentsWithAliases } from '../../shared/crm/merge';
 import {
   composeGroundedAiDraft,
   isChannelWindowOpen,
@@ -27,6 +28,7 @@ import {
 import type { CrmCommandPreviewPlan } from './previewExecutor';
 import { canAccessCrmApi, isCrmEnabled, type CrmActor } from './rules';
 import { mapFactRow, type FactRow } from './facts';
+import { loadAliasesForSurvivor, resolveCanonicalPersonId } from './merge';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const txt = (data: unknown): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(data) }] });
@@ -251,13 +253,24 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
       const person = personMap.get(personId);
       if (!person) return err('not_found', 'Person not found.');
 
+      const [aliasesMap, canonicalInfo] = await Promise.all([
+        loadAliasesForSurvivor(ctx.env.DB, person.id),
+        resolveCanonicalPersonId(ctx.env.DB, person.id),
+      ]);
+      const consentPersonIds = [person.id, ...aliasesMap.keys()];
+
       const [epRes, consRes, convRes] = await ctx.env.DB.batch([
         ctx.env.DB
           .prepare(`SELECT id, kind, value_norm, is_primary, verified_at FROM crm_endpoints WHERE person_id = ? AND retired_at IS NULL`)
           .bind(person.id),
         ctx.env.DB
-          .prepare(`SELECT id, channel, scope, status, source, recorded_at FROM crm_consents WHERE person_id = ? ORDER BY recorded_at DESC LIMIT 20`)
-          .bind(person.id),
+          .prepare(
+            `SELECT id, person_id, channel, scope, status, source, evidence_ref, recorded_by, recorded_at
+             FROM crm_consents
+             WHERE person_id IN (SELECT value FROM json_each(?))
+             ORDER BY recorded_at DESC, id DESC LIMIT 100`,
+          )
+          .bind(JSON.stringify(consentPersonIds)),
         ctx.env.DB
           .prepare(`SELECT id, channel, subject, state, last_message_at FROM crm_conversations WHERE person_id = ? ORDER BY last_message_at DESC LIMIT 10`)
           .bind(person.id),
@@ -266,14 +279,41 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
       const finalAuth = await revalidateMcpCrmAfterRead(ctx.env, ctx.userId, gate);
       if (!finalAuth.ok) return err(finalAuth.code, finalAuth.message);
 
+      const consentDtos = (
+        consRes.results as unknown as {
+          id: string;
+          person_id: string;
+          channel: 'email' | 'whatsapp' | 'instagram' | 'facebook' | 'any';
+          scope: 'transactional' | 'updates' | 'documentation' | 'publication';
+          status: 'granted' | 'withdrawn';
+          source: string;
+          evidence_ref: string | null;
+          recorded_by: string;
+          recorded_at: number;
+        }[]
+      ).map((r) => ({
+        id: r.id,
+        personId: r.person_id,
+        channel: r.channel,
+        scope: r.scope,
+        status: r.status,
+        source: r.source,
+        evidenceRef: r.evidence_ref,
+        recordedBy: r.recorded_by,
+        recordedAt: r.recorded_at,
+      }));
+      const effectiveConsents = resolveEffectiveConsentsWithAliases(person.id, consentDtos, aliasesMap);
+
       return txt({
         person: {
           id: person.id,
           name: String(person.data.title ?? 'Untitled'),
+          mergedInto: canonicalInfo.mergedInto,
+          aliases: [...aliasesMap.keys()].sort(),
           url: `${ctx.origin}/crm/people/${person.id}`,
         },
         endpoints: epRes.results,
-        consents: consRes.results,
+        consents: effectiveConsents,
         recentConversations: convRes.results,
       });
     },

@@ -31,6 +31,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from './auth';
 import { applyChanges, pokeLive, type ApplyResult } from './sync';
+import { resolveCanonicalPersonId } from './crm/merge';
 import { sha256Hex } from './password';
 import { boundedRequestBody, EMAIL_RE, normalizeEmail } from './forms';
 import { scheduleOutbox } from './events';
@@ -478,8 +479,10 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
     const current=await env.DB.prepare("SELECT id FROM records WHERE id=? AND collection='tasks' AND json_extract(data,'$.boardId')=? AND space_id=? AND COALESCE(json_extract(data,'$.deleted'),0)=0").bind(result.recordId as string,grant.inbox_id,grant.space_id).first();
     if(!current)return retryable('receipt_destination_changed');
     if(result.personId){
-      const person=await env.DB.prepare("SELECT id FROM records WHERE id=? AND collection='tasks' AND json_extract(data,'$.boardId')=? AND space_id=? AND COALESCE(json_extract(data,'$.deleted'),0)=0 AND COALESCE(json_extract(data,'$.archived'),0)=0").bind(result.personId as string,grant.people_id,grant.space_id).first();
+      const { canonicalId } = await resolveCanonicalPersonId(env.DB, result.personId as string);
+      const person=await env.DB.prepare("SELECT id FROM records WHERE id=? AND collection='tasks' AND json_extract(data,'$.boardId')=? AND space_id=? AND COALESCE(json_extract(data,'$.deleted'),0)=0 AND COALESCE(json_extract(data,'$.archived'),0)=0").bind(canonicalId,grant.people_id,grant.space_id).first();
       if(!person){delete result.personId;result.matchingStatus='unusable_identity';}
+      else{result.personId=canonicalId;}
     }
     return {status:200,body:result};
   }
@@ -572,19 +575,48 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
   if (people) {
     const peopleBoard = people.create ? (WEBSITE_PEOPLE_BOARD as Record<string, unknown>) : peopleBoards.find((b) => b.id === people.id)!.data;
     const emailKey = wiKey(peopleEmailField(peopleBoard)!.id);
-    const matched = await env.DB.prepare(
-      "SELECT id FROM records WHERE collection='tasks' AND json_extract(data,'$.boardId')=? AND lower(trim(json_extract(data,?)))=? ORDER BY COALESCE(json_extract(data,'$.deleted'),0),COALESCE(json_extract(data,'$.archived'),0),id LIMIT 1",
-    ).bind(people.id, `$.${emailKey}`, email).first<{ id: string }>();
+    const [recMatchRes, epMatchRes] = await env.DB.batch([
+      env.DB.prepare(
+        `SELECT COALESCE(a.survivor_id, r.id) AS id
+         FROM records r
+         LEFT JOIN crm_person_aliases a ON a.alias_id = r.id
+         WHERE r.collection='tasks' AND json_extract(r.data,'$.boardId')=? AND lower(trim(json_extract(r.data,?)))=?
+         ORDER BY COALESCE(json_extract(r.data,'$.deleted'),0),COALESCE(json_extract(r.data,'$.archived'),0),r.id LIMIT 1`,
+      ).bind(people.id, `$.${emailKey}`, email),
+      env.DB.prepare(
+        `SELECT COALESCE(a.survivor_id, e.person_id) AS id
+         FROM crm_endpoints e
+         LEFT JOIN crm_person_aliases a ON a.alias_id = e.person_id
+         JOIN records r ON r.id = COALESCE(a.survivor_id, e.person_id)
+         WHERE e.kind = 'email' AND e.value_norm = ? AND e.retired_at IS NULL
+           AND r.collection = 'tasks'
+           AND json_extract(r.data, '$.boardId') = ?
+           AND r.space_id = ?
+           AND COALESCE(json_extract(r.data, '$.deleted'), 0) = 0
+           AND COALESCE(json_extract(r.data, '$.archived'), 0) = 0
+         LIMIT 1`,
+      ).bind(email, people.id, grant.space_id),
+    ]);
+    const matched = (epMatchRes.results[0] as { id: string } | undefined) ?? (recMatchRes.results[0] as { id: string } | undefined);
     const candidate = matched?.id ?? (await personRecordId(people.id, emailKey, email));
     const reserved = await env.DB.batch([
       env.DB.prepare('INSERT OR IGNORE INTO form_people_keys(database_id,field_key,email,record_id) VALUES(?,?,?,?)').bind(people.id, emailKey, email, candidate),
       env.DB.prepare(
-        "SELECT k.record_id, r.id AS present, r.data AS person_data, EXISTS(SELECT 1 FROM website_ingest w WHERE w.state='accepted' AND json_extract(w.result,'$.personId')=k.record_id) AS previously_used FROM form_people_keys k LEFT JOIN records r ON r.id=k.record_id WHERE k.database_id=? AND k.field_key=? AND k.email=?",
-      ).bind(people.id, emailKey, email),
+        `SELECT COALESCE(a.survivor_id, k.record_id) AS record_id,
+                r.id AS present,
+                r.data AS person_data,
+                EXISTS(SELECT 1 FROM website_ingest w WHERE w.state='accepted' AND json_extract(w.result,'$.personId') IN (k.record_id, COALESCE(a.survivor_id, k.record_id))) AS previously_used,
+                EXISTS(SELECT 1 FROM crm_endpoints ep WHERE ep.person_id = COALESCE(a.survivor_id, k.record_id) AND ep.kind = 'email' AND ep.value_norm = ? AND ep.retired_at IS NULL) AS has_endpoint
+         FROM form_people_keys k
+         LEFT JOIN crm_person_aliases a ON a.alias_id = k.record_id
+         LEFT JOIN records r ON r.id = COALESCE(a.survivor_id, k.record_id)
+         WHERE k.database_id=? AND k.field_key=? AND k.email=?`,
+      ).bind(email, people.id, emailKey, email),
     ]);
-    const key = reserved[1]!.results[0] as { record_id: string; present: string | null; person_data:string|null; previously_used:number } | undefined;
+    const key = reserved[1]!.results[0] as { record_id: string; present: string | null; person_data:string|null; previously_used:number; has_endpoint:number } | undefined;
     const storedPerson=key?.person_data?JSON.parse(key.person_data) as Record<string,unknown>:null;
-    const unusable=storedPerson&&(storedPerson.deleted===true||storedPerson.archived===true||storedPerson.boardId!==people.id||normalizeEmail(storedPerson[emailKey])!==email)||!key?.present&&key?.previously_used;
+    const emailMatchesStored = !!storedPerson && (normalizeEmail(storedPerson[emailKey]) === email || key?.has_endpoint === 1);
+    const unusable=storedPerson&&(storedPerson.deleted===true||storedPerson.archived===true||storedPerson.boardId!==people.id||!emailMatchesStored)||!key?.present&&key?.previously_used;
     matchingStatus=unusable?'unusable_identity':key?.present?'matched':'created';
     personId = unusable?undefined:key?.record_id ?? candidate;
     if (personId && !key?.present) {
@@ -597,7 +629,7 @@ export async function ingestWebsiteEvent(env: Env, body: IngestBody, ctx: Ctx): 
       createOnly.add(personId);
     }
     if(personId) {
-    if(key?.present)fences.push(()=>env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM records WHERE id=? AND collection='tasks' AND space_id=? AND json_extract(data,'$.boardId')=? AND COALESCE(json_extract(data,'$.deleted'),0)=0 AND COALESCE(json_extract(data,'$.archived'),0)=0 AND lower(trim(json_extract(data,?)))=?) THEN 1 ELSE json_extract('{','$') END`).bind(personId!,grant.space_id,people.id,'$.'+emailKey,email));
+    if(key?.present)fences.push(()=>env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM records WHERE id=? AND collection='tasks' AND space_id=? AND json_extract(data,'$.boardId')=? AND COALESCE(json_extract(data,'$.deleted'),0)=0 AND COALESCE(json_extract(data,'$.archived'),0)=0 AND (lower(trim(json_extract(data,?)))=? OR EXISTS(SELECT 1 FROM crm_endpoints ep WHERE ep.person_id=? AND ep.kind='email' AND ep.value_norm=? AND ep.retired_at IS NULL))) THEN 1 ELSE json_extract('{','$') END`).bind(personId!,grant.space_id,people.id,'$.'+emailKey,email,personId!,email));
     const link = linkId('related', '', plan.recordId, personId);
     ops.push({ id: link, collection: 'links', patch: { fromType: 'record', fromId: plan.recordId, toType: 'record', toId: personId, kind: 'related', fieldId: null, deleted: false, createdBy: null, createdAt: now } });
     createOnly.add(link);

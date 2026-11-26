@@ -32,6 +32,7 @@ import {
   readConversations,
 } from './conversations';
 import { createS4FactCommandDefs, readFacts } from './facts';
+import { createS10MergeCommandDefs, readMergeHistory, readMergePreview } from './merge';
 import { createS9PipelineCommandDefs, readPatrons } from './pipelines';
 import { isCrmEnabled } from './rules';
 
@@ -39,6 +40,7 @@ export function createS0CommandRegistry(): CommandRegistry {
   return createCommandRegistry([
     ...createCapabilityCommandDefs(),
     ...createS1IdentityCommandDefs(),
+    ...createS10MergeCommandDefs(),
     ...createS2ProgrammeCommandDefs(),
     ...createS2ApplicationCommandDefs(),
     ...createS4FactCommandDefs(),
@@ -189,6 +191,24 @@ crmApi.get('/read/conversation/:id', async (c) => {
 crmApi.get('/read/patrons', async (c) => {
   const user = c.get('user');
   const outcome = await readPatrons(c.env, user.id, user.tokenHash);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/merge-preview', async (c) => {
+  const user = c.get('user');
+  const url = new URL(c.req.url);
+  const survivorId = url.searchParams.get('survivorId') ?? '';
+  const loserId = url.searchParams.get('loserId') ?? '';
+  const outcome = await readMergePreview(c.env, user.id, user.tokenHash, survivorId, loserId);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/merges', async (c) => {
+  const user = c.get('user');
+  const url = new URL(c.req.url);
+  const cursor = url.searchParams.has('cursor') ? (url.searchParams.get('cursor') ?? '') : undefined;
+  const personId = url.searchParams.get('personId') ?? undefined;
+  const outcome = await readMergeHistory(c.env, user.id, user.tokenHash, { cursor, personId });
   return c.json(outcome.body, outcome.status);
 });
 

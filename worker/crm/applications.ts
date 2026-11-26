@@ -24,6 +24,7 @@ import { createReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
 import { readWorkspaceSettings } from '../workspaceSettings';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
+import { resolveCanonicalPersonId } from './merge';
 import {
   actorGrantsStmt,
   crmActorFence,
@@ -200,7 +201,8 @@ function createApplicationFromSubmissionCommand(): CommandDefinition<
           .bind(emailNorm)
           .first<{ person_id: string }>();
         if (epMatch) {
-          const readablePerson = await loadReadableTaskRecord(env, actor.id, epMatch.person_id);
+          const { canonicalId } = await resolveCanonicalPersonId(env.DB, epMatch.person_id);
+          const readablePerson = await loadReadableTaskRecord(env, actor.id, canonicalId);
           if (readablePerson) matchedPersonId = readablePerson.id;
         }
       }

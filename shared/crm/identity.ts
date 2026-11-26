@@ -237,6 +237,8 @@ export type DuplicateCandidateDto = z.infer<typeof DuplicateCandidateDtoSchema>;
 export const PersonDetailResponseSchema = z.object({
   personId: z.string(),
   rev: z.number().int().nonnegative(),
+  mergedInto: z.string().nullable().optional(),
+  aliases: z.array(z.string()).optional(),
   endpoints: z.array(CrmEndpointDtoSchema),
   latestConsents: z.array(CrmConsentDtoSchema),
   consentHistory: z.array(CrmConsentDtoSchema),

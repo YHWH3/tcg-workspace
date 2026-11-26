@@ -13,6 +13,7 @@ import type { Env } from '../auth';
 import { createReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
+import { resolveCanonicalPersonId } from './merge';
 import {
   actorGrantsStmt,
   crmActorFence,
@@ -299,11 +300,18 @@ export async function readPatrons(
       )
       .bind(JSON.stringify(emails))
       .all<{ person_id: string; value_norm: string }>();
-    const matchedIds = [...new Set(epRes.results.map((r) => r.person_id))];
+    const resolvedByEpPerson = new Map<string, string>();
+    for (const r of epRes.results) {
+      if (!resolvedByEpPerson.has(r.person_id)) {
+        resolvedByEpPerson.set(r.person_id, (await resolveCanonicalPersonId(env.DB, r.person_id)).canonicalId);
+      }
+    }
+    const matchedIds = [...new Set(resolvedByEpPerson.values())];
     const readablePeople = await loadReadableTaskRecords(env, gate, matchedIds);
     for (const r of epRes.results) {
-      if (readablePeople.has(r.person_id)) {
-        personByEmail.set(r.value_norm, r.person_id);
+      const cid = resolvedByEpPerson.get(r.person_id) ?? r.person_id;
+      if (readablePeople.has(cid)) {
+        personByEmail.set(r.value_norm, cid);
       }
     }
   }
