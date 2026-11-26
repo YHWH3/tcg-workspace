@@ -27,6 +27,13 @@ import {
   readTimeline,
 } from './applications';
 import {
+  createS6BookingCommandDefs,
+  readBookingDetail,
+  readBookingScreening,
+  readEditionDetail,
+  readEditions,
+} from './bookings';
+import {
   createP3ChannelCommandDefs,
   readChannelsOverview,
   readTemplates,
@@ -51,6 +58,7 @@ export function createS0CommandRegistry(): CommandRegistry {
     ...createS4FactCommandDefs(),
     ...createS4ConversationCommandDefs(),
     ...createP3ChannelCommandDefs(),
+    ...createS6BookingCommandDefs(),
     ...createS9PipelineCommandDefs(),
   ]);
 }
@@ -213,6 +221,30 @@ crmApi.get('/read/templates', async (c) => {
 crmApi.get('/read/patrons', async (c) => {
   const user = c.get('user');
   const outcome = await readPatrons(c.env, user.id, user.tokenHash);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/editions', async (c) => {
+  const user = c.get('user');
+  const outcome = await readEditions(c.env, user.id, user.tokenHash);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/edition/:id', async (c) => {
+  const user = c.get('user');
+  const outcome = await readEditionDetail(c.env, user.id, user.tokenHash, c.req.param('id')!);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/booking/:id', async (c) => {
+  const user = c.get('user');
+  const outcome = await readBookingDetail(c.env, user.id, user.tokenHash, c.req.param('id')!);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/booking/:id/screening', async (c) => {
+  const user = c.get('user');
+  const outcome = await readBookingScreening(c.env, user.id, user.tokenHash, c.req.param('id')!);
   return c.json(outcome.body, outcome.status);
 });
 
