@@ -4,9 +4,12 @@ import type { CrmStatus } from '../../../shared/crm/contracts';
 import { canManageCrmAccess } from '../../core/crmStatus';
 import { ActivitiesView } from './activities/ActivitiesView';
 import { ApplicationsView } from './applications/ApplicationsView';
+import { BookingsView } from './bookings/BookingsView';
 import { ConversationsView } from './conversations/ConversationsView';
 import { CrmHome } from './Home';
+import { MembershipsView } from './members/MembershipsView';
 import { PatronsView } from './members/PatronsView';
+import { MoneyView } from './money/MoneyView';
 import { OrganisationsView } from './organisations/OrganisationsView';
 import { PeopleView } from './people/PeopleView';
 import { PipelineView } from './pipeline/PipelineView';
@@ -46,6 +49,12 @@ export function CrmRoutes({ status }: { status: CrmStatus }) {
       document.title = 'Conversations — TCG CRM';
     } else if (pathname.startsWith('/crm/pipelines')) {
       document.title = 'Pipelines — TCG CRM';
+    } else if (pathname.startsWith('/crm/bookings')) {
+      document.title = 'Editions & Bookings — TCG CRM';
+    } else if (pathname.startsWith('/crm/money')) {
+      document.title = 'Money & Ledger — TCG CRM';
+    } else if (pathname.startsWith('/crm/memberships')) {
+      document.title = 'Common Roots Memberships — TCG CRM';
     } else if (pathname.startsWith('/crm/patrons')) {
       document.title = 'Patrons — TCG CRM';
     } else {
@@ -64,6 +73,10 @@ export function CrmRoutes({ status }: { status: CrmStatus }) {
       <Route path="programmes/:slug" element={<ProgrammesView status={status} />} />
       <Route path="applications" element={<ApplicationsView status={status} />} />
       <Route path="applications/:applicationId" element={<ApplicationsView status={status} />} />
+      <Route path="bookings" element={<BookingsView status={status} />} />
+      <Route path="bookings/:editionId" element={<BookingsView status={status} />} />
+      <Route path="money" element={<MoneyView status={status} />} />
+      <Route path="memberships" element={<MembershipsView status={status} />} />
       <Route path="activities" element={<ActivitiesView status={status} />} />
       <Route path="activities/:activityId" element={<ActivitiesView status={status} />} />
       <Route path="conversations" element={<ConversationsView status={status} />} />

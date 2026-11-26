@@ -1001,6 +1001,22 @@ export function RecordPanel({
                           <span>Open in Workspace</span>
                         </Link>
                       )}
+                      {item.kind === 'booking' && (
+                        <Link
+                          to="/crm/bookings"
+                          className="mt-1.5 inline-flex items-center gap-1 font-medium text-[var(--crm-primary)] hover:underline"
+                        >
+                          <span>Open in Bookings</span>
+                        </Link>
+                      )}
+                      {item.kind === 'membership' && (
+                        <Link
+                          to="/crm/memberships"
+                          className="mt-1.5 inline-flex items-center gap-1 font-medium text-[var(--crm-primary)] hover:underline"
+                        >
+                          <span>Open in Memberships</span>
+                        </Link>
+                      )}
                     </li>
                   ))}
                 </ul>

@@ -13,6 +13,7 @@ import {
   Compass,
   FileCheck2,
   Home,
+  IndianRupee,
   Lock,
   MessageSquare,
   Monitor,
@@ -20,7 +21,9 @@ import {
   MoreHorizontal,
   RefreshCw,
   Settings,
+  Sprout,
   Sun,
+  Ticket,
   Users,
 } from 'lucide-react';
 import { AppSwitcher } from '../../core/AppSwitcher';
@@ -257,6 +260,11 @@ export default function CrmShell() {
   const status = crm.data;
   const canManage = canManageCrmAccess(status);
   const canConfigureAny = status.owner || status.capabilities.some((c) => c.capability === 'crm.configure');
+  const canReadFinance =
+    status.owner ||
+    status.capabilities.some(
+      (c) => c.capability === 'crm.finance.read' || c.capability === 'crm.finance.record',
+    );
 
   const navItems = [
     { to: '/crm', label: 'Home', icon: Home, end: true },
@@ -265,6 +273,9 @@ export default function CrmShell() {
     { to: '/crm/organisations', label: 'Organisations', icon: Building2, end: false },
     { to: '/crm/programmes', label: 'Programmes', icon: Compass, end: false },
     { to: '/crm/applications', label: 'Applications', icon: FileCheck2, end: false },
+    { to: '/crm/bookings', label: 'Bookings', icon: Ticket, end: false },
+    ...(canReadFinance ? [{ to: '/crm/money', label: 'Money', icon: IndianRupee, end: false }] : []),
+    { to: '/crm/memberships', label: 'Memberships', icon: Sprout, end: false },
     { to: '/crm/activities', label: 'Activities', icon: CalendarCheck2, end: false },
     { to: '/crm/pipelines', label: 'Pipelines', icon: Briefcase, end: false },
     { to: '/crm/patrons', label: 'Patrons', icon: Award, end: false },
@@ -278,12 +289,8 @@ export default function CrmShell() {
   const compactNavItems = [
     { to: '/crm', label: 'Home', icon: Home, end: true },
     { to: '/crm/conversations', label: 'Inbox', icon: MessageSquare, end: false },
+    { to: '/crm/bookings', label: 'Bookings', icon: Ticket, end: false },
     { to: '/crm/people', label: 'People', icon: Users, end: false },
-    ...(canManage
-      ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }]
-      : canConfigureAny
-        ? [{ to: '/crm/settings/programmes', label: 'Settings', icon: Settings, end: false }]
-        : []),
   ];
 
   const routeLabel = pathname.startsWith('/crm/settings/channels')
@@ -306,13 +313,19 @@ export default function CrmShell() {
                   ? 'Programmes'
                   : pathname.startsWith('/crm/applications')
                     ? 'Applications'
-                    : pathname.startsWith('/crm/activities')
-                      ? 'Activities'
-                      : pathname.startsWith('/crm/pipelines')
-                        ? 'Pipelines'
-                        : pathname.startsWith('/crm/patrons')
-                          ? 'Patrons'
-                          : 'Home';
+                    : pathname.startsWith('/crm/bookings')
+                      ? 'Editions & Bookings'
+                      : pathname.startsWith('/crm/money')
+                        ? 'Money & Ledger'
+                        : pathname.startsWith('/crm/memberships')
+                          ? 'Common Roots Memberships'
+                          : pathname.startsWith('/crm/activities')
+                            ? 'Activities'
+                            : pathname.startsWith('/crm/pipelines')
+                              ? 'Pipelines'
+                              : pathname.startsWith('/crm/patrons')
+                                ? 'Patrons'
+                                : 'Home';
   const showSideRail = layout !== 'compact';
   const compactRail = layout === 'medium' ? effectiveCollapsed : railCollapsed;
 
@@ -365,7 +378,7 @@ export default function CrmShell() {
               </div>
             )}
 
-            <nav aria-label="CRM navigation" className="flex flex-1 flex-col gap-1 p-2">
+            <nav aria-label="CRM navigation" className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -517,7 +530,7 @@ export default function CrmShell() {
           )}
           {moreOpen && (
             <Sheet side="bottom" onClose={() => setMoreOpen(false)} label="More CRM sections">
-              <div data-app="crm" className="space-y-1 p-4 bg-[var(--crm-surface)] text-[var(--crm-text)]">
+              <div data-app="crm" className="max-h-[75vh] space-y-1 overflow-y-auto bg-[var(--crm-surface)] p-4 text-[var(--crm-text)]">
                 {navItems.map((item) => {
                   const Icon = item.icon;
                   return (

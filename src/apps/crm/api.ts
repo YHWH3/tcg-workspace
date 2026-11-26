@@ -108,6 +108,67 @@ import {
   type PersonUnmergeOutput,
   type UnmergeConflictDto,
 } from '../../../shared/crm/merge';
+import {
+  BookingDetailResponseSchema,
+  BookingScreeningResponseSchema,
+  CrmAttendanceDtoSchema,
+  CrmBookingDtoSchema,
+  CrmEditionDtoSchema,
+  CrmLedgerEntryDtoSchema,
+  CrmMembershipDtoSchema,
+  CrmMembershipSchemeDtoSchema,
+  CrmParticipantDtoSchema,
+  CrmPaymentRequestDtoSchema,
+  CrmRefundPolicyDtoSchema,
+  CrmRefundRequestDtoSchema,
+  CrmScreeningDtoSchema,
+  EditionDetailResponseSchema,
+  EditionsListResponseSchema,
+  MembershipsOverviewResponseSchema,
+  MoneyOverviewResponseSchema,
+  type AcceptWaitlistOfferInput,
+  type ActivateOrRenewMembershipInput,
+  type ApplyMembershipInput,
+  type BookingDetailResponse,
+  type BookingScreeningResponse,
+  type CancelBookingInput,
+  type CancelMembershipInput,
+  type CompleteEditionInput,
+  type ConfigureRefundPolicyInput,
+  type ConfirmBookingInput,
+  type CreatePaymentRequestInput,
+  type CrmAttendanceDto,
+  type CrmBookingDto,
+  type CrmEditionDto,
+  type CrmLedgerEntryDto,
+  type CrmMembershipDto,
+  type CrmMembershipSchemeDto,
+  type CrmParticipantDto,
+  type CrmPaymentRequestDto,
+  type CrmRefundPolicyDto,
+  type CrmRefundRequestDto,
+  type CrmScreeningDto,
+  type DecideMembershipInput,
+  type DecideRefundInput,
+  type EditionDetailResponse,
+  type EditionsListResponse,
+  type HoldBookingInput,
+  type IssueRefundInput,
+  type MembershipsOverviewResponse,
+  type MoneyOverviewResponse,
+  type OfferWaitlistInput,
+  type RecordAttendanceInput,
+  type RecordManualReceiptInput,
+  type RequestBookingInput,
+  type RequestRefundInput,
+  type ReverseLedgerEntryInput,
+  type ReviewScreeningInput,
+  type TransferBookingInput,
+  type UpdateParticipantInput,
+  type UpsertEditionInput,
+  type UpsertMembershipSchemeInput,
+  type UpsertScreeningInput,
+} from '../../../shared/crm/operations';
 import type { PublicUser } from '../../../shared/types';
 import { api, ApiError, getToken } from '../../core/api';
 import {
@@ -1095,6 +1156,407 @@ export function extractUnmergeConflicts(err: CommandError | unknown): UnmergeCon
   return parsed.success ? parsed.data : [];
 }
 
+// ---------------------------------------------------------------------------
+// P4 Operational CRM: S6 Editions & Bookings, S7 Money, S8 Memberships
+// ---------------------------------------------------------------------------
+
+export function fetchEditions(opts?: { programmeSlug?: string; state?: string }): Promise<EditionsListResponse> {
+  const qs = new URLSearchParams();
+  if (opts?.programmeSlug) qs.set('programme', opts.programmeSlug);
+  if (opts?.state) qs.set('state', opts.state);
+  const q = qs.toString();
+  return fetchCrmRead(`/api/crm/read/editions${q ? `?${q}` : ''}`, EditionsListResponseSchema);
+}
+
+export function fetchEditionDetail(editionId: string): Promise<EditionDetailResponse> {
+  return fetchCrmRead(`/api/crm/read/edition/${encodeURIComponent(editionId)}`, EditionDetailResponseSchema);
+}
+
+export function fetchBookingDetail(bookingId: string): Promise<BookingDetailResponse> {
+  return fetchCrmRead(`/api/crm/read/booking/${encodeURIComponent(bookingId)}`, BookingDetailResponseSchema);
+}
+
+export function fetchBookingScreening(bookingId: string): Promise<BookingScreeningResponse> {
+  return fetchCrmRead(`/api/crm/read/booking/${encodeURIComponent(bookingId)}/screening`, BookingScreeningResponseSchema);
+}
+
+export function upsertEdition(
+  input: UpsertEditionInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ edition: CrmEditionDto }> | CommandError> {
+  return runCrmCommand('edition.upsert', { ...input }, z.object({ edition: CrmEditionDtoSchema }).strict(), opts);
+}
+
+export function requestBooking(
+  input: RequestBookingInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ booking: CrmBookingDto; participants: CrmParticipantDto[] }> | CommandError> {
+  return runCrmCommand(
+    'booking.request',
+    { ...input },
+    z.object({ booking: CrmBookingDtoSchema, participants: z.array(CrmParticipantDtoSchema) }).strict(),
+    opts,
+  );
+}
+
+export function holdBooking(
+  input: HoldBookingInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ booking: CrmBookingDto }> | CommandError> {
+  return runCrmCommand('booking.hold', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
+}
+
+export function confirmBooking(
+  input: ConfirmBookingInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ booking: CrmBookingDto }> | CommandError> {
+  return runCrmCommand('booking.confirm', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
+}
+
+export function cancelBooking(
+  input: CancelBookingInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ booking: CrmBookingDto }> | CommandError> {
+  return runCrmCommand('booking.cancel', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
+}
+
+export function transferBooking(
+  input: TransferBookingInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ booking: CrmBookingDto }> | CommandError> {
+  return runCrmCommand('booking.transfer', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
+}
+
+export function offerWaitlist(
+  input: OfferWaitlistInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ booking: CrmBookingDto }> | CommandError> {
+  return runCrmCommand('booking.offer_waitlist', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
+}
+
+export function acceptWaitlistOffer(
+  input: AcceptWaitlistOfferInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ booking: CrmBookingDto }> | CommandError> {
+  return runCrmCommand('booking.accept_offer', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
+}
+
+export function updateParticipant(
+  input: UpdateParticipantInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ participant: CrmParticipantDto }> | CommandError> {
+  return runCrmCommand(
+    'participant.update',
+    { ...input },
+    z.object({ participant: CrmParticipantDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function recordAttendance(
+  input: RecordAttendanceInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ attendance: CrmAttendanceDto }> | CommandError> {
+  return runCrmCommand(
+    'attendance.record',
+    { ...input },
+    z.object({ attendance: CrmAttendanceDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function upsertScreening(
+  input: UpsertScreeningInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ screening: CrmScreeningDto }> | CommandError> {
+  return runCrmCommand('screening.upsert', { ...input }, z.object({ screening: CrmScreeningDtoSchema }).strict(), opts);
+}
+
+export function reviewScreening(
+  input: ReviewScreeningInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ screening: CrmScreeningDto }> | CommandError> {
+  return runCrmCommand('screening.review', { ...input }, z.object({ screening: CrmScreeningDtoSchema }).strict(), opts);
+}
+
+export function completeEdition(
+  input: CompleteEditionInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ edition: CrmEditionDto; markedNotRecorded: number }> | CommandError> {
+  return runCrmCommand(
+    'edition.complete',
+    { ...input },
+    z.object({ edition: CrmEditionDtoSchema, markedNotRecorded: z.number().int().nonnegative() }).strict(),
+    opts,
+  );
+}
+
+// S7 Money
+export function fetchMoneyOverview(opts?: {
+  objectType?: 'booking' | 'membership';
+  objectId?: string;
+  programmeSlug?: string;
+}): Promise<MoneyOverviewResponse> {
+  const qs = new URLSearchParams();
+  if (opts?.objectType) qs.set('objectType', opts.objectType);
+  if (opts?.objectId) qs.set('objectId', opts.objectId);
+  if (opts?.programmeSlug) qs.set('programme', opts.programmeSlug);
+  const q = qs.toString();
+  return fetchCrmRead(`/api/crm/read/money${q ? `?${q}` : ''}`, MoneyOverviewResponseSchema);
+}
+
+export function createPaymentRequest(
+  input: CreatePaymentRequestInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ paymentRequest: CrmPaymentRequestDto }> | CommandError> {
+  return runCrmCommand(
+    'payment_request.create',
+    { ...input },
+    z.object({ paymentRequest: CrmPaymentRequestDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function recordManualReceipt(
+  input: RecordManualReceiptInput,
+  opts?: RunCrmCommandOptions,
+): Promise<
+  | CommandResult<{
+      entry: CrmLedgerEntryDto;
+      paymentStatus: 'unpaid' | 'part_paid' | 'paid' | 'overpaid' | 'refund_pending' | 'refunded';
+      paidWithoutSeat: boolean;
+    }>
+  | CommandError
+> {
+  return runCrmCommand(
+    'receipt.record_manual',
+    { ...input },
+    z.object({
+      entry: CrmLedgerEntryDtoSchema,
+      paymentStatus: z.enum(['unpaid', 'part_paid', 'paid', 'overpaid', 'refund_pending', 'refunded']),
+      paidWithoutSeat: z.boolean(),
+    }).strict(),
+    opts,
+  );
+}
+
+export function reverseLedgerEntry(
+  input: ReverseLedgerEntryInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ reversalEntry: CrmLedgerEntryDto }> | CommandError> {
+  return runCrmCommand(
+    'ledger.reverse',
+    { ...input },
+    z.object({ reversalEntry: CrmLedgerEntryDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function configureRefundPolicy(
+  input: ConfigureRefundPolicyInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ policy: CrmRefundPolicyDto }> | CommandError> {
+  return runCrmCommand(
+    'refund.configure_policy',
+    { ...input },
+    z.object({ policy: CrmRefundPolicyDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function requestRefund(
+  input: RequestRefundInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ refundRequest: CrmRefundRequestDto }> | CommandError> {
+  return runCrmCommand(
+    'refund.request',
+    { ...input },
+    z.object({ refundRequest: CrmRefundRequestDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function decideRefund(
+  input: DecideRefundInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ refundRequest: CrmRefundRequestDto }> | CommandError> {
+  return runCrmCommand(
+    'refund.decide',
+    { ...input },
+    z.object({ refundRequest: CrmRefundRequestDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function issueRefund(
+  input: IssueRefundInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ refundRequest: CrmRefundRequestDto; ledgerEntry: CrmLedgerEntryDto }> | CommandError> {
+  return runCrmCommand(
+    'refund.issue',
+    { ...input },
+    z.object({ refundRequest: CrmRefundRequestDtoSchema, ledgerEntry: CrmLedgerEntryDtoSchema }).strict(),
+    opts,
+  );
+}
+
+// S8 Memberships
+export function fetchMembershipsOverview(opts?: {
+  schemeId?: string;
+  personId?: string;
+}): Promise<MembershipsOverviewResponse> {
+  const qs = new URLSearchParams();
+  if (opts?.schemeId) qs.set('schemeId', opts.schemeId);
+  if (opts?.personId) qs.set('personId', opts.personId);
+  const q = qs.toString();
+  return fetchCrmRead(`/api/crm/read/memberships${q ? `?${q}` : ''}`, MembershipsOverviewResponseSchema);
+}
+
+export function upsertMembershipScheme(
+  input: UpsertMembershipSchemeInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ scheme: CrmMembershipSchemeDto }> | CommandError> {
+  return runCrmCommand(
+    'membership.configure_scheme',
+    { ...input },
+    z.object({ scheme: CrmMembershipSchemeDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function applyMembership(
+  input: ApplyMembershipInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ membership: CrmMembershipDto }> | CommandError> {
+  return runCrmCommand('membership.apply', { ...input }, z.object({ membership: CrmMembershipDtoSchema }).strict(), opts);
+}
+
+export function decideMembership(
+  input: DecideMembershipInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ membership: CrmMembershipDto }> | CommandError> {
+  return runCrmCommand(
+    'membership.decide',
+    { ...input },
+    z.object({ membership: CrmMembershipDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function issueMembershipContributionRequest(
+  input: ActivateOrRenewMembershipInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ membership: CrmMembershipDto; paymentRequestId: string }> | CommandError> {
+  return runCrmCommand(
+    'membership.issue_request',
+    { ...input },
+    z.object({ membership: CrmMembershipDtoSchema, paymentRequestId: z.string() }).strict(),
+    opts,
+  );
+}
+
+export function activateMembership(
+  input: ActivateOrRenewMembershipInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ membership: CrmMembershipDto }> | CommandError> {
+  return runCrmCommand(
+    'membership.activate',
+    { ...input },
+    z.object({ membership: CrmMembershipDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function renewMembership(
+  input: ActivateOrRenewMembershipInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ membership: CrmMembershipDto }> | CommandError> {
+  return runCrmCommand(
+    'membership.renew',
+    { ...input },
+    z.object({ membership: CrmMembershipDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function cancelMembership(
+  input: CancelMembershipInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ membership: CrmMembershipDto }> | CommandError> {
+  return runCrmCommand(
+    'membership.cancel',
+    { ...input },
+    z.object({ membership: CrmMembershipDtoSchema }).strict(),
+    opts,
+  );
+}
+
+// Offline visibly-unconfirmed booking request intents (strictly account-scoped; NEVER claims a confirmed seat)
+export interface OfflineBookingRequestIntent {
+  id: string;
+  editionId: string;
+  editionTitle: string;
+  bookerPersonId: string;
+  bookerName: string;
+  seats: number;
+  priceOptionId: string | null;
+  participantNames: string[];
+  notes: string | null;
+  createdAt: number;
+  state: 'unconfirmed_local_request';
+}
+
+function offlineBookingIntentStorageKey(uid: string): string {
+  return `crm_p4_offline_booking_intents:${uid}`;
+}
+
+export function listOfflineBookingIntents(uid: string | null | undefined): OfflineBookingRequestIntent[] {
+  if (!uid || typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(offlineBookingIntentStorageKey(uid));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is OfflineBookingRequestIntent =>
+        item &&
+        typeof item === 'object' &&
+        typeof item.id === 'string' &&
+        typeof item.editionId === 'string' &&
+        typeof item.bookerPersonId === 'string' &&
+        typeof item.seats === 'number',
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function saveOfflineBookingIntent(
+  uid: string | null | undefined,
+  intent: Omit<OfflineBookingRequestIntent, 'id' | 'createdAt' | 'state'>,
+): OfflineBookingRequestIntent | null {
+  if (!uid || typeof localStorage === 'undefined') return null;
+  const entry: OfflineBookingRequestIntent = {
+    ...intent,
+    id: generateCrmRequestId(),
+    createdAt: Date.now(),
+    state: 'unconfirmed_local_request',
+  };
+  const next = [entry, ...listOfflineBookingIntents(uid)].slice(0, 25);
+  localStorage.setItem(offlineBookingIntentStorageKey(uid), JSON.stringify(next));
+  return entry;
+}
+
+export function removeOfflineBookingIntent(uid: string | null | undefined, intentId: string): void {
+  if (!uid || typeof localStorage === 'undefined') return;
+  const next = listOfflineBookingIntents(uid).filter((i) => i.id !== intentId);
+  if (next.length === 0) {
+    localStorage.removeItem(offlineBookingIntentStorageKey(uid));
+  } else {
+    localStorage.setItem(offlineBookingIntentStorageKey(uid), JSON.stringify(next));
+  }
+}
+
 const COMMAND_ERROR_MESSAGES: Record<CrmErrorCode, string> = {
   unauthenticated: 'Your session expired. Sign in again to continue.',
   forbidden: 'You do not have permission to change this capability.',
@@ -1178,10 +1640,53 @@ export function describeCommandError(err: CommandError | CrmTransportError | unk
           return 'WhatsApp Phone Number ID (O-04) is required before enabling production mode.';
         case 'provider_channel_mismatch':
           return 'Selected provider does not match the chosen channel.';
+        case 'edition_policy_unconfigured_pending_O05':
+          return 'Edition capacity, hold duration, max group size, or confirmation policy must be configured first (pending O-05).';
+        case 'edition_not_open':
+          return 'This edition is not open for new bookings.';
+        case 'max_group_size_exceeded':
+          return 'Requested seats exceed this edition’s configured maximum group size.';
+        case 'payment_required_before_confirm':
+          return 'Full payment must be recorded in the ledger before confirming this booking.';
+        case 'screening_not_cleared':
+          return 'All active participants must be cleared in restricted screening before confirmation.';
+        case 'foreign_contribution_blocked_pending_policy':
+          return 'Foreign currency and foreign contributor receipts are blocked pending policy approval (O-14 / C-03).';
+        case 'duplicate_receipt_key':
+          return 'A receipt with this bank/evidence reference was already recorded.';
+        case 'already_reversed':
+          return 'This ledger entry has already been reversed.';
+        case 'excessive_refund':
+          return 'Refund amount exceeds the remaining net received balance for this record.';
+        case 'self_approval_forbidden':
+          return 'The person who requested a refund cannot approve it. Another team member with Refund approval permission must review it.';
+        case 'refund_not_approved':
+          return 'This refund requires approval before payout can be recorded.';
+        case 'loser_has_financial_history_cannot_rewrite_ledger':
+          return 'Cannot merge this contact as the loser because it has append-only payment/ledger history. Keep the financially active contact as canonical instead.';
+        case 'scheme_policy_unconfigured_pending_O07':
+          return 'Configure membership contribution amount, currency, and validity period before issuing requests or activating (pending O-07).';
+        case 'contribution_receipt_required':
+          return 'Record the membership contribution receipt in Money before activating or renewing.';
       }
     }
     if (cmdErr.error === 'forbidden' && reason === 'admin_required') {
       return 'Only workspace owners and admins with Merge permission can unmerge records.';
+    }
+    if (cmdErr.error === 'forbidden' && reason === 'restricted_screening_authority_required') {
+      return 'Restricted screening access (`crm.restricted.read` for this programme) is required for this action.';
+    }
+    if (cmdErr.error === 'approval_required' && reason === 'independent_refund_approval_required') {
+      return 'Independent refund approval from a second authorised reviewer is required before issuing this refund.';
+    }
+    if (cmdErr.error === 'capacity_exceeded') {
+      return 'Not enough seats are currently available in this edition. Offer or join the waitlist instead.';
+    }
+    if (cmdErr.error === 'hold_expired') {
+      return 'The seat hold expired before confirmation. Check availability or waitlist.';
+    }
+    if (cmdErr.error === 'currency_mismatch') {
+      return 'Currency does not match the linked booking, payment request, or scheme currency.';
     }
     if (cmdErr.error === 'stale' && reason === 'unmerge_conflicts') {
       return 'Cannot unmerge cleanly because linked data changed after the merge. Review the conflicts below.';
