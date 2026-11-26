@@ -182,5 +182,9 @@
   {
     "name": "0046_crm_p1_core.sql",
     "sha256": "29ddb78d29fa77b7d5376d6320edb03498d7ef2449606d25d1f2260b0b548009"
+  },
+  {
+    "name": "0047_crm_merge.sql",
+    "sha256": "986a7cb447bb5b0d85f6a7c19efd83c0a7b00c8b8dec12fa50256eeaf23a8d3a"
   }
 ]

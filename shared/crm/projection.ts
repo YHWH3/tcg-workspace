@@ -22,6 +22,7 @@ export const CRM_PROJECTION = {
   openConversations: crmProjectionKey('open_conversations'),
   lastOutboundAt: crmProjectionKey('last_outbound_at'),
   projectId: crmProjectionKey('project_id'),
+  mergedInto: crmProjectionKey('merged_into'),
 } as const;
 
 export const isCrmProjectionKey = (key: string): boolean => key.startsWith(CRM_PROJECTION_PREFIX);
