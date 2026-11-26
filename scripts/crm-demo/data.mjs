@@ -16,6 +16,7 @@ export const COMMONS_MEMBERS = [
       'crm.send:email',
       'crm.configure',
       'crm.capabilities.manage',
+      'crm.merge',
     ],
     scopedGrants: [
       { capability: 'crm.restricted.read', scope: 'programme:common-lab', reason: 'Programme review lead' },

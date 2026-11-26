@@ -76,6 +76,20 @@ import {
   type HandoffOpportunityToProjectInput,
   type PatronsReadResponse,
 } from '../../../shared/crm/pipelines';
+import {
+  MergeHistoryPageResponseSchema,
+  MergePreviewResponseSchema,
+  PersonMergeOutputSchema,
+  PersonUnmergeOutputSchema,
+  UnmergeConflictDtoSchema,
+  type MergeHistoryPageResponse,
+  type MergePreviewResponse,
+  type PersonMergeInput,
+  type PersonMergeOutput,
+  type PersonUnmergeInput,
+  type PersonUnmergeOutput,
+  type UnmergeConflictDto,
+} from '../../../shared/crm/merge';
 import type { PublicUser } from '../../../shared/types';
 import { api, ApiError, getToken } from '../../core/api';
 import {
@@ -886,6 +900,51 @@ export function fetchPatrons(): Promise<PatronsReadResponse> {
   return fetchCrmRead('/api/crm/read/patrons', PatronsReadResponseSchema);
 }
 
+// ---------------------------------------------------------------------------
+// S10 Reversible Contact Merge APIs
+// ---------------------------------------------------------------------------
+
+export function fetchMergePreview(survivorId: string, loserId: string): Promise<MergePreviewResponse> {
+  const qs = new URLSearchParams({ survivorId, loserId });
+  return fetchCrmRead(`/api/crm/read/merge-preview?${qs.toString()}`, MergePreviewResponseSchema);
+}
+
+export function fetchMergeHistory(opts?: { cursor?: string | null; personId?: string | null }): Promise<MergeHistoryPageResponse> {
+  const qs = new URLSearchParams();
+  if (opts?.cursor) qs.set('cursor', opts.cursor);
+  if (opts?.personId) qs.set('personId', opts.personId);
+  const q = qs.toString();
+  return fetchCrmRead(`/api/crm/read/merges${q ? `?${q}` : ''}`, MergeHistoryPageResponseSchema);
+}
+
+export function mergePeople(
+  input: PersonMergeInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<PersonMergeOutput> | CommandError> {
+  return runCrmCommand('person.merge', { ...input }, PersonMergeOutputSchema, opts);
+}
+
+export function unmergePeople(
+  input: PersonUnmergeInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<PersonUnmergeOutput> | CommandError> {
+  return runCrmCommand('person.unmerge', { ...input }, PersonUnmergeOutputSchema, opts);
+}
+
+const UnmergeConflictsArraySchema = z.array(UnmergeConflictDtoSchema);
+
+export function extractUnmergeConflicts(err: CommandError | unknown): UnmergeConflictDto[] {
+  if (!err || typeof err !== 'object' || !('ok' in err) || (err as CommandError).ok !== false) {
+    return [];
+  }
+  const cmdErr = err as CommandError;
+  if (cmdErr.error !== 'stale' || cmdErr.detail?.reason !== 'unmerge_conflicts') {
+    return [];
+  }
+  const parsed = UnmergeConflictsArraySchema.safeParse(cmdErr.detail?.conflicts);
+  return parsed.success ? parsed.data : [];
+}
+
 const COMMAND_ERROR_MESSAGES: Record<CrmErrorCode, string> = {
   unauthenticated: 'Your session expired. Sign in again to continue.',
   forbidden: 'You do not have permission to change this capability.',
@@ -939,7 +998,30 @@ export function describeCommandError(err: CommandError | CrmTransportError | unk
           return 'Install the TCG Operating Pack in Workspace or CRM before creating applications.';
         case 'target_board_not_found':
           return 'Choose a valid destination database for conversion.';
+        case 'same_person':
+          return 'Choose two different people to merge.';
+        case 'people_records_only':
+          return 'Only records from the People database can be merged here.';
+        case 'already_merged':
+          return 'One of these person records has already been merged.';
+        case 'survivor_archived':
+          return 'The selected canonical person record is archived and cannot absorb another record.';
+        case 'confirm_required':
+          return 'Confirm the merge or unmerge action before continuing.';
+        case 'ui_only':
+          return 'Merging and unmerging people must be confirmed directly in the CRM interface.';
+        case 'already_unmerged':
+          return 'This merge has already been unmerged.';
       }
+    }
+    if (cmdErr.error === 'forbidden' && reason === 'admin_required') {
+      return 'Only workspace owners and admins with Merge permission can unmerge records.';
+    }
+    if (cmdErr.error === 'stale' && reason === 'unmerge_conflicts') {
+      return 'Cannot unmerge cleanly because linked data changed after the merge. Review the conflicts below.';
+    }
+    if (cmdErr.error === 'budget_exceeded' && reason === 'merge_budget_exceeded') {
+      return 'This merge touches more linked records than a single safe batch allows.';
     }
     return COMMAND_ERROR_MESSAGES[cmdErr.error] ?? 'Could not update capability. Refresh and retry.';
   }

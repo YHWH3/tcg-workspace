@@ -30,7 +30,7 @@ import {
   type PersonDetailResponse,
 } from '../../../../shared/crm/identity';
 import type { TimelineEntryDto } from '../../../../shared/crm/programmes';
-import { isCrmProjectionKey } from '../../../../shared/crm/projection';
+import { CRM_PROJECTION, isCrmProjectionKey } from '../../../../shared/crm/projection';
 import { fieldsOf } from '../../../../shared/fields';
 import { link, unlinkEnds, useLinks } from '../../../core/links';
 import { useLayoutMode } from '../../../core/mobile';
@@ -195,7 +195,15 @@ export function RecordPanel({
     .filter(([k, v]) => isCrmProjectionKey(k) && v !== undefined && v !== null && v !== '')
     .sort((a, b) => a[0].localeCompare(b[0]));
 
+  const mergedIntoRaw = record[CRM_PROJECTION.mergedInto];
+  const mergedIntoId =
+    typeof mergedIntoRaw === 'string' && mergedIntoRaw
+      ? mergedIntoRaw
+      : detail?.mergedInto ?? null;
+  const isArchivedPerson = entityKind === 'person' && (record.archived === true || Boolean(mergedIntoId));
+
   const commitTitle = () => {
+    if (isArchivedPerson) return;
     const trimmed = titleDraft.trim();
     if (trimmed !== String(record.title ?? '')) {
       void mutate('tasks', record.id, { title: trimmed || 'Untitled' });
@@ -377,6 +385,8 @@ export function RecordPanel({
           <input
             type="text"
             aria-label={`${noun} name`}
+            readOnly={isArchivedPerson}
+            disabled={isArchivedPerson}
             value={titleDraft}
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={commitTitle}
@@ -435,6 +445,23 @@ export function RecordPanel({
         </div>
       </div>
 
+      {isArchivedPerson && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--crm-warn-border)] bg-[var(--crm-warn-bg)] px-4 py-2.5 text-xs text-[var(--crm-warn-text)]"
+        >
+          <span className="font-semibold">This person record was merged and archived.</span>
+          {mergedIntoId && (
+            <Link
+              to={`/crm/people/${mergedIntoId}`}
+              className="inline-flex min-h-9 items-center font-semibold underline"
+            >
+              Open canonical person
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* Stage switcher bar when stages exist */}
       {cols.length > 0 && (
         <div className="flex items-center justify-between gap-2 border-b border-[var(--crm-border)] bg-[var(--crm-bg)] px-4 py-2 text-xs">
@@ -444,6 +471,7 @@ export function RecordPanel({
           <select
             id={`panel-stage-${record.id}`}
             aria-label="Stage"
+            disabled={isArchivedPerson}
             className="crm-select !min-h-9 !w-auto !py-1 !text-xs"
             value={columnIdFor(record, board)}
             onChange={(e) => void mutate('tasks', record.id, { status: e.target.value })}
@@ -595,6 +623,26 @@ export function RecordPanel({
                   </div>
                 )}
 
+                {detail && detail.aliases && detail.aliases.length > 0 && (
+                  <section className="rounded-lg border border-[var(--crm-border)] bg-[var(--crm-bg)] p-3 text-xs space-y-1.5">
+                    <p className="font-semibold text-[var(--crm-text)]">
+                      Merged alias records ({detail.aliases.length})
+                    </p>
+                    <ul className="flex flex-wrap gap-2">
+                      {detail.aliases.map((aliasId) => (
+                        <li key={aliasId}>
+                          <Link
+                            to={`/crm/people/${aliasId}`}
+                            className="font-medium text-[var(--crm-primary)] hover:underline"
+                          >
+                            {aliasId}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
                 <section className="space-y-3">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">
                     Contact endpoints
@@ -634,7 +682,7 @@ export function RecordPanel({
                             </p>
                           </div>
 
-                          {!retired && (
+                          {!retired && !isArchivedPerson && (
                             <div className="flex items-center gap-1.5">
                               {!ep.isPrimary && (
                                 <button
@@ -697,7 +745,7 @@ export function RecordPanel({
                       </label>
                       <button
                         type="submit"
-                        disabled={isOffline || actionBusy || !epValue.trim()}
+                        disabled={isArchivedPerson || isOffline || actionBusy || !epValue.trim()}
                         className="crm-btn-primary !min-h-10 !px-3 !text-xs"
                       >
                         <Plus size={14} aria-hidden="true" />
@@ -793,7 +841,7 @@ export function RecordPanel({
                     <div className="flex justify-end">
                       <button
                         type="submit"
-                        disabled={isOffline || actionBusy || !cSource.trim()}
+                        disabled={isArchivedPerson || isOffline || actionBusy || !cSource.trim()}
                         className="crm-btn-primary !min-h-10 !px-3 !text-xs"
                       >
                         Record consent
@@ -875,7 +923,7 @@ export function RecordPanel({
                   onChange={(e) => setAffRole(e.target.value)}
                 />
               )}
-              <button type="submit" disabled={!affPeerId} className="crm-btn-secondary !min-h-10 !text-xs">
+              <button type="submit" disabled={isArchivedPerson || !affPeerId} className="crm-btn-secondary !min-h-10 !text-xs">
                 <Plus size={14} aria-hidden="true" />
                 <span>Add affiliation</span>
               </button>

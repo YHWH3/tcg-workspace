@@ -553,3 +553,197 @@ test('P1 S9 Pipelines, Project Handoff, Read-Only Patrons, 320px Reflow & 200% S
   await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
   await health(page, 'crm-p1-200pct', info);
 });
+
+test('P2 S10 Contact Merge, Conflict Refusal, Reversible Unmerge & 320px Reflow', async ({ page }, info) => {
+  const boards = await ensureP1PackInstalled(page);
+  const fixedTs = Date.UTC(2026, 9, 25, 10, 0, 0);
+
+  const changes = [
+    {
+      id: 'ux-p2-org-1',
+      collection: 'tasks',
+      ts: fixedTs,
+      patch: {
+        boardId: boards.organizations,
+        title: 'Wayanad Seed Commons',
+        order: 'b0',
+        p_f_org_type: 'collective',
+        p_f_location: 'Kalpetta',
+      },
+    },
+    {
+      id: 'ux-p2-person-a',
+      collection: 'tasks',
+      ts: fixedTs,
+      patch: {
+        boardId: boards.people,
+        title: 'Maya Sen',
+        order: 'c0',
+        p_f_email: 'maya.ux.p2@commons-demo.example.org',
+        p_f_phone: '+919800000501',
+        p_f_location: 'Kochi',
+        p_f_source: 'website',
+        p_f_skills: ['facilitation'],
+      },
+    },
+    {
+      id: 'ux-p2-person-b',
+      collection: 'tasks',
+      ts: fixedTs,
+      patch: {
+        boardId: boards.people,
+        title: 'Maya Sen (Alt)',
+        order: 'c1',
+        p_f_email: 'maya.ux.p2@commons-demo.example.org',
+        p_f_phone: '+919800000502',
+        p_f_location: 'Ernakulam',
+        p_f_source: 'manual',
+        p_f_skills: ['writing'],
+      },
+    },
+    {
+      id: 'ux-p2-aff-1',
+      collection: 'tasks',
+      ts: fixedTs,
+      patch: {
+        boardId: boards.affiliations,
+        title: 'Maya Sen (Alt) — Wayanad Seed Commons',
+        status: 'active',
+        order: 'b0',
+        p_f_role: 'Field coordinator',
+      },
+    },
+    {
+      id: linkId('relation', 'f_person', 'ux-p2-aff-1', 'ux-p2-person-b'),
+      collection: 'links',
+      ts: fixedTs,
+      patch: { fromType: 'record', fromId: 'ux-p2-aff-1', toType: 'record', toId: 'ux-p2-person-b', kind: 'relation', fieldId: 'f_person', createdBy: fixture.admin.user.id, createdAt: fixedTs, deleted: false },
+    },
+    {
+      id: linkId('relation', 'f_org', 'ux-p2-aff-1', 'ux-p2-org-1'),
+      collection: 'links',
+      ts: fixedTs,
+      patch: { fromType: 'record', fromId: 'ux-p2-aff-1', toType: 'record', toId: 'ux-p2-org-1', kind: 'relation', fieldId: 'f_org', createdBy: fixture.admin.user.id, createdAt: fixedTs, deleted: false },
+    },
+  ];
+  const pushed = await syncPush(changes);
+  expect(pushed.rejected).toBeFalsy();
+
+  await request('/api/crm/commands/endpoints.backfill', {
+    requestId: 'ux_p2_bf_' + randomUUID().replace(/-/g, '').slice(0, 16),
+    input: { personIds: ['ux-p2-person-a', 'ux-p2-person-b'], dryRun: false },
+  });
+  await request('/api/crm/commands/person.record_consent', {
+    requestId: 'ux_p2_ca_' + randomUUID().replace(/-/g, '').slice(0, 16),
+    input: { personId: 'ux-p2-person-a', channel: 'whatsapp', scope: 'updates', status: 'granted', source: 'ux_p2' },
+  });
+  await request('/api/crm/commands/person.add_endpoint', {
+    requestId: 'ux_p2_ep_' + randomUUID().replace(/-/g, '').slice(0, 16),
+    input: { personId: 'ux-p2-person-b', kind: 'whatsapp', value: '+919800000502', makePrimary: true },
+  });
+  await request('/api/crm/commands/person.record_consent', {
+    requestId: 'ux_p2_cb_' + randomUUID().replace(/-/g, '').slice(0, 16),
+    input: { personId: 'ux-p2-person-b', channel: 'whatsapp', scope: 'updates', status: 'withdrawn', source: 'ux_p2_optout' },
+  });
+  await request('/api/crm/commands/conversation.simulate_inbound', {
+    requestId: 'ux_p2_inb_' + randomUUID().replace(/-/g, '').slice(0, 16),
+    input: {
+      channel: 'whatsapp',
+      externalEventId: 'ux_p2_wa_' + randomUUID().slice(0, 8),
+      fromValue: '+919800000502',
+      subject: 'Wayanad Seed inquiry',
+      bodyText: 'Question from alternate contact line.',
+      programmeSlug: 'common-lab',
+    },
+  });
+
+  await navigateReady(page, fixture.base + '/crm/people');
+  await page.getByRole('tab', { name: 'Duplicates review' }).click();
+  const candItem = page.locator('li', { hasText: 'Maya Sen (Alt)' }).first();
+  await expect(candItem).toBeVisible({ timeout: 15_000 });
+  await candItem.getByRole('button', { name: 'Compare & merge…' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Compare & merge people' });
+  await expect(dialog).toBeVisible({ timeout: 15_000 });
+  await expect(dialog.getByText('Strictest applied — withdrawal preserved cleanly')).toBeVisible();
+  await expect(dialog.getByText('withdrawn').first()).toBeVisible();
+
+  await page.evaluate(() => document.fonts.ready);
+  await health(page, 'crm-merge-preview', info);
+  await expect(dialog).toHaveScreenshot('crm-merge-preview.png', {
+    mask: [dialog.locator('time')],
+  });
+
+  // Verify 320px reflow inside merge comparison dialog
+  const origViewport = info.project.use.viewport;
+  await page.setViewportSize({ width: 320, height: 568 });
+  const dialogReflow = await page.evaluate(() => ({
+    width: innerWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(dialogReflow.scroll).toBeLessThanOrEqual(dialogReflow.width + 1);
+  await page.setViewportSize(origViewport);
+
+  await dialog.getByLabel('Merge note (optional audit note)').fill('UX Lab P2 S10 merge');
+  await dialog.getByRole('checkbox').check();
+  await dialog.getByRole('button', { name: 'Merge people' }).click();
+  await expect(page.getByText('Merged Maya Sen (Alt) into Maya Sen.')).toBeVisible({ timeout: 15_000 });
+
+  // Archived loser banner + canonical link
+  await navigateReady(page, fixture.base + '/crm/people/ux-p2-person-b');
+  await expect(page.getByText('This person record was merged and archived.')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('link', { name: 'Open canonical person' })).toHaveAttribute('href', '/crm/people/ux-p2-person-a');
+  if (info.project.use.viewport.width < 1100) {
+    await page.keyboard.press('Escape');
+  } else {
+    await page.getByRole('button', { name: 'Close record panel' }).click();
+  }
+
+  // Merge history visual baseline + health + clean unmerge
+  await page.getByRole('tab', { name: 'Merge history' }).click();
+  const histRow = page.locator('li', { hasText: 'Maya Sen (Alt)' }).first();
+  await expect(histRow).toBeVisible({ timeout: 15_000 });
+  await expect(histRow.getByText('Merged', { exact: true })).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  await health(page, 'crm-merge-history', info);
+  await expect(page.locator('[data-app="crm"]').first()).toHaveScreenshot('crm-merge-history.png', {
+    mask: [page.locator('[data-app="crm"] time')],
+  });
+
+  await histRow.getByRole('button', { name: 'Unmerge…' }).click();
+  const unmergeDialog = page.getByRole('dialog', { name: 'Reverse person merge' });
+  await expect(unmergeDialog).toBeVisible();
+  await unmergeDialog.getByRole('checkbox').check();
+  await unmergeDialog.getByRole('button', { name: 'Confirm unmerge' }).click();
+  await expect(page.getByText('Unmerged Maya Sen (Alt) from Maya Sen.')).toBeVisible({ timeout: 15_000 });
+  await expect(histRow.getByText('Unmerged', { exact: true })).toBeVisible({ timeout: 15_000 });
+
+  // Conflict refusal when survivor was edited post-merge
+  const preview = await request('/api/crm/read/merge-preview?survivorId=ux-p2-person-a&loserId=ux-p2-person-b', undefined, 'GET');
+  const remerge = await request('/api/crm/commands/person.merge', {
+    requestId: 'ux_p2_rm_' + randomUUID().replace(/-/g, '').slice(0, 16),
+    expected: { 'ux-p2-person-a': preview.survivor.rev, 'ux-p2-person-b': preview.loser.rev },
+    input: { survivorId: 'ux-p2-person-a', loserId: 'ux-p2-person-b', confirm: true, note: 'Post-unmerge conflict test' },
+  });
+  expect(remerge.ok).toBe(true);
+
+  await syncPush([
+    {
+      id: 'ux-p2-person-a',
+      collection: 'tasks',
+      ts: Date.now() + 20_000,
+      patch: { title: 'Maya Sen (Post-Merge Edit)' },
+    },
+  ]);
+
+  await page.getByRole('button', { name: 'Refresh' }).first().click();
+  const conflictRow = page.locator('li', { hasText: 'Post-unmerge conflict test' }).first();
+  await expect(conflictRow).toBeVisible({ timeout: 15_000 });
+  await conflictRow.getByRole('button', { name: 'Unmerge…' }).click();
+  await expect(unmergeDialog).toBeVisible();
+  await unmergeDialog.getByRole('checkbox').check();
+  await unmergeDialog.getByRole('button', { name: 'Confirm unmerge' }).click();
+  await expect(unmergeDialog.getByRole('alert')).toContainText('survivor_edited', { timeout: 15_000 });
+  await unmergeDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(conflictRow.getByText('Merged', { exact: true })).toBeVisible();
+});

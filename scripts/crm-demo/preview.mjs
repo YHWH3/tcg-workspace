@@ -866,6 +866,87 @@ try {
   await expect(page.getByText('Read-only projection from The Common Ground website relay')).toBeVisible();
   await expect(page.getByText('Nandini Menon — Founding Patron').first()).toBeVisible();
   shots.patronsDesktopLight = await capture(page, 'patrons-desktop-light.png');
+
+  // =========================================================================
+  // Part D — P2 S10 Reversible Contact Merge, Conflict & Unmerge Walkthrough
+  // =========================================================================
+  await page.getByRole('link', { name: 'People' }).click();
+  await expect(page.getByRole('heading', { name: 'People', exact: true })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('tab', { name: 'Duplicates review' }).click();
+  const nandiniDupCard = page.locator('li', { hasText: 'Nandini Menon (Alt)' }).first();
+  await expect(nandiniDupCard).toBeVisible({ timeout: 15_000 });
+  await nandiniDupCard.getByRole('button', { name: 'Compare & merge…' }).click();
+  const mergeDialog = page.getByRole('dialog', { name: 'Compare & merge people' });
+  await expect(mergeDialog).toBeVisible({ timeout: 15_000 });
+  await expect(mergeDialog.getByRole('button', { name: 'Merge people' })).toBeVisible();
+  shots.mergePreviewDesktopLight = await capture(page, 'merge-preview-desktop-light.png');
+
+  await mergeDialog.getByRole('checkbox').check();
+  await mergeDialog.getByRole('button', { name: 'Merge people' }).click();
+  await expect(page.getByText('Merged Nandini Menon (Alt) into Nandini Menon.')).toBeVisible({ timeout: 15_000 });
+
+  await page.goto(fixture.base + '/crm/people/demo_person_28');
+  await expect(page.getByText('This person record was merged and archived.')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('link', { name: 'Open canonical person' })).toHaveAttribute('href', '/crm/people/demo_person_0');
+  await page.getByRole('button', { name: 'Close record panel' }).click();
+
+  await page.getByRole('tab', { name: 'Merge history' }).click();
+  await expect(page.getByText('Person merge ledger (reversible while clean)')).toBeVisible({ timeout: 15_000 });
+  const nandiniHistoryRow = page.locator('li', { hasText: 'Nandini Menon (Alt)' }).first();
+  await expect(nandiniHistoryRow).toBeVisible({ timeout: 15_000 });
+  shots.mergeHistoryDesktopLight = await capture(page, 'merge-history-desktop-light.png');
+
+  // Reversible clean unmerge in UI
+  await nandiniHistoryRow.getByRole('button', { name: 'Unmerge…' }).click();
+  const unmergeDialog = page.getByRole('dialog', { name: 'Reverse person merge' });
+  await expect(unmergeDialog).toBeVisible();
+  await unmergeDialog.getByRole('checkbox').check();
+  await unmergeDialog.getByRole('button', { name: 'Confirm unmerge' }).click();
+  await expect(page.getByText('Unmerged Nandini Menon (Alt) from Nandini Menon.')).toBeVisible({ timeout: 15_000 });
+  await expect(nandiniHistoryRow.getByText('Unmerged', { exact: true })).toBeVisible({ timeout: 15_000 });
+
+  // Second pair in dark theme + post-merge survivor edit conflict refusal
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.getByRole('button', { name: 'Dark theme' }).click();
+  await page.getByRole('tab', { name: 'Duplicates review' }).click();
+  const rohanDupCard = page.locator('li', { hasText: 'Rohan Dutta (Studio)' }).first();
+  await expect(rohanDupCard).toBeVisible({ timeout: 15_000 });
+  await rohanDupCard.getByRole('button', { name: 'Compare & merge…' }).click();
+  await expect(mergeDialog).toBeVisible({ timeout: 15_000 });
+  await expect(mergeDialog.getByRole('button', { name: 'Merge people' })).toBeVisible();
+  shots.mergePreviewDesktopDark = await capture(page, 'merge-preview-desktop-dark.png');
+
+  await mergeDialog.getByRole('checkbox').check();
+  await mergeDialog.getByRole('button', { name: 'Merge people' }).click();
+  await expect(page.getByText('Merged Rohan Dutta (Studio) into Rohan Dutta.')).toBeVisible({ timeout: 15_000 });
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.getByRole('button', { name: 'Light theme' }).click();
+
+  // Edit survivor independently, then attempt unmerge -> blocked with explicit conflict
+  await requestJson('/api/sync/push', {
+    token: owner.token,
+    body: {
+      changes: [
+        {
+          id: 'demo_person_1',
+          collection: 'tasks',
+          ts: Date.now() + 10_000,
+          patch: { title: 'Rohan Dutta (Verified Studio Lead)' },
+        },
+      ],
+    },
+  });
+  await page.getByRole('tab', { name: 'Merge history' }).click();
+  const rohanHistoryRow = page.locator('li', { hasText: 'Rohan Dutta (Studio)' }).first();
+  await expect(rohanHistoryRow).toBeVisible({ timeout: 15_000 });
+  await rohanHistoryRow.getByRole('button', { name: 'Unmerge…' }).click();
+  await expect(unmergeDialog).toBeVisible();
+  await unmergeDialog.getByRole('checkbox').check();
+  await unmergeDialog.getByRole('button', { name: 'Confirm unmerge' }).click();
+  await expect(unmergeDialog.getByRole('alert')).toContainText('survivor_edited', { timeout: 15_000 });
+  await unmergeDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(unmergeDialog).toBeHidden();
   await ownerCtx.close();
 
   // Tablet 820x1180 Light verification
@@ -903,6 +984,37 @@ try {
   shots.pipelinesMobileDark = await capture(mobP1Dark, 'pipelines-mobile-dark.png');
   await mobP1DarkCtx.close();
 
+  // Mobile WebKit 390x844 Light Merge Preview (restored Nandini pair) & Dark Merge History
+  const { context: mobP2LightCtx, page: mobP2Light } = await openAuthedPage(mobileBrowser, owner, {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    colorScheme: 'light',
+  });
+  await mobP2Light.goto(fixture.base + '/crm/people');
+  await mobP2Light.getByRole('tab', { name: 'Duplicates review' }).click();
+  const mobNandiniCard = mobP2Light.locator('li', { hasText: 'Nandini Menon (Alt)' }).first();
+  await expect(mobNandiniCard).toBeVisible({ timeout: 15_000 });
+  await mobNandiniCard.getByRole('button', { name: 'Compare & merge…' }).click();
+  const mobMergeDialog = mobP2Light.getByRole('dialog', { name: 'Compare & merge people' });
+  await expect(mobMergeDialog).toBeVisible({ timeout: 15_000 });
+  await expect(mobMergeDialog.getByRole('button', { name: 'Merge people' })).toBeVisible();
+  shots.mergePreviewMobileLight = await capture(mobP2Light, 'merge-preview-mobile-light.png');
+  await mobP2LightCtx.close();
+
+  const { context: mobP2DarkCtx, page: mobP2Dark } = await openAuthedPage(mobileBrowser, owner, {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    colorScheme: 'dark',
+  });
+  await mobP2Dark.goto(fixture.base + '/crm/people');
+  await mobP2Dark.getByRole('tab', { name: 'Merge history' }).click();
+  await expect(mobP2Dark.getByText('Person merge ledger (reversible while clean)')).toBeVisible({ timeout: 15_000 });
+  await expect(mobP2Dark.locator('li', { hasText: 'Rohan Dutta (Studio)' }).first()).toBeVisible({ timeout: 15_000 });
+  shots.mergeHistoryMobileDark = await capture(mobP2Dark, 'merge-history-mobile-dark.png');
+  await mobP2DarkCtx.close();
+
   assert.equal(fingerprint(root), sourceFingerprint, 'Source changed during CRM demo check');
   const evidence = {
     base: fixture.base,
@@ -914,6 +1026,7 @@ try {
     opportunities: COMMONS_OPPORTUNITIES.length,
     patrons: COMMONS_PATRON_SUBMISSIONS.length,
     facts: COMMONS_FACTS.length,
+    p2MergeVerified: true,
     shots,
   };
   writeFileSync(join(artifacts, 'ready.json'), JSON.stringify(evidence, null, 2));
