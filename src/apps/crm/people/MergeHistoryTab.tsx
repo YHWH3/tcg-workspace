@@ -244,11 +244,16 @@ export function MergeHistoryTab({ canUnmerge, onOpenPerson, onUnmerged }: MergeH
                 </div>
 
                 <p className="text-[var(--crm-text-muted)]">
-                  By {item.actorName ?? item.actorId} ·{' '}
-                  <time dateTime={new Date(item.createdAt).toISOString()}>{formatTime(item.createdAt)}</time>
-                  {' · '}
-                  Moved {item.movedCounts.linksMoved} links, {item.movedCounts.endpointsMoved} endpoints,{' '}
-                  {item.movedCounts.conversationsMoved} conversations
+                  <span>
+                    By {item.actorName ?? item.actorId} · Moved {item.movedCounts.linksMoved} links,{' '}
+                    {item.movedCounts.endpointsMoved} endpoints, {item.movedCounts.conversationsMoved} conversations
+                  </span>
+                  <time
+                    className="crm-tabular block text-[11px]"
+                    dateTime={new Date(item.createdAt).toISOString()}
+                  >
+                    {formatTime(item.createdAt)}
+                  </time>
                 </p>
 
                 {item.note && (
@@ -259,11 +264,16 @@ export function MergeHistoryTab({ canUnmerge, onOpenPerson, onUnmerged }: MergeH
 
                 {item.unmerged && (
                   <p className="text-[var(--crm-text-muted)]">
-                    Reversed by {item.unmerged.actorName ?? item.unmerged.actorId} on{' '}
-                    <time dateTime={new Date(item.unmerged.createdAt).toISOString()}>
+                    <span>
+                      Reversed by {item.unmerged.actorName ?? item.unmerged.actorId}
+                      {item.unmerged.reason ? ` — ${item.unmerged.reason}` : ''}
+                    </span>
+                    <time
+                      className="crm-tabular block text-[11px]"
+                      dateTime={new Date(item.unmerged.createdAt).toISOString()}
+                    >
                       {formatTime(item.unmerged.createdAt)}
                     </time>
-                    {item.unmerged.reason ? ` — ${item.unmerged.reason}` : ''}
                   </p>
                 )}
               </div>
