@@ -12,7 +12,6 @@ import {
   SetConversationStateInputSchema,
   SimulateInboundInputSchema,
   composeGroundedAiDraft,
-  isChannelWindowOpen,
   type AddMessageNoteInput,
   type AssignConversationInput,
   type ConversationChannel,
@@ -32,7 +31,15 @@ import {
   type SetConversationStateInput,
   type SimulateInboundInput,
 } from '../../shared/crm/conversations';
-import { normalizeEndpoint } from '../../shared/crm/identity';
+import {
+  HUMAN_AGENT_WINDOW_MS,
+  buildRfcReferences,
+  computeOutboxBackoffMs,
+  evaluateChannelWindow,
+  isRetryableAdapterError,
+  type ChannelAccountMode,
+} from '../../shared/crm/channels';
+import { normalizeEndpoint, type CrmConsentDto } from '../../shared/crm/identity';
 import { evaluateEffectiveChannelConsent } from '../../shared/crm/merge';
 import {
   CRM_PROGRAMME_BY_SLUG,
@@ -45,7 +52,14 @@ import type { Env } from '../auth';
 import { sha256Hex } from '../password';
 import { createReadGate, type ReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
-import { deliverViaSimulatedAdapter, isLocalTestSimulatedMode } from './adapters/simulated';
+import { isLocalTestSimulatedMode } from './adapters/simulated';
+import { parseChannelAccountConfig } from './adapters/types';
+import {
+  dispatchAdapterSend,
+  mapTemplateRow,
+  resolveChannelAccountForSend,
+  type TemplateRow,
+} from './channels';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
 import { mapFactRow, type FactRow } from './facts';
 import {
@@ -84,6 +98,9 @@ interface ConvRow {
   state: ConversationState;
   assignee_id: string | null;
   window_expires_at: number | null;
+  human_agent_window_expires_at?: number | null;
+  last_rfc_message_id?: string | null;
+  email_subject_norm?: string | null;
   last_message_at: number;
   last_inbound_at: number | null;
   last_outbound_at: number | null;
@@ -97,7 +114,7 @@ interface MsgRow {
   id: string;
   conversation_id: string;
   direction: 'inbound' | 'outbound' | 'note';
-  status: 'received' | 'draft' | 'queued' | 'sending' | 'sent' | 'delivered' | 'failed' | 'note';
+  status: 'received' | 'draft' | 'queued' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'review_required' | 'cancelled' | 'note';
   channel: string;
   sender_endpoint: string | null;
   recipient_endpoint: string | null;
@@ -105,11 +122,18 @@ interface MsgRow {
   author_name?: string | null;
   body_text: string;
   external_message_id: string | null;
+  rfc_message_id?: string | null;
+  in_reply_to?: string | null;
+  references_json?: string | null;
   template_id: string | null;
+  template_params_json?: string | null;
+  message_tag?: string | null;
   ai_metadata_json: string | null;
   error_code: string | null;
   error_detail: string | null;
   sent_at: number | null;
+  delivered_at?: number | null;
+  read_at?: number | null;
   created_at: number;
   updated_at?: number;
 }
@@ -235,6 +259,7 @@ function windowOrApprovedTemplateFence(
   convId: string,
   channel: string,
   templateId: string | null,
+  allowHumanAgentTag: boolean,
   now: number,
 ): D1PreparedStatement {
   return db
@@ -245,13 +270,20 @@ function windowOrApprovedTemplateFence(
            WHERE id = ? AND window_expires_at IS NOT NULL AND window_expires_at > ?
          )
          OR (
+           ? = 1 AND EXISTS (
+             SELECT 1 FROM crm_conversations
+             WHERE id = ? AND channel IN ('instagram', 'facebook')
+               AND human_agent_window_expires_at IS NOT NULL AND human_agent_window_expires_at > ?
+           )
+         )
+         OR (
            ? IS NOT NULL AND EXISTS (
              SELECT 1 FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'
            )
          )
        ) THEN 1 ELSE json_extract('{', '$') END`,
     )
-    .bind(convId, now, templateId, templateId, channel);
+    .bind(convId, now, allowHumanAgentTag ? 1 : 0, convId, now, templateId, templateId, channel);
 }
 
 function changesOneFence(db: D1Database): D1PreparedStatement {
@@ -274,12 +306,21 @@ async function assertConversationTargetsReadable(
 
 function mapConvRow(
   r: ConvRow,
-  extras?: { personName?: string | null; assigneeName?: string | null; now?: number },
+  extras?: { personName?: string | null; assigneeName?: string | null; humanAgentApproved?: boolean; now?: number },
 ): CrmConversationDto {
   const now = extras?.now ?? Date.now();
+  const win = evaluateChannelWindow({
+    channel: r.channel,
+    windowExpiresAt: r.window_expires_at,
+    humanAgentWindowExpiresAt: r.human_agent_window_expires_at ?? null,
+    humanAgentApproved: extras?.humanAgentApproved ?? false,
+    via: 'ui',
+    now,
+  });
   return {
     id: r.id,
     channel: r.channel,
+    channelAccountId: r.channel_account_id ?? null,
     externalThreadId: r.external_thread_id,
     personId: r.person_id,
     personName: extras?.personName ?? null,
@@ -290,7 +331,10 @@ function mapConvRow(
     assigneeId: r.assignee_id,
     assigneeName: extras?.assigneeName ?? null,
     windowExpiresAt: r.window_expires_at,
-    windowOpen: isChannelWindowOpen(r.channel, r.window_expires_at, now),
+    windowOpen: win.open,
+    humanAgentWindowExpiresAt: r.human_agent_window_expires_at ?? null,
+    humanAgentEligible: win.humanAgentEligible,
+    requiresTemplate: win.requiresTemplate,
     lastMessageAt: r.last_message_at,
     lastInboundAt: r.last_inbound_at,
     lastOutboundAt: r.last_outbound_at,
@@ -329,10 +373,16 @@ function mapMsgRow(r: MsgRow): CrmMessageDto {
     authorUserId: r.author_user_id,
     authorName: r.author_name ?? null,
     bodyText: r.body_text,
+    rfcMessageId: r.rfc_message_id ?? null,
+    inReplyTo: r.in_reply_to ?? null,
+    templateId: r.template_id ?? null,
+    messageTag: r.message_tag ?? null,
     aiMetadata,
     errorCode: r.error_code,
     errorDetail: r.error_detail,
     sentAt: r.sent_at,
+    deliveredAt: r.delivered_at ?? null,
+    readAt: r.read_at ?? null,
     createdAt: r.created_at,
   };
 }
@@ -341,6 +391,7 @@ async function loadConsentAndEndpointsForPerson(
   db: D1Database,
   personId: string | null,
   channel: ConversationChannel,
+  scope: CrmConsentDto['scope'] = 'transactional',
 ): Promise<{
   withdrawn: boolean;
   consentStatus: 'granted' | 'withdrawn' | 'unrecorded';
@@ -389,7 +440,7 @@ async function loadConsentAndEndpointsForPerson(
   }));
   const evalChannel: 'email' | 'whatsapp' | 'instagram' | 'facebook' | 'any' =
     isDigitalSendChannel(channel) ? channel : 'any';
-  const effective = evaluateEffectiveChannelConsent(personId, consDtos, aliases, evalChannel, 'transactional');
+  const effective = evaluateEffectiveChannelConsent(personId, consDtos, aliases, evalChannel, scope);
 
   const eps = epRes.results as unknown as { id: string; value_norm: string; is_primary: number }[];
   return {
@@ -625,6 +676,8 @@ function simulateInboundCommand(): CommandDefinition<
       const evId = `in_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
       const payloadHash = await sha256Hex(JSON.stringify(input));
       const windowExpires = input.channel === 'email' ? null : now + MESSAGING_WINDOW_MS;
+      const humanAgentExpires =
+        input.channel === 'instagram' || input.channel === 'facebook' ? now + HUMAN_AGENT_WINDOW_MS : null;
 
       const rows: D1PreparedStatement[] = [];
       if (targetConv) {
@@ -634,20 +687,21 @@ function simulateInboundCommand(): CommandDefinition<
               `UPDATE crm_conversations
                SET person_id = COALESCE(person_id, ?),
                    window_expires_at = COALESCE(?, window_expires_at),
+                   human_agent_window_expires_at = COALESCE(?, human_agent_window_expires_at),
                    last_message_at = ?, last_inbound_at = ?, unread_count = unread_count + 1,
                    state = CASE WHEN state = 'closed' THEN 'open' ELSE state END,
                    rev = rev + 1, updated_at = ?
                WHERE id = ?`,
             )
-            .bind(personId, windowExpires, now, now, now, targetConv.id),
+            .bind(personId, windowExpires, humanAgentExpires, now, now, now, targetConv.id),
         );
       } else {
         rows.push(
           env.DB
             .prepare(
               `INSERT INTO crm_conversations
-                 (id, channel, channel_account_id, external_thread_id, person_id, organisation_id, programme_slug, application_id, subject, state, assignee_id, window_expires_at, last_message_at, last_inbound_at, last_outbound_at, unread_count, rev, created_at, updated_at)
-               VALUES (?, ?, NULL, ?, ?, NULL, ?, NULL, ?, 'open', NULL, ?, ?, ?, NULL, 1, 1, ?, ?)`,
+                 (id, channel, channel_account_id, external_thread_id, person_id, organisation_id, programme_slug, application_id, subject, state, assignee_id, window_expires_at, human_agent_window_expires_at, last_message_at, last_inbound_at, last_outbound_at, unread_count, rev, created_at, updated_at)
+               VALUES (?, ?, NULL, ?, ?, NULL, ?, NULL, ?, 'open', NULL, ?, ?, ?, ?, NULL, 1, 1, ?, ?)`,
             )
             .bind(
               convId,
@@ -657,6 +711,7 @@ function simulateInboundCommand(): CommandDefinition<
               input.programmeSlug ?? null,
               input.subject?.trim() || `Inbound ${input.channel} from ${input.fromValue}`,
               windowExpires,
+              humanAgentExpires,
               now,
               now,
               now,
@@ -1085,14 +1140,15 @@ async function classifyMessageFenceAbort(
   env: Env,
   convId: string,
   templateId: string | null,
+  purpose: CrmConsentDto['scope'] = 'transactional',
   now = Date.now(),
 ) {
   const conv = await env.DB
-    .prepare(`SELECT id, channel, person_id, window_expires_at FROM crm_conversations WHERE id = ?`)
+    .prepare(`SELECT id, channel, channel_account_id, person_id, window_expires_at, human_agent_window_expires_at FROM crm_conversations WHERE id = ?`)
     .bind(convId)
-    .first<Pick<ConvRow, 'id' | 'channel' | 'person_id' | 'window_expires_at'>>();
+    .first<Pick<ConvRow, 'id' | 'channel' | 'channel_account_id' | 'person_id' | 'window_expires_at' | 'human_agent_window_expires_at'>>();
   if (!conv) return { ok: false as const, error: 'not_found' as const, retryable: false };
-  const { withdrawn, primaryEndpointId } = await loadConsentAndEndpointsForPerson(env.DB, conv.person_id, conv.channel);
+  const { withdrawn, primaryEndpointId } = await loadConsentAndEndpointsForPerson(env.DB, conv.person_id, conv.channel, purpose);
   if (withdrawn) return { ok: false as const, error: 'consent_withdrawn' as const, retryable: false };
   if (conv.person_id && !primaryEndpointId) {
     return {
@@ -1102,7 +1158,19 @@ async function classifyMessageFenceAbort(
       retryable: false,
     };
   }
-  if (!isChannelWindowOpen(conv.channel, conv.window_expires_at, now)) {
+  const account = isDigitalSendChannel(conv.channel)
+    ? await resolveChannelAccountForSend(env.DB, conv.channel, conv.channel_account_id)
+    : null;
+  const cfg = parseChannelAccountConfig(account?.config_json);
+  const win = evaluateChannelWindow({
+    channel: conv.channel,
+    windowExpiresAt: conv.window_expires_at,
+    humanAgentWindowExpiresAt: conv.human_agent_window_expires_at ?? null,
+    humanAgentApproved: Boolean(cfg.humanAgentApproved),
+    via: 'ui',
+    now,
+  });
+  if (!win.open) {
     if (!templateId) return { ok: false as const, error: 'window_closed' as const, retryable: false };
     const tpl = await env.DB
       .prepare(`SELECT id FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'`)
@@ -1130,7 +1198,7 @@ function sendMessageCommand(): CommandDefinition<
     authorizeReplay: async (actor, input, _stored, { env, via }) =>
       authorizeDigitalMessageReplay(actor, input.conversationId, env, via),
     classifyFenceError: async ({ env, input }) =>
-      classifyMessageFenceAbort(env, input.conversationId, input.templateId ?? null),
+      classifyMessageFenceAbort(env, input.conversationId, input.templateId ?? null, input.purpose ?? 'transactional'),
     plan: async ({ env, actor, tokenHash, input, expected, requestId, now }) => {
       const conv = await env.DB.prepare(`SELECT * FROM crm_conversations WHERE id = ?`).bind(input.conversationId).first<ConvRow>();
       if (!conv) return { kind: 'refuse', error: 'not_found' };
@@ -1152,6 +1220,7 @@ function sendMessageCommand(): CommandDefinition<
         return { kind: 'refuse', error: 'forbidden' };
       }
 
+      const purpose = input.purpose ?? 'transactional';
       let existingMsg: MsgRow | null = null;
       if (input.messageId) {
         existingMsg = await env.DB
@@ -1184,6 +1253,7 @@ function sendMessageCommand(): CommandDefinition<
         env.DB,
         conv.person_id,
         conv.channel,
+        purpose,
       );
       if (withdrawn) {
         return { kind: 'refuse', error: 'consent_withdrawn' };
@@ -1192,46 +1262,141 @@ function sendMessageCommand(): CommandDefinition<
         return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'no_active_endpoint' } };
       }
 
-      if (!isChannelWindowOpen(conv.channel, conv.window_expires_at, now)) {
-        if (!input.templateId) {
-          return { kind: 'refuse', error: 'window_closed' };
-        }
-        const tpl = await env.DB
-          .prepare(`SELECT id FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'`)
-          .bind(input.templateId, conv.channel)
-          .first();
-        if (!tpl) {
+      const account = await resolveChannelAccountForSend(env.DB, conv.channel, conv.channel_account_id);
+      const accountConfig = parseChannelAccountConfig(account?.config_json);
+      if (!account && !isLocalTestSimulatedMode(env)) {
+        return { kind: 'refuse', error: 'provider_unavailable', detail: { reason: 'channel_account_not_configured' } };
+      }
+      if (account && (account.mode === 'disabled' || account.active !== 1)) {
+        return { kind: 'refuse', error: 'provider_unavailable', detail: { reason: 'channel_account_disabled' } };
+      }
+      if (account && account.mode === 'simulated' && !isLocalTestSimulatedMode(env)) {
+        return { kind: 'refuse', error: 'provider_unavailable', detail: { reason: 'simulated_transport_requires_local_test' } };
+      }
+
+      const win = evaluateChannelWindow({
+        channel: conv.channel,
+        windowExpiresAt: conv.window_expires_at,
+        humanAgentWindowExpiresAt: conv.human_agent_window_expires_at ?? null,
+        humanAgentApproved: Boolean(accountConfig.humanAgentApproved),
+        via: 'ui',
+        now,
+      });
+
+      let approvedTpl: TemplateRow | null = null;
+      if (input.templateId) {
+        approvedTpl =
+          (await env.DB
+            .prepare(`SELECT * FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'`)
+            .bind(input.templateId, conv.channel)
+            .first<TemplateRow>()) ?? null;
+      }
+
+      if (!win.open) {
+        if (!approvedTpl) {
           return { kind: 'refuse', error: 'window_closed' };
         }
       }
+
+      const messageTag: 'HUMAN_AGENT' | null =
+        (win.requiresHumanAgentTag || (input.useHumanAgentTag && win.humanAgentEligible)) ? 'HUMAN_AGENT' : null;
+      const inReplyTo = conv.channel === 'email' ? (conv.last_rfc_message_id ?? null) : null;
+      const refsArr = conv.channel === 'email' && inReplyTo ? buildRfcReferences([], inReplyTo) : [];
+      const refsJson = refsArr.length > 0 ? JSON.stringify(refsArr) : null;
+      const tplParamsJson = input.templateParams?.length ? JSON.stringify(input.templateParams) : null;
 
       const msgId = existingMsg?.id ?? `msg_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
-      const delivery = deliverViaSimulatedAdapter(env, {
-        channel: conv.channel,
-        messageId: msgId,
-        recipientEndpoint: primaryEndpoint,
-      }, now);
-      if (!delivery.ok) {
-        return { kind: 'refuse', error: 'provider_unavailable', detail: { reason: delivery.detail } };
+      const outboxId = `ob_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+
+      let msgStatus: MsgRow['status'] = 'queued';
+      let outboxStatus: 'queued' | 'sent' | 'failed' | 'review_required' = 'queued';
+      let receiptId = 'queued';
+      let rfcMessageId: string | null = null;
+      let errCode: string | null = null;
+      let errDetail: string | null = null;
+      let nextAttemptAt: number | null = now;
+      let attempts = 0;
+
+      if (input.deliveryMode !== 'queued') {
+        const delivery = await dispatchAdapterSend(env, {
+          account,
+          config: accountConfig,
+          channel: conv.channel,
+          messageId: msgId,
+          conversationId: conv.id,
+          subject: conv.subject,
+          recipientEndpoint: primaryEndpoint ?? conv.external_thread_id ?? 'unmatched@local.invalid',
+          bodyText: input.bodyText,
+          idempotencyKey: requestId,
+          inReplyTo,
+          references: refsArr,
+          template: approvedTpl
+            ? {
+                id: approvedTpl.id,
+                name: approvedTpl.name,
+                language: approvedTpl.language,
+                providerTemplateId: approvedTpl.provider_template_id,
+                params: input.templateParams ?? [],
+              }
+            : null,
+          messageTag,
+          now,
+        });
+
+        attempts = 1;
+        if ('unknown' in delivery) {
+          msgStatus = 'review_required';
+          outboxStatus = 'review_required';
+          receiptId = 'review_required';
+          errCode = 'unknown';
+          errDetail = delivery.detail;
+          nextAttemptAt = null;
+        } else if (delivery.ok) {
+          msgStatus = 'sent';
+          outboxStatus = 'sent';
+          receiptId = delivery.externalId;
+          rfcMessageId = delivery.rfcMessageId ?? null;
+          nextAttemptAt = null;
+        } else if (isRetryableAdapterError(delivery.errorClass)) {
+          msgStatus = 'queued';
+          outboxStatus = 'queued';
+          receiptId = 'queued';
+          errCode = delivery.errorClass;
+          errDetail = delivery.detail;
+          nextAttemptAt = now + computeOutboxBackoffMs(1);
+        } else if (delivery.errorClass === 'auth') {
+          return { kind: 'refuse', error: 'provider_unavailable', detail: { reason: delivery.detail } };
+        } else {
+          msgStatus = 'failed';
+          outboxStatus = 'failed';
+          receiptId = 'failed';
+          errCode = delivery.errorClass;
+          errDetail = delivery.detail;
+          nextAttemptAt = null;
+        }
       }
 
-      const outboxId = `ob_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
       const msgRow: MsgRow = {
         id: msgId,
         conversation_id: conv.id,
         direction: 'outbound',
-        status: 'sent',
+        status: msgStatus,
         channel: conv.channel,
-        sender_endpoint: null,
+        sender_endpoint: account?.external_id ?? null,
         recipient_endpoint: primaryEndpoint,
         author_user_id: actor.id,
         body_text: input.bodyText,
-        external_message_id: delivery.receiptId,
-        template_id: input.templateId ?? null,
+        external_message_id: msgStatus === 'sent' ? receiptId : null,
+        rfc_message_id: rfcMessageId,
+        in_reply_to: inReplyTo,
+        references_json: refsJson,
+        template_id: approvedTpl?.id ?? input.templateId ?? null,
+        template_params_json: tplParamsJson,
+        message_tag: messageTag,
         ai_metadata_json: existingMsg?.ai_metadata_json ?? null,
-        error_code: null,
-        error_detail: null,
-        sent_at: now,
+        error_code: errCode,
+        error_detail: errDetail,
+        sent_at: msgStatus === 'sent' ? now : null,
         created_at: existingMsg?.created_at ?? now,
       };
 
@@ -1242,18 +1407,29 @@ function sendMessageCommand(): CommandDefinition<
           env.DB
             .prepare(
               `UPDATE crm_messages
-               SET status = 'sent', body_text = ?, recipient_endpoint = ?, author_user_id = ?,
-                   external_message_id = ?, template_id = ?, sent_at = ?, updated_at = ?, error_code = NULL, error_detail = NULL
+               SET status = ?, body_text = ?, sender_endpoint = ?, recipient_endpoint = ?, author_user_id = ?,
+                   external_message_id = ?, rfc_message_id = ?, in_reply_to = ?, references_json = ?,
+                   template_id = ?, template_params_json = ?, message_tag = ?,
+                   sent_at = ?, updated_at = ?, error_code = ?, error_detail = ?
                WHERE id = ? AND conversation_id = ? AND direction = 'outbound' AND status = 'draft' AND updated_at = ?`,
             )
             .bind(
+              msgRow.status,
               input.bodyText,
+              msgRow.sender_endpoint,
               primaryEndpoint,
               actor.id,
-              delivery.receiptId,
-              input.templateId ?? null,
+              msgRow.external_message_id,
+              rfcMessageId,
+              inReplyTo,
+              refsJson,
+              msgRow.template_id,
+              tplParamsJson,
+              messageTag,
+              msgRow.sent_at,
               now,
-              now,
+              errCode,
+              errDetail,
               msgId,
               conv.id,
               expectedMsgUpdatedAt,
@@ -1265,27 +1441,68 @@ function sendMessageCommand(): CommandDefinition<
           env.DB
             .prepare(
               `INSERT INTO crm_messages
-                 (id, conversation_id, direction, status, channel, sender_endpoint, recipient_endpoint, author_user_id, body_text, body_html_sanitized, external_message_id, template_id, ai_metadata_json, error_code, error_detail, sent_at, created_at, updated_at)
-               VALUES (?, ?, 'outbound', 'sent', ?, NULL, ?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, ?, ?, ?)`,
+                 (id, conversation_id, direction, status, channel, sender_endpoint, recipient_endpoint, author_user_id, body_text, body_html_sanitized, external_message_id, rfc_message_id, in_reply_to, references_json, template_id, template_params_json, message_tag, ai_metadata_json, error_code, error_detail, sent_at, delivered_at, read_at, created_at, updated_at)
+               VALUES (?, ?, 'outbound', ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?)`,
             )
-            .bind(msgId, conv.id, conv.channel, primaryEndpoint, actor.id, input.bodyText, delivery.receiptId, input.templateId ?? null, now, now, now),
+            .bind(
+              msgId,
+              conv.id,
+              msgRow.status,
+              conv.channel,
+              msgRow.sender_endpoint,
+              primaryEndpoint,
+              actor.id,
+              input.bodyText,
+              msgRow.external_message_id,
+              rfcMessageId,
+              inReplyTo,
+              refsJson,
+              msgRow.template_id,
+              tplParamsJson,
+              messageTag,
+              errCode,
+              errDetail,
+              msgRow.sent_at,
+              now,
+              now,
+            ),
         );
       }
       rows.push(
         env.DB
           .prepare(
             `INSERT INTO crm_outbox
-               (id, message_id, conversation_id, channel_account_id, actor_id, request_id, status, attempts, max_attempts, next_attempt_at, last_error, provider_receipt, created_at, updated_at)
-             VALUES (?, ?, ?, NULL, ?, ?, 'sent', 1, 3, NULL, NULL, ?, ?, ?)`,
+               (id, message_id, conversation_id, channel_account_id, actor_id, request_id, status, purpose, attempts, max_attempts, next_attempt_at, lease_until, last_error_class, last_error, provider_receipt, idempotency_key, resolution_note, resolved_by, resolved_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 3, ?, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`,
           )
-          .bind(outboxId, msgId, conv.id, actor.id, requestId, delivery.receiptId, now, now),
+          .bind(
+            outboxId,
+            msgId,
+            conv.id,
+            account?.id ?? conv.channel_account_id ?? null,
+            actor.id,
+            requestId,
+            outboxStatus,
+            purpose,
+            attempts,
+            nextAttemptAt,
+            errCode,
+            errDetail,
+            msgStatus === 'sent' ? receiptId : null,
+            requestId,
+            now,
+            now,
+          ),
         env.DB
           .prepare(
             `UPDATE crm_conversations
-             SET last_outbound_at = ?, last_message_at = ?, unread_count = 0, rev = rev + 1, updated_at = ?
+             SET last_outbound_at = CASE WHEN ? = 'sent' THEN ? ELSE last_outbound_at END,
+                 last_message_at = ?,
+                 last_rfc_message_id = COALESCE(?, last_rfc_message_id),
+                 unread_count = 0, rev = rev + 1, updated_at = ?
              WHERE id = ? AND rev = ?`,
           )
-          .bind(now, now, now, conv.id, conv.rev),
+          .bind(msgStatus, now, now, rfcMessageId, now, conv.id, conv.rev),
         changesOneFence(env.DB),
       );
 
@@ -1299,7 +1516,7 @@ function sendMessageCommand(): CommandDefinition<
             id: person.id,
             collection: 'tasks',
             patch: {
-              [CRM_PROJECTION.lastOutboundAt]: now,
+              ...(msgStatus === 'sent' ? { [CRM_PROJECTION.lastOutboundAt]: now } : {}),
               [CRM_PROJECTION.lastContactAt]: now,
             },
             ts: now,
@@ -1316,12 +1533,21 @@ function sendMessageCommand(): CommandDefinition<
           disallowSpam: true,
         }),
         ...(conv.person_id ? [() => notArchivedAliasFence(env.DB, conv.person_id!)] : []),
-        ...(conv.person_id ? [consentNotWithdrawnFence(env.DB, conv.person_id, conv.channel)] : []),
+        ...(conv.person_id ? [consentNotWithdrawnFence(env.DB, conv.person_id, conv.channel, purpose)] : []),
         ...(conv.person_id && primaryEndpointId
           ? [activeEndpointFence(env.DB, primaryEndpointId, conv.person_id)]
           : []),
         ...(conv.channel !== 'email'
-          ? [windowOrApprovedTemplateFence(env.DB, conv.id, conv.channel, input.templateId ?? null, now)]
+          ? [
+              windowOrApprovedTemplateFence(
+                env.DB,
+                conv.id,
+                conv.channel,
+                approvedTpl?.id ?? input.templateId ?? null,
+                Boolean(accountConfig.humanAgentApproved),
+                now,
+              ),
+            ]
           : []),
         ...(existingMsg && expectedMsgUpdatedAt !== null
           ? [
@@ -1341,7 +1567,7 @@ function sendMessageCommand(): CommandDefinition<
 
       return {
         kind: 'commit',
-        result: { message: mapMsgRow(msgRow), receiptId: delivery.receiptId },
+        result: { message: mapMsgRow(msgRow), receiptId },
         fences,
         rows,
         records,
@@ -1416,23 +1642,86 @@ function retryMessageCommand(): CommandDefinition<RetryMessageInput, { messageId
         return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'no_active_endpoint' } };
       }
 
-      if (!isChannelWindowOpen(conv.channel, conv.window_expires_at, now)) {
-        if (!msg.template_id) {
-          return { kind: 'refuse', error: 'window_closed' };
-        }
-        const tpl = await env.DB
-          .prepare(`SELECT id FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'`)
-          .bind(msg.template_id, conv.channel)
-          .first();
-        if (!tpl) return { kind: 'refuse', error: 'window_closed' };
+      const account = await resolveChannelAccountForSend(env.DB, conv.channel, conv.channel_account_id);
+      const accountConfig = parseChannelAccountConfig(account?.config_json);
+      if (!account && !isLocalTestSimulatedMode(env)) {
+        return { kind: 'refuse', error: 'provider_unavailable' };
+      }
+      if (account && (account.mode === 'disabled' || account.active !== 1)) {
+        return { kind: 'refuse', error: 'provider_unavailable' };
       }
 
-      const delivery = deliverViaSimulatedAdapter(env, {
+      const win = evaluateChannelWindow({
+        channel: conv.channel,
+        windowExpiresAt: conv.window_expires_at,
+        humanAgentWindowExpiresAt: conv.human_agent_window_expires_at ?? null,
+        humanAgentApproved: Boolean(accountConfig.humanAgentApproved),
+        via: 'ui',
+        now,
+      });
+
+      let approvedTpl: TemplateRow | null = null;
+      if (msg.template_id) {
+        approvedTpl =
+          (await env.DB
+            .prepare(`SELECT * FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'`)
+            .bind(msg.template_id, conv.channel)
+            .first<TemplateRow>()) ?? null;
+      }
+      if (!win.open && !approvedTpl) {
+        return { kind: 'refuse', error: 'window_closed' };
+      }
+
+      const delivery = await dispatchAdapterSend(env, {
+        account,
+        config: accountConfig,
         channel: conv.channel,
         messageId: msg.id,
-        recipientEndpoint: primaryEndpoint,
-      }, now);
-      if (!delivery.ok) return { kind: 'refuse', error: 'provider_unavailable' };
+        conversationId: conv.id,
+        subject: conv.subject,
+        recipientEndpoint: primaryEndpoint ?? msg.recipient_endpoint ?? 'unmatched@local.invalid',
+        bodyText: msg.body_text,
+        idempotencyKey: requestId,
+        inReplyTo: msg.in_reply_to ?? conv.last_rfc_message_id ?? null,
+        references: [],
+        template: approvedTpl
+          ? {
+              id: approvedTpl.id,
+              name: approvedTpl.name,
+              language: approvedTpl.language,
+              providerTemplateId: approvedTpl.provider_template_id,
+              params: [],
+            }
+          : null,
+        messageTag: msg.message_tag === 'HUMAN_AGENT' || win.requiresHumanAgentTag ? 'HUMAN_AGENT' : null,
+        now,
+      });
+
+      let nextStatus: 'sent' | 'queued' | 'failed' | 'review_required' = 'sent';
+      let receiptId = '';
+      let rfcMessageId: string | null = null;
+      let errCode: string | null = null;
+      let errDetail: string | null = null;
+      let nextAttemptAt: number | null = null;
+
+      if ('unknown' in delivery) {
+        nextStatus = 'review_required';
+        receiptId = 'review_required';
+        errCode = 'unknown';
+        errDetail = delivery.detail;
+      } else if (delivery.ok) {
+        nextStatus = 'sent';
+        receiptId = delivery.externalId;
+        rfcMessageId = delivery.rfcMessageId ?? null;
+      } else if (isRetryableAdapterError(delivery.errorClass)) {
+        nextStatus = 'queued';
+        receiptId = 'queued';
+        errCode = delivery.errorClass;
+        errDetail = delivery.detail;
+        nextAttemptAt = now + computeOutboxBackoffMs(1);
+      } else {
+        return { kind: 'refuse', error: 'provider_unavailable', detail: { reason: delivery.detail } };
+      }
 
       const expectedMsgUpdatedAt = msg.updated_at ?? msg.created_at;
       const outboxId = `ob_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
@@ -1447,7 +1736,7 @@ function retryMessageCommand(): CommandDefinition<RetryMessageInput, { messageId
             id: person.id,
             collection: 'tasks',
             patch: {
-              [CRM_PROJECTION.lastOutboundAt]: now,
+              ...(nextStatus === 'sent' ? { [CRM_PROJECTION.lastOutboundAt]: now } : {}),
               [CRM_PROJECTION.lastContactAt]: now,
             },
             ts: now,
@@ -1458,7 +1747,7 @@ function retryMessageCommand(): CommandDefinition<RetryMessageInput, { messageId
 
       return {
         kind: 'commit',
-        result: { messageId: msg.id, receiptId: delivery.receiptId },
+        result: { messageId: msg.id, receiptId },
         fences: [
           () => crmActorFence(env.DB, actor, tokenHash, sendCap, '*'),
           convRevFence(env.DB, conv.id, conv.rev, {
@@ -1472,7 +1761,16 @@ function retryMessageCommand(): CommandDefinition<RetryMessageInput, { messageId
             ? [activeEndpointFence(env.DB, primaryEndpointId, conv.person_id)]
             : []),
           ...(conv.channel !== 'email'
-            ? [windowOrApprovedTemplateFence(env.DB, conv.id, conv.channel, msg.template_id, now)]
+            ? [
+                windowOrApprovedTemplateFence(
+                  env.DB,
+                  conv.id,
+                  conv.channel,
+                  approvedTpl?.id ?? msg.template_id,
+                  Boolean(accountConfig.humanAgentApproved),
+                  now,
+                ),
+              ]
             : []),
           env.DB
             .prepare(
@@ -1481,7 +1779,7 @@ function retryMessageCommand(): CommandDefinition<RetryMessageInput, { messageId
                  WHERE id = ? AND conversation_id = ? AND direction = 'outbound'
                    AND status IN ('failed', 'draft') AND updated_at = ?
                ) AND NOT EXISTS (
-                 SELECT 1 FROM crm_outbox WHERE message_id = ? AND status IN ('queued', 'sending', 'sent')
+                 SELECT 1 FROM crm_outbox WHERE message_id = ? AND status IN ('queued', 'sending', 'sent', 'review_required')
                ) THEN 1 ELSE json_extract('{', '$') END`,
             )
             .bind(msg.id, conv.id, expectedMsgUpdatedAt, msg.id),
@@ -1490,25 +1788,64 @@ function retryMessageCommand(): CommandDefinition<RetryMessageInput, { messageId
           env.DB
             .prepare(
               `UPDATE crm_messages
-               SET status = 'sent', recipient_endpoint = ?, external_message_id = ?, sent_at = ?, error_code = NULL, error_detail = NULL, updated_at = ?
+               SET status = ?, recipient_endpoint = ?, external_message_id = ?, rfc_message_id = COALESCE(?, rfc_message_id),
+                   sent_at = CASE WHEN ? = 'sent' THEN ? ELSE sent_at END,
+                   error_code = ?, error_detail = ?, updated_at = ?
                WHERE id = ? AND conversation_id = ? AND direction = 'outbound' AND status IN ('failed', 'draft') AND updated_at = ?`,
             )
-            .bind(primaryEndpoint, delivery.receiptId, now, now, msg.id, conv.id, expectedMsgUpdatedAt),
+            .bind(
+              nextStatus,
+              primaryEndpoint,
+              nextStatus === 'sent' ? receiptId : null,
+              rfcMessageId,
+              nextStatus,
+              now,
+              errCode,
+              errDetail,
+              now,
+              msg.id,
+              conv.id,
+              expectedMsgUpdatedAt,
+            ),
           changesOneFence(env.DB),
           env.DB
             .prepare(
               `INSERT INTO crm_outbox
-                 (id, message_id, conversation_id, channel_account_id, actor_id, request_id, status, attempts, max_attempts, next_attempt_at, last_error, provider_receipt, created_at, updated_at)
-               VALUES (?, ?, ?, NULL, ?, ?, 'sent', 1, 3, NULL, NULL, ?, ?, ?)
+                 (id, message_id, conversation_id, channel_account_id, actor_id, request_id, status, purpose, attempts, max_attempts, next_attempt_at, lease_until, last_error_class, last_error, provider_receipt, idempotency_key, resolution_note, resolved_by, resolved_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'transactional', 1, 3, ?, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)
                ON CONFLICT(message_id) DO UPDATE SET
-                 status = 'sent', attempts = attempts + 1, actor_id = excluded.actor_id, request_id = excluded.request_id, provider_receipt = excluded.provider_receipt, last_error = NULL, updated_at = excluded.updated_at
+                 status = excluded.status, attempts = attempts + 1, actor_id = excluded.actor_id, request_id = excluded.request_id,
+                 next_attempt_at = excluded.next_attempt_at, lease_until = NULL, last_error_class = excluded.last_error_class,
+                 last_error = excluded.last_error, provider_receipt = COALESCE(excluded.provider_receipt, crm_outbox.provider_receipt),
+                 updated_at = excluded.updated_at
                WHERE crm_outbox.status = 'failed'`,
             )
-            .bind(outboxId, msg.id, conv.id, actor.id, requestId, delivery.receiptId, now, now),
+            .bind(
+              outboxId,
+              msg.id,
+              conv.id,
+              account?.id ?? conv.channel_account_id ?? null,
+              actor.id,
+              requestId,
+              nextStatus,
+              nextAttemptAt,
+              errCode,
+              errDetail,
+              nextStatus === 'sent' ? receiptId : null,
+              requestId,
+              now,
+              now,
+            ),
           changesOneFence(env.DB),
           env.DB
-            .prepare(`UPDATE crm_conversations SET last_outbound_at = ?, last_message_at = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`)
-            .bind(now, now, now, conv.id, conv.rev),
+            .prepare(
+              `UPDATE crm_conversations
+               SET last_outbound_at = CASE WHEN ? = 'sent' THEN ? ELSE last_outbound_at END,
+                   last_message_at = ?, last_rfc_message_id = COALESCE(?, last_rfc_message_id),
+                   rev = rev + 1, updated_at = ?
+               WHERE id = ? AND rev = ?`,
+            )
+            .bind(nextStatus, now, now, rfcMessageId, now, conv.id, conv.rev),
           changesOneFence(env.DB),
         ],
         records,
@@ -1822,7 +2159,7 @@ export async function readConversationDetail(
     : null;
 
   const now = Date.now();
-  const [msgsRes, factsRes, epRes, consentInfo, assigneeRow] = await Promise.all([
+  const [msgsRes, factsRes, epRes, consentInfo, assigneeRow, tplRes, channelAcc] = await Promise.all([
     env.DB
       .prepare(
         `SELECT m.*, u.name AS author_name
@@ -1852,6 +2189,15 @@ export async function readConversationDetail(
     conv.assignee_id
       ? env.DB.prepare(`SELECT name FROM users WHERE id = ?`).bind(conv.assignee_id).first<{ name: string }>()
       : Promise.resolve(null),
+    isDigitalSendChannel(conv.channel)
+      ? env.DB
+          .prepare(`SELECT * FROM crm_templates WHERE channel = ? AND status = 'approved' ORDER BY name ASC LIMIT 50`)
+          .bind(conv.channel)
+          .all<TemplateRow>()
+      : Promise.resolve({ results: [] as TemplateRow[] }),
+    isDigitalSendChannel(conv.channel)
+      ? resolveChannelAccountForSend(env.DB, conv.channel, conv.channel_account_id)
+      : Promise.resolve(null),
   ]);
 
   const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate, deniedStatus: 404 });
@@ -1867,10 +2213,20 @@ export async function readConversationDetail(
   const mappedFacts = factsRes.results.map((r) => mapFactRow(r, now));
   const verifiedFacts = mappedFacts.filter((f) => !f.isStale);
   const staleFacts = mappedFacts.filter((f) => f.isStale);
+  const channelAccountCfg = parseChannelAccountConfig(channelAcc?.config_json);
+  const channelAccountMode: ChannelAccountMode =
+    channelAcc?.active === 1
+      ? channelAcc.mode
+      : isLocalTestSimulatedMode(env)
+        ? 'simulated'
+        : 'disabled';
+  const transportReady =
+    channelAccountMode === 'production' ||
+    (channelAccountMode === 'simulated' && isLocalTestSimulatedMode(env));
   const canSend =
     isDigitalSendChannel(conv.channel) &&
     evaluateCapability(finalAuth.actor, sendCapabilityForChannel(conv.channel), '*') &&
-    isLocalTestSimulatedMode(env);
+    transportReady;
 
   return {
     status: 200,
@@ -1878,6 +2234,7 @@ export async function readConversationDetail(
       conversation: mapConvRow(conv, {
         personName,
         assigneeName: assigneeRow?.name ?? null,
+        humanAgentApproved: Boolean(channelAccountCfg.humanAgentApproved),
         now,
       }),
       messages: msgsRes.results.map(mapMsgRow),
@@ -1885,6 +2242,8 @@ export async function readConversationDetail(
       consentStatus: consentInfo.consentStatus,
       verifiedFacts,
       staleFacts,
+      approvedTemplates: tplRes.results.map(mapTemplateRow),
+      channelAccountMode,
       canSend,
       simulatedMode: isLocalTestSimulatedMode(env),
     },

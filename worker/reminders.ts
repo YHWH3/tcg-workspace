@@ -334,6 +334,11 @@ export async function runScheduled(env: { DB: D1Database }, scheduledTime = Date
         ? [()=>sendPushNotifications(env),()=>sendNotificationEmails(env)]
         : [()=>sendNotificationEmails(env),()=>sendPushNotifications(env)];
       for(const channel of channels)await channel();
+      const {isCrmEnabled}=await import('./crm/rules');
+      if(isCrmEnabled(env as Env)&&hasD1Budget(env.DB,10)){
+        const {runCrmScheduledSweep}=await import('./crm/channels');
+        await runCrmScheduledSweep(env as Env,Date.now());
+      }
     }},
   ];
   // Each scheduled invocation has its own budget. Rotate the first phase

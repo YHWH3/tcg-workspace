@@ -27,6 +27,11 @@ import {
   readTimeline,
 } from './applications';
 import {
+  createP3ChannelCommandDefs,
+  readChannelsOverview,
+  readTemplates,
+} from './channels';
+import {
   createS4ConversationCommandDefs,
   readConversationDetail,
   readConversations,
@@ -45,6 +50,7 @@ export function createS0CommandRegistry(): CommandRegistry {
     ...createS2ApplicationCommandDefs(),
     ...createS4FactCommandDefs(),
     ...createS4ConversationCommandDefs(),
+    ...createP3ChannelCommandDefs(),
     ...createS9PipelineCommandDefs(),
   ]);
 }
@@ -185,6 +191,22 @@ crmApi.get('/read/conversations', async (c) => {
 crmApi.get('/read/conversation/:id', async (c) => {
   const user = c.get('user');
   const outcome = await readConversationDetail(c.env, user.id, user.tokenHash, c.req.param('id')!);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/channels', async (c) => {
+  const user = c.get('user');
+  const outcome = await readChannelsOverview(c.env, user.id, user.tokenHash);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/templates', async (c) => {
+  const user = c.get('user');
+  const url = new URL(c.req.url);
+  const outcome = await readTemplates(c.env, user.id, user.tokenHash, {
+    channel: url.searchParams.get('channel'),
+    status: url.searchParams.get('status'),
+  });
   return c.json(outcome.body, outcome.status);
 });
 
