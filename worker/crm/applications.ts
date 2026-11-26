@@ -24,7 +24,7 @@ import { createReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
 import { readWorkspaceSettings } from '../workspaceSettings';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
-import { resolveCanonicalPersonId } from './merge';
+import { assertNotArchivedAlias, notArchivedAliasFence, resolveCanonicalPersonId } from './merge';
 import {
   actorGrantsStmt,
   crmActorFence,
@@ -190,6 +190,14 @@ function createApplicationFromSubmissionCommand(): CommandDefinition<
       if (input.personId) {
         const explicitPerson = await loadReadableTaskRecord(env, actor.id, input.personId);
         if (!explicitPerson) return { kind: 'refuse', error: 'not_found' };
+        const aliasState = await assertNotArchivedAlias(env.DB, explicitPerson);
+        if (aliasState.archived) {
+          return {
+            kind: 'refuse',
+            error: 'invalid_input',
+            detail: { reason: 'person_merged_or_archived', mergedInto: aliasState.mergedInto },
+          };
+        }
         matchedPersonId = explicitPerson.id;
       } else if (emailNorm) {
         const epMatch = await env.DB
@@ -203,7 +211,9 @@ function createApplicationFromSubmissionCommand(): CommandDefinition<
         if (epMatch) {
           const { canonicalId } = await resolveCanonicalPersonId(env.DB, epMatch.person_id);
           const readablePerson = await loadReadableTaskRecord(env, actor.id, canonicalId);
-          if (readablePerson) matchedPersonId = readablePerson.id;
+          if (readablePerson && !(await assertNotArchivedAlias(env.DB, readablePerson)).archived) {
+            matchedPersonId = readablePerson.id;
+          }
         }
       }
 
@@ -332,7 +342,10 @@ function createApplicationFromSubmissionCommand(): CommandDefinition<
           personId: matchedPersonId,
           programmeSlug,
         },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash),
+          ...(matchedPersonId ? [() => notArchivedAliasFence(env.DB, matchedPersonId)] : []),
+        ],
         records,
         recordExpect: new Map([[submission.id, submission.seq]]),
       };
@@ -414,6 +427,9 @@ function convertApplicationCommand(): CommandDefinition<
         if (!ld) continue;
         if (ld.fieldId === 'f_applicant' && typeof ld.toId === 'string') applicantId = ld.toId;
         if (ld.fieldId === 'f_programme' && typeof ld.toId === 'string') programmeRecordId = ld.toId;
+      }
+      if (applicantId) {
+        applicantId = (await resolveCanonicalPersonId(env.DB, applicantId)).canonicalId;
       }
 
       const prefix =

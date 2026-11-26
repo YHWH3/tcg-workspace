@@ -33,7 +33,7 @@ import {
   type SimulateInboundInput,
 } from '../../shared/crm/conversations';
 import { normalizeEndpoint } from '../../shared/crm/identity';
-import { resolveEffectiveConsentsWithAliases } from '../../shared/crm/merge';
+import { evaluateEffectiveChannelConsent } from '../../shared/crm/merge';
 import {
   CRM_PROGRAMME_BY_SLUG,
   ProgrammeProfileV1Schema,
@@ -48,7 +48,13 @@ import { pokeLive } from '../sync';
 import { deliverViaSimulatedAdapter, isLocalTestSimulatedMode } from './adapters/simulated';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
 import { mapFactRow, type FactRow } from './facts';
-import { loadAliasesForSurvivor, resolveCanonicalPersonId } from './merge';
+import {
+  assertNotArchivedAlias,
+  latestConsentRowsPerTupleStmt,
+  loadAliasesForSurvivor,
+  notArchivedAliasFence,
+  resolveCanonicalPersonId,
+} from './merge';
 import {
   actorGrantsStmt,
   crmActorFence,
@@ -151,70 +157,67 @@ function convRevFence(
     );
 }
 
-function consentNotWithdrawnFence(db: D1Database, personId: string, channel: string): D1PreparedStatement {
+export function consentNotWithdrawnFence(
+  db: D1Database,
+  personId: string,
+  channel: string,
+  scope: 'transactional' | 'updates' | 'documentation' | 'publication' = 'transactional',
+): D1PreparedStatement {
   return db
     .prepare(
-      `SELECT CASE WHEN NOT EXISTS (
-         SELECT 1 WHERE COALESCE((
-           SELECT status FROM crm_consents
-           WHERE person_id = ?1 AND channel IN (?2, 'any')
-           ORDER BY
-             CASE
-               WHEN channel = ?2 AND scope = 'transactional' THEN 0
-               WHEN channel = 'any' AND scope = 'transactional' THEN 1
-               ELSE 2
-             END ASC,
-             recorded_at DESC,
-             id DESC
-           LIMIT 1
-         ), 'unrecorded') = 'withdrawn'
-       ) AND NOT EXISTS (
-         SELECT 1 FROM crm_person_aliases a
-         WHERE a.survivor_id = ?1
-           AND COALESCE((
-             SELECT c.status FROM crm_consents c
-             WHERE c.person_id = a.alias_id AND c.channel IN (?2, 'any')
-             ORDER BY
-               CASE
-                 WHEN c.channel = ?2 AND c.scope = 'transactional' THEN 0
-                 WHEN c.channel = 'any' AND c.scope = 'transactional' THEN 1
-                 ELSE 2
-               END ASC,
-               c.recorded_at DESC,
-               c.id DESC
-             LIMIT 1
-           ), 'unrecorded') = 'withdrawn'
-           AND COALESCE((
-             SELECT c2.recorded_at FROM crm_consents c2
-             WHERE c2.person_id = ?1 AND c2.channel IN (?2, 'any')
-             ORDER BY
-               CASE
-                 WHEN c2.channel = ?2 AND c2.scope = 'transactional' THEN 0
-                 WHEN c2.channel = 'any' AND c2.scope = 'transactional' THEN 1
-                 ELSE 2
-               END ASC,
-               c2.recorded_at DESC,
-               c2.id DESC
-             LIMIT 1
-           ), -1) <= MAX(
-             a.effective_at,
-             COALESCE((
-               SELECT c3.recorded_at FROM crm_consents c3
-               WHERE c3.person_id = a.alias_id AND c3.channel IN (?2, 'any')
-               ORDER BY
-                 CASE
-                   WHEN c3.channel = ?2 AND c3.scope = 'transactional' THEN 0
-                   WHEN c3.channel = 'any' AND c3.scope = 'transactional' THEN 1
-                   ELSE 2
-                 END ASC,
-                 c3.recorded_at DESC,
-                 c3.id DESC
-               LIMIT 1
-             ), 0)
+      `WITH relevant_people(pid, eff_at, is_canon) AS (
+         SELECT ?1, 0, 1
+         UNION ALL
+         SELECT alias_id, effective_at, 0 FROM crm_person_aliases WHERE survivor_id = ?1
+       ),
+       latest_per_person AS (
+         SELECT c.person_id, c.channel, c.scope, c.status, c.recorded_at, c.id, rp.eff_at, rp.is_canon,
+           ROW_NUMBER() OVER (
+             PARTITION BY c.person_id, c.channel, c.scope
+             ORDER BY c.recorded_at DESC, c.id DESC
+           ) AS rn
+         FROM crm_consents c
+         JOIN relevant_people rp ON rp.pid = c.person_id
+         WHERE c.channel IN (?2, 'any') AND c.scope = ?3
+       ),
+       latest AS (
+         SELECT * FROM latest_per_person WHERE rn = 1
+       ),
+       canon_spec AS (
+         SELECT status, recorded_at FROM latest WHERE is_canon = 1 AND channel = ?2
+       ),
+       canon_any AS (
+         SELECT status, recorded_at FROM latest WHERE is_canon = 1 AND channel = 'any'
+       ),
+       spec_withdrawn AS (
+         SELECT 1 AS blocked FROM canon_spec WHERE status = 'withdrawn'
+         UNION ALL
+         SELECT 1 AS blocked FROM latest l
+         WHERE l.is_canon = 0 AND l.channel = ?2 AND l.status = 'withdrawn'
+           AND COALESCE((SELECT recorded_at FROM canon_spec), -1) <= MAX(l.eff_at, l.recorded_at)
+       ),
+       any_blocking_ts AS (
+         SELECT MAX(block_ts) AS ts FROM (
+           SELECT recorded_at AS block_ts FROM canon_any WHERE status = 'withdrawn'
+           UNION ALL
+           SELECT MAX(l.eff_at, l.recorded_at) AS block_ts FROM latest l
+           WHERE l.is_canon = 0 AND l.channel = 'any' AND l.status = 'withdrawn'
+             AND COALESCE((SELECT recorded_at FROM canon_any), -1) <= MAX(l.eff_at, l.recorded_at)
+         )
+       ),
+       any_withdrawn AS (
+         SELECT 1 AS blocked FROM any_blocking_ts abt
+         WHERE abt.ts IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM canon_spec cs WHERE cs.status = 'granted' AND cs.recorded_at > abt.ts
            )
-       ) THEN 1 ELSE json_extract('{', '$') END`,
+       )
+       SELECT CASE
+         WHEN NOT EXISTS (SELECT 1 FROM spec_withdrawn) AND NOT EXISTS (SELECT 1 FROM any_withdrawn)
+         THEN 1 ELSE json_extract('{', '$')
+       END`,
     )
-    .bind(personId, channel);
+    .bind(personId, channel, scope);
 }
 
 function activeEndpointFence(db: D1Database, endpointId: string, personId: string): D1PreparedStatement {
@@ -351,15 +354,7 @@ async function loadConsentAndEndpointsForPerson(
   const aliases = await loadAliasesForSurvivor(db, personId);
   const consentIds = [personId, ...aliases.keys()];
   const [consRes, epRes] = await db.batch([
-    db
-      .prepare(
-        `SELECT id, person_id, channel, scope, status, source, evidence_ref, recorded_by, recorded_at
-         FROM crm_consents
-         WHERE person_id IN (SELECT value FROM json_each(?)) AND channel IN (?, 'any')
-         ORDER BY recorded_at DESC, id DESC
-         LIMIT 100`,
-      )
-      .bind(JSON.stringify(consentIds), channel),
+    latestConsentRowsPerTupleStmt(db, consentIds),
     db
       .prepare(
         `SELECT id, value_norm, is_primary FROM crm_endpoints
@@ -392,15 +387,14 @@ async function loadConsentAndEndpointsForPerson(
     recordedBy: r.recorded_by,
     recordedAt: r.recorded_at,
   }));
-  const resolved = resolveEffectiveConsentsWithAliases(personId, consDtos, aliases);
-  const specificTrans = resolved.find((r) => r.channel === channel && r.scope === 'transactional');
-  const anyTrans = resolved.find((r) => r.channel === 'any' && r.scope === 'transactional');
-  const effective = specificTrans ?? anyTrans ?? resolved[0];
+  const evalChannel: 'email' | 'whatsapp' | 'instagram' | 'facebook' | 'any' =
+    isDigitalSendChannel(channel) ? channel : 'any';
+  const effective = evaluateEffectiveChannelConsent(personId, consDtos, aliases, evalChannel, 'transactional');
 
   const eps = epRes.results as unknown as { id: string; value_norm: string; is_primary: number }[];
   return {
-    withdrawn: effective?.status === 'withdrawn',
-    consentStatus: effective ? effective.status : 'unrecorded',
+    withdrawn: effective.withdrawn,
+    consentStatus: effective.status,
     primaryEndpointId: eps[0]?.id ?? null,
     primaryEndpoint: eps[0]?.value_norm ?? null,
   };
@@ -427,6 +421,14 @@ function logManualConversationCommand(): CommandDefinition<
       if (input.personId) {
         readablePerson = await loadReadableTaskRecord(env, actor.id, input.personId);
         if (!readablePerson) return { kind: 'refuse', error: 'not_found' };
+        const aliasState = await assertNotArchivedAlias(env.DB, readablePerson);
+        if (aliasState.archived) {
+          return {
+            kind: 'refuse',
+            error: 'invalid_input',
+            detail: { reason: 'person_merged_or_archived', mergedInto: aliasState.mergedInto },
+          };
+        }
       }
 
       const convId = `conv_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
@@ -533,7 +535,10 @@ function logManualConversationCommand(): CommandDefinition<
           conversation: mapConvRow(convRow, { now }),
           message: mapMsgRow(msgRow),
         },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash),
+          ...(readablePerson ? [() => notArchivedAliasFence(env.DB, readablePerson.id)] : []),
+        ],
         rows,
         records,
         recordExpect,
@@ -734,6 +739,14 @@ function linkConversationPersonCommand(): CommandDefinition<
         loadReadableTaskRecord(env, actor.id, input.personId),
       ]);
       if (!conv || !person) return { kind: 'refuse', error: 'not_found' };
+      const aliasState = await assertNotArchivedAlias(env.DB, person);
+      if (aliasState.archived) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: { reason: 'person_merged_or_archived', mergedInto: aliasState.mergedInto },
+        };
+      }
       if (!(await assertConversationTargetsReadable(env, actor.id, conv))) {
         return { kind: 'refuse', error: 'not_found' };
       }
@@ -752,6 +765,7 @@ function linkConversationPersonCommand(): CommandDefinition<
         fences: [
           () => crmActorFence(env.DB, actor, tokenHash),
           convRevFence(env.DB, conv.id, conv.rev, { personId: conv.person_id }),
+          () => notArchivedAliasFence(env.DB, person.id),
         ],
         rows: [
           env.DB
@@ -1301,6 +1315,7 @@ function sendMessageCommand(): CommandDefinition<
           personId: conv.person_id,
           disallowSpam: true,
         }),
+        ...(conv.person_id ? [() => notArchivedAliasFence(env.DB, conv.person_id!)] : []),
         ...(conv.person_id ? [consentNotWithdrawnFence(env.DB, conv.person_id, conv.channel)] : []),
         ...(conv.person_id && primaryEndpointId
           ? [activeEndpointFence(env.DB, primaryEndpointId, conv.person_id)]
@@ -1451,6 +1466,7 @@ function retryMessageCommand(): CommandDefinition<RetryMessageInput, { messageId
             personId: conv.person_id,
             disallowSpam: true,
           }),
+          ...(conv.person_id ? [() => notArchivedAliasFence(env.DB, conv.person_id!)] : []),
           ...(conv.person_id ? [consentNotWithdrawnFence(env.DB, conv.person_id, conv.channel)] : []),
           ...(conv.person_id && primaryEndpointId
             ? [activeEndpointFence(env.DB, primaryEndpointId, conv.person_id)]

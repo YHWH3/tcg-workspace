@@ -33,7 +33,13 @@ import type { Env } from '../auth';
 import { createReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
-import { loadAliasesForSurvivor, resolveCanonicalPersonId } from './merge';
+import {
+  assertNotArchivedAlias,
+  latestConsentRowsPerTupleStmt,
+  loadAliasesForSurvivor,
+  notArchivedAliasFence,
+  resolveCanonicalPersonId,
+} from './merge';
 import {
   actorGrantsStmt,
   crmActorFence,
@@ -214,6 +220,14 @@ function addEndpointCommand(): CommandDefinition<
     plan: async ({ env, actor, tokenHash, input, expected, now }) => {
       const person = await loadReadableTaskRecord(env, actor.id, input.personId);
       if (!person) return { kind: 'refuse', error: 'not_found' };
+      const aliasState = await assertNotArchivedAlias(env.DB, person);
+      if (aliasState.archived) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: { reason: 'person_merged_or_archived', mergedInto: aliasState.mergedInto },
+        };
+      }
 
       const [existingRes, conflictRes, boardData] = await Promise.all([
         env.DB
@@ -252,7 +266,7 @@ function addEndpointCommand(): CommandDefinition<
           return {
             kind: 'commit',
             result: { endpoint: mapEndpoint(conflictRes), already: true },
-            fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+            fences: [() => crmActorFence(env.DB, actor, tokenHash), () => notArchivedAliasFence(env.DB, person.id)],
             recordExpect: expectMap,
             forceRecordsCommit: true,
           };
@@ -265,7 +279,7 @@ function addEndpointCommand(): CommandDefinition<
         return {
           kind: 'commit',
           result: { endpoint: mapEndpoint(promoted), already: false },
-          fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+          fences: [() => crmActorFence(env.DB, actor, tokenHash), () => notArchivedAliasFence(env.DB, person.id)],
           rows: [
             env.DB
               .prepare(`UPDATE crm_endpoints SET is_primary = 0, updated_at = ? WHERE person_id = ? AND kind = ? AND retired_at IS NULL AND id != ?`)
@@ -334,7 +348,7 @@ function addEndpointCommand(): CommandDefinition<
       return {
         kind: 'commit',
         result: { endpoint: mapEndpoint(newRow), already: false },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [() => crmActorFence(env.DB, actor, tokenHash), () => notArchivedAliasFence(env.DB, person.id)],
         rows,
         records: [{ id: person.id, collection: 'tasks', patch, ts: now }],
         recordExpect: expectMap,
@@ -373,13 +387,21 @@ function retireEndpointCommand(): CommandDefinition<RetireEndpointInput, { endpo
 
       const person = await loadReadableTaskRecord(env, actor.id, targetEp.person_id);
       if (!person) return { kind: 'refuse', error: 'not_found' };
+      const aliasState = await assertNotArchivedAlias(env.DB, person);
+      if (aliasState.archived) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: { reason: 'person_merged_or_archived', mergedInto: aliasState.mergedInto },
+        };
+      }
 
       const expectMap = new Map<string, number>([[person.id, expected?.get(person.id) ?? person.seq]]);
       if (targetEp.retired_at !== null) {
         return {
           kind: 'commit',
           result: { endpointId: targetEp.id, retired: true },
-          fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+          fences: [() => crmActorFence(env.DB, actor, tokenHash), () => notArchivedAliasFence(env.DB, person.id)],
           recordExpect: expectMap,
           forceRecordsCommit: true,
         };
@@ -415,7 +437,7 @@ function retireEndpointCommand(): CommandDefinition<RetireEndpointInput, { endpo
       return {
         kind: 'commit',
         result: { endpointId: targetEp.id, retired: true },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [() => crmActorFence(env.DB, actor, tokenHash), () => notArchivedAliasFence(env.DB, person.id)],
         rows,
         records: [{ id: person.id, collection: 'tasks', patch, ts: now }],
         recordExpect: expectMap,
@@ -448,13 +470,21 @@ function setPrimaryEndpointCommand(): CommandDefinition<SetPrimaryEndpointInput,
 
       const person = await loadReadableTaskRecord(env, actor.id, ep.person_id);
       if (!person) return { kind: 'refuse', error: 'not_found' };
+      const aliasState = await assertNotArchivedAlias(env.DB, person);
+      if (aliasState.archived) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: { reason: 'person_merged_or_archived', mergedInto: aliasState.mergedInto },
+        };
+      }
 
       const expectMap = new Map<string, number>([[person.id, expected?.get(person.id) ?? person.seq]]);
       if (ep.is_primary === 1) {
         return {
           kind: 'commit',
           result: { endpointId: ep.id, personId: person.id },
-          fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+          fences: [() => crmActorFence(env.DB, actor, tokenHash), () => notArchivedAliasFence(env.DB, person.id)],
           recordExpect: expectMap,
           forceRecordsCommit: true,
         };
@@ -483,7 +513,7 @@ function setPrimaryEndpointCommand(): CommandDefinition<SetPrimaryEndpointInput,
       return {
         kind: 'commit',
         result: { endpointId: ep.id, personId: person.id },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [() => crmActorFence(env.DB, actor, tokenHash), () => notArchivedAliasFence(env.DB, person.id)],
         rows: [
           env.DB
             .prepare(`UPDATE crm_endpoints SET is_primary = 0, updated_at = ? WHERE person_id = ? AND kind = ? AND retired_at IS NULL AND id != ?`)
@@ -517,17 +547,18 @@ function recordConsentCommand(): CommandDefinition<RecordConsentInput, { consent
     plan: async ({ env, actor, tokenHash, input, expected, now }) => {
       const person = await loadReadableTaskRecord(env, actor.id, input.personId);
       if (!person) return { kind: 'refuse', error: 'not_found' };
+      const aliasState = await assertNotArchivedAlias(env.DB, person);
+      if (aliasState.archived) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: { reason: 'person_merged_or_archived', mergedInto: aliasState.mergedInto },
+        };
+      }
 
       const aliases = await loadAliasesForSurvivor(env.DB, person.id);
       const consentPersonIds = [person.id, ...aliases.keys()];
-      const historyRes = await env.DB
-        .prepare(
-          `SELECT * FROM crm_consents
-           WHERE person_id IN (SELECT value FROM json_each(?))
-           ORDER BY recorded_at DESC, id DESC LIMIT 150`,
-        )
-        .bind(JSON.stringify(consentPersonIds))
-        .all<ConsentRow>();
+      const historyRes = await latestConsentRowsPerTupleStmt(env.DB, consentPersonIds).all<ConsentRow>();
 
       const newRow: ConsentRow = {
         id: `con_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`,
@@ -548,7 +579,7 @@ function recordConsentCommand(): CommandDefinition<RecordConsentInput, { consent
       return {
         kind: 'commit',
         result: { consent: mapConsent(newRow) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [() => crmActorFence(env.DB, actor, tokenHash), () => notArchivedAliasFence(env.DB, person.id)],
         rows: [
           env.DB
             .prepare(
@@ -733,7 +764,27 @@ function backfillEndpointsCommand(): CommandDefinition<BackfillEndpointsInput, B
       const readableIds = new Set(
         (await gate.filter(pageRows.map((r) => ({ id: r.id, rev: r.seq })))).map((r) => r.id),
       );
-      const peopleRows = pageRows.filter((r) => readableIds.has(r.id));
+      // Exclude archived/merged alias records from backfill so aliases never gain endpoints
+      const candidateIds = pageRows.filter((r) => readableIds.has(r.id)).map((r) => r.id);
+      const aliasIdsRes = candidateIds.length
+        ? await env.DB
+            .prepare(`SELECT alias_id FROM crm_person_aliases WHERE alias_id IN (SELECT value FROM json_each(?))`)
+            .bind(JSON.stringify(candidateIds))
+            .all<{ alias_id: string }>()
+        : { results: [] as { alias_id: string }[] };
+      const aliasIdSet = new Set(aliasIdsRes.results.map((r) => r.alias_id));
+      const peopleRows = pageRows.filter((r) => {
+        if (!readableIds.has(r.id) || aliasIdSet.has(r.id)) return false;
+        try {
+          const d = JSON.parse(r.data) as Record<string, unknown>;
+          if (d.archived === true || (typeof d._crm_merged_into === 'string' && d._crm_merged_into.length > 0)) {
+            return false;
+          }
+        } catch {
+          return false;
+        }
+        return true;
+      });
 
       // Extract normalized email/phone values from People records
       const wantedValues: { kind: 'email' | 'phone'; norm: string }[] = [];
@@ -983,7 +1034,7 @@ export async function readPersonDetail(
   ]);
   const consentPersonIds = [person.id, ...aliasesMap.keys()];
 
-  const [sessionRes, grantsRes, epRes, consentRes, dupRes] = await env.DB.batch([
+  const [sessionRes, grantsRes, epRes, consentRes, latestConsentRes, dupRes] = await env.DB.batch([
     sessionAuthStmt(env.DB, actorId, tokenHash, batchNow),
     actorGrantsStmt(env.DB, actorId),
     env.DB
@@ -996,6 +1047,7 @@ export async function readPersonDetail(
          ORDER BY recorded_at DESC, id DESC LIMIT 150`,
       )
       .bind(JSON.stringify(consentPersonIds)),
+    latestConsentRowsPerTupleStmt(env.DB, consentPersonIds),
     env.DB
       .prepare(
         `SELECT d.*, ra.data AS a_data, rb.data AS b_data
@@ -1017,7 +1069,8 @@ export async function readPersonDetail(
 
   const endpoints = (epRes.results as unknown as EndpointRow[]).map(mapEndpoint);
   const consentHistory = (consentRes.results as unknown as ConsentRow[]).map(mapConsent);
-  const latestConsents = resolveEffectiveConsentsWithAliases(person.id, consentHistory, aliasesMap);
+  const latestConsentRows = (latestConsentRes.results as unknown as ConsentRow[]).map(mapConsent);
+  const latestConsents = resolveEffectiveConsentsWithAliases(person.id, latestConsentRows, aliasesMap);
 
   const dupRows = dupRes.results as unknown as DuplicateRow[];
   const peerIds = dupRows.map((d) => (d.person_a_id === person.id ? d.person_b_id : d.person_a_id));

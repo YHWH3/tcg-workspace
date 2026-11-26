@@ -365,6 +365,10 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
     const histBefore = MergeHistoryPageResponseSchema.parse(await (await reqCrm('/read/merges', { actor: 'admin1' })).json());
     expect(histBefore.items).toHaveLength(1);
     expect(histBefore.items[0]!.unmerged).toBeNull();
+    const unmergeExpected = {
+      'person-surv': histBefore.items[0]!.survivorRev!,
+      'person-lose': histBefore.items[0]!.mergedRev!,
+    };
 
     const unmergeRes = await reqCrm('/commands/person.unmerge', {
       method: 'POST',
@@ -372,6 +376,7 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
       body: {
         requestId: 'umg_clean_01',
         input: { mergeId: mergeJson.result.mergeId, confirm: true, reason: 'Two distinct siblings share phone' },
+        expected: unmergeExpected,
       },
     });
     expect(await unmergeRes.json()).toMatchObject({
@@ -383,7 +388,11 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
     const doubleUnmerge = await reqCrm('/commands/person.unmerge', {
       method: 'POST',
       actor: 'admin1',
-      body: { requestId: 'umg_double_01', input: { mergeId: mergeJson.result.mergeId, confirm: true } },
+      body: {
+        requestId: 'umg_double_01',
+        input: { mergeId: mergeJson.result.mergeId, confirm: true },
+        expected: unmergeExpected,
+      },
     });
     expect(await doubleUnmerge.json()).toMatchObject({ ok: false, error: 'stale', detail: { reason: 'already_unmerged' } });
 
@@ -421,7 +430,11 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
     const mergeRes = await reqCrm('/commands/person.merge', {
       method: 'POST',
       actor: 'admin1',
-      body: { requestId: 'mrg_conflict_setup', input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true } },
+      body: {
+        requestId: 'mrg_conflict_setup',
+        input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+        expected: { 'person-surv': 1, 'person-lose': 2 },
+      },
     });
     const mergeJson2 = (await mergeRes.json()) as { ok: boolean; result: { mergeId: string } };
     expect(mergeJson2).toMatchObject({ ok: true });
@@ -449,11 +462,18 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
     // Also modify moved conversation 'conv-lose'
     await fx!.db.prepare("UPDATE crm_conversations SET subject = 'Edited after merge', rev = rev + 1 WHERE id = 'conv-lose'").run();
 
+    // Fetch current reviewed revisions so unmerge reaches operational/record conflict checks
+    const histConflict = MergeHistoryPageResponseSchema.parse(await (await reqCrm('/read/merges', { actor: 'admin1' })).json());
+    const conflictExpected = {
+      'person-surv': histConflict.items[0]!.survivorRev!,
+      'person-lose': histConflict.items[0]!.mergedRev!,
+    };
+
     // Attempt unmerge -> MUST refuse stale with structured conflicts and preserve post-merge edits intact!
     const umgRes = await reqCrm('/commands/person.unmerge', {
       method: 'POST',
       actor: 'admin1',
-      body: { requestId: 'umg_conflict_01', input: { mergeId, confirm: true } },
+      body: { requestId: 'umg_conflict_01', input: { mergeId, confirm: true }, expected: conflictExpected },
     });
     const umgJson = (await umgRes.json()) as {
       ok: boolean;
@@ -476,12 +496,20 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
       reqCrm('/commands/person.merge', {
         method: 'POST',
         actor: 'admin1',
-        body: { requestId: 'mrg_race_ab', input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true } },
+        body: {
+          requestId: 'mrg_race_ab',
+          input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+          expected: { 'person-surv': 1, 'person-lose': 2 },
+        },
       }),
       reqCrm('/commands/person.merge', {
         method: 'POST',
         actor: 'admin1',
-        body: { requestId: 'mrg_race_ba', input: { survivorId: 'person-lose', loserId: 'person-surv', confirm: true } },
+        body: {
+          requestId: 'mrg_race_ba',
+          input: { survivorId: 'person-lose', loserId: 'person-surv', confirm: true },
+          expected: { 'person-lose': 2, 'person-surv': 1 },
+        },
       }),
     ]);
     const j1 = (await r1.json()) as { ok: boolean; error?: string };
@@ -505,7 +533,11 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
       method: 'POST',
       actor: 'admin1',
       dbOverride: failMidCommitDb,
-      body: { requestId: 'mrg_rollback_01', input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true } },
+      body: {
+        requestId: 'mrg_rollback_01',
+        input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+        expected: { 'person-surv': 1, 'person-lose': 2 },
+      },
     });
     expect(failedRes.status).toBe(503);
     expect(await fx!.db.prepare('SELECT COUNT(*) n FROM crm_merges').first('n')).toBe(0);
@@ -525,7 +557,11 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
       method: 'POST',
       actor: 'merger1',
       dbOverride: midRevokeDb,
-      body: { requestId: 'mrg_mid_revoke_01', input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true } },
+      body: {
+        requestId: 'mrg_mid_revoke_01',
+        input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+        expected: { 'person-surv': 1, 'person-lose': 2 },
+      },
     });
     expect(capRevokedOnce).toBe(true);
     expect(await midRevokeRes.json()).toMatchObject({ ok: false, error: 'forbidden' });
@@ -552,14 +588,22 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
       method: 'POST',
       actor: 'merger1',
       dbOverride: lostAckDb,
-      body: { requestId: 'mrg_lost_ack_01', input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true } },
+      body: {
+        requestId: 'mrg_lost_ack_01',
+        input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+        expected: { 'person-surv': 1, 'person-lose': 2 },
+      },
     });
     expect(first503.status).toBe(503);
 
     const replayOk = await reqCrm('/commands/person.merge', {
       method: 'POST',
       actor: 'merger1',
-      body: { requestId: 'mrg_lost_ack_01', input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true } },
+      body: {
+        requestId: 'mrg_lost_ack_01',
+        input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+        expected: { 'person-surv': 1, 'person-lose': 2 },
+      },
     });
     expect(await replayOk.json()).toMatchObject({ ok: true, result: { survivorId: 'person-surv', mergedId: 'person-lose' } });
     expect(await fx!.db.prepare('SELECT COUNT(*) n FROM crm_merges').first('n')).toBe(1);
@@ -569,7 +613,11 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
     const replayRevoked = await reqCrm('/commands/person.merge', {
       method: 'POST',
       actor: 'merger1',
-      body: { requestId: 'mrg_lost_ack_01', input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true } },
+      body: {
+        requestId: 'mrg_lost_ack_01',
+        input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+        expected: { 'person-surv': 1, 'person-lose': 2 },
+      },
     });
     expect(await replayRevoked.json()).toMatchObject({ ok: false, error: 'forbidden' });
 
@@ -597,7 +645,11 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
     const overBudgetMerge = await reqCrm('/commands/person.merge', {
       method: 'POST',
       actor: 'admin1',
-      body: { requestId: 'mrg_budget_over', input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true } },
+      body: {
+        requestId: 'mrg_budget_over',
+        input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+        expected: { 'person-surv': 1, 'person-lose': 2 },
+      },
     });
     expect(await overBudgetMerge.json()).toMatchObject({ ok: false, error: 'budget_exceeded' });
     expect(await fx!.db.prepare('SELECT COUNT(*) n FROM crm_merges').first('n')).toBe(0);
@@ -649,12 +701,19 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
     ).toMatchObject({ ok: false, error: 'not_found' });
 
     // Admin1 merges person-sec into person-surv AND merges person-lose into person-surv
+    const secPrev = MergePreviewResponseSchema.parse(
+      await (await reqCrm('/read/merge-preview?survivorId=person-surv&loserId=person-sec', { actor: 'admin1' })).json(),
+    );
     expect(
       await (
         await reqCrm('/commands/person.merge', {
           method: 'POST',
           actor: 'admin1',
-          body: { requestId: 'mrg_sec_admin', input: { survivorId: 'person-surv', loserId: 'person-sec', confirm: true } },
+          body: {
+            requestId: 'mrg_sec_admin',
+            input: { survivorId: 'person-surv', loserId: 'person-sec', confirm: true },
+            expected: { 'person-surv': secPrev.survivor.rev, 'person-sec': secPrev.loser.rev },
+          },
         })
       ).json(),
     ).toMatchObject({ ok: true });
@@ -664,11 +723,18 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
     expect(mergerHist.partial).toBe(true);
 
     // Merge person-lose -> person-surv
+    const losePrev = MergePreviewResponseSchema.parse(
+      await (await reqCrm('/read/merge-preview?survivorId=person-surv&loserId=person-lose', { actor: 'merger1' })).json(),
+    );
     const mrgLoseJson = await (
       await reqCrm('/commands/person.merge', {
         method: 'POST',
         actor: 'merger1',
-        body: { requestId: 'mrg_lose_for_ingest', input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true } },
+        body: {
+          requestId: 'mrg_lose_for_ingest',
+          input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+          expected: { 'person-surv': losePrev.survivor.rev, 'person-lose': losePrev.loser.rev },
+        },
       })
     ).json();
     expect(mrgLoseJson).toMatchObject({ ok: true });
@@ -772,5 +838,278 @@ describe('CRM S10 Reversible Contact Merge & Unmerge (D1)', () => {
       mergedInto: string | null;
     };
     expect(loseDetail.mergedInto).toBe('person-surv');
+  });
+
+  it('closes all 6 P2 review findings: required revisions, complete reference fences, unlimited consent parity, archived alias write guards, operational unmerge conflicts, and replay ReadGate authority', async () => {
+    await setupFixture({ permissionsEnabled: true, localTest: true });
+
+    // Finding 1: person.merge MUST refuse when reviewed expected revisions are missing or incomplete
+    const missingRevMerge = await reqCrm('/commands/person.merge', {
+      method: 'POST',
+      actor: 'admin1',
+      body: { requestId: 'p2h_no_rev_merge', input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true } },
+    });
+    expect(await missingRevMerge.json()).toMatchObject({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'expected_revisions_required' },
+    });
+
+    const partialRevMerge = await reqCrm('/commands/person.merge', {
+      method: 'POST',
+      actor: 'admin1',
+      body: {
+        requestId: 'p2h_partial_rev_merge',
+        input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+        expected: { 'person-surv': 1 },
+      },
+    });
+    expect(await partialRevMerge.json()).toMatchObject({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'expected_revisions_required' },
+    });
+
+    // Finding 2: Concurrent addition to loser's synced reference set (new link inserted between plan & commit) aborts atomically!
+    let injectedLink = false;
+    const concurrentLinkDb = interceptD1Batches(fx!.db, async (target, statements, sql) => {
+      if (!injectedLink && sql.some((s) => s.includes('INSERT INTO crm_merges'))) {
+        injectedLink = true;
+        await target
+          .prepare(
+            `INSERT INTO records (id, collection, data, field_ts, seq, space_id, updated_at)
+             VALUES ('lnk_concurrent_add', 'links', ?, '{"fromId":1,"toId":1}', 99, 'space-core', 999)`,
+          )
+          .bind(
+            JSON.stringify({
+              fromType: 'record',
+              fromId: 'person-c',
+              toType: 'record',
+              toId: 'person-lose',
+              kind: 'related',
+              fieldId: null,
+              deleted: false,
+            }),
+          )
+          .run();
+      }
+      return target.batch(statements);
+    });
+    const raceLinkRes = await reqCrm('/commands/person.merge', {
+      method: 'POST',
+      actor: 'admin1',
+      dbOverride: concurrentLinkDb,
+      body: {
+        requestId: 'p2h_concurrent_link_01',
+        input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+        expected: { 'person-surv': 1, 'person-lose': 2 },
+      },
+    });
+    expect(injectedLink).toBe(true);
+    expect(await raceLinkRes.json()).toMatchObject({ ok: false, error: 'stale' });
+    expect(await fx!.db.prepare('SELECT COUNT(*) n FROM crm_merges').first('n')).toBe(0);
+    await fx!.db.prepare("DELETE FROM records WHERE id = 'lnk_concurrent_add'").run();
+
+    // Finding 3: Effective consent MUST NOT be truncated by >220 paginated history rows, AND SQL fence must match app evaluation (including channel='any')!
+    // Insert 220 newer 'updates' consent rows on person-surv so older whatsapp:transactional & any:transactional sit beyond LIMIT 150/200!
+    const spamConsents: D1PreparedStatement[] = [];
+    for (let i = 0; i < 220; i += 1) {
+      spamConsents.push(
+        fx!.db
+          .prepare(
+            `INSERT INTO crm_consents (id, person_id, channel, scope, status, source, recorded_by, recorded_at)
+             VALUES (?, 'person-surv', 'email', 'updates', 'granted', 'import', 'owner1', ?)`,
+          )
+          .bind(`con_pad_${String(i).padStart(3, '0')}`, 5000 + i),
+      );
+    }
+    // Also add an older global 'any' transactional withdrawal on person-surv at ts=300 (newer than person-surv's whatsapp grant at ts=200!)
+    spamConsents.push(
+      fx!.db
+        .prepare(
+          `INSERT INTO crm_consents (id, person_id, channel, scope, status, source, recorded_by, recorded_at)
+           VALUES ('con_any_wd_deep', 'person-surv', 'any', 'transactional', 'withdrawn', 'optout', 'owner1', 300)`,
+        ),
+    );
+    await fx!.db.batch(spamConsents);
+
+    // Person detail & message.send MUST BOTH see 'any:transactional = withdrawn' despite 220 newer rows!
+    const deepDetail = (await (await reqCrm('/read/person/person-surv', { actor: 'admin1' })).json()) as {
+      latestConsents: { channel: string; scope: string; status: string }[];
+    };
+    expect(deepDetail.latestConsents.find((c) => c.channel === 'any' && c.scope === 'transactional')?.status).toBe('withdrawn');
+    const deepBlockedSend = await reqCrm('/commands/message.send', {
+      method: 'POST',
+      actor: 'admin1',
+      body: { requestId: 'p2h_deep_any_wd', input: { conversationId: 'conv-surv', bodyText: 'Blocked by deep any withdrawal' } },
+    });
+    expect(await deepBlockedSend.json()).toMatchObject({ ok: false, error: 'consent_withdrawn' });
+
+    // Reset fixture cleanly (`crm_consents` is append-only) before merge/alias/unmerge checks
+    await fx!.dispose();
+    await setupFixture({ permissionsEnabled: true, localTest: true });
+
+    // Execute clean merge person-lose -> person-surv
+    const mrgRes = await reqCrm('/commands/person.merge', {
+      method: 'POST',
+      actor: 'admin1',
+      body: {
+        requestId: 'p2h_merge_ok',
+        input: { survivorId: 'person-surv', loserId: 'person-lose', confirm: true },
+        expected: { 'person-surv': 1, 'person-lose': 2 },
+      },
+    });
+    const mrgJson = (await mrgRes.json()) as { ok: boolean; result: { mergeId: string } };
+    expect(mrgJson.ok).toBe(true);
+    const mergeId = mrgJson.result.mergeId;
+
+    // Finding 4: Consequential writes against archived alias 'person-lose' MUST be safely refused with mergedInto!
+    const addEpAlias = await reqCrm('/commands/person.add_endpoint', {
+      method: 'POST',
+      actor: 'admin1',
+      body: { requestId: 'p2h_alias_ep', input: { personId: 'person-lose', kind: 'email', value: 'new@alias.org' } },
+    });
+    expect(await addEpAlias.json()).toMatchObject({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'person_merged_or_archived', mergedInto: 'person-surv' },
+    });
+
+    const consAlias = await reqCrm('/commands/person.record_consent', {
+      method: 'POST',
+      actor: 'admin1',
+      body: {
+        requestId: 'p2h_alias_cons',
+        input: { personId: 'person-lose', channel: 'email', scope: 'transactional', status: 'granted', source: 'manual' },
+      },
+    });
+    expect(await consAlias.json()).toMatchObject({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'person_merged_or_archived', mergedInto: 'person-surv' },
+    });
+
+    const logConvAlias = await reqCrm('/commands/conversation.log_manual', {
+      method: 'POST',
+      actor: 'admin1',
+      body: {
+        requestId: 'p2h_alias_conv',
+        input: { channel: 'call', personId: 'person-lose', direction: 'inbound', subject: 'Call to alias', bodyText: 'Should fail' },
+      },
+    });
+    expect(await logConvAlias.json()).toMatchObject({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'person_merged_or_archived', mergedInto: 'person-surv' },
+    });
+
+    const linkConvAlias = await reqCrm('/commands/conversation.link_person', {
+      method: 'POST',
+      actor: 'admin1',
+      body: { requestId: 'p2h_alias_link', input: { conversationId: 'conv-surv', personId: 'person-lose' } },
+    });
+    expect(await linkConvAlias.json()).toMatchObject({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'person_merged_or_archived', mergedInto: 'person-surv' },
+    });
+
+    // Finding 1 (unmerge): missing expected revisions refused with expected_revisions_required
+    const missingRevUnmerge = await reqCrm('/commands/person.unmerge', {
+      method: 'POST',
+      actor: 'admin1',
+      body: { requestId: 'p2h_no_rev_unmerge', input: { mergeId, confirm: true } },
+    });
+    expect(await missingRevUnmerge.json()).toMatchObject({
+      ok: false,
+      error: 'invalid_input',
+      detail: { reason: 'expected_revisions_required' },
+    });
+
+    // Finding 5: Operational-state changes before unmerge (endpoint state, duplicate decision, form_people_keys) MUST all be detected!
+    const histNow = MergeHistoryPageResponseSchema.parse(await (await reqCrm('/read/merges', { actor: 'admin1' })).json());
+    const unmergeExpected = {
+      'person-surv': histNow.items[0]!.survivorRev!,
+      'person-lose': histNow.items[0]!.mergedRev!,
+    };
+
+    // Mutate operational tables directly (without changing synced record revs!) to verify operational-only conflict detection
+    await fx!.db.batch([
+      fx!.db.prepare("UPDATE crm_endpoints SET updated_at = updated_at + 5000 WHERE id = 'ep-lose-em'"),
+      fx!.db.prepare("UPDATE crm_duplicate_candidates SET state = 'dismissed', decided_by = 'admin1', decided_at = 999999 WHERE id = 'dup-lc'"),
+      fx!.db.prepare("UPDATE form_people_keys SET record_id = 'person-c' WHERE email = 'asha@secondary.org'"),
+    ]);
+
+    const opConflictRes = await reqCrm('/commands/person.unmerge', {
+      method: 'POST',
+      actor: 'admin1',
+      body: { requestId: 'p2h_op_conflicts', input: { mergeId, confirm: true }, expected: unmergeExpected },
+    });
+    const opConflictJson = (await opConflictRes.json()) as {
+      ok: boolean;
+      error: string;
+      detail: { reason: string; conflicts: { code: string; entityId: string }[] };
+    };
+    expect(opConflictJson.ok).toBe(false);
+    expect(opConflictJson.error).toBe('stale');
+    expect(opConflictJson.detail.reason).toBe('unmerge_conflicts');
+    expect(opConflictJson.detail.conflicts.some((c) => c.code === 'endpoint_reassigned' && c.entityId === 'ep-lose-em')).toBe(true);
+    expect(opConflictJson.detail.conflicts.some((c) => c.code === 'duplicate_changed' && c.entityId === 'dup-lc')).toBe(true);
+    expect(opConflictJson.detail.conflicts.some((c) => c.code === 'form_identity_changed')).toBe(true);
+
+    // Finding 6: Replay of person.merge and person.unmerge MUST re-verify current linked-record authority (ReadGate)!
+    // First, test unmerge replay on a clean merge involving restricted record 'person-sec'
+    await fx!.dispose();
+    await setupFixture({ permissionsEnabled: true, localTest: true });
+
+    const secMergeRes = await reqCrm('/commands/person.merge', {
+      method: 'POST',
+      actor: 'admin1',
+      body: {
+        requestId: 'p2h_replay_sec_mrg',
+        input: { survivorId: 'person-surv', loserId: 'person-sec', confirm: true },
+        expected: { 'person-surv': 1, 'person-sec': 4 },
+      },
+    });
+    const secMergeJson = (await secMergeRes.json()) as { ok: boolean; result: { mergeId: string } };
+    expect(secMergeJson.ok).toBe(true);
+
+    const secHist = MergeHistoryPageResponseSchema.parse(await (await reqCrm('/read/merges', { actor: 'admin1' })).json());
+    const secItem = secHist.items.find((i) => i.id === secMergeJson.result.mergeId)!;
+    const secUnmergeRes = await reqCrm('/commands/person.unmerge', {
+      method: 'POST',
+      actor: 'admin1',
+      body: {
+        requestId: 'p2h_replay_sec_umg',
+        input: { mergeId: secItem.id, confirm: true },
+        expected: { 'person-surv': secItem.survivorRev!, 'person-sec': secItem.mergedRev! },
+      },
+    });
+    expect(await secUnmergeRes.json()).toMatchObject({ ok: true });
+
+    // Remove admin1 from 'space-restricted' -> BOTH merge replay AND unmerge replay MUST now refuse with forbidden!
+    await fx!.db.prepare("DELETE FROM space_members WHERE space_id = 'space-restricted' AND user_id = 'admin1'").run();
+
+    const replayMergeDenied = await reqCrm('/commands/person.merge', {
+      method: 'POST',
+      actor: 'admin1',
+      body: {
+        requestId: 'p2h_replay_sec_mrg',
+        input: { survivorId: 'person-surv', loserId: 'person-sec', confirm: true },
+        expected: { 'person-surv': 1, 'person-sec': 4 },
+      },
+    });
+    expect(await replayMergeDenied.json()).toMatchObject({ ok: false, error: 'forbidden' });
+
+    const replayUnmergeDenied = await reqCrm('/commands/person.unmerge', {
+      method: 'POST',
+      actor: 'admin1',
+      body: {
+        requestId: 'p2h_replay_sec_umg',
+        input: { mergeId: secItem.id, confirm: true },
+        expected: { 'person-surv': secItem.survivorRev!, 'person-sec': secItem.mergedRev! },
+      },
+    });
+    expect(await replayUnmergeDenied.json()).toMatchObject({ ok: false, error: 'forbidden' });
   });
 });

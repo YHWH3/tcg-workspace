@@ -293,23 +293,79 @@ export async function loadAliasesForSurvivor(
   return out;
 }
 
+export function latestConsentRowsPerTupleStmt(
+  db: D1Database,
+  personIds: readonly string[],
+): D1PreparedStatement {
+  const uniqueIds = [...new Set(personIds.filter((id) => id.length > 0))];
+  return db
+    .prepare(
+      `SELECT id, person_id, channel, scope, status, source, evidence_ref, recorded_by, recorded_at
+       FROM (
+         SELECT c.*,
+           ROW_NUMBER() OVER (
+             PARTITION BY c.person_id, c.channel, c.scope
+             ORDER BY c.recorded_at DESC, c.id DESC
+           ) AS rn
+         FROM crm_consents c
+         WHERE c.person_id IN (SELECT value FROM json_each(?))
+       )
+       WHERE rn = 1`,
+    )
+    .bind(JSON.stringify(uniqueIds));
+}
+
+export async function assertNotArchivedAlias(
+  db: D1Database,
+  person: { id: string; data: Record<string, unknown> },
+): Promise<{ archived: false } | { archived: true; mergedInto: string | null }> {
+  const alias = await resolveCanonicalPersonId(db, person.id);
+  const dataMergedInto =
+    typeof person.data._crm_merged_into === 'string' && person.data._crm_merged_into.length > 0
+      ? person.data._crm_merged_into
+      : null;
+  if (alias.mergedInto || dataMergedInto || person.data.archived === true) {
+    return { archived: true, mergedInto: alias.mergedInto ?? dataMergedInto };
+  }
+  return { archived: false };
+}
+
+export function notArchivedAliasFence(db: D1Database, personId: string): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT CASE WHEN NOT EXISTS (
+         SELECT 1 FROM crm_person_aliases WHERE alias_id = ?
+       ) AND EXISTS (
+         SELECT 1 FROM records
+         WHERE id = ? AND collection = 'tasks'
+           AND COALESCE(json_extract(data, '$.deleted'), 0) != 1
+           AND COALESCE(json_extract(data, '$.archived'), 0) != 1
+           AND json_extract(data, '$._crm_merged_into') IS NULL
+       ) THEN 1 ELSE json_extract('{', '$') END`,
+    )
+    .bind(personId, personId);
+}
+
 export async function loadEffectiveConsentsForPerson(
   db: D1Database,
   personId: string,
 ): Promise<{ history: CrmConsentDto[]; latest: CrmConsentDto[]; aliases: Map<string, number> }> {
   const aliases = await loadAliasesForSurvivor(db, personId);
   const allIds = [personId, ...aliases.keys()];
-  const res = await db
-    .prepare(
-      `SELECT * FROM crm_consents
-       WHERE person_id IN (SELECT value FROM json_each(?))
-       ORDER BY recorded_at DESC, id DESC
-       LIMIT 150`,
-    )
-    .bind(JSON.stringify(allIds))
-    .all<ConsentRow>();
-  const history = res.results.map(mapConsent);
-  const latest = resolveEffectiveConsentsWithAliases(personId, history, aliases);
+  const [histRes, latestRes] = await db.batch([
+    db
+      .prepare(
+        `SELECT * FROM crm_consents
+         WHERE person_id IN (SELECT value FROM json_each(?))
+         ORDER BY recorded_at DESC, id DESC
+         LIMIT 150`,
+      )
+      .bind(JSON.stringify(allIds)),
+    latestConsentRowsPerTupleStmt(db, allIds),
+  ]);
+  const history = (histRes.results as unknown as ConsentRow[]).map(mapConsent);
+  const latestRows = (latestRes.results as unknown as ConsentRow[]).map(mapConsent);
+  const latest = resolveEffectiveConsentsWithAliases(personId, latestRows, aliases);
   return { history, latest, aliases };
 }
 
@@ -423,11 +479,18 @@ export async function readMergePreview(
       .bind(survivor.id, loser.id),
     env.DB
       .prepare(
-        `SELECT c.* FROM crm_consents c
-         WHERE c.person_id IN (?, ?)
-            OR c.person_id IN (SELECT alias_id FROM crm_person_aliases WHERE survivor_id IN (?, ?))
-         ORDER BY c.recorded_at DESC, c.id DESC
-         LIMIT 200`,
+        `SELECT id, person_id, channel, scope, status, source, evidence_ref, recorded_by, recorded_at
+         FROM (
+           SELECT c.*,
+             ROW_NUMBER() OVER (
+               PARTITION BY c.person_id, c.channel, c.scope
+               ORDER BY c.recorded_at DESC, c.id DESC
+             ) AS rn
+           FROM crm_consents c
+           WHERE c.person_id IN (?, ?)
+              OR c.person_id IN (SELECT alias_id FROM crm_person_aliases WHERE survivor_id IN (?, ?))
+         )
+         WHERE rn = 1`,
       )
       .bind(survivor.id, loser.id, survivor.id, loser.id),
     env.DB
@@ -679,7 +742,7 @@ export async function readMergeHistory(
   const batchNow = Date.now();
   const sql = `SELECT
       m.id, m.survivor_id, m.merged_id, m.actor_id, m.command_id, m.moved_json, m.note, m.created_at,
-      rs.data AS survivor_data, rm.data AS merged_data,
+      rs.data AS survivor_data, rs.seq AS survivor_seq, rm.data AS merged_data, rm.seq AS merged_seq,
       ua.name AS actor_name,
       mu.unmerge_id, mu.actor_id AS unmerge_actor_id, uu.name AS unmerge_actor_name, mu.reason AS unmerge_reason, mu.created_at AS unmerged_at
     FROM crm_merges m
@@ -719,7 +782,9 @@ export async function readMergeHistory(
     note: string | null;
     created_at: number;
     survivor_data: string | null;
+    survivor_seq: number | null;
     merged_data: string | null;
+    merged_seq: number | null;
     actor_name: string | null;
     unmerge_id: string | null;
     unmerge_actor_id: string | null;
@@ -774,8 +839,10 @@ export async function readMergeHistory(
       id: r.id,
       survivorId: r.survivor_id,
       survivorTitle: sData && sData.deleted !== true ? extractTitle(sData) : null,
+      survivorRev: typeof r.survivor_seq === 'number' && sData && sData.deleted !== true ? r.survivor_seq : null,
       mergedId: r.merged_id,
       mergedTitle: mData && mData.deleted !== true ? extractTitle(mData) : null,
+      mergedRev: typeof r.merged_seq === 'number' && mData && mData.deleted !== true ? r.merged_seq : null,
       actorId: r.actor_id,
       actorName: r.actor_name,
       commandId: r.command_id,
@@ -832,13 +899,24 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
       }
       return { ok: true, input: parsed.data };
     },
-    authorizeReplay: async (actor, input, _stored, { env, via }) => {
+    authorizeReplay: async (actor, input, stored, { env, via }) => {
       if (via !== 'ui' || !canAccessCrmApi(actor) || !evaluateCapability(actor, 'crm.merge', '*')) {
         return false;
       }
       const gate = createReadGate(env.DB, actor.id);
-      const recs = await loadReadableTaskRecords(env, gate, [input.survivorId, input.loserId]);
-      return recs.has(input.survivorId) && recs.has(input.loserId);
+      const projIds =
+        stored && stored.ok === true && Array.isArray(stored.projections)
+          ? stored.projections.map((p) => p.recordId).filter((id): id is string => typeof id === 'string' && id.length > 0)
+          : [];
+      const allIds = [...new Set([input.survivorId, input.loserId, ...projIds])];
+      const decision = await gate.decideEditable(allIds);
+      if (!decision.principalActive) return false;
+      if (!decision.readable.has(input.survivorId) || !decision.readable.has(input.loserId)) return false;
+      if (!decision.editable.has(input.survivorId) || !decision.editable.has(input.loserId)) return false;
+      for (const pid of projIds) {
+        if (!decision.readable.has(pid)) return false;
+      }
+      return true;
     },
     plan: async ({ env, actor, tokenHash, input, expected, commandId, now }) => {
       const gate = createReadGate(env.DB, actor.id);
@@ -849,10 +927,26 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
         return { kind: 'refuse', error: 'not_found' };
       }
 
-      if (expected?.get(survivor.id) !== undefined && expected.get(survivor.id) !== survivor.seq) {
+      const expectedSurvivorRev = expected?.get(survivor.id);
+      const expectedLoserRev = expected?.get(loser.id);
+      if (
+        expectedSurvivorRev === undefined ||
+        expectedLoserRev === undefined ||
+        !Number.isSafeInteger(expectedSurvivorRev) ||
+        !Number.isSafeInteger(expectedLoserRev) ||
+        expectedSurvivorRev < 0 ||
+        expectedLoserRev < 0
+      ) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: { reason: 'expected_revisions_required', requiredIds: [survivor.id, loser.id] },
+        };
+      }
+      if (expectedSurvivorRev !== survivor.seq) {
         return { kind: 'refuse', error: 'stale', detail: { reason: 'survivor_revision_changed' } };
       }
-      if (expected?.get(loser.id) !== undefined && expected.get(loser.id) !== loser.seq) {
+      if (expectedLoserRev !== loser.seq) {
         return { kind: 'refuse', error: 'stale', detail: { reason: 'loser_revision_changed' } };
       }
 
@@ -869,6 +963,7 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
         loserTransitiveRes,
         epRes,
         consRes,
+        consCountRes,
         convsRes,
         dupRes,
         formKeysRes,
@@ -894,11 +989,25 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
           .bind(survivor.id, loser.id),
         env.DB
           .prepare(
-            `SELECT c.* FROM crm_consents c
+            `SELECT id, person_id, channel, scope, status, source, evidence_ref, recorded_by, recorded_at
+             FROM (
+               SELECT c.*,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY c.person_id, c.channel, c.scope
+                   ORDER BY c.recorded_at DESC, c.id DESC
+                 ) AS rn
+               FROM crm_consents c
+               WHERE c.person_id IN (?, ?)
+                  OR c.person_id IN (SELECT alias_id FROM crm_person_aliases WHERE survivor_id IN (?, ?))
+             )
+             WHERE rn = 1`,
+          )
+          .bind(survivor.id, loser.id, survivor.id, loser.id),
+        env.DB
+          .prepare(
+            `SELECT COUNT(*) AS n FROM crm_consents c
              WHERE c.person_id IN (?, ?)
-                OR c.person_id IN (SELECT alias_id FROM crm_person_aliases WHERE survivor_id IN (?, ?))
-             ORDER BY c.recorded_at DESC, c.id DESC
-             LIMIT 200`,
+                OR c.person_id IN (SELECT alias_id FROM crm_person_aliases WHERE survivor_id IN (?, ?))`,
           )
           .bind(survivor.id, loser.id, survivor.id, loser.id),
         env.DB
@@ -1091,15 +1200,18 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
             priorPersonId: loser.id,
             priorIsPrimary: ep.is_primary,
             priorRetiredAt: null,
+            postIsPrimary: 0,
+            postRetiredAt: now,
+            postUpdatedAt: now,
             action: 'retired_duplicate',
           });
           demoteStmts.push(
             env.DB
               .prepare(
                 `UPDATE crm_endpoints SET person_id = ?, is_primary = 0, retired_at = ?, updated_at = ?
-                 WHERE id = ? AND person_id = ? AND retired_at IS NULL`,
+                 WHERE id = ? AND person_id = ? AND retired_at IS NULL AND updated_at = ?`,
               )
-              .bind(survivor.id, now, now, ep.id, loser.id),
+              .bind(survivor.id, now, now, ep.id, loser.id, ep.updated_at),
             changesOneFence(env.DB),
           );
         }
@@ -1113,15 +1225,18 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
               priorPersonId: survivor.id,
               priorIsPrimary: ep.is_primary,
               priorRetiredAt: null,
+              postIsPrimary: nextPrimary,
+              postRetiredAt: null,
+              postUpdatedAt: now,
               action: 'demoted_primary',
             });
             demoteStmts.push(
               env.DB
                 .prepare(
                   `UPDATE crm_endpoints SET is_primary = ?, updated_at = ?
-                   WHERE id = ? AND person_id = ? AND retired_at IS NULL`,
+                   WHERE id = ? AND person_id = ? AND retired_at IS NULL AND updated_at = ?`,
                 )
-                .bind(nextPrimary, now, ep.id, survivor.id),
+                .bind(nextPrimary, now, ep.id, survivor.id, ep.updated_at),
               changesOneFence(env.DB),
             );
           }
@@ -1141,27 +1256,30 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
             priorPersonId: loser.id,
             priorIsPrimary: ep.is_primary,
             priorRetiredAt: ep.retired_at,
+            postIsPrimary: nextPrimary,
+            postRetiredAt: ep.retired_at,
+            postUpdatedAt: now,
             action: 'repointed',
           });
           repointEndpointStmts.push(
             env.DB
               .prepare(
                 `UPDATE crm_endpoints SET person_id = ?, is_primary = ?, updated_at = ?
-                 WHERE id = ? AND person_id = ?`,
+                 WHERE id = ? AND person_id = ? AND updated_at = ?`,
               )
-              .bind(survivor.id, nextPrimary, now, ep.id, loser.id),
+              .bind(survivor.id, nextPrimary, now, ep.id, loser.id, ep.updated_at),
             changesOneFence(env.DB),
           );
         }
       }
 
       // Compute links changes + detect collisions and self-links
-      const activeSurvivorLinkIds = new Set<string>();
+      const activeSurvivorLinkSeqById = new Map<string, number>();
       for (const l of allLinks) {
         const d = parseJsonSafe(l.data);
         if (!d) continue;
         if (d.fromId === survivor.id || d.toId === survivor.id) {
-          activeSurvivorLinkIds.add(l.id);
+          activeSurvivorLinkSeqById.set(l.id, l.seq);
         }
       }
 
@@ -1185,10 +1303,10 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
           continue;
         }
         const computedId = linkId(kind, fieldId, nextFrom, nextTo);
-        const existedActiveOnSurvivor = activeSurvivorLinkIds.has(computedId);
+        const existedActiveOnSurvivor = activeSurvivorLinkSeqById.has(computedId);
         if (!existedActiveOnSurvivor) {
           candidateNewLinkIds.push(computedId);
-          activeSurvivorLinkIds.add(computedId);
+          activeSurvivorLinkSeqById.set(computedId, -1);
         }
         linkPlans.push({
           oldRow: row,
@@ -1240,6 +1358,10 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
           });
         } else if (lp.existedActiveOnSurvivor) {
           linksDeduplicatedCount += 1;
+          const survSeq = activeSurvivorLinkSeqById.get(lp.newLinkId);
+          if (survSeq !== undefined && survSeq >= 0) {
+            recordExpect.set(lp.newLinkId, survSeq);
+          }
           movedLinksJournal.push({
             oldLinkId: lp.oldRow.id,
             oldData: lp.oldData,
@@ -1389,6 +1511,7 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
 
       for (const d of loserDups) {
         if (d.person_a_id === directA && d.person_b_id === directB) {
+          const postNote = input.note?.trim() || d.note;
           dupJournal.push({
             id: d.id,
             priorPersonAId: d.person_a_id,
@@ -1397,6 +1520,12 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
             priorDecidedBy: d.decided_by,
             priorDecidedAt: d.decided_at,
             priorNote: d.note,
+            postPersonAId: d.person_a_id,
+            postPersonBId: d.person_b_id,
+            postState: 'merged',
+            postDecidedBy: actor.id,
+            postDecidedAt: now,
+            postNote,
             action: 'marked_merged',
           });
           dupStmts.push(
@@ -1404,9 +1533,20 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
               .prepare(
                 `UPDATE crm_duplicate_candidates
                  SET state = 'merged', decided_by = ?, decided_at = ?, note = COALESCE(?, note)
-                 WHERE id = ? AND state = ?`,
+                 WHERE id = ? AND person_a_id = ? AND person_b_id = ? AND state = ?
+                   AND COALESCE(decided_by, '') = ? AND COALESCE(decided_at, -1) = ?`,
               )
-              .bind(actor.id, now, input.note?.trim() || null, d.id, d.state),
+              .bind(
+                actor.id,
+                now,
+                input.note?.trim() || null,
+                d.id,
+                d.person_a_id,
+                d.person_b_id,
+                d.state,
+                d.decided_by ?? '',
+                d.decided_at ?? -1,
+              ),
             changesOneFence(env.DB),
           );
           continue;
@@ -1424,6 +1564,12 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
             priorDecidedBy: d.decided_by,
             priorDecidedAt: d.decided_at,
             priorNote: d.note,
+            postPersonAId: d.person_a_id,
+            postPersonBId: d.person_b_id,
+            postState: 'merged',
+            postDecidedBy: actor.id,
+            postDecidedAt: now,
+            postNote: d.note,
             action: 'marked_merged',
           });
           dupStmts.push(
@@ -1431,9 +1577,19 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
               .prepare(
                 `UPDATE crm_duplicate_candidates
                  SET state = 'merged', decided_by = ?, decided_at = ?
-                 WHERE id = ? AND state = ?`,
+                 WHERE id = ? AND person_a_id = ? AND person_b_id = ? AND state = ?
+                   AND COALESCE(decided_by, '') = ? AND COALESCE(decided_at, -1) = ?`,
               )
-              .bind(actor.id, now, d.id, d.state),
+              .bind(
+                actor.id,
+                now,
+                d.id,
+                d.person_a_id,
+                d.person_b_id,
+                d.state,
+                d.decided_by ?? '',
+                d.decided_at ?? -1,
+              ),
             changesOneFence(env.DB),
           );
         } else {
@@ -1446,6 +1602,12 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
             priorDecidedBy: d.decided_by,
             priorDecidedAt: d.decided_at,
             priorNote: d.note,
+            postPersonAId: nextA,
+            postPersonBId: nextB,
+            postState: d.state,
+            postDecidedBy: d.decided_by,
+            postDecidedAt: d.decided_at,
+            postNote: d.note,
             action: 'repointed',
           });
           dupStmts.push(
@@ -1453,9 +1615,19 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
               .prepare(
                 `UPDATE crm_duplicate_candidates
                  SET person_a_id = ?, person_b_id = ?
-                 WHERE id = ? AND person_a_id = ? AND person_b_id = ?`,
+                 WHERE id = ? AND person_a_id = ? AND person_b_id = ? AND state = ?
+                   AND COALESCE(decided_by, '') = ? AND COALESCE(decided_at, -1) = ?`,
               )
-              .bind(nextA, nextB, d.id, d.person_a_id, d.person_b_id),
+              .bind(
+                nextA,
+                nextB,
+                d.id,
+                d.person_a_id,
+                d.person_b_id,
+                d.state,
+                d.decided_by ?? '',
+                d.decided_at ?? -1,
+              ),
             changesOneFence(env.DB),
           );
         }
@@ -1599,7 +1771,17 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
           ),
       ];
 
-      // Concurrent operational count fences so parallel endpoints/conversations/aliases on loser abort atomically -> stale
+      const totalConsentCount = Number((consCountRes.results[0] as { n: number } | undefined)?.n ?? 0);
+      const maxEpUpdatedAt = allEndpoints.reduce((max, e) => (e.updated_at > max ? e.updated_at : max), 0);
+      const activeEpCount = allEndpoints.filter((e) => e.retired_at === null).length;
+      const openConvCount = allConvs.filter((c) => c.state === 'open').length;
+      const loserLinkIds = loserLinks.map((l) => l.id);
+      const subRecIds = subRecs.map((s) => s.id);
+      const fileIds = files.map((f) => f.id);
+      const brandNewLinkIds = uniqueNewLinkIds.filter((id) => !existingTargetLinks.has(id));
+      const survivorAliasCount = (survivorAliasesRes.results as unknown as AliasRow[]).length;
+
+      // Fence the COMPLETE affected reference set (synced + operational) against concurrent additions and changes!
       const fences = [
         () => crmActorFence(env.DB, actor, tokenHash, 'crm.merge', '*'),
         () =>
@@ -1614,26 +1796,90 @@ function mergePersonCommand(): CommandDefinition<PersonMergeInput, PersonMergeOu
           env.DB
             .prepare(
               `SELECT CASE WHEN
-                 (SELECT COUNT(*) FROM crm_endpoints WHERE person_id IN (?, ?)) = ?
-                 AND (SELECT COUNT(*) FROM crm_conversations WHERE person_id = ?) = ?
-                 AND (SELECT COUNT(*) FROM crm_duplicate_candidates WHERE person_a_id = ? OR person_b_id = ?) = ?
-                 AND (SELECT COUNT(*) FROM form_people_keys WHERE record_id = ?) = ?
-                 AND (SELECT COUNT(*) FROM crm_person_aliases WHERE survivor_id = ?) = ?
+                 (SELECT COUNT(*) FROM crm_endpoints WHERE person_id IN (?1, ?2)) = ?3
+                 AND (SELECT COALESCE(SUM(CASE WHEN retired_at IS NULL THEN 1 ELSE 0 END), 0) FROM crm_endpoints WHERE person_id IN (?1, ?2)) = ?4
+                 AND (SELECT COALESCE(MAX(updated_at), 0) FROM crm_endpoints WHERE person_id IN (?1, ?2)) = ?5
+                 AND (SELECT COUNT(*) FROM crm_conversations WHERE person_id = ?2) = ?6
+                 AND (SELECT COUNT(*) FROM crm_conversations WHERE person_id IN (?1, ?2)) = ?7
+                 AND (SELECT COALESCE(SUM(CASE WHEN state = 'open' THEN 1 ELSE 0 END), 0) FROM crm_conversations WHERE person_id IN (?1, ?2)) = ?8
+                 AND (SELECT COUNT(*) FROM crm_duplicate_candidates WHERE person_a_id IN (?1, ?2) OR person_b_id IN (?1, ?2)) = ?9
+                 AND (SELECT COUNT(*) FROM form_people_keys WHERE record_id = ?2) = ?10
+                 AND (SELECT COUNT(*) FROM crm_person_aliases WHERE survivor_id = ?1) = ?11
+                 AND (SELECT COUNT(*) FROM crm_person_aliases WHERE survivor_id = ?2) = ?12
+                 AND (SELECT COUNT(*) FROM crm_consents c
+                      WHERE c.person_id IN (?1, ?2)
+                         OR c.person_id IN (SELECT alias_id FROM crm_person_aliases WHERE survivor_id IN (?1, ?2))) = ?13
                THEN 1 ELSE json_extract('{', '$') END`,
             )
             .bind(
               survivor.id,
               loser.id,
               allEndpoints.length,
-              loser.id,
+              activeEpCount,
+              maxEpUpdatedAt,
               loserConvs.length,
-              loser.id,
-              loser.id,
-              loserDups.length,
-              loser.id,
+              allConvs.length,
+              openConvCount,
+              allDups.length,
               formKeys.length,
-              loser.id,
+              survivorAliasCount,
               transitiveAliases.length,
+              totalConsentCount,
+            ),
+        () =>
+          env.DB
+            .prepare(
+              `SELECT CASE WHEN
+                 (SELECT COUNT(*) FROM records
+                  WHERE collection = 'links'
+                    AND json_extract(data, '$.deleted') IS NOT 1
+                    AND (json_extract(data, '$.fromId') = ?1 OR json_extract(data, '$.toId') = ?1)) = ?2
+                 AND NOT EXISTS (
+                   SELECT 1 FROM records
+                   WHERE collection = 'links'
+                     AND json_extract(data, '$.deleted') IS NOT 1
+                     AND (json_extract(data, '$.fromId') = ?1 OR json_extract(data, '$.toId') = ?1)
+                     AND id NOT IN (SELECT value FROM json_each(?3))
+                 )
+                 AND (SELECT COUNT(*) FROM records
+                      WHERE collection = 'tasks'
+                        AND COALESCE(json_extract(data, '$.deleted'), 0) != 1
+                        AND json_extract(data, '$.parentId') = ?1) = ?4
+                 AND NOT EXISTS (
+                   SELECT 1 FROM records
+                   WHERE collection = 'tasks'
+                     AND COALESCE(json_extract(data, '$.deleted'), 0) != 1
+                     AND json_extract(data, '$.parentId') = ?1
+                     AND id NOT IN (SELECT value FROM json_each(?5))
+                 )
+                 AND (SELECT COUNT(*) FROM records
+                      WHERE collection = 'files'
+                        AND COALESCE(json_extract(data, '$.deleted'), 0) != 1
+                        AND json_extract(data, '$.parentType') = 'task'
+                        AND json_extract(data, '$.parentId') = ?1) = ?6
+                 AND NOT EXISTS (
+                   SELECT 1 FROM records
+                   WHERE collection = 'files'
+                     AND COALESCE(json_extract(data, '$.deleted'), 0) != 1
+                     AND json_extract(data, '$.parentType') = 'task'
+                     AND json_extract(data, '$.parentId') = ?1
+                     AND id NOT IN (SELECT value FROM json_each(?7))
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM records
+                   WHERE id IN (SELECT value FROM json_each(?8))
+                 )
+               THEN 1 ELSE json_extract('{', '$') END`,
+            )
+            .bind(
+              loser.id,
+              loserLinks.length,
+              JSON.stringify(loserLinkIds),
+              subRecs.length,
+              JSON.stringify(subRecIds),
+              files.length,
+              JSON.stringify(fileIds),
+              JSON.stringify(brandNewLinkIds),
             ),
       ];
 
@@ -1691,11 +1937,35 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
       }
       return { ok: true, input: parsed.data };
     },
-    authorizeReplay: async (actor, _input, _stored, { via }) =>
-      via === 'ui' &&
-      canAccessCrmApi(actor) &&
-      (actor.role === 'owner' || actor.role === 'admin') &&
-      evaluateCapability(actor, 'crm.merge', '*'),
+    authorizeReplay: async (actor, input, stored, { env, via }) => {
+      if (
+        via !== 'ui' ||
+        !canAccessCrmApi(actor) ||
+        (actor.role !== 'owner' && actor.role !== 'admin') ||
+        !evaluateCapability(actor, 'crm.merge', '*')
+      ) {
+        return false;
+      }
+      const merge = await env.DB
+        .prepare(`SELECT survivor_id, merged_id FROM crm_merges WHERE id = ?`)
+        .bind(input.mergeId)
+        .first<{ survivor_id: string; merged_id: string }>();
+      if (!merge) return false;
+      const projIds =
+        stored && stored.ok === true && Array.isArray(stored.projections)
+          ? stored.projections.map((p) => p.recordId).filter((id): id is string => typeof id === 'string' && id.length > 0)
+          : [];
+      const gate = createReadGate(env.DB, actor.id);
+      const allIds = [...new Set([merge.survivor_id, merge.merged_id, ...projIds])];
+      const decision = await gate.decideEditable(allIds);
+      if (!decision.principalActive) return false;
+      if (!decision.readable.has(merge.survivor_id) || !decision.readable.has(merge.merged_id)) return false;
+      if (!decision.editable.has(merge.survivor_id) || !decision.editable.has(merge.merged_id)) return false;
+      for (const pid of projIds) {
+        if (!decision.readable.has(pid)) return false;
+      }
+      return true;
+    },
     plan: async ({ env, actor, tokenHash, input, expected, commandId, now }) => {
       const [mergeRow, existingUnmerge] = await env.DB.batch([
         env.DB.prepare(`SELECT * FROM crm_merges WHERE id = ?`).bind(input.mergeId),
@@ -1730,10 +2000,26 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
         return { kind: 'refuse', error: 'not_found' };
       }
 
-      if (expected?.get(survivor.id) !== undefined && expected.get(survivor.id) !== survivor.seq) {
+      const expectedSurvivorRev = expected?.get(survivor.id);
+      const expectedLoserRev = expected?.get(loser.id);
+      if (
+        expectedSurvivorRev === undefined ||
+        expectedLoserRev === undefined ||
+        !Number.isSafeInteger(expectedSurvivorRev) ||
+        !Number.isSafeInteger(expectedLoserRev) ||
+        expectedSurvivorRev < 0 ||
+        expectedLoserRev < 0
+      ) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: { reason: 'expected_revisions_required', requiredIds: [survivor.id, loser.id] },
+        };
+      }
+      if (expectedSurvivorRev !== survivor.seq) {
         return { kind: 'refuse', error: 'stale', detail: { reason: 'survivor_revision_changed' } };
       }
-      if (expected?.get(loser.id) !== undefined && expected.get(loser.id) !== loser.seq) {
+      if (expectedLoserRev !== loser.seq) {
         return { kind: 'refuse', error: 'stale', detail: { reason: 'loser_revision_changed' } };
       }
 
@@ -1751,6 +2037,8 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
       const watchedRecordIds = [...new Set([survivor.id, loser.id, ...postRevs.keys()])];
       const movedEndpointIds = moved.movedEndpoints.map((e) => e.id);
       const movedConvIds = moved.movedConversationIds.map((c) => c.id);
+      const movedDupIds = moved.duplicateUpdates.map((d) => d.id);
+      const movedFkEmails = [...new Set(moved.movedFormPeopleKeys.map((fk) => fk.email))];
       const boardIds = [
         ...new Set(
           [survivor.data.boardId, loser.data.boardId].filter((id): id is string => typeof id === 'string' && id.length > 0),
@@ -1763,11 +2051,15 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
         aliasesCheckRes,
         watchedRecsRes,
         currentEpsRes,
-        survivorAllEpsRes,
+        bothPeopleEpsRes,
         survivorAllAliasesRes,
         consRes,
+        postMergeConsRes,
         currentConvsRes,
-        survivorConvsRes,
+        survivorAndLoserConvsRes,
+        currentDupsRes,
+        allRelatedDupsRes,
+        currentFormKeysRes,
       ] = await env.DB.batch([
         env.DB
           .prepare(`SELECT id, data FROM records WHERE collection = 'boards' AND id IN (SELECT value FROM json_each(?))`)
@@ -1782,8 +2074,8 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
           )
           .bind(merge.id, survivor.id, loser.id, survivor.id, loser.id),
         env.DB
-          .prepare(`SELECT * FROM crm_person_aliases WHERE alias_id = ? OR survivor_id = ?`)
-          .bind(loser.id, survivor.id),
+          .prepare(`SELECT * FROM crm_person_aliases WHERE alias_id = ? OR survivor_id IN (?, ?)`)
+          .bind(loser.id, survivor.id, loser.id),
         env.DB
           .prepare(`SELECT id, collection, data, seq FROM records WHERE id IN (SELECT value FROM json_each(?))`)
           .bind(JSON.stringify(watchedRecordIds)),
@@ -1791,26 +2083,48 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
           .prepare(`SELECT * FROM crm_endpoints WHERE id IN (SELECT value FROM json_each(?))`)
           .bind(JSON.stringify(movedEndpointIds)),
         env.DB
-          .prepare(`SELECT * FROM crm_endpoints WHERE person_id = ? AND retired_at IS NULL`)
-          .bind(survivor.id),
+          .prepare(`SELECT * FROM crm_endpoints WHERE person_id IN (?, ?)`)
+          .bind(survivor.id, loser.id),
         env.DB
           .prepare(`SELECT * FROM crm_person_aliases WHERE survivor_id = ? AND merge_id != ?`)
           .bind(survivor.id, merge.id),
         env.DB
           .prepare(
-            `SELECT c.* FROM crm_consents c
-             WHERE c.person_id IN (?, ?)
-                OR c.person_id IN (SELECT alias_id FROM crm_person_aliases WHERE survivor_id IN (?, ?) AND merge_id != ?)
-             ORDER BY c.recorded_at DESC, c.id DESC
-             LIMIT 200`,
+            `SELECT id, person_id, channel, scope, status, source, evidence_ref, recorded_by, recorded_at
+             FROM (
+               SELECT c.*,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY c.person_id, c.channel, c.scope
+                   ORDER BY c.recorded_at DESC, c.id DESC
+                 ) AS rn
+               FROM crm_consents c
+               WHERE c.person_id IN (?, ?)
+                  OR c.person_id IN (SELECT alias_id FROM crm_person_aliases WHERE survivor_id IN (?, ?) AND merge_id != ?)
+             )
+             WHERE rn = 1`,
           )
           .bind(survivor.id, loser.id, survivor.id, loser.id, merge.id),
+        env.DB
+          .prepare(
+            `SELECT id, person_id, channel, scope, status, recorded_at FROM crm_consents
+             WHERE person_id IN (?, ?) AND recorded_at > ?`,
+          )
+          .bind(survivor.id, loser.id, merge.created_at),
         env.DB
           .prepare(`SELECT id, person_id, state, last_message_at, last_outbound_at, rev FROM crm_conversations WHERE id IN (SELECT value FROM json_each(?))`)
           .bind(JSON.stringify(movedConvIds)),
         env.DB
-          .prepare(`SELECT id, person_id, state, last_message_at, last_outbound_at, rev FROM crm_conversations WHERE person_id = ?`)
-          .bind(survivor.id),
+          .prepare(`SELECT id, person_id, state, last_message_at, last_outbound_at, rev FROM crm_conversations WHERE person_id IN (?, ?)`)
+          .bind(survivor.id, loser.id),
+        env.DB
+          .prepare(`SELECT * FROM crm_duplicate_candidates WHERE id IN (SELECT value FROM json_each(?))`)
+          .bind(JSON.stringify(movedDupIds)),
+        env.DB
+          .prepare(`SELECT * FROM crm_duplicate_candidates WHERE person_a_id IN (?, ?) OR person_b_id IN (?, ?)`)
+          .bind(survivor.id, loser.id, survivor.id, loser.id),
+        env.DB
+          .prepare(`SELECT * FROM form_people_keys WHERE email IN (SELECT value FROM json_each(?))`)
+          .bind(JSON.stringify(movedFkEmails)),
       ]);
 
       // Revision-aware conflict detection
@@ -1840,6 +2154,16 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
           entityId: loser.id,
           message: 'Alias mapping changed after this merge.',
         });
+      }
+      for (const ta of moved.transitiveAliases) {
+        const curTa = aliasRows.find((a) => a.alias_id === ta.aliasId);
+        if (!curTa || curTa.survivor_id !== survivor.id || curTa.effective_at !== merge.created_at) {
+          conflicts.push({
+            code: 'later_merge_depends_on_record',
+            entityId: ta.aliasId,
+            message: `Transitive alias ${ta.aliasId} changed after merge.`,
+          });
+        }
       }
 
       const currentRecsById = new Map<string, SyncedRow>();
@@ -1878,10 +2202,31 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
         }
       }
 
+      // Check operational endpoint state changes (including primary flag, retirement, updated_at, new endpoints on loser, or collisions)
       const currentEpById = new Map<string, EndpointRow>();
       for (const ep of currentEpsRes.results as unknown as EndpointRow[]) {
         currentEpById.set(ep.id, ep);
       }
+      const bothPeopleEps = bothPeopleEpsRes.results as unknown as EndpointRow[];
+      const movedEpIdSet = new Set(movedEndpointIds);
+
+      for (const ep of bothPeopleEps) {
+        if (ep.person_id === loser.id) {
+          conflicts.push({
+            code: 'endpoint_reassigned',
+            entityId: ep.id,
+            message: `Archived record gained endpoint ${ep.value_norm} after merge.`,
+          });
+        } else if (!movedEpIdSet.has(ep.id) && ep.updated_at > merge.created_at) {
+          conflicts.push({
+            code: 'endpoint_reassigned',
+            entityId: ep.id,
+            message: `Survivor endpoint ${ep.value_norm} was added or modified after merge.`,
+          });
+        }
+      }
+
+      const unretiringNorms: { id: string; kind: CrmEndpointKind; valueNorm: string }[] = [];
       for (const me of moved.movedEndpoints) {
         const cur = currentEpById.get(me.id);
         if (!cur) {
@@ -1892,21 +2237,64 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
           });
           continue;
         }
+        const expectedPostRetiredAt =
+          me.postRetiredAt !== undefined
+            ? me.postRetiredAt
+            : me.action === 'retired_duplicate'
+              ? merge.created_at
+              : me.priorRetiredAt;
+        const expectedPostUpdatedAt = me.postUpdatedAt ?? merge.created_at;
         if (cur.person_id !== survivor.id) {
           conflicts.push({
             code: 'endpoint_reassigned',
             entityId: me.id,
             message: `Contact endpoint ${cur.value_norm} was reassigned to another person.`,
           });
-        } else if (me.action === 'repointed' && cur.retired_at !== me.priorRetiredAt) {
+        } else if (cur.retired_at !== expectedPostRetiredAt) {
           conflicts.push({
             code: 'endpoint_reassigned',
             entityId: me.id,
             message: `Contact endpoint ${cur.value_norm} retirement state changed after merge.`,
           });
+        } else if (me.postIsPrimary !== undefined && cur.is_primary !== me.postIsPrimary) {
+          conflicts.push({
+            code: 'endpoint_reassigned',
+            entityId: me.id,
+            message: `Contact endpoint ${cur.value_norm} primary selection changed after merge.`,
+          });
+        } else if (cur.updated_at !== expectedPostUpdatedAt) {
+          conflicts.push({
+            code: 'endpoint_reassigned',
+            entityId: me.id,
+            message: `Contact endpoint ${cur.value_norm} was modified after merge.`,
+          });
+        }
+        if (me.action === 'retired_duplicate' && me.priorRetiredAt === null) {
+          unretiringNorms.push({ id: me.id, kind: cur.kind, valueNorm: cur.value_norm });
         }
       }
 
+      if (unretiringNorms.length > 0) {
+        const collisionRes = await env.DB
+          .prepare(
+            `SELECT id, kind, value_norm FROM crm_endpoints
+             WHERE retired_at IS NULL AND value_norm IN (SELECT value FROM json_each(?))`,
+          )
+          .bind(JSON.stringify([...new Set(unretiringNorms.map((u) => u.valueNorm))]))
+          .all<{ id: string; kind: string; value_norm: string }>();
+        for (const u of unretiringNorms) {
+          const collider = collisionRes.results.find((c) => c.kind === u.kind && c.value_norm === u.valueNorm && c.id !== u.id);
+          if (collider) {
+            conflicts.push({
+              code: 'endpoint_reassigned',
+              entityId: u.id,
+              message: `Cannot un-retire duplicate endpoint ${u.valueNorm}; active endpoint ${collider.id} already holds this value.`,
+            });
+          }
+        }
+      }
+
+      // Check operational conversation state changes
       const currentConvById = new Map<string, ConversationSummaryRow>();
       for (const c of currentConvsRes.results as unknown as ConversationSummaryRow[]) {
         currentConvById.set(c.id, c);
@@ -1920,6 +2308,103 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
             message: `Conversation ${mc.id} was modified after the merge.`,
           });
         }
+      }
+      for (const c of survivorAndLoserConvsRes.results as unknown as ConversationSummaryRow[]) {
+        if (c.person_id === loser.id) {
+          conflicts.push({
+            code: 'conversation_edited',
+            entityId: c.id,
+            message: `Archived record gained conversation ${c.id} after merge.`,
+          });
+        }
+      }
+
+      // Check operational duplicate candidate decision/state changes
+      const currentDupById = new Map<string, DuplicateCandidateRow>();
+      for (const d of currentDupsRes.results as unknown as DuplicateCandidateRow[]) {
+        currentDupById.set(d.id, d);
+      }
+      const allRelatedDups = allRelatedDupsRes.results as unknown as DuplicateCandidateRow[];
+      const expectedDupPostById = new Map<
+        string,
+        { a: string; b: string; state: string; decidedBy: string | null; decidedAt: number | null; note: string | null }
+      >();
+      for (const du of moved.duplicateUpdates) {
+        const cur = currentDupById.get(du.id);
+        if (!cur) {
+          conflicts.push({
+            code: 'duplicate_changed',
+            entityId: du.id,
+            message: `Duplicate candidate ${du.id} no longer exists.`,
+          });
+          continue;
+        }
+        const otherId = du.priorPersonAId === loser.id ? du.priorPersonBId : du.priorPersonAId;
+        const [fallbackRepointA, fallbackRepointB] = canonicalPersonPair(survivor.id, otherId);
+        const expA = du.postPersonAId ?? (du.action === 'repointed' ? fallbackRepointA : du.priorPersonAId);
+        const expB = du.postPersonBId ?? (du.action === 'repointed' ? fallbackRepointB : du.priorPersonBId);
+        const expState = du.postState ?? (du.action === 'marked_merged' ? 'merged' : du.priorState);
+        const expDecidedBy = du.postDecidedBy !== undefined ? du.postDecidedBy : du.action === 'marked_merged' ? merge.actor_id : du.priorDecidedBy;
+        const expDecidedAt = du.postDecidedAt !== undefined ? du.postDecidedAt : du.action === 'marked_merged' ? merge.created_at : du.priorDecidedAt;
+        const expNote = du.postNote !== undefined ? du.postNote : du.priorNote;
+        expectedDupPostById.set(du.id, {
+          a: expA,
+          b: expB,
+          state: expState,
+          decidedBy: expDecidedBy,
+          decidedAt: expDecidedAt,
+          note: expNote,
+        });
+
+        if (
+          cur.person_a_id !== expA ||
+          cur.person_b_id !== expB ||
+          cur.state !== expState ||
+          cur.decided_by !== expDecidedBy ||
+          cur.decided_at !== expDecidedAt ||
+          (du.postNote !== undefined && cur.note !== expNote)
+        ) {
+          conflicts.push({
+            code: 'duplicate_changed',
+            entityId: du.id,
+            message: `Duplicate decision for ${du.id} changed after merge.`,
+          });
+        } else if (du.action === 'repointed') {
+          const colliding = allRelatedDups.find(
+            (other) => other.id !== du.id && other.person_a_id === du.priorPersonAId && other.person_b_id === du.priorPersonBId,
+          );
+          if (colliding) {
+            conflicts.push({
+              code: 'duplicate_changed',
+              entityId: du.id,
+              message: `Restoring duplicate pair collides with existing candidate ${colliding.id}.`,
+            });
+          }
+        }
+      }
+
+      // Check operational form_people_keys identity mappings
+      const currentFks = currentFormKeysRes.results as unknown as FormPeopleKeyRow[];
+      for (const fk of moved.movedFormPeopleKeys) {
+        const cur = currentFks.find(
+          (row) => row.database_id === fk.databaseId && row.field_key === fk.fieldKey && row.email === fk.email,
+        );
+        if (!cur || cur.record_id !== survivor.id) {
+          conflicts.push({
+            code: 'form_identity_changed',
+            entityId: `${fk.databaseId}:${fk.fieldKey}:${fk.email}`,
+            message: `Website form identity mapping for ${fk.email} changed after merge.`,
+          });
+        }
+      }
+
+      // Check post-merge consent rows recorded on survivor or loser
+      for (const pc of postMergeConsRes.results as unknown as { id: string; person_id: string }[]) {
+        conflicts.push({
+          code: 'consent_changed',
+          entityId: pc.id,
+          message: `Consent ${pc.id} was recorded on ${pc.person_id} after merge.`,
+        });
       }
 
       if (conflicts.length > 0) {
@@ -1944,7 +2429,7 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
 
       // Recompute survivor & loser restored active endpoints + consents + conversations
       const movedEpMap = new Map(moved.movedEndpoints.map((m) => [m.id, m]));
-      const survivorCurrentActiveEps = (survivorAllEpsRes.results as unknown as EndpointRow[]);
+      const survivorCurrentActiveEps = bothPeopleEps.filter((e) => e.person_id === survivor.id && e.retired_at === null);
       const restoredSurvivorActiveEps: Pick<EndpointRow, 'kind' | 'value_norm' | 'is_primary'>[] = [];
       const restoredLoserActiveEps: Pick<EndpointRow, 'kind' | 'value_norm' | 'is_primary'>[] = [];
 
@@ -1978,8 +2463,8 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
       const lRestoredConsents = resolveEffectiveConsentsWithAliases(loser.id, consentRows, loserRestoredAliases);
 
       const movedConvSet = new Set(movedConvIds);
-      const remainingSurvivorConvs = (survivorConvsRes.results as unknown as ConversationSummaryRow[]).filter(
-        (c) => !movedConvSet.has(c.id),
+      const remainingSurvivorConvs = (survivorAndLoserConvsRes.results as unknown as ConversationSummaryRow[]).filter(
+        (c) => c.person_id === survivor.id && !movedConvSet.has(c.id),
       );
       const restoredLoserConvs = (currentConvsRes.results as unknown as ConversationSummaryRow[]);
 
@@ -2059,22 +2544,22 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
       const epRestoreDemoteStmts: D1PreparedStatement[] = [];
       const epRestoreMainStmts: D1PreparedStatement[] = [];
       for (const me of moved.movedEndpoints) {
+        const curEp = currentEpById.get(me.id)!;
         if (me.action === 'demoted_primary') {
           epRestoreMainStmts.push(
             env.DB
               .prepare(
                 `UPDATE crm_endpoints SET is_primary = ?, updated_at = ?
-                 WHERE id = ? AND person_id = ?`,
+                 WHERE id = ? AND person_id = ? AND updated_at = ?`,
               )
-              .bind(me.priorIsPrimary, now, me.id, survivor.id),
+              .bind(me.priorIsPrimary, now, me.id, survivor.id, curEp.updated_at),
             changesOneFence(env.DB),
           );
         } else {
-          // If an endpoint on survivor is currently is_primary=1 on an active endpoint added to move back to loser, demote/restore atomically:
           epRestoreDemoteStmts.push(
             env.DB
-              .prepare(`UPDATE crm_endpoints SET is_primary = 0, updated_at = ? WHERE id = ? AND person_id = ?`)
-              .bind(now, me.id, survivor.id),
+              .prepare(`UPDATE crm_endpoints SET is_primary = 0, updated_at = ? WHERE id = ? AND person_id = ? AND updated_at = ?`)
+              .bind(now, me.id, survivor.id, curEp.updated_at),
             changesOneFence(env.DB),
           );
           epRestoreMainStmts.push(
@@ -2082,9 +2567,9 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
               .prepare(
                 `UPDATE crm_endpoints
                  SET person_id = ?, is_primary = ?, retired_at = ?, updated_at = ?
-                 WHERE id = ? AND person_id = ?`,
+                 WHERE id = ? AND person_id = ? AND updated_at = ?`,
               )
-              .bind(me.priorPersonId, me.priorIsPrimary, me.priorRetiredAt, now, me.id, survivor.id),
+              .bind(me.priorPersonId, me.priorIsPrimary, me.priorRetiredAt, now, me.id, survivor.id, now),
             changesOneFence(env.DB),
           );
         }
@@ -2106,14 +2591,29 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
 
       const dupRestoreStmts: D1PreparedStatement[] = [];
       for (const d of moved.duplicateUpdates) {
+        const exp = expectedDupPostById.get(d.id)!;
         dupRestoreStmts.push(
           env.DB
             .prepare(
               `UPDATE crm_duplicate_candidates
                SET person_a_id = ?, person_b_id = ?, state = ?, decided_by = ?, decided_at = ?, note = ?
-               WHERE id = ?`,
+               WHERE id = ? AND person_a_id = ? AND person_b_id = ? AND state = ?
+                 AND COALESCE(decided_by, '') = ? AND COALESCE(decided_at, -1) = ?`,
             )
-            .bind(d.priorPersonAId, d.priorPersonBId, d.priorState, d.priorDecidedBy, d.priorDecidedAt, d.priorNote, d.id),
+            .bind(
+              d.priorPersonAId,
+              d.priorPersonBId,
+              d.priorState,
+              d.priorDecidedBy,
+              d.priorDecidedAt,
+              d.priorNote,
+              d.id,
+              exp.a,
+              exp.b,
+              exp.state,
+              exp.decidedBy ?? '',
+              exp.decidedAt ?? -1,
+            ),
           changesOneFence(env.DB),
         );
       }
@@ -2144,9 +2644,9 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
             .prepare(
               `UPDATE crm_person_aliases
                SET survivor_id = ?, effective_at = ?
-               WHERE alias_id = ? AND survivor_id = ?`,
+               WHERE alias_id = ? AND survivor_id = ? AND effective_at = ?`,
             )
-            .bind(ta.priorSurvivorId, ta.priorEffectiveAt, ta.aliasId, survivor.id),
+            .bind(ta.priorSurvivorId, ta.priorEffectiveAt, ta.aliasId, survivor.id, merge.created_at),
           changesOneFence(env.DB),
         );
       }
@@ -2174,14 +2674,22 @@ function unmergePersonCommand(): CommandDefinition<PersonUnmergeInput, PersonUnm
           env.DB
             .prepare(
               `SELECT CASE WHEN EXISTS (
-                 SELECT 1 FROM users WHERE id = ? AND COALESCE(workspace_role, role) IN ('owner', 'admin')
+                 SELECT 1 FROM users WHERE id = ?1 AND COALESCE(workspace_role, role) IN ('owner', 'admin')
                ) AND NOT EXISTS (
-                 SELECT 1 FROM crm_merge_unmerges WHERE merge_id = ?
+                 SELECT 1 FROM crm_merge_unmerges WHERE merge_id = ?2
                ) AND EXISTS (
-                 SELECT 1 FROM crm_person_aliases WHERE alias_id = ? AND survivor_id = ? AND merge_id = ?
+                 SELECT 1 FROM crm_person_aliases WHERE alias_id = ?3 AND survivor_id = ?4 AND merge_id = ?2
+               ) AND NOT EXISTS (
+                 SELECT 1 FROM crm_endpoints WHERE person_id = ?3
+               ) AND NOT EXISTS (
+                 SELECT 1 FROM crm_endpoints WHERE person_id = ?4 AND updated_at > ?5
+               ) AND NOT EXISTS (
+                 SELECT 1 FROM crm_conversations WHERE person_id = ?3
+               ) AND NOT EXISTS (
+                 SELECT 1 FROM crm_consents WHERE person_id IN (?3, ?4) AND recorded_at > ?5
                ) THEN 1 ELSE json_extract('{', '$') END`,
             )
-            .bind(actor.id, merge.id, loser.id, survivor.id, merge.id),
+            .bind(actor.id, merge.id, loser.id, survivor.id, merge.created_at),
       ];
 
       return {

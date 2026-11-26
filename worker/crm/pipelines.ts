@@ -162,22 +162,41 @@ function handoffOpportunityToProjectCommand(): CommandDefinition<
         },
       ];
 
+      const rawPersonIds = new Set<string>();
+      for (const lr of linksRes.results) {
+        const ld = parseJsonSafe(lr.data);
+        if (ld && ld.fieldId === 'f_people' && typeof ld.toId === 'string') {
+          rawPersonIds.add(ld.toId);
+        }
+      }
+      const canonicalByPersonId = new Map<string, string>();
+      for (const pid of rawPersonIds) {
+        canonicalByPersonId.set(pid, (await resolveCanonicalPersonId(env.DB, pid)).canonicalId);
+      }
+
+      const seenTargetLinks = new Set<string>();
       for (const lr of linksRes.results) {
         const ld = parseJsonSafe(lr.data);
         if (!ld || typeof ld.toId !== 'string' || typeof ld.fieldId !== 'string') continue;
         let targetField: string | null = null;
+        let targetToId = ld.toId;
         if (ld.fieldId === 'f_programme') targetField = 'f_program';
-        else if (ld.fieldId === 'f_people') targetField = 'f_people';
-        else if (ld.fieldId === 'f_org') targetField = 'f_orgs';
+        else if (ld.fieldId === 'f_people') {
+          targetField = 'f_people';
+          targetToId = canonicalByPersonId.get(ld.toId) ?? ld.toId;
+        } else if (ld.fieldId === 'f_org') targetField = 'f_orgs';
         if (targetField) {
+          const lid = linkId('relation', targetField, projectId, targetToId);
+          if (seenTargetLinks.has(lid)) continue;
+          seenTargetLinks.add(lid);
           records.push({
-            id: linkId('relation', targetField, projectId, ld.toId),
+            id: lid,
             collection: 'links',
             patch: {
               fromType: 'record',
               fromId: projectId,
               toType: 'record',
-              toId: ld.toId,
+              toId: targetToId,
               kind: 'relation',
               fieldId: targetField,
               createdBy: actor.id,

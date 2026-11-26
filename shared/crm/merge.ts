@@ -179,6 +179,9 @@ export const UnmergeConflictDtoSchema = z.object({
     'conversation_edited',
     'link_modified',
     'missing_record',
+    'duplicate_changed',
+    'form_identity_changed',
+    'consent_changed',
   ]),
   entityId: z.string(),
   message: z.string(),
@@ -189,8 +192,10 @@ export const MergeHistoryItemDtoSchema = z.object({
   id: z.string(),
   survivorId: z.string(),
   survivorTitle: z.string().nullable(),
+  survivorRev: z.number().int().nonnegative().nullable(),
   mergedId: z.string(),
   mergedTitle: z.string().nullable(),
+  mergedRev: z.number().int().nonnegative().nullable(),
   actorId: z.string(),
   actorName: z.string().nullable(),
   commandId: z.string(),
@@ -236,6 +241,9 @@ export interface MergeJournalMovedPayload {
     priorPersonId: string;
     priorIsPrimary: number;
     priorRetiredAt: number | null;
+    postIsPrimary?: number;
+    postRetiredAt?: number | null;
+    postUpdatedAt?: number;
     action: 'repointed' | 'retired_duplicate' | 'demoted_primary';
   }[];
   movedConversationIds: { id: string; preRev: number }[];
@@ -247,6 +255,12 @@ export interface MergeJournalMovedPayload {
     priorDecidedBy: string | null;
     priorDecidedAt: number | null;
     priorNote: string | null;
+    postPersonAId?: string;
+    postPersonBId?: string;
+    postState?: string;
+    postDecidedBy?: string | null;
+    postDecidedAt?: number | null;
+    postNote?: string | null;
     action: 'marked_merged' | 'repointed' | 'kept_existing';
   }[];
   movedFormPeopleKeys: {
@@ -532,6 +546,51 @@ export function resolveEffectiveConsentsWithAliases(
   }
 
   return resolved.sort((a, b) => `${a.channel}:${a.scope}`.localeCompare(`${b.channel}:${b.scope}`));
+}
+
+/**
+ * Evaluates effective send consent for a specific `(channel, scope)` using the exact
+ * same per-tuple alias-aware precedence enforced by the transactional SQL fence
+ * (`consentNotWithdrawnFence` in `worker/crm/conversations.ts`).
+ */
+export function evaluateEffectiveChannelConsent(
+  canonicalPersonId: string,
+  rows: readonly CrmConsentDto[],
+  aliasEffectiveAtById: ReadonlyMap<string, number>,
+  channel: CrmConsentDto['channel'],
+  scope: CrmConsentDto['scope'] = 'transactional',
+): { status: 'granted' | 'withdrawn' | 'unrecorded'; withdrawn: boolean } {
+  const resolved = resolveEffectiveConsentsWithAliases(canonicalPersonId, rows, aliasEffectiveAtById);
+  const spec = resolved.find((r) => r.channel === channel && r.scope === scope);
+  const anyRow = resolved.find((r) => r.channel === 'any' && r.scope === scope);
+
+  if (spec?.status === 'withdrawn') {
+    return { status: 'withdrawn', withdrawn: true };
+  }
+
+  if (anyRow?.status === 'withdrawn') {
+    // Compute exact effective blocking timestamp matching SQL `any_blocking_ts`
+    const blockingTs =
+      anyRow.personId === canonicalPersonId
+        ? anyRow.recordedAt
+        : Math.max(aliasEffectiveAtById.get(anyRow.personId) ?? Number.MAX_SAFE_INTEGER, anyRow.recordedAt);
+    const canonSpecOverride =
+      spec?.status === 'granted' &&
+      spec.personId === canonicalPersonId &&
+      spec.recordedAt > blockingTs;
+    if (!canonSpecOverride) {
+      return { status: 'withdrawn', withdrawn: true };
+    }
+    return { status: 'granted', withdrawn: false };
+  }
+
+  if (spec?.status === 'granted') {
+    return { status: 'granted', withdrawn: false };
+  }
+  if (anyRow?.status === 'granted') {
+    return { status: 'granted', withdrawn: false };
+  }
+  return { status: 'unrecorded', withdrawn: false };
 }
 
 /**

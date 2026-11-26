@@ -122,13 +122,23 @@ export function MergeHistoryTab({ canUnmerge, onOpenPerson, onUnmerged }: MergeH
     setUnmergeConflicts([]);
 
     try {
+      if (activeItem.survivorRev === null || activeItem.mergedRev === null) {
+        setUnmergeError('Reviewed person revisions are unavailable. Refresh merge history and try again.');
+        return;
+      }
       const res = await unmergePeople(
         {
           mergeId: activeItem.id,
           confirm: true,
           ...(unmergeReason.trim() ? { reason: unmergeReason.trim() } : {}),
         },
-        { requestId: generateCrmRequestId() },
+        {
+          requestId: generateCrmRequestId(),
+          expected: {
+            [activeItem.survivorId]: activeItem.survivorRev,
+            [activeItem.mergedId]: activeItem.mergedRev,
+          },
+        },
       );
 
       if (res.ok) {
@@ -141,6 +151,9 @@ export function MergeHistoryTab({ canUnmerge, onOpenPerson, onUnmerged }: MergeH
       } else {
         setUnmergeConflicts(extractUnmergeConflicts(res));
         setUnmergeError(describeCommandError(res));
+        if (res.error === 'stale') {
+          await loadHistory();
+        }
       }
     } catch (err) {
       if (isIdentityChangedError(err)) return;
