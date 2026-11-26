@@ -137,7 +137,7 @@ export function BookingsView({ status }: { status: CrmStatus }) {
 
   // Edition form fields
   const [edEventId, setEdEventId] = useState('');
-  const [edProgramme, setEdProgramme] = useState<string>(CRM_PROGRAMMES[0]?.slug ?? 'unlearn-relearn');
+  const [edProgramme, setEdProgramme] = useState<string>(CRM_PROGRAMMES[0]?.slug ?? 'tribal-habitat-workshop');
   const [edTitle, setEdTitle] = useState('');
   const [edCapacity, setEdCapacity] = useState('');
   const [edHoldMinutes, setEdHoldMinutes] = useState('');
@@ -273,7 +273,7 @@ export function BookingsView({ status }: { status: CrmStatus }) {
   const openCreateEdition = () => {
     setEditingEdition(null);
     setEdEventId(eventOptions[0]?.id ?? '');
-    setEdProgramme(CRM_PROGRAMMES[0]?.slug ?? 'unlearn-relearn');
+    setEdProgramme(CRM_PROGRAMMES[0]?.slug ?? 'tribal-habitat-workshop');
     setEdTitle('');
     setEdCapacity('');
     setEdHoldMinutes('');
@@ -607,7 +607,7 @@ export function BookingsView({ status }: { status: CrmStatus }) {
         return;
       }
       setNotice(
-        `Edition completed (${res.result.markedNotRecorded} unrecorded attendance slots explicitly marked not_recorded).`,
+        `Edition completed (${res.result.completedBookings} confirmed booking${res.result.completedBookings === 1 ? '' : 's'} closed; unrecorded attendance slots explicitly marked not_recorded).`,
       );
       await loadEditions();
       await loadEditionDetail(editionDetail.edition.id);

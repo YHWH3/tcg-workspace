@@ -289,8 +289,12 @@ export default function CrmShell() {
   const compactNavItems = [
     { to: '/crm', label: 'Home', icon: Home, end: true },
     { to: '/crm/conversations', label: 'Inbox', icon: MessageSquare, end: false },
-    { to: '/crm/bookings', label: 'Bookings', icon: Ticket, end: false },
     { to: '/crm/people', label: 'People', icon: Users, end: false },
+    ...(canManage
+      ? [{ to: '/crm/settings/access', label: 'Settings', icon: Settings, end: false }]
+      : canConfigureAny
+        ? [{ to: '/crm/settings/programmes', label: 'Settings', icon: Settings, end: false }]
+        : []),
   ];
 
   const routeLabel = pathname.startsWith('/crm/settings/channels')

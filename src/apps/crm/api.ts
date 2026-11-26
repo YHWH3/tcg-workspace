@@ -1231,14 +1231,14 @@ export function offerWaitlist(
   input: OfferWaitlistInput,
   opts?: RunCrmCommandOptions,
 ): Promise<CommandResult<{ booking: CrmBookingDto }> | CommandError> {
-  return runCrmCommand('booking.offer_waitlist', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
+  return runCrmCommand('waitlist.offer', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
 }
 
 export function acceptWaitlistOffer(
   input: AcceptWaitlistOfferInput,
   opts?: RunCrmCommandOptions,
 ): Promise<CommandResult<{ booking: CrmBookingDto }> | CommandError> {
-  return runCrmCommand('booking.accept_offer', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
+  return runCrmCommand('waitlist.accept', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
 }
 
 export function updateParticipant(
@@ -1282,11 +1282,11 @@ export function reviewScreening(
 export function completeEdition(
   input: CompleteEditionInput,
   opts?: RunCrmCommandOptions,
-): Promise<CommandResult<{ edition: CrmEditionDto; markedNotRecorded: number }> | CommandError> {
+): Promise<CommandResult<{ editionId: string; completedBookings: number }> | CommandError> {
   return runCrmCommand(
     'edition.complete',
     { ...input },
-    z.object({ edition: CrmEditionDtoSchema, markedNotRecorded: z.number().int().nonnegative() }).strict(),
+    z.object({ editionId: z.string(), completedBookings: z.number().int().nonnegative() }).strict(),
     opts,
   );
 }
@@ -1324,17 +1324,23 @@ export function recordManualReceipt(
   | CommandResult<{
       entry: CrmLedgerEntryDto;
       paymentStatus: 'unpaid' | 'part_paid' | 'paid' | 'overpaid' | 'refund_pending' | 'refunded';
-      paidWithoutSeat: boolean;
+      netPaidMinor: number;
+      dueMinor: number;
+      currency: string;
+      bookingStateAfter: string | null;
     }>
   | CommandError
 > {
   return runCrmCommand(
-    'receipt.record_manual',
+    'ledger.record_receipt',
     { ...input },
     z.object({
       entry: CrmLedgerEntryDtoSchema,
       paymentStatus: z.enum(['unpaid', 'part_paid', 'paid', 'overpaid', 'refund_pending', 'refunded']),
-      paidWithoutSeat: z.boolean(),
+      netPaidMinor: z.number().int(),
+      dueMinor: z.number().int().nonnegative(),
+      currency: z.string(),
+      bookingStateAfter: z.string().nullable(),
     }).strict(),
     opts,
   );
@@ -1343,11 +1349,22 @@ export function recordManualReceipt(
 export function reverseLedgerEntry(
   input: ReverseLedgerEntryInput,
   opts?: RunCrmCommandOptions,
-): Promise<CommandResult<{ reversalEntry: CrmLedgerEntryDto }> | CommandError> {
+): Promise<
+  | CommandResult<{
+      reversalEntry: CrmLedgerEntryDto;
+      paymentStatus: 'unpaid' | 'part_paid' | 'paid' | 'overpaid' | 'refund_pending' | 'refunded';
+      netPaidMinor: number;
+    }>
+  | CommandError
+> {
   return runCrmCommand(
-    'ledger.reverse',
+    'ledger.reverse_entry',
     { ...input },
-    z.object({ reversalEntry: CrmLedgerEntryDtoSchema }).strict(),
+    z.object({
+      reversalEntry: CrmLedgerEntryDtoSchema,
+      paymentStatus: z.enum(['unpaid', 'part_paid', 'paid', 'overpaid', 'refund_pending', 'refunded']),
+      netPaidMinor: z.number().int(),
+    }).strict(),
     opts,
   );
 }
@@ -1357,7 +1374,7 @@ export function configureRefundPolicy(
   opts?: RunCrmCommandOptions,
 ): Promise<CommandResult<{ policy: CrmRefundPolicyDto }> | CommandError> {
   return runCrmCommand(
-    'refund.configure_policy',
+    'refund_policy.configure',
     { ...input },
     z.object({ policy: CrmRefundPolicyDtoSchema }).strict(),
     opts,
@@ -1391,11 +1408,22 @@ export function decideRefund(
 export function issueRefund(
   input: IssueRefundInput,
   opts?: RunCrmCommandOptions,
-): Promise<CommandResult<{ refundRequest: CrmRefundRequestDto; ledgerEntry: CrmLedgerEntryDto }> | CommandError> {
+): Promise<
+  | CommandResult<{
+      refundRequest: CrmRefundRequestDto;
+      entry: CrmLedgerEntryDto;
+      paymentStatus: 'unpaid' | 'part_paid' | 'paid' | 'overpaid' | 'refund_pending' | 'refunded';
+    }>
+  | CommandError
+> {
   return runCrmCommand(
     'refund.issue',
     { ...input },
-    z.object({ refundRequest: CrmRefundRequestDtoSchema, ledgerEntry: CrmLedgerEntryDtoSchema }).strict(),
+    z.object({
+      refundRequest: CrmRefundRequestDtoSchema,
+      entry: CrmLedgerEntryDtoSchema,
+      paymentStatus: z.enum(['unpaid', 'part_paid', 'paid', 'overpaid', 'refund_pending', 'refunded']),
+    }).strict(),
     opts,
   );
 }
@@ -1417,7 +1445,7 @@ export function upsertMembershipScheme(
   opts?: RunCrmCommandOptions,
 ): Promise<CommandResult<{ scheme: CrmMembershipSchemeDto }> | CommandError> {
   return runCrmCommand(
-    'membership.configure_scheme',
+    'membership_scheme.upsert',
     { ...input },
     z.object({ scheme: CrmMembershipSchemeDtoSchema }).strict(),
     opts,

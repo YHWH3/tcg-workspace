@@ -196,7 +196,7 @@ export function MoneyView({ status }: { status: CrmStatus }) {
       setRcptEvidenceRef('');
       setRcptNote('');
       setNotice(
-        res.result.paidWithoutSeat
+        res.result.bookingStateAfter === 'paid_without_seat'
           ? 'Receipt recorded in append-only ledger. WARNING: booking hold had expired — flagged as paid_without_seat!'
           : `Receipt recorded (${res.result.paymentStatus.replace(/_/g, ' ')}).`,
       );
@@ -314,7 +314,7 @@ export function MoneyView({ status }: { status: CrmStatus }) {
       }
       setIssuingRefund(null);
       setRefIssueRef('');
-      setNotice(`Refund issued and appended to ledger (${res.result.ledgerEntry.id}).`);
+      setNotice(`Refund issued and appended to ledger (${res.result.entry.id}).`);
       await loadMoney();
     } catch (err) {
       if (!isIdentityChangedError(err)) setError(describeCommandError(err));
