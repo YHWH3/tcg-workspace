@@ -85,8 +85,13 @@ Test results are reported with exact commands and counts from the actual run; no
 
 ## 5. Release readiness checklist (per release)
 
+- **Risk-based verification cadence (A-28):**
+  - *Per internal slice:* targeted unit, D1, client-contract and affected-surface tests (`typecheck` + targeted Vitest/Playwright checks where UI changes).
+  - *Before dependent functionality:* integration tests covering contracts, authorization, retries, consent, ingest and failure handling.
+  - *At package completion:* full application test suite (`npm test`, subject to A-24), typecheck, build, migration/pack/certification checks, and targeted responsive/a11y browser checks for changed workflows.
+  - *Comprehensive 18-project browser certification (Chromium/Firefox/WebKit × desktop/tablet/mobile × light/dark + full screenshot comparisons):* scheduled at **P4** and **P6**, with earlier full runs required only when change impact warrants them. Deferred P2 certification requirements remain preserved and tracked in `PROGRESS.md` until executed at P4/P6.
 - Workspace regression suite, Studio check and screenshot comparison pass. Slice acceptance may tolerate only the SI-01 failures under the A-24 rule (`S0-PLAN.md` section 9.4); **a production release requires SI-01 to be investigated and stabilised**, with the suite passing in full.
-- CRM tests for included slices pass in all three browser engines and three layouts.
+- CRM tests for included slices pass in all three browser engines and three layouts at comprehensive certification gates (P4, P6, and pre-release).
 - Accessibility checks pass; keyboard-only walkthrough of each new screen recorded.
 - Restricted-content absence check passes for a non-privileged user.
 - Migration rehearsal on exported copy passes, with rollback rehearsed.
