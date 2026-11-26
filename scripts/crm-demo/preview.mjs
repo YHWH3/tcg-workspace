@@ -1119,6 +1119,523 @@ try {
   shots.channelsMobileLight = await capture(p3Mob, 'channels-mobile-light.png');
   await p3MobCtx.close();
 
+  // =========================================================================
+  // Part F — P4 Operational CRM: Bookings, Money & Common Roots Memberships
+  // =========================================================================
+  // Grant finance & refund capabilities to Arun (independent second reviewer) and ensure Meera lacks restricted screening
+  const arunId = createdUsers.arun.user.id;
+  for (const [idx, cap] of ['crm.finance.read', 'crm.finance.record', 'crm.refund.approve'].entries()) {
+    const grantRes = await requestJson('/api/crm/commands/capability.grant', {
+      token: owner.token,
+      body: {
+        requestId: `demo_p4_arun_cap_${idx}`,
+        input: { userId: arunId, capability: cap, scope: '*' },
+      },
+    });
+    assert.equal(grantRes.ok, true, `Grant ${cap} to Arun`);
+  }
+
+  // Seed two Event records for editions & transfers
+  const p4Push = await requestJson('/api/sync/push', {
+    token: owner.token,
+    body: {
+      changes: [
+        {
+          id: 'demo_event_earthcraft',
+          collection: 'tasks',
+          ts: now + 30_000,
+          patch: { boardId: boardByKey.events, title: 'Earthcraft Bamboo Studio — Autumn 2026', order: 'a0' },
+        },
+        {
+          id: 'demo_event_earthcraft_winter',
+          collection: 'tasks',
+          ts: now + 30_000,
+          patch: { boardId: boardByKey.events, title: 'Earthcraft Bamboo Studio — Winter 2026', order: 'a1' },
+        },
+      ],
+    },
+  });
+  assert.ok(!p4Push.rejected && !(p4Push.rejectedItems?.length), 'Push demo events');
+
+  // 1. Configure Edition (capacity 4, requires restricted screening, session dates)
+  const p4Ed1 = await requestJson('/api/crm/commands/edition.upsert', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_ed_1',
+      input: {
+        eventRecordId: 'demo_event_earthcraft',
+        programmeSlug: 'tribal-habitat-workshop',
+        title: 'Earthcraft Autumn Cohort',
+        capacity: 4,
+        holdMinutes: 30,
+        maxGroupSize: 3,
+        confirmBeforePayment: false,
+        requiresScreening: true,
+        screeningQuestions: ['Any dietary or physical support notes?'],
+        cancellationPolicyText: 'Full credit transfer up to 14 days prior; refunds subject to O-09 dual approval.',
+        priceOptions: [{ id: 'std', label: 'Standard Seat', amountMinor: 250000, currency: 'INR', active: true }],
+        sessionDates: ['2026-12-05', '2026-12-06'],
+        state: 'open',
+      },
+    },
+  });
+  assert.equal(p4Ed1.ok, true, 'Create primary P4 edition');
+  const ed1Id = p4Ed1.result.edition.id;
+
+  const p4Ed2 = await requestJson('/api/crm/commands/edition.upsert', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_ed_2',
+      input: {
+        eventRecordId: 'demo_event_earthcraft_winter',
+        programmeSlug: 'tribal-habitat-workshop',
+        title: 'Earthcraft Winter Cohort',
+        capacity: 6,
+        holdMinutes: 45,
+        maxGroupSize: 3,
+        confirmBeforePayment: true,
+        requiresScreening: false,
+        priceOptions: [{ id: 'std', label: 'Standard Seat', amountMinor: 250000, currency: 'INR', active: true }],
+        sessionDates: ['2027-01-10'],
+        state: 'open',
+      },
+    },
+  });
+  assert.equal(p4Ed2.ok, true, 'Create secondary P4 edition');
+
+  // 2. Group booking (3 seats: 1 named + 2 placeholders) + Name a placeholder
+  const grpBk = await requestJson('/api/crm/commands/booking.request', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_grp_bk',
+      input: {
+        editionId: ed1Id,
+        bookerPersonId: 'demo_person_0',
+        seats: 3,
+        priceOptionId: 'std',
+        participantNames: ['Nandini Menon'],
+        source: 'crm',
+      },
+    },
+  });
+  assert.equal(grpBk.ok, true);
+  assert.equal(grpBk.result.participants.filter((p) => p.state === 'placeholder').length, 2);
+  const firstPlaceholder = grpBk.result.participants.find((p) => p.state === 'placeholder');
+  const namedPlaceholder = await requestJson('/api/crm/commands/participant.update', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_name_ph',
+      input: {
+        participantId: firstPlaceholder.id,
+        displayName: 'Meera Krishnan',
+        personId: 'demo_person_3',
+        expectedRev: firstPlaceholder.rev,
+      },
+    },
+  });
+  assert.equal(namedPlaceholder.ok, true);
+
+  // Hold the 3-seat group booking so only 1 seat remains out of 4
+  const grpHold = await requestJson('/api/crm/commands/booking.hold', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_grp_hold', input: { bookingId: grpBk.result.booking.id } },
+  });
+  assert.equal(grpHold.ok, true, 'Hold 3-seat group booking');
+
+  // 3. Competing final-seat requests (1 seat left -> person 4 & person 5 race to hold; only 1 wins!)
+  const reqA = await requestJson('/api/crm/commands/booking.request', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_req_a',
+      input: { editionId: ed1Id, bookerPersonId: 'demo_person_4', seats: 1, priceOptionId: 'std', source: 'crm' },
+    },
+  });
+  const reqB = await requestJson('/api/crm/commands/booking.request', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_req_b',
+      input: { editionId: ed1Id, bookerPersonId: 'demo_person_5', seats: 1, priceOptionId: 'std', source: 'crm' },
+    },
+  });
+  assert.equal(reqA.ok, true);
+  assert.equal(reqB.ok, true);
+
+  const [raceA, raceB] = await Promise.all([
+    requestJson('/api/crm/commands/booking.hold', {
+      token: owner.token,
+      body: { requestId: 'demo_p4_race_a', input: { bookingId: reqA.result.booking.id } },
+    }),
+    requestJson('/api/crm/commands/booking.hold', {
+      token: owner.token,
+      body: { requestId: 'demo_p4_race_b', input: { bookingId: reqB.result.booking.id } },
+    }),
+  ]);
+  const raceWinners = [raceA, raceB].filter((r) => r.ok === true);
+  const raceLosers = [raceA, raceB].filter((r) => r.ok === false && r.error === 'capacity_exceeded');
+  assert.equal(raceWinners.length, 1, 'Exactly one competing final-seat hold must win');
+  assert.equal(raceLosers.length, 1, 'Second competing final-seat hold must fail capacity_exceeded');
+  const winnerBk = raceWinners[0].result.booking;
+
+  // Loser joins waitlist
+  const wlBk = await requestJson('/api/crm/commands/booking.request', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_wl_bk',
+      input: {
+        editionId: ed1Id,
+        bookerPersonId: 'demo_person_6',
+        seats: 1,
+        priceOptionId: 'std',
+        preferWaitlist: true,
+        source: 'crm',
+      },
+    },
+  });
+  assert.equal(wlBk.ok, true);
+  assert.equal(wlBk.result.booking.state, 'waitlisted');
+
+  // 4. Expire winner hold via SQL -> offer waitlist -> accept waitlist offer -> late payment on expired winner => paid_without_seat!
+  await fixture.sql(
+    `UPDATE crm_bookings SET hold_expires_at = ${Date.now() - 60_000} WHERE id = '${winnerBk.id}'; UPDATE crm_allocations SET expires_at = ${Date.now() - 60_000} WHERE booking_id = '${winnerBk.id}';`,
+  );
+  const offered = await requestJson('/api/crm/commands/waitlist.offer', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_wl_offer', input: { bookingId: wlBk.result.booking.id } },
+  });
+  assert.equal(offered.ok, true);
+  const acceptedOffer = await requestJson('/api/crm/commands/waitlist.accept', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_wl_accept', input: { bookingId: wlBk.result.booking.id } },
+  });
+  assert.equal(acceptedOffer.ok, true);
+
+  // Payment arriving after hold expiry flags paid_without_seat
+  const lateRcpt = await requestJson('/api/crm/commands/ledger.record_receipt', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_late_rcpt',
+      input: {
+        objectType: 'booking',
+        objectId: winnerBk.id,
+        amountMinor: 250000,
+        currency: 'INR',
+        evidenceKind: 'bank_reference',
+        evidenceRef: 'UTR-DEMO-LATE-01',
+        contributorResidency: 'domestic',
+      },
+    },
+  });
+  assert.equal(lateRcpt.ok, true);
+  assert.equal(lateRcpt.result.bookingStateAfter, 'paid_without_seat', 'Late receipt after hold expiry must flag paid_without_seat');
+
+  // 5. Partial payment + Overpayment + Independent Refund Approval & Payout + Foreign Block
+  const grpPr = await requestJson('/api/crm/commands/payment_request.create', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_grp_pr',
+      input: {
+        objectType: 'booking',
+        objectId: grpBk.result.booking.id,
+        amountMinor: 750000,
+        currency: 'INR',
+        label: 'Earthcraft 3-seat group fee',
+      },
+    },
+  });
+  assert.equal(grpPr.ok, true);
+
+  const partRcpt = await requestJson('/api/crm/commands/ledger.record_receipt', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_part_rcpt',
+      input: {
+        objectType: 'booking',
+        objectId: grpBk.result.booking.id,
+        paymentRequestId: grpPr.result.paymentRequest.id,
+        amountMinor: 300000,
+        currency: 'INR',
+        evidenceKind: 'bank_reference',
+        evidenceRef: 'UTR-DEMO-PART-01',
+        contributorResidency: 'domestic',
+      },
+    },
+  });
+  assert.equal(partRcpt.result.paymentStatus, 'part_paid');
+
+  const overRcpt = await requestJson('/api/crm/commands/ledger.record_receipt', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_over_rcpt',
+      input: {
+        objectType: 'booking',
+        objectId: grpBk.result.booking.id,
+        paymentRequestId: grpPr.result.paymentRequest.id,
+        amountMinor: 500000,
+        currency: 'INR',
+        evidenceKind: 'bank_reference',
+        evidenceRef: 'UTR-DEMO-OVER-02',
+        contributorResidency: 'domestic',
+      },
+    },
+  });
+  assert.equal(overRcpt.result.paymentStatus, 'overpaid');
+
+  // Foreign contribution blocked
+  const foreignBlock = await requestJson('/api/crm/commands/ledger.record_receipt', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_foreign_blk',
+      input: {
+        objectType: 'booking',
+        objectId: grpBk.result.booking.id,
+        amountMinor: 10000,
+        currency: 'USD',
+        evidenceKind: 'bank_reference',
+        evidenceRef: 'WIRE-FOREIGN-BLOCK',
+        contributorResidency: 'foreign',
+      },
+    },
+  });
+  assert.equal(foreignBlock.ok, false);
+
+  // Overpayment refund requested by Owner -> self-approval blocked -> Arun independently approves -> Owner issues payout
+  const rfReq = await requestJson('/api/crm/commands/refund.request', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_rf_req',
+      input: {
+        objectType: 'booking',
+        objectId: grpBk.result.booking.id,
+        amountMinor: 50000,
+        currency: 'INR',
+        reason: 'Return ₹500 overpayment',
+      },
+    },
+  });
+  assert.equal(rfReq.ok, true);
+  assert.equal(rfReq.result.refundRequest.requiresIndependentApproval, true);
+
+  const selfApprove = await requestJson('/api/crm/commands/refund.decide', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_rf_self',
+      input: { refundRequestId: rfReq.result.refundRequest.id, decision: 'approve', note: 'Attempt self-approve' },
+    },
+  });
+  assert.equal(selfApprove.ok, false);
+
+  const arunApprove = await requestJson('/api/crm/commands/refund.decide', {
+    token: createdUsers.arun.token,
+    body: {
+      requestId: 'demo_p4_rf_arun',
+      input: { refundRequestId: rfReq.result.refundRequest.id, decision: 'approve', note: 'Verified bank excess' },
+    },
+  });
+  assert.equal(arunApprove.ok, true);
+
+  const rfIssue = await requestJson('/api/crm/commands/refund.issue', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_rf_issue',
+      input: { refundRequestId: rfReq.result.refundRequest.id, evidenceRef: 'NEFT-REFUND-DEMO-01' },
+    },
+  });
+  assert.equal(rfIssue.ok, true);
+
+  // 6. Programme-scoped Restricted Screening visibility (Owner clears all 3; Kavita without crm.restricted.read gets 403!)
+  for (const [idx, p] of grpBk.result.participants.entries()) {
+    const scrUp = await requestJson('/api/crm/commands/screening.upsert', {
+      token: owner.token,
+      body: {
+        requestId: `demo_p4_scr_up_${idx}`,
+        input: {
+          participantId: p.id,
+          answers: { 'Any dietary or physical support notes?': 'Vegetarian; no mobility restrictions' },
+          state: 'received',
+        },
+      },
+    });
+    assert.equal(scrUp.ok, true);
+    const scrRev = await requestJson('/api/crm/commands/screening.review', {
+      token: owner.token,
+      body: {
+        requestId: `demo_p4_scr_rev_${idx}`,
+        input: { participantId: p.id, state: 'cleared', reviewNote: 'Cleared for Earthcraft studio' },
+      },
+    });
+    assert.equal(scrRev.ok, true);
+  }
+  const meeraScrRes = await fetch(fixture.base + `/api/crm/read/booking/${grpBk.result.booking.id}/screening`, {
+    headers: { Authorization: `Bearer ${createdUsers.meera.token}` },
+  });
+  assert.equal(meeraScrRes.status, 403, 'Unauthorized staff (Meera) must be denied restricted screening read');
+  const arunWrongProgScrRes = await fetch(fixture.base + `/api/crm/read/booking/${grpBk.result.booking.id}/screening`, {
+    headers: { Authorization: `Bearer ${createdUsers.arun.token}` },
+  });
+  assert.equal(arunWrongProgScrRes.status, 403, 'Staff with restricted screening on another programme (Arun: common-lab) must be denied unlearn-relearn screening');
+
+  // Confirm group booking now that payment & screening are cleared, and record Attendance
+  const grpConf = await requestJson('/api/crm/commands/booking.confirm', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_grp_conf', input: { bookingId: grpBk.result.booking.id } },
+  });
+  assert.equal(grpConf.ok, true);
+
+  const attRec = await requestJson('/api/crm/commands/attendance.record', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_att_1',
+      input: { participantId: grpBk.result.participants[0].id, sessionDate: '2026-12-05', state: 'present' },
+    },
+  });
+  assert.equal(attRec.ok, true);
+
+  // 8. Common Roots Membership: scheme, apply, approve, request, receipt, activate + renewal_due + lapsed sample
+  const crScheme = await requestJson('/api/crm/commands/membership_scheme.upsert', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_cr_scheme',
+      input: {
+        slug: 'common-roots-annual',
+        name: 'Common Roots Annual',
+        programmeSlug: 'common-roots',
+        contributionAmountMinor: 150000,
+        currency: 'INR',
+        validityDays: 365,
+        renewalNoticeDays: 30,
+        identifierPrefix: 'CR',
+        identifierDigits: 4,
+        active: true,
+      },
+    },
+  });
+  assert.equal(crScheme.ok, true);
+  assert.equal(crScheme.result.scheme.benefitsEnabled, false);
+
+  const crApp = await requestJson('/api/crm/commands/membership.apply', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_cr_app', input: { schemeId: crScheme.result.scheme.id, personId: 'demo_person_7' } },
+  });
+  await requestJson('/api/crm/commands/membership.decide', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_cr_dec', input: { membershipId: crApp.result.membership.id, decision: 'approve', reason: 'Welcome to Common Roots' } },
+  });
+  const crReq = await requestJson('/api/crm/commands/membership.issue_request', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_cr_req', input: { membershipId: crApp.result.membership.id } },
+  });
+  await requestJson('/api/crm/commands/ledger.record_receipt', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_cr_rcpt',
+      input: {
+        objectType: 'membership',
+        objectId: crApp.result.membership.id,
+        paymentRequestId: crReq.result.paymentRequestId,
+        amountMinor: 150000,
+        currency: 'INR',
+        evidenceKind: 'bank_reference',
+        evidenceRef: 'UTR-CR-DEMO-001',
+        contributorResidency: 'domestic',
+      },
+    },
+  });
+  const crAct = await requestJson('/api/crm/commands/membership.activate', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_cr_act', input: { membershipId: crApp.result.membership.id } },
+  });
+  assert.equal(crAct.ok, true);
+  assert.equal(crAct.result.membership.memberIdentifier, 'CR-0001');
+
+  // Second membership set to renewal_due (10 days left) and third lapsed
+  const crDue = await requestJson('/api/crm/commands/membership.apply', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_cr_due_app', input: { schemeId: crScheme.result.scheme.id, personId: 'demo_person_8' } },
+  });
+  await requestJson('/api/crm/commands/membership.decide', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_cr_due_dec', input: { membershipId: crDue.result.membership.id, decision: 'approve', reason: 'Prior year member' } },
+  });
+  const crDueReq = await requestJson('/api/crm/commands/membership.issue_request', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_cr_due_req', input: { membershipId: crDue.result.membership.id } },
+  });
+  await requestJson('/api/crm/commands/ledger.record_receipt', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p4_cr_due_rcpt',
+      input: {
+        objectType: 'membership',
+        objectId: crDue.result.membership.id,
+        paymentRequestId: crDueReq.result.paymentRequestId,
+        amountMinor: 150000,
+        currency: 'INR',
+        evidenceKind: 'bank_reference',
+        evidenceRef: 'UTR-CR-DEMO-002',
+        contributorResidency: 'domestic',
+      },
+    },
+  });
+  await requestJson('/api/crm/commands/membership.activate', {
+    token: owner.token,
+    body: { requestId: 'demo_p4_cr_due_act', input: { membershipId: crDue.result.membership.id } },
+  });
+  await fixture.sql(`UPDATE crm_memberships SET valid_until = ${Date.now() + 10 * 86_400_000} WHERE id = '${crDue.result.membership.id}'`);
+
+  // Desktop & Mobile WebKit UI Walkthrough + Screenshots for Bookings, Money & Memberships
+  const { context: p4DeskCtx, page: p4Desk } = await openAuthedPage(browser, owner, {
+    viewport: { width: 1440, height: 900 },
+    colorScheme: 'light',
+  });
+  await p4Desk.emulateMedia({ colorScheme: 'light' });
+  await p4Desk.goto(fixture.base + `/crm/bookings/${ed1Id}`);
+  await expect(p4Desk.getByRole('heading', { name: 'Editions & Bookings' })).toBeVisible({ timeout: 15_000 });
+  await expect(p4Desk.getByText('Earthcraft Autumn Cohort').first()).toBeVisible({ timeout: 15_000 });
+  assert.equal(await p4Desk.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'Desktop Bookings overflow');
+  shots.bookingsDesktopLight = await capture(p4Desk, 'bookings-desktop-light.png');
+
+  await p4Desk.goto(fixture.base + '/crm/money');
+  await expect(p4Desk.getByRole('heading', { name: 'Money & Append-Only Ledger' })).toBeVisible({ timeout: 15_000 });
+  await expect(p4Desk.getByText('Isolated currency').first()).toBeVisible({ timeout: 15_000 });
+  assert.equal(await p4Desk.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'Desktop Money overflow');
+  shots.moneyDesktopLight = await capture(p4Desk, 'money-desktop-light.png');
+
+  await p4Desk.goto(fixture.base + '/crm/memberships');
+  await expect(p4Desk.getByRole('heading', { name: 'Common Roots Memberships' })).toBeVisible({ timeout: 15_000 });
+  await expect(p4Desk.getByText('CR-0001').first()).toBeVisible({ timeout: 15_000 });
+  assert.equal(await p4Desk.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'Desktop Memberships overflow');
+  shots.membershipsDesktopLight = await capture(p4Desk, 'memberships-desktop-light.png');
+  await p4DeskCtx.close();
+
+  const { context: p4MobLightCtx, page: p4MobLight } = await openAuthedPage(mobileBrowser, owner, {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    colorScheme: 'light',
+  });
+  await p4MobLight.goto(fixture.base + `/crm/bookings/${ed1Id}`);
+  await expect(p4MobLight.getByRole('heading', { name: 'Editions & Bookings' })).toBeVisible({ timeout: 15_000 });
+  assert.equal(await p4MobLight.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'Mobile Bookings overflow');
+  shots.bookingsMobileLight = await capture(p4MobLight, 'bookings-mobile-light.png');
+
+  await p4MobLight.goto(fixture.base + '/crm/memberships');
+  await expect(p4MobLight.getByRole('heading', { name: 'Common Roots Memberships' })).toBeVisible({ timeout: 15_000 });
+  assert.equal(await p4MobLight.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'Mobile Memberships overflow');
+  shots.membershipsMobileLight = await capture(p4MobLight, 'memberships-mobile-light.png');
+  await p4MobLightCtx.close();
+
+  const { context: p4MobDarkCtx, page: p4MobDark } = await openAuthedPage(mobileBrowser, owner, {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    colorScheme: 'dark',
+  });
+  await p4MobDark.goto(fixture.base + '/crm/money');
+  await expect(p4MobDark.getByRole('heading', { name: 'Money & Append-Only Ledger' })).toBeVisible({ timeout: 15_000 });
+  assert.equal(await p4MobDark.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'Mobile Dark Money overflow');
+  shots.moneyMobileDark = await capture(p4MobDark, 'money-mobile-dark.png');
+  await p4MobDarkCtx.close();
+
   assert.equal(fingerprint(root), sourceFingerprint, 'Source changed during CRM demo check');
   const evidence = {
     base: fixture.base,
@@ -1132,6 +1649,7 @@ try {
     facts: COMMONS_FACTS.length,
     p2MergeVerified: true,
     p3CommunicationsVerified: true,
+    p4OperationsVerified: true,
     shots,
   };
   writeFileSync(join(artifacts, 'ready.json'), JSON.stringify(evidence, null, 2));

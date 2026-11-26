@@ -14,7 +14,7 @@ import {coverage} from './ux-lab/coverage.mjs';
 import {ensureLabTls} from './ux-lab/tls.mjs';
 const root=resolve(import.meta.dirname,'..'),output=resolve(process.env.UX_OUTPUT??join(root,'.artifacts/ux-lab',new Date().toISOString().replaceAll(':','-')));
 mkdirSync(output,{recursive:true});
-const args=process.argv.slice(2),record=args.includes('--record'),skipBuild=args.includes('--skip-build'),crmMode=args.includes('--crm');
+const args=process.argv.slice(2),record=args.includes('--record'),skipBuild=args.includes('--skip-build'),crmP4Mode=args.includes('--crm-p4'),crmMode=crmP4Mode||args.includes('--crm');
 if(args.some(a=>/^--(?:update-snapshots|ui|headed|debug|reporter|config|output)/.test(a)))throw new Error('Use --record for explicit local baseline capture; interactive/alternate config flags are not supported by this fixture owner');
 if(Boolean(process.env.UX_TLS_CERT)!==Boolean(process.env.UX_TLS_KEY))throw new Error('Set both UX_TLS_CERT and UX_TLS_KEY, or neither');
 const tls={cert:resolve(process.env.UX_TLS_CERT??join(root,'.artifacts/ux-lab/tls/cert.pem')),key:resolve(process.env.UX_TLS_KEY??join(root,'.artifacts/ux-lab/tls/key.pem'))};
@@ -28,7 +28,7 @@ if(process.env.NODE_EXTRA_CA_CERTS!==tls.cert||tlsRenewed){
 const source={sha:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),fingerprint:fingerprint(root)};
 const projectPlan=partitionProjects(args,requiredProjects);
 if(projectPlan.projects.length>1){
-  process.exitCode=await runIsolatedProjects({root,output,source,plan:projectPlan,record,skipBuild,crmMode,originalArgs:args});
+  process.exitCode=await runIsolatedProjects({root,output,source,plan:projectPlan,record,skipBuild,crmMode,crmP4Mode,originalArgs:args});
   process.exit(process.exitCode);
 }
 let owned,child,exitCode=1;
@@ -73,8 +73,15 @@ try{
   const authFile=join(output,'fixture-session.json');writeFileSync(authFile,JSON.stringify({base:owned.base,admin,disposable:true,owner:{config:owned.config,state:owned.state,directory:owned.directory,fixtureId:owned.fixtureId}}),{mode:0o600});
   // These ignored local reports can contain disposable session credentials in
   // traces. Never attach raw reports/traces to a public PR.
-  const env={...fixtureEnvironment(),UX_OUTPUT:output,UX_FIXTURE:authFile,NODE_EXTRA_CA_CERTS:tls.cert,PLAYWRIGHT_HTML_OPEN:'never',...(crmMode?{UX_CRM:'1'}:{})};
-  child=spawn(join(root,'node_modules/.bin/playwright'),['test','--config=scripts/ux-lab/playwright.config.mjs',...args.filter(a=>!['--record','--skip-build','--crm'].includes(a)),...(record?['--update-snapshots=all']:[])],{cwd:root,env,stdio:'inherit'});
+  const env={...fixtureEnvironment(),UX_OUTPUT:output,UX_FIXTURE:authFile,NODE_EXTRA_CA_CERTS:tls.cert,PLAYWRIGHT_HTML_OPEN:'never',...(crmMode?{UX_CRM:'1'}:{}),...(crmP4Mode?{UX_CRM_P4:'1'}:{})};
+  const pwArgs=[];
+  for(let i=0;i<args.length;i++){
+    if(['--record','--skip-build','--crm','--crm-p4','--serial'].includes(args[i]))continue;
+    if(args[i].startsWith('--concurrency='))continue;
+    if(args[i]==='--concurrency'){i+=1;continue;}
+    pwArgs.push(args[i]);
+  }
+  child=spawn(join(root,'node_modules/.bin/playwright'),['test','--config=scripts/ux-lab/playwright.config.mjs',...pwArgs,...(record?['--update-snapshots=all']:[])],{cwd:root,env,stdio:'inherit'});
   exitCode=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',code=>resolve(code??1));});child=undefined;
   if(fingerprint(root)!==source.fingerprint)throw new Error('Tracked source changed during UX lab verification');
   const reportPath=join(output,'playwright.json'),report=existsSync(reportPath)?JSON.parse(readFileSync(reportPath,'utf8')):null;
@@ -89,7 +96,7 @@ try{
   coverage(summary,output);
   if(!record&&!crmMode&&!args.some(a=>/^--(?:project|grep)/.test(a))&&!summary.coverage.complete)summary.exitCode=exitCode=1;
   writeFileSync(join(output,'summary.json'),JSON.stringify(summary,null,2));
-  if(record){const dir=join(root,'.artifacts/ux-lab',crmMode?'crm-baselines':'baselines');mkdirSync(dir,{recursive:true});writeFileSync(join(dir,'provenance.json'),JSON.stringify({source,recordedAt:new Date().toISOString(),review:'UNREVIEWED',output},null,2));}
+  if(record){const dir=join(root,'.artifacts/ux-lab',crmP4Mode?'crm-p4-baselines':crmMode?'crm-baselines':'baselines');mkdirSync(dir,{recursive:true});writeFileSync(join(dir,'provenance.json'),JSON.stringify({source,recordedAt:new Date().toISOString(),review:'UNREVIEWED',output},null,2));}
   writeFileSync(join(output,'README.md'),`# UX lab results\n\nSource ${source.sha}; fingerprint ${source.fingerprint}.\n\nExit: ${exitCode}. Baselines: generated references, no human acceptance implied.\n\nOpen html/index.html for screenshots, accessibility failures and replay traces. Reports are local only: synthetic sessions may appear in traces.\n\nUncovered:\n${notCovered.map(s=>'- '+s).join('\n')}\n`);
   console.log(`UX lab exit ${exitCode}; local report ${summary.report}`);
 }finally{await owned?.stop();process.removeListener('SIGINT',cleanup);process.removeListener('SIGTERM',cleanup);}
