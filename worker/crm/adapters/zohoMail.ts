@@ -1,8 +1,11 @@
 import {
   ZOHO_ACCOUNTS_HOSTS,
   ZOHO_API_HOSTS,
+  formatZohoPollCursor,
   normalizeRfcMessageId,
+  parseRawRfcHeaders,
   parseRfcReferences,
+  parseZohoPollCursor,
   type ZohoDataCenter,
 } from '../../../shared/crm/channels';
 import { normalizeEmail } from '../../../shared/crm/identity';
@@ -114,7 +117,23 @@ export async function sendViaZohoMail(
     });
   }
 
-  // Production Zoho Mail REST API path
+  // Production Zoho Mail REST API path — explicitly blocked pending G3 owner verification:
+  // Official Zoho docs require separate `/messages/view` (`start`/`limit`), `/folders/{folderId}/messages/{id}/content`,
+  // and `/header?raw=true` (`headerContent`) endpoints plus account-specific O-20/O-21 verification.
+  // Enablement stays blocked until G3 verification is explicitly approved.
+  if (account.mode === 'production') {
+    const dc: ZohoDataCenter | undefined = config.dataCenter;
+    if (!dc || !(dc in ZOHO_API_HOSTS)) {
+      return { ok: false, errorClass: 'auth', detail: 'zoho_datacenter_unconfigured_O20' };
+    }
+    if (!config.zohoAccountId || !config.fromAddress) {
+      return { ok: false, errorClass: 'auth', detail: 'zoho_account_config_incomplete_O20' };
+    }
+    if (!isLocalTestSimulatedMode(env)) {
+      return { ok: false, errorClass: 'auth', detail: 'zoho_production_pending_G3' };
+    }
+  }
+
   const dc: ZohoDataCenter | undefined = config.dataCenter;
   if (!dc || !(dc in ZOHO_API_HOSTS)) {
     return { ok: false, errorClass: 'auth', detail: 'zoho_datacenter_unconfigured_O20' };
@@ -238,9 +257,12 @@ export async function pollZohoMailInbound(
     if (!isLocalTestSimulatedMode(env)) {
       return { ok: false, errorClass: 'auth', detail: 'simulated_poll_requires_local_test' };
     }
-    const items = (opts.simulatedMessages ?? []).slice(0, opts.limit);
+    const cursorState = parseZohoPollCursor(opts.cursor);
+    const items = [...(opts.simulatedMessages ?? [])]
+      .sort((a, b) => (a.receivedAt ?? opts.now) - (b.receivedAt ?? opts.now))
+      .slice(0, opts.limit);
     const events: AdapterInboundEvent[] = [];
-    let maxTs = opts.cursor ? Number(opts.cursor) || 0 : 0;
+    let maxTs = cursorState.watermarkTs;
     for (const item of items) {
       const fromNorm = normalizeEmail(item.fromAddress);
       if (!fromNorm) continue;
@@ -253,6 +275,7 @@ export async function pollZohoMailInbound(
         kind: 'message',
         externalEventId: item.externalEventId,
         channel: 'email',
+        receivingAccountId: account.external_id,
         fromEndpoint: fromNorm,
         toEndpoint: config.fromAddress ?? account.external_id,
         externalThreadId: item.externalThreadId ?? null,
@@ -265,14 +288,25 @@ export async function pollZohoMailInbound(
         rawHashInput: item,
       });
     }
-    const nextCursor = maxTs > 0 ? String(maxTs) : opts.cursor;
-    return { ok: true, events, nextCursor, more: false };
+    const nextCursor = maxTs > 0 ? formatZohoPollCursor({ watermarkTs: maxTs, offset: 0 }) : opts.cursor;
+    return {
+      ok: true,
+      events,
+      nextCursor,
+      more: (opts.simulatedMessages?.length ?? 0) > items.length,
+    };
   }
 
-  // Production Zoho Mail REST API polling
+  // Production Zoho Mail REST API polling — explicitly blocked pending G3 owner verification:
+  // Official Zoho API separates list (`/messages/view` with `start`/`limit`), body (`/content`),
+  // and RFC 5322 headers (`/header?raw=true` -> `headerContent`). Account-specific folder IDs,
+  // pagination ordering, and Sent copy sync remain unverified until G3 (O-20, O-21).
   const dc: ZohoDataCenter | undefined = config.dataCenter;
   if (!dc || !(dc in ZOHO_API_HOSTS) || !config.zohoAccountId) {
     return { ok: false, errorClass: 'auth', detail: 'zoho_account_config_incomplete_O20' };
+  }
+  if (!isLocalTestSimulatedMode(env)) {
+    return { ok: false, errorClass: 'auth', detail: 'zoho_production_pending_G3' };
   }
   const secret = parseZohoSecret(readSecretBinding(env, account.secret_name));
   if (!secret) {
@@ -283,9 +317,12 @@ export async function pollZohoMailInbound(
     return { ok: false, errorClass: 'auth', detail: tokenRes.detail };
   }
 
+  const cursorState = parseZohoPollCursor(opts.cursor);
+  const pageLimit = Math.min(25, Math.max(1, opts.limit));
   const apiHost = ZOHO_API_HOSTS[dc];
   const qs = new URLSearchParams({
-    limit: String(Math.min(25, Math.max(1, opts.limit))),
+    start: String(cursorState.offset + 1),
+    limit: String(pageLimit),
     ...(config.folderId ? { folderId: config.folderId } : {}),
   });
   const listUrl = assertAllowedEgressUrl(
@@ -316,12 +353,14 @@ export async function pollZohoMailInbound(
   const json = (await listRes.json().catch(() => null)) as {
     data?: Array<{
       messageId?: string;
+      folderId?: string;
       threadId?: string;
       fromAddress?: string;
       toAddress?: string;
       subject?: string;
       summary?: string;
       receivedTime?: string | number;
+      headerContent?: string;
       headerMessageId?: string;
       inReplyTo?: string;
       references?: string;
@@ -329,7 +368,7 @@ export async function pollZohoMailInbound(
   } | null;
 
   const rows = Array.isArray(json?.data) ? json!.data : [];
-  const cursorTs = opts.cursor ? Number(opts.cursor) || 0 : 0;
+  const cursorTs = cursorState.watermarkTs;
   let maxTs = cursorTs;
   const events: AdapterInboundEvent[] = [];
 
@@ -340,13 +379,16 @@ export async function pollZohoMailInbound(
     const fromNorm = normalizeEmail(m.fromAddress);
     if (!fromNorm) continue;
     if (recTs > maxTs) maxTs = recTs;
-    const rfcId = normalizeRfcMessageId(m.headerMessageId ?? `<${m.messageId}@mail.zoho.${dc}>`);
-    const inReplyTo = normalizeRfcMessageId(m.inReplyTo);
-    const refs = parseRfcReferences(m.references ?? inReplyTo ?? null);
+    const rawHdrs = parseRawRfcHeaders(m.headerContent);
+    const rfcId = rawHdrs.messageId ?? normalizeRfcMessageId(m.headerMessageId ?? `<${m.messageId}@mail.zoho.${dc}>`);
+    const inReplyTo = rawHdrs.inReplyTo ?? normalizeRfcMessageId(m.inReplyTo);
+    const refs =
+      rawHdrs.references.length > 0 ? rawHdrs.references : parseRfcReferences(m.references ?? inReplyTo ?? null);
     events.push({
       kind: 'message',
       externalEventId: String(m.messageId),
       channel: 'email',
+      receivingAccountId: config.zohoAccountId,
       fromEndpoint: fromNorm,
       toEndpoint: m.toAddress ?? config.fromAddress ?? account.external_id,
       externalThreadId: m.threadId ? String(m.threadId) : null,
@@ -360,10 +402,18 @@ export async function pollZohoMailInbound(
     });
   }
 
+  events.sort((a, b) => (a.kind === 'message' ? a.receivedAt : 0) - (b.kind === 'message' ? b.receivedAt : 0));
+  const hasMore = rows.length >= pageLimit;
+  const nextCursor = hasMore
+    ? formatZohoPollCursor({ watermarkTs: cursorTs, offset: cursorState.offset + rows.length })
+    : maxTs > 0
+      ? formatZohoPollCursor({ watermarkTs: maxTs, offset: 0 })
+      : opts.cursor;
+
   return {
     ok: true,
     events,
-    nextCursor: maxTs > 0 ? String(maxTs) : opts.cursor,
-    more: rows.length >= opts.limit,
+    nextCursor,
+    more: hasMore,
   };
 }

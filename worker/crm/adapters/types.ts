@@ -63,6 +63,8 @@ export type AdapterInboundEvent =
       kind: 'message';
       externalEventId: string;
       channel: CrmChannel;
+      /** Provider-side receiving account identifier from webhook payload (e.g. phone_number_id, entry.id). */
+      receivingAccountId?: string | null;
       fromEndpoint: string;
       toEndpoint?: string | null;
       externalThreadId?: string | null;
@@ -79,6 +81,7 @@ export type AdapterInboundEvent =
       kind: 'status';
       externalEventId: string;
       channel: CrmChannel;
+      receivingAccountId?: string | null;
       externalMessageId: string;
       status: 'sent' | 'delivered' | 'read' | 'failed';
       errorDetail?: string | null;
@@ -89,6 +92,7 @@ export type AdapterInboundEvent =
       kind: 'opt_out';
       externalEventId: string;
       channel: CrmChannel;
+      receivingAccountId?: string | null;
       fromEndpoint: string;
       reason?: string | null;
       timestamp: number;

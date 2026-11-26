@@ -108,6 +108,23 @@ export interface CommandCommitPlan<O> {
   forceRecordsCommit?: boolean;
   serverTs?: boolean;
   event?: ApplyOptions['event'];
+  /**
+   * Optional side-effecting execution invoked ONLY AFTER the atomic command fence and
+   * `crm_commands` idempotency row have durably committed (prevents unauthorized or
+   * duplicate replay side effects on operational trigger commands like `channel.poll_now`
+   * and `outbox.process_now`).
+   */
+  postCommitExecute?: (ctx: {
+    env: Env;
+    actor: CrmActor;
+    tokenHash: string;
+    requestId: string;
+    commandId: string;
+    now: number;
+  }) => Promise<
+    | { ok: true; result: O }
+    | { ok: false; error: CrmErrorCode; detail?: Record<string, unknown> }
+  >;
 }
 
 export interface CommandRefusalPlan {
@@ -491,13 +508,47 @@ export async function runCommand(args: {
     });
   }
 
-  def.afterCommit?.({ env, executionCtx, result: plan.result });
+  let finalResult = plan.result;
+  if (plan.postCommitExecute) {
+    const execOutcome = await plan.postCommitExecute({
+      env,
+      actor,
+      tokenHash,
+      requestId: envelope.requestId,
+      commandId,
+      now,
+    });
+    if (!execOutcome.ok) {
+      const errBody = makeCommandError(execOutcome.error, execOutcome.detail);
+      await env.DB
+        .prepare(`UPDATE crm_commands SET status = 'error', result = ? WHERE id = ?`)
+        .bind(JSON.stringify(errBody), commandId)
+        .run();
+      return { status: 200, body: errBody };
+    }
+    finalResult = execOutcome.result;
+    const updatedEnvelope: CommandResult<unknown> = {
+      ok: true,
+      commandId,
+      result: finalResult,
+      projections: committedProjections,
+    };
+    const updatedJson = JSON.stringify(updatedEnvelope);
+    if (utf8ByteLength(updatedJson) <= MAX_COMMAND_RESULT_BYTES) {
+      await env.DB
+        .prepare(`UPDATE crm_commands SET result = ? WHERE id = ?`)
+        .bind(updatedJson, commandId)
+        .run();
+    }
+  }
+
+  def.afterCommit?.({ env, executionCtx, result: finalResult });
   return {
     status: 200,
     body: {
       ok: true,
       commandId,
-      result: plan.result,
+      result: finalResult,
       projections: committedProjections,
     },
   };

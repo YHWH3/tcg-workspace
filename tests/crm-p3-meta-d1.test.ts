@@ -304,7 +304,19 @@ describe('CRM S11 WhatsApp Cloud API & S12 Instagram/Facebook Messaging (D1)', (
     // 6. Delivery & read status receipts progress monotonically (sent -> delivered -> read) and ignore out-of-order downgrade!
     const statusHook = (st: string, ts: number) => ({
       object: 'whatsapp_business_account',
-      entry: [{ changes: [{ field: 'messages', value: { statuses: [{ id: sentWamid, status: st, timestamp: String(ts) }] } }] }],
+      entry: [
+        {
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { display_phone_number: '+919800000001', phone_number_id: '100200300' },
+                statuses: [{ id: sentWamid, status: st, timestamp: String(ts) }],
+              },
+            },
+          ],
+        },
+      ],
     });
     await postSignedWebhook('whatsapp', statusHook('delivered', 1_700_000_100), 'wa_app_secret_0123456789');
     expect(await fx!.db.prepare('SELECT status FROM crm_messages WHERE id = ?').bind(tplSendJson.result.message.id).first('status')).toBe('delivered');
@@ -339,6 +351,7 @@ describe('CRM S11 WhatsApp Cloud API & S12 Instagram/Facebook Messaging (D1)', (
             {
               field: 'messages',
               value: {
+                metadata: { display_phone_number: '+919800000001', phone_number_id: '100200300' },
                 messages: [
                   {
                     id: 'wamid.inbound.stop',

@@ -1172,6 +1172,8 @@ export function describeCommandError(err: CommandError | CrmTransportError | unk
           return 'The configured Worker secret is not bound in this environment. Production transport stays disabled.';
         case 'zoho_config_incomplete_pending_O20':
           return 'Zoho Mail data centre, account ID, and sender address (O-20) are required before enabling production mode.';
+        case 'zoho_production_pending_G3':
+          return 'Zoho Mail production transport is blocked pending G3 verification of account pagination, body/header endpoints, and O-20/O-21.';
         case 'whatsapp_phone_number_id_required_pending_O04':
           return 'WhatsApp Phone Number ID (O-04) is required before enabling production mode.';
         case 'provider_channel_mismatch':

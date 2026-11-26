@@ -1,4 +1,4 @@
-import { CRM_CHANNELS, type CrmCapability, type CrmChannel } from '../../shared/crm/capabilities';
+import { CRM_CHANNELS, isCrmCapability, type CrmCapability, type CrmChannel } from '../../shared/crm/capabilities';
 import {
   ChannelAccountConfigSchema,
   ChannelsOverviewResponseSchema,
@@ -19,6 +19,7 @@ import {
   canAdvanceMessageStatus,
   computeOutboxBackoffMs,
   evaluateChannelWindow,
+  formatZohoPollCursor,
   isOptOutMessageText,
   isProviderCompatibleWithChannel,
   isRetryableAdapterError,
@@ -26,6 +27,7 @@ import {
   normalizeMetaScopedId,
   normalizeRfcMessageId,
   parseRfcReferences,
+  parseZohoPollCursor,
   type AdapterErrorClass,
   type ChannelAccountConfig,
   type ChannelHealthState,
@@ -50,7 +52,7 @@ import {
 import { normalizeEmail, normalizeEndpoint, normalizePhone, type CrmConsentDto } from '../../shared/crm/identity';
 import { evaluateEffectiveChannelConsent } from '../../shared/crm/merge';
 import type { Env } from '../auth';
-import { hasD1Budget } from '../d1budget';
+import { D1BudgetExhausted, hasD1Budget } from '../d1budget';
 import { sha256Hex } from '../password';
 import { createReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
@@ -83,7 +85,14 @@ import {
   type CrmGrantRow,
   type CrmSessionRow,
 } from './read';
-import { canAccessCrmApi, evaluateCapability, isCrmEnabled } from './rules';
+import {
+  canAccessCrmApi,
+  evaluateCapability,
+  isCrmEnabled,
+  normalizeCanonicalRole,
+  type CrmActor,
+  type StoredGrant,
+} from './rules';
 
 export interface TemplateRow {
   id: string;
@@ -264,6 +273,9 @@ function validateProductionAccountConfig(
     if (!config.dataCenter || !config.zohoAccountId || !config.fromAddress) {
       return 'zoho_config_incomplete_pending_O20';
     }
+    if (!isLocalTestSimulatedMode(env)) {
+      return 'zoho_production_pending_G3';
+    }
   } else if (provider === 'whatsapp_cloud') {
     if (!config.phoneNumberId) {
       return 'whatsapp_phone_number_id_required_pending_O04';
@@ -280,18 +292,24 @@ function validateProductionAccountConfig(
   return null;
 }
 
-/** Finds the active channel account for a conversation (explicit `channel_account_id` or channel default). */
+/**
+ * Resolves the channel account for sending:
+ * - When `channelAccountId` is explicitly specified, returns ONLY that exact account
+ *   (NEVER falls back to an arbitrary different active account).
+ * - When `channelAccountId` is null, returns the active non-disabled account for `channel`.
+ */
 export async function resolveChannelAccountForSend(
   db: D1Database,
   channel: CrmChannel,
   channelAccountId: string | null,
 ): Promise<ChannelAccountRow | null> {
   if (channelAccountId) {
-    const explicit = await db
-      .prepare(`SELECT * FROM crm_channel_accounts WHERE id = ?`)
-      .bind(channelAccountId)
-      .first<ChannelAccountRow>();
-    if (explicit) return explicit;
+    return (
+      (await db
+        .prepare(`SELECT * FROM crm_channel_accounts WHERE id = ?`)
+        .bind(channelAccountId)
+        .first<ChannelAccountRow>()) ?? null
+    );
   }
   return (
     (await db
@@ -407,8 +425,8 @@ async function resolvePersonByInboundEndpoint(
 
 /**
  * Resolves existing email conversation strictly via RFC 5322 `In-Reply-To` / `References` headers
- * (or explicit provider `external_thread_id` within the same channel account).
- * NEVER threads by email subject alone.
+ * (or explicit provider `external_thread_id`) strictly scoped to the same `channel_account_id`.
+ * NEVER threads by email subject alone and NEVER crosses channel accounts.
  */
 async function findEmailThreadConversation(
   db: D1Database,
@@ -426,7 +444,7 @@ async function findEmailThreadConversation(
          JOIN crm_conversations c ON c.id = m.conversation_id
          WHERE m.channel = 'email'
            AND m.rfc_message_id IN (SELECT value FROM json_each(?))
-           AND (? IS NULL OR c.channel_account_id = ? OR c.channel_account_id IS NULL)
+           AND ((? IS NULL AND c.channel_account_id IS NULL) OR c.channel_account_id = ?)
          ORDER BY m.created_at DESC
          LIMIT 1`,
       )
@@ -450,7 +468,7 @@ async function findEmailThreadConversation(
         `SELECT id, channel, channel_account_id, external_thread_id, person_id, organisation_id, application_id, subject, state, window_expires_at, human_agent_window_expires_at, last_rfc_message_id, rev
          FROM crm_conversations
          WHERE channel = 'email' AND external_thread_id = ?
-           AND (? IS NULL OR channel_account_id = ? OR channel_account_id IS NULL)
+           AND ((? IS NULL AND channel_account_id IS NULL) OR channel_account_id = ?)
          LIMIT 1`,
       )
       .bind(externalThreadId, accountId, accountId)
@@ -459,6 +477,27 @@ async function findEmailThreadConversation(
   }
 
   return null;
+}
+
+function isInboundDuplicateConstraintError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /UNIQUE constraint failed:\s*crm_inbound_events/i.test(msg);
+}
+
+function monotonicAllowedStatusesFor(next: 'sent' | 'delivered' | 'read' | 'failed'): readonly string[] {
+  if (next === 'sent') return ['draft', 'queued', 'sending'];
+  if (next === 'delivered') return ['draft', 'queued', 'sending', 'sent'];
+  if (next === 'read') return ['draft', 'queued', 'sending', 'sent', 'delivered'];
+  // 'failed' can never regress delivered/read/review_required/cancelled
+  return ['queued', 'sending', 'sent'];
+}
+
+function scopedInboundEventKey(accountId: string | null, externalEventId: string): string {
+  return accountId ? `${accountId}::${externalEventId}` : externalEventId;
+}
+
+function scopedThreadKey(_account: ChannelAccountRow | null, _channel: CrmChannel, rawThreadId: string | null | undefined): string | null {
+  return rawThreadId ?? null;
 }
 
 function buildOptOutStatements(
@@ -518,6 +557,9 @@ export interface IngestSummary {
   optOutsRecorded: number;
   statusesUpdated: number;
   conversationIds: string[];
+  budgetExhausted: boolean;
+  unprocessedCount: number;
+  lastProcessedReceivedAt: number | null;
 }
 
 export async function ingestChannelInboundEvents(
@@ -532,18 +574,34 @@ export async function ingestChannelInboundEvents(
     optOutsRecorded: 0,
     statusesUpdated: 0,
     conversationIds: [],
+    budgetExhausted: false,
+    unprocessedCount: 0,
+    lastProcessedReceivedAt: null,
   };
   if (events.length === 0) return summary;
 
-  for (const ev of events) {
-    if (!hasD1Budget(env.DB, 6)) break;
+  const accountId = account?.id ?? null;
+
+  for (let idx = 0; idx < events.length; idx += 1) {
+    const ev = events[idx]!;
+    if (!hasD1Budget(env.DB, 6)) {
+      summary.budgetExhausted = true;
+      summary.unprocessedCount = events.length - idx;
+      break;
+    }
+
+    const evTs = ev.kind === 'message' ? ev.receivedAt : ev.timestamp;
+    const dedupKey = scopedInboundEventKey(accountId, ev.externalEventId);
 
     const existing = await env.DB
       .prepare(`SELECT id FROM crm_inbound_events WHERE channel = ? AND external_event_id = ? LIMIT 1`)
-      .bind(ev.channel, ev.externalEventId)
+      .bind(ev.channel, dedupKey)
       .first<{ id: string }>();
     if (existing) {
       summary.duplicatesSkipped += 1;
+      if (summary.lastProcessedReceivedAt === null || evTs > summary.lastProcessedReceivedAt) {
+        summary.lastProcessedReceivedAt = evTs;
+      }
       continue;
     }
 
@@ -551,19 +609,27 @@ export async function ingestChannelInboundEvents(
     const inboundId = `in_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
 
     if (ev.kind === 'status') {
+      // Strictly match messages belonging to this channel account (never cross-account)
       const msg = await env.DB
         .prepare(
-          `SELECT id, conversation_id, status FROM crm_messages
-           WHERE channel = ? AND external_message_id = ? LIMIT 1`,
+          `SELECT m.id, m.conversation_id, m.status
+           FROM crm_messages m
+           JOIN crm_conversations c ON c.id = m.conversation_id
+           WHERE m.channel = ? AND m.external_message_id = ?
+             AND ((? IS NULL AND c.channel_account_id IS NULL) OR c.channel_account_id = ?)
+           LIMIT 1`,
         )
-        .bind(ev.channel, ev.externalMessageId)
+        .bind(ev.channel, ev.externalMessageId, accountId, accountId)
         .first<{ id: string; conversation_id: string; status: string }>();
 
       const stmts: D1PreparedStatement[] = [];
       let state: 'processed' | 'ignored' = 'ignored';
+      let willAdvance = false;
       if (msg && canAdvanceMessageStatus(msg.status, ev.status)) {
         state = 'processed';
-        summary.statusesUpdated += 1;
+        willAdvance = true;
+        const allowedPrev = monotonicAllowedStatusesFor(ev.status);
+        // Enforce monotonic progression in SQL so concurrent/reordered receipts can NEVER regress status!
         stmts.push(
           env.DB
             .prepare(
@@ -572,8 +638,9 @@ export async function ingestChannelInboundEvents(
                    delivered_at = CASE WHEN ? = 'delivered' THEN COALESCE(delivered_at, ?) ELSE delivered_at END,
                    read_at = CASE WHEN ? = 'read' THEN COALESCE(read_at, ?) ELSE read_at END,
                    error_detail = CASE WHEN ? = 'failed' THEN COALESCE(?, error_detail) ELSE error_detail END,
-                   updated_at = ?
-               WHERE id = ?`,
+                   updated_at = MAX(updated_at, ?)
+               WHERE id = ?
+                 AND status IN (SELECT value FROM json_each(?))`,
             )
             .bind(
               ev.status,
@@ -585,6 +652,7 @@ export async function ingestChannelInboundEvents(
               ev.errorDetail ?? null,
               now,
               msg.id,
+              JSON.stringify(allowedPrev),
             ),
         );
         if (ev.status === 'failed') {
@@ -592,9 +660,10 @@ export async function ingestChannelInboundEvents(
             env.DB
               .prepare(
                 `UPDATE crm_outbox SET status = 'failed', last_error = COALESCE(?, last_error), updated_at = ?
-                 WHERE message_id = ? AND status IN ('queued', 'sending', 'sent')`,
+                 WHERE message_id = ? AND status IN ('queued', 'sending', 'sent')
+                   AND EXISTS (SELECT 1 FROM crm_messages WHERE id = ? AND status = 'failed')`,
               )
-              .bind(ev.errorDetail ?? 'provider_status_failed', now, msg.id),
+              .bind(ev.errorDetail ?? 'provider_status_failed', now, msg.id, msg.id),
           );
         }
       }
@@ -607,8 +676,8 @@ export async function ingestChannelInboundEvents(
           .bind(
             inboundId,
             ev.channel,
-            account?.id ?? null,
-            ev.externalEventId,
+            accountId,
+            dedupKey,
             payloadHash,
             state,
             msg?.conversation_id ?? null,
@@ -617,10 +686,28 @@ export async function ingestChannelInboundEvents(
           ),
       );
       try {
-        await env.DB.batch(stmts);
+        const results = await env.DB.batch(stmts);
         summary.ingested += 1;
-      } catch {
-        summary.duplicatesSkipped += 1;
+        if (willAdvance && (results[0]?.meta?.changes ?? 0) > 0) {
+          summary.statusesUpdated += 1;
+        }
+        if (summary.lastProcessedReceivedAt === null || evTs > summary.lastProcessedReceivedAt) {
+          summary.lastProcessedReceivedAt = evTs;
+        }
+      } catch (err) {
+        if (err instanceof D1BudgetExhausted) {
+          summary.budgetExhausted = true;
+          summary.unprocessedCount = events.length - idx;
+          break;
+        }
+        if (isInboundDuplicateConstraintError(err)) {
+          summary.duplicatesSkipped += 1;
+          if (summary.lastProcessedReceivedAt === null || evTs > summary.lastProcessedReceivedAt) {
+            summary.lastProcessedReceivedAt = evTs;
+          }
+          continue;
+        }
+        throw err;
       }
       continue;
     }
@@ -631,7 +718,6 @@ export async function ingestChannelInboundEvents(
       const stmts: D1PreparedStatement[] = [];
       if (personId) {
         stmts.push(...buildOptOutStatements(env.DB, personId, ev.channel, ev.externalEventId, ev.timestamp));
-        summary.optOutsRecorded += 1;
       }
       stmts.push(
         env.DB
@@ -642,8 +728,8 @@ export async function ingestChannelInboundEvents(
           .bind(
             inboundId,
             ev.channel,
-            account?.id ?? null,
-            ev.externalEventId,
+            accountId,
+            dedupKey,
             payloadHash,
             personId ? 'processed' : 'ignored',
             now,
@@ -652,8 +738,24 @@ export async function ingestChannelInboundEvents(
       try {
         await env.DB.batch(stmts);
         summary.ingested += 1;
-      } catch {
-        summary.duplicatesSkipped += 1;
+        if (personId) summary.optOutsRecorded += 1;
+        if (summary.lastProcessedReceivedAt === null || evTs > summary.lastProcessedReceivedAt) {
+          summary.lastProcessedReceivedAt = evTs;
+        }
+      } catch (err) {
+        if (err instanceof D1BudgetExhausted) {
+          summary.budgetExhausted = true;
+          summary.unprocessedCount = events.length - idx;
+          break;
+        }
+        if (isInboundDuplicateConstraintError(err)) {
+          summary.duplicatesSkipped += 1;
+          if (summary.lastProcessedReceivedAt === null || evTs > summary.lastProcessedReceivedAt) {
+            summary.lastProcessedReceivedAt = evTs;
+          }
+          continue;
+        }
+        throw err;
       }
       continue;
     }
@@ -661,27 +763,28 @@ export async function ingestChannelInboundEvents(
     // Inbound message event
     const fromNorm = normalizeInboundSender(ev.channel, ev.fromEndpoint) ?? ev.fromEndpoint.trim().toLowerCase();
     const personId = await resolvePersonByInboundEndpoint(env.DB, ev.channel, fromNorm);
+    const threadIdForConv = scopedThreadKey(account, ev.channel, ev.externalThreadId);
 
     let targetConv: ConvMiniRow | null = null;
     if (ev.channel === 'email') {
       targetConv = await findEmailThreadConversation(
         env.DB,
-        account?.id ?? null,
+        accountId,
         ev.inReplyTo,
         ev.references,
-        ev.externalThreadId,
+        threadIdForConv,
       );
-    } else if (ev.externalThreadId) {
+    } else if (threadIdForConv) {
       targetConv =
         (await env.DB
           .prepare(
             `SELECT id, channel, channel_account_id, external_thread_id, person_id, organisation_id, application_id, subject, state, window_expires_at, human_agent_window_expires_at, last_rfc_message_id, rev
              FROM crm_conversations
              WHERE channel = ? AND external_thread_id = ?
-               AND (? IS NULL OR channel_account_id = ? OR channel_account_id IS NULL)
+               AND ((? IS NULL AND channel_account_id IS NULL) OR channel_account_id = ?)
              LIMIT 1`,
           )
-          .bind(ev.channel, ev.externalThreadId, account?.id ?? null, account?.id ?? null)
+          .bind(ev.channel, threadIdForConv, accountId, accountId)
           .first<ConvMiniRow>()) ?? null;
     }
 
@@ -701,15 +804,16 @@ export async function ingestChannelInboundEvents(
 
     const stmts: D1PreparedStatement[] = [];
     if (targetConv) {
+      // Strictly non-regressing window timestamps & last_rfc_message_id under reordered/concurrent events!
       stmts.push(
         env.DB
           .prepare(
             `UPDATE crm_conversations
              SET person_id = COALESCE(person_id, ?),
                  channel_account_id = COALESCE(channel_account_id, ?),
-                 window_expires_at = COALESCE(?, window_expires_at),
-                 human_agent_window_expires_at = COALESCE(?, human_agent_window_expires_at),
-                 last_rfc_message_id = COALESCE(?, last_rfc_message_id),
+                 window_expires_at = CASE WHEN ? IS NULL THEN window_expires_at ELSE MAX(COALESCE(window_expires_at, 0), ?) END,
+                 human_agent_window_expires_at = CASE WHEN ? IS NULL THEN human_agent_window_expires_at ELSE MAX(COALESCE(human_agent_window_expires_at, 0), ?) END,
+                 last_rfc_message_id = CASE WHEN ? IS NOT NULL AND ? >= COALESCE(last_inbound_at, 0) THEN ? ELSE last_rfc_message_id END,
                  last_message_at = MAX(last_message_at, ?),
                  last_inbound_at = MAX(COALESCE(last_inbound_at, 0), ?),
                  unread_count = unread_count + 1,
@@ -720,9 +824,13 @@ export async function ingestChannelInboundEvents(
           )
           .bind(
             personId,
-            account?.id ?? null,
+            accountId,
+            windowExpires,
             windowExpires,
             humanAgentExpires,
+            humanAgentExpires,
+            rfcId,
+            ev.receivedAt,
             rfcId,
             ev.receivedAt,
             ev.receivedAt,
@@ -743,8 +851,8 @@ export async function ingestChannelInboundEvents(
           .bind(
             convId,
             ev.channel,
-            account?.id ?? null,
-            ev.externalThreadId ?? null,
+            accountId,
+            threadIdForConv,
             personId,
             subject,
             windowExpires,
@@ -785,23 +893,38 @@ export async function ingestChannelInboundEvents(
           `INSERT INTO crm_inbound_events (id, channel, channel_account_id, external_event_id, payload_hash, state, conversation_id, message_id, created_at)
            VALUES (?, ?, ?, ?, ?, 'processed', ?, ?, ?)`,
         )
-        .bind(inboundId, ev.channel, account?.id ?? null, ev.externalEventId, payloadHash, convId, msgId, now),
+        .bind(inboundId, ev.channel, accountId, dedupKey, payloadHash, convId, msgId, now),
     );
 
     const optOutTriggered = Boolean(ev.isOptOut || isOptOutMessageText(ev.bodyText));
     if (optOutTriggered && personId) {
       stmts.push(...buildOptOutStatements(env.DB, personId, ev.channel, ev.externalEventId, ev.receivedAt));
-      summary.optOutsRecorded += 1;
     }
 
     try {
       await env.DB.batch(stmts);
       summary.ingested += 1;
+      if (optOutTriggered && personId) summary.optOutsRecorded += 1;
       if (!summary.conversationIds.includes(convId)) {
         summary.conversationIds.push(convId);
       }
-    } catch {
-      summary.duplicatesSkipped += 1;
+      if (summary.lastProcessedReceivedAt === null || evTs > summary.lastProcessedReceivedAt) {
+        summary.lastProcessedReceivedAt = evTs;
+      }
+    } catch (err) {
+      if (err instanceof D1BudgetExhausted) {
+        summary.budgetExhausted = true;
+        summary.unprocessedCount = events.length - idx;
+        break;
+      }
+      if (isInboundDuplicateConstraintError(err)) {
+        summary.duplicatesSkipped += 1;
+        if (summary.lastProcessedReceivedAt === null || evTs > summary.lastProcessedReceivedAt) {
+          summary.lastProcessedReceivedAt = evTs;
+        }
+        continue;
+      }
+      throw err;
     }
   }
 
@@ -818,6 +941,59 @@ export interface OutboxSweepSummary {
   failed: number;
   reviewRequired: number;
   cancelled: number;
+}
+
+async function loadCurrentSenderActor(db: D1Database, actorId: string): Promise<CrmActor | null> {
+  const [userRes, grantsRes] = await db.batch([
+    db
+      .prepare(
+        `SELECT id, disabled_at, COALESCE(workspace_role, role) AS canonicalRole
+         FROM users WHERE id = ?`,
+      )
+      .bind(actorId),
+    db
+      .prepare(`SELECT capability, scope, granted_by, granted_at FROM crm_capability_grants WHERE user_id = ?`)
+      .bind(actorId),
+  ]);
+  const userRow = userRes.results[0] as { id: string; disabled_at: number | null; canonicalRole: string } | undefined;
+  if (!userRow) return null;
+  const grants: StoredGrant[] = [];
+  for (const r of grantsRes.results as unknown as CrmGrantRow[]) {
+    if (!isCrmCapability(r.capability)) continue;
+    grants.push({
+      capability: r.capability,
+      scope: r.scope,
+      grantedBy: r.granted_by,
+      grantedAt: r.granted_at,
+    });
+  }
+  return {
+    id: userRow.id,
+    role: normalizeCanonicalRole(userRow.canonicalRole),
+    disabled: userRow.disabled_at !== null,
+    grants,
+  };
+}
+
+/**
+ * Executes a lease-fenced outbox batch commit.
+ * If the exact acquired lease (`status='sending' AND attempts=? AND lease_until=?`) was
+ * expired, resolved, or reclaimed by another worker, `changesOneFence` aborts the entire
+ * batch so a stale worker can NEVER overwrite newer delivery state.
+ */
+async function commitFencedOutboxBatch(db: D1Database, stmts: D1PreparedStatement[]): Promise<boolean> {
+  try {
+    await db.batch(stmts);
+    return true;
+  } catch (err) {
+    if (err instanceof D1BudgetExhausted) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/malformed JSON/i.test(msg)) {
+      // Exact lease fence failed (stale worker); silently refuse overwrite!
+      return false;
+    }
+    throw err;
+  }
 }
 
 export async function processCrmOutbox(
@@ -839,24 +1015,25 @@ export async function processCrmOutbox(
   // 1. Expired 'sending' leases are AMBIGUOUS (provider may have already delivered!) -> move to review_required, NEVER blind retry!
   const expiredRes = await env.DB
     .prepare(
-      `SELECT id, message_id FROM crm_outbox
+      `SELECT id, message_id, attempts, lease_until FROM crm_outbox
        WHERE status = 'sending' AND lease_until IS NOT NULL AND lease_until <= ?
        ORDER BY lease_until ASC LIMIT ?`,
     )
     .bind(now, limit)
-    .all<{ id: string; message_id: string }>();
+    .all<{ id: string; message_id: string; attempts: number; lease_until: number }>();
 
   for (const exp of expiredRes.results) {
     if (!hasD1Budget(env.DB, 4)) break;
-    await env.DB.batch([
+    const moved = await commitFencedOutboxBatch(env.DB, [
       env.DB
         .prepare(
           `UPDATE crm_outbox
            SET status = 'review_required', lease_until = NULL, last_error_class = 'unknown',
                last_error = 'lease_expired_ambiguous_delivery', updated_at = ?
-           WHERE id = ? AND status = 'sending' AND lease_until <= ?`,
+           WHERE id = ? AND status = 'sending' AND attempts = ? AND lease_until = ? AND lease_until <= ?`,
         )
-        .bind(now, exp.id, now),
+        .bind(now, exp.id, exp.attempts, exp.lease_until, now),
+      changesOneFence(env.DB),
       env.DB
         .prepare(
           `UPDATE crm_messages
@@ -866,8 +1043,10 @@ export async function processCrmOutbox(
         )
         .bind(now, exp.message_id),
     ]);
-    summary.expiredMovedToReview += 1;
-    summary.reviewRequired += 1;
+    if (moved) {
+      summary.expiredMovedToReview += 1;
+      summary.reviewRequired += 1;
+    }
   }
 
   // 2. Fetch due 'queued' items
@@ -882,22 +1061,53 @@ export async function processCrmOutbox(
     .all<OutboxRow>();
 
   for (const row of dueRes.results) {
-    if (!hasD1Budget(env.DB, 8)) break;
+    if (!hasD1Budget(env.DB, 10)) break;
 
-    // Atomically claim lease
+    // Atomically claim exact lease generation (attempts + 1, exact leaseUntil)
     const leaseUntil = now + OUTBOX_LEASE_MS;
+    const nextAttempts = row.attempts + 1;
     const claim = await env.DB
       .prepare(
         `UPDATE crm_outbox
-         SET status = 'sending', attempts = attempts + 1, lease_until = ?, updated_at = ?
-         WHERE id = ? AND status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)`,
+         SET status = 'sending', attempts = ?, lease_until = ?, updated_at = ?
+         WHERE id = ? AND status = 'queued' AND attempts = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)`,
       )
-      .bind(leaseUntil, now, row.id, now)
+      .bind(nextAttempts, leaseUntil, now, row.id, row.attempts, now)
       .run();
     if (!claim.meta.changes) continue;
 
     summary.attempted += 1;
-    const nextAttempts = row.attempts + 1;
+
+    const failOrCancelFenced = async (
+      status: 'failed' | 'cancelled',
+      errClass: AdapterErrorClass,
+      reason: string,
+      msgId?: string | null,
+    ): Promise<boolean> => {
+      const stmts: D1PreparedStatement[] = [
+        env.DB
+          .prepare(
+            `UPDATE crm_outbox
+             SET status = ?, lease_until = NULL, next_attempt_at = NULL,
+                 last_error_class = ?, last_error = ?, updated_at = ?
+             WHERE id = ? AND status = 'sending' AND attempts = ? AND lease_until = ?`,
+          )
+          .bind(status, errClass, reason, now, row.id, nextAttempts, leaseUntil),
+        changesOneFence(env.DB),
+      ];
+      if (msgId) {
+        stmts.push(
+          env.DB
+            .prepare(
+              `UPDATE crm_messages
+               SET status = ?, error_code = ?, error_detail = ?, updated_at = ?
+               WHERE id = ?`,
+            )
+            .bind(status, errClass, reason, now, msgId),
+        );
+      }
+      return commitFencedOutboxBatch(env.DB, stmts);
+    };
 
     const [msg, conv] = await Promise.all([
       env.DB
@@ -917,30 +1127,62 @@ export async function processCrmOutbox(
     ]);
 
     if (!msg || !conv || !isDigitalChannel(conv.channel)) {
-      await env.DB.batch([
-        env.DB
-          .prepare(`UPDATE crm_outbox SET status = 'failed', lease_until = NULL, last_error_class = 'recipient_invalid', last_error = 'missing_message_or_conversation', updated_at = ? WHERE id = ?`)
-          .bind(now, row.id),
-      ]);
-      summary.failed += 1;
+      if (await failOrCancelFenced('failed', 'recipient_invalid', 'missing_message_or_conversation', msg?.id)) {
+        summary.failed += 1;
+      }
       continue;
     }
 
-    // Recheck consent at send time (non-broadening alias-aware per-tuple evaluation)
+    // 2a. Revalidate current sender account authority & channel send capability
+    const senderActor = await loadCurrentSenderActor(env.DB, row.actor_id);
+    if (!senderActor || !canAccessCrmApi(senderActor) || !evaluateCapability(senderActor, sendCap(conv.channel), '*')) {
+      if (await failOrCancelFenced('cancelled', 'auth', 'sender_authority_revoked', msg.id)) {
+        summary.cancelled += 1;
+      }
+      continue;
+    }
+
+    // 2b. Revalidate sender's current ReadGate access to linked records
+    const linkedIds = [conv.person_id, conv.organisation_id, conv.application_id].filter((x): x is string => Boolean(x));
+    if (linkedIds.length > 0) {
+      const gate = createReadGate(env.DB, senderActor.id);
+      const readable = await loadReadableTaskRecords(env, gate, linkedIds);
+      if (linkedIds.some((id) => !readable.has(id))) {
+        if (await failOrCancelFenced('cancelled', 'auth', 'linked_record_access_revoked', msg.id)) {
+          summary.cancelled += 1;
+        }
+        continue;
+      }
+    }
+
+    // 2c. Revalidate canonical person, active non-retired endpoint, and non-broadening consent at dispatch time
+    let dispatchRecipient = msg.recipient_endpoint;
     if (conv.person_id) {
       const canonicalId = (await resolveCanonicalPersonId(env.DB, conv.person_id)).canonicalId;
       const aliases = await loadAliasesForSurvivor(env.DB, canonicalId);
-      const latestCons = await latestConsentRowsPerTupleStmt(env.DB, [canonicalId, ...aliases.keys()]).all<{
-        id: string;
-        person_id: string;
-        channel: CrmConsentDto['channel'];
-        scope: CrmConsentDto['scope'];
-        status: CrmConsentDto['status'];
-        source: string;
-        evidence_ref: string | null;
-        recorded_by: string;
-        recorded_at: number;
-      }>();
+      const [latestCons, activeEps] = await Promise.all([
+        latestConsentRowsPerTupleStmt(env.DB, [canonicalId, ...aliases.keys()]).all<{
+          id: string;
+          person_id: string;
+          channel: CrmConsentDto['channel'];
+          scope: CrmConsentDto['scope'];
+          status: CrmConsentDto['status'];
+          source: string;
+          evidence_ref: string | null;
+          recorded_by: string;
+          recorded_at: number;
+        }>(),
+        env.DB
+          .prepare(
+            `SELECT value_norm, is_primary, kind FROM crm_endpoints
+             WHERE person_id = ? AND retired_at IS NULL
+               AND (kind = ? OR (? = 'whatsapp' AND kind = 'phone'))
+             ORDER BY CASE WHEN kind = ? THEN 0 ELSE 1 END, is_primary DESC, created_at ASC`,
+          )
+          .bind(canonicalId, conv.channel, conv.channel, conv.channel)
+          .all<{ value_norm: string; is_primary: number; kind: string }>(),
+      ]);
+
       const consDtos: CrmConsentDto[] = latestCons.results.map((c) => ({
         id: c.id,
         personId: c.person_id,
@@ -954,23 +1196,71 @@ export async function processCrmOutbox(
       }));
       const evalCons = evaluateEffectiveChannelConsent(canonicalId, consDtos, aliases, conv.channel, row.purpose);
       if (evalCons.withdrawn) {
-        await env.DB.batch([
-          env.DB
-            .prepare(`UPDATE crm_outbox SET status = 'cancelled', lease_until = NULL, last_error_class = 'blocked', last_error = 'consent_withdrawn', updated_at = ? WHERE id = ?`)
-            .bind(now, row.id),
-          env.DB
-            .prepare(`UPDATE crm_messages SET status = 'cancelled', error_code = 'consent_withdrawn', error_detail = 'consent_withdrawn', updated_at = ? WHERE id = ?`)
-            .bind(now, msg.id),
-        ]);
+        if (await failOrCancelFenced('cancelled', 'blocked', 'consent_withdrawn', msg.id)) {
+          summary.cancelled += 1;
+        }
+        continue;
+      }
+
+      if (activeEps.results.length === 0) {
+        if (await failOrCancelFenced('failed', 'recipient_invalid', 'no_active_canonical_endpoint', msg.id)) {
+          summary.failed += 1;
+        }
+        continue;
+      }
+      // Prefer stored recipient if still active on canonical person; otherwise resolve to canonical primary endpoint
+      const storedStillActive = dispatchRecipient
+        ? activeEps.results.some((ep) => ep.value_norm === dispatchRecipient)
+        : false;
+      dispatchRecipient = storedStillActive ? dispatchRecipient : activeEps.results[0]!.value_norm;
+    }
+
+    if (!dispatchRecipient) {
+      if (await failOrCancelFenced('failed', 'recipient_invalid', 'no_recipient_endpoint', msg.id)) {
+        summary.failed += 1;
+      }
+      continue;
+    }
+
+    // 2d. Revalidate exact channel account configuration & active status (NEVER substitute an arbitrary account)
+    const explicitAccountId = row.channel_account_id ?? conv.channel_account_id;
+    const account = await resolveChannelAccountForSend(env.DB, conv.channel, explicitAccountId);
+    const config = parseChannelAccountConfig(account?.config_json);
+    if (explicitAccountId && !account) {
+      if (await failOrCancelFenced('cancelled', 'auth', 'channel_account_not_found', msg.id)) {
         summary.cancelled += 1;
+      }
+      continue;
+    }
+    if (!account && !isLocalTestSimulatedMode(env)) {
+      if (await failOrCancelFenced('cancelled', 'auth', 'channel_account_not_configured', msg.id)) {
+        summary.cancelled += 1;
+      }
+      continue;
+    }
+    if (account && (account.mode === 'disabled' || account.active !== 1)) {
+      if (await failOrCancelFenced('cancelled', 'auth', 'channel_account_disabled', msg.id)) {
+        summary.cancelled += 1;
+      }
+      continue;
+    }
+    if (account && account.mode === 'simulated' && !isLocalTestSimulatedMode(env)) {
+      if (await failOrCancelFenced('cancelled', 'auth', 'simulated_transport_requires_local_test', msg.id)) {
+        summary.cancelled += 1;
+      }
+      continue;
+    }
+    if (account && account.mode === 'production') {
+      const prodErr = validateProductionAccountConfig(account.provider, config, account.secret_name, env);
+      if (prodErr) {
+        if (await failOrCancelFenced('cancelled', 'auth', prodErr, msg.id)) {
+          summary.cancelled += 1;
+        }
         continue;
       }
     }
 
-    const account = await resolveChannelAccountForSend(env.DB, conv.channel, row.channel_account_id ?? conv.channel_account_id);
-    const config = parseChannelAccountConfig(account?.config_json);
-
-    // Recheck window & template / HUMAN_AGENT tag at send time
+    // 2e. Revalidate messaging window, HUMAN_AGENT approval, and account-scoped approved template
     const win = evaluateChannelWindow({
       channel: conv.channel,
       windowExpiresAt: conv.window_expires_at,
@@ -980,11 +1270,22 @@ export async function processCrmOutbox(
       now,
     });
 
+    if (msg.message_tag === 'HUMAN_AGENT' && !win.humanAgentEligible && !win.standardOpen) {
+      if (await failOrCancelFenced('failed', 'window_closed', 'human_agent_not_eligible', msg.id)) {
+        summary.failed += 1;
+      }
+      continue;
+    }
+
     let resolvedTpl: AdapterSendInput['template'] = null;
     if (msg.template_id) {
       const tplRow = await env.DB
-        .prepare(`SELECT * FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'`)
-        .bind(msg.template_id, conv.channel)
+        .prepare(
+          `SELECT * FROM crm_templates
+           WHERE id = ? AND channel = ? AND status = 'approved'
+             AND (channel_account_id IS NULL OR channel_account_id = ?)`,
+        )
+        .bind(msg.template_id, conv.channel, account?.id ?? null)
         .first<TemplateRow>();
       if (tplRow) {
         let params: string[] = [];
@@ -1005,29 +1306,9 @@ export async function processCrmOutbox(
     }
 
     if (!win.open && !resolvedTpl) {
-      await env.DB.batch([
-        env.DB
-          .prepare(`UPDATE crm_outbox SET status = 'failed', lease_until = NULL, last_error_class = 'window_closed', last_error = 'window_closed', updated_at = ? WHERE id = ?`)
-          .bind(now, row.id),
-        env.DB
-          .prepare(`UPDATE crm_messages SET status = 'failed', error_code = 'window_closed', error_detail = 'window_closed', updated_at = ? WHERE id = ?`)
-          .bind(now, msg.id),
-      ]);
-      summary.failed += 1;
-      continue;
-    }
-
-    const recipient = msg.recipient_endpoint;
-    if (!recipient) {
-      await env.DB.batch([
-        env.DB
-          .prepare(`UPDATE crm_outbox SET status = 'failed', lease_until = NULL, last_error_class = 'recipient_invalid', last_error = 'no_recipient_endpoint', updated_at = ? WHERE id = ?`)
-          .bind(now, row.id),
-        env.DB
-          .prepare(`UPDATE crm_messages SET status = 'failed', error_code = 'recipient_invalid', error_detail = 'no_recipient_endpoint', updated_at = ? WHERE id = ?`)
-          .bind(now, msg.id),
-      ]);
-      summary.failed += 1;
+      if (await failOrCancelFenced('failed', 'window_closed', 'window_closed', msg.id)) {
+        summary.failed += 1;
+      }
       continue;
     }
 
@@ -1041,27 +1322,31 @@ export async function processCrmOutbox(
         messageId: msg.id,
         conversationId: conv.id,
         subject: conv.subject,
-        recipientEndpoint: recipient,
+        recipientEndpoint: dispatchRecipient,
         bodyText: msg.body_text,
         idempotencyKey: row.idempotency_key ?? row.request_id,
         inReplyTo: msg.in_reply_to ?? conv.last_rfc_message_id,
         references,
         template: resolvedTpl,
-        messageTag: msg.message_tag === 'HUMAN_AGENT' ? 'HUMAN_AGENT' : win.requiresHumanAgentTag ? 'HUMAN_AGENT' : null,
+        messageTag:
+          (msg.message_tag === 'HUMAN_AGENT' && win.humanAgentEligible) || win.requiresHumanAgentTag
+            ? 'HUMAN_AGENT'
+            : null,
         now,
       },
       opts.overrides,
     );
 
     if ('unknown' in outcome) {
-      await env.DB.batch([
+      const committed = await commitFencedOutboxBatch(env.DB, [
         env.DB
           .prepare(
             `UPDATE crm_outbox
              SET status = 'review_required', lease_until = NULL, last_error_class = 'unknown', last_error = ?, updated_at = ?
-             WHERE id = ? AND status = 'sending'`,
+             WHERE id = ? AND status = 'sending' AND attempts = ? AND lease_until = ?`,
           )
-          .bind(outcome.detail, now, row.id),
+          .bind(outcome.detail, now, row.id, nextAttempts, leaseUntil),
+        changesOneFence(env.DB),
         env.DB
           .prepare(
             `UPDATE crm_messages
@@ -1070,7 +1355,7 @@ export async function processCrmOutbox(
           )
           .bind(outcome.detail, now, msg.id),
       ]);
-      summary.reviewRequired += 1;
+      if (committed) summary.reviewRequired += 1;
     } else if (outcome.ok) {
       const updateStmts: D1PreparedStatement[] = [
         env.DB
@@ -1078,21 +1363,23 @@ export async function processCrmOutbox(
             `UPDATE crm_outbox
              SET status = 'sent', lease_until = NULL, next_attempt_at = NULL,
                  provider_receipt = ?, last_error_class = NULL, last_error = NULL, updated_at = ?
-             WHERE id = ? AND status = 'sending'`,
+             WHERE id = ? AND status = 'sending' AND attempts = ? AND lease_until = ?`,
           )
-          .bind(outcome.externalId, now, row.id),
+          .bind(outcome.externalId, now, row.id, nextAttempts, leaseUntil),
+        changesOneFence(env.DB),
         env.DB
           .prepare(
             `UPDATE crm_messages
-             SET status = 'sent', external_message_id = ?, rfc_message_id = COALESCE(?, rfc_message_id),
+             SET status = 'sent', recipient_endpoint = ?, external_message_id = ?, rfc_message_id = COALESCE(?, rfc_message_id),
                  sent_at = ?, error_code = NULL, error_detail = NULL, updated_at = ?
              WHERE id = ?`,
           )
-          .bind(outcome.externalId, outcome.rfcMessageId ?? null, now, now, msg.id),
+          .bind(dispatchRecipient, outcome.externalId, outcome.rfcMessageId ?? null, now, now, msg.id),
         env.DB
           .prepare(
             `UPDATE crm_conversations
-             SET last_outbound_at = ?, last_message_at = MAX(last_message_at, ?),
+             SET last_outbound_at = MAX(COALESCE(last_outbound_at, 0), ?),
+                 last_message_at = MAX(last_message_at, ?),
                  last_rfc_message_id = COALESCE(?, last_rfc_message_id),
                  unread_count = 0, rev = rev + 1, updated_at = ?
              WHERE id = ?`,
@@ -1106,8 +1393,8 @@ export async function processCrmOutbox(
             .bind(now, account.id),
         );
       }
-      await env.DB.batch(updateStmts);
-      summary.sent += 1;
+      const committed = await commitFencedOutboxBatch(env.DB, updateStmts);
+      if (committed) summary.sent += 1;
     } else if (isRetryableAdapterError(outcome.errorClass) && nextAttempts < row.max_attempts) {
       const nextAt = now + computeOutboxBackoffMs(nextAttempts);
       const stmts: D1PreparedStatement[] = [
@@ -1116,9 +1403,10 @@ export async function processCrmOutbox(
             `UPDATE crm_outbox
              SET status = 'queued', lease_until = NULL, next_attempt_at = ?,
                  last_error_class = ?, last_error = ?, updated_at = ?
-             WHERE id = ? AND status = 'sending'`,
+             WHERE id = ? AND status = 'sending' AND attempts = ? AND lease_until = ?`,
           )
-          .bind(nextAt, outcome.errorClass, outcome.detail, now, row.id),
+          .bind(nextAt, outcome.errorClass, outcome.detail, now, row.id, nextAttempts, leaseUntil),
+        changesOneFence(env.DB),
         env.DB
           .prepare(
             `UPDATE crm_messages
@@ -1134,8 +1422,8 @@ export async function processCrmOutbox(
             .bind(outcome.detail, now, now, account.id),
         );
       }
-      await env.DB.batch(stmts);
-      summary.requeued += 1;
+      const committed = await commitFencedOutboxBatch(env.DB, stmts);
+      if (committed) summary.requeued += 1;
     } else {
       const stmts: D1PreparedStatement[] = [
         env.DB
@@ -1143,9 +1431,10 @@ export async function processCrmOutbox(
             `UPDATE crm_outbox
              SET status = 'failed', lease_until = NULL, next_attempt_at = NULL,
                  last_error_class = ?, last_error = ?, updated_at = ?
-             WHERE id = ? AND status = 'sending'`,
+             WHERE id = ? AND status = 'sending' AND attempts = ? AND lease_until = ?`,
           )
-          .bind(outcome.errorClass, outcome.detail, now, row.id),
+          .bind(outcome.errorClass, outcome.detail, now, row.id, nextAttempts, leaseUntil),
+        changesOneFence(env.DB),
         env.DB
           .prepare(
             `UPDATE crm_messages
@@ -1161,8 +1450,8 @@ export async function processCrmOutbox(
             .bind(outcome.detail, now, now, account.id),
         );
       }
-      await env.DB.batch(stmts);
-      summary.failed += 1;
+      const committed = await commitFencedOutboxBatch(env.DB, stmts);
+      if (committed) summary.failed += 1;
     }
   }
 
@@ -1204,16 +1493,17 @@ export async function pollCrmChannelAccount(
     return { ok: false, error: 'provider_unavailable', detail: { reason: 'channel_account_disabled' } };
   }
 
-  // Acquire durable poll lease atomically
+  // Acquire durable poll lease atomically with exact rev generation bump
   const leaseUntil = now + POLL_LEASE_MS;
+  const claimedRev = account.rev + 1;
   const claim = await env.DB
     .prepare(
       `UPDATE crm_channel_accounts
-       SET poll_lease_until = ?, updated_at = ?
-       WHERE id = ? AND active = 1 AND mode != 'disabled'
+       SET poll_lease_until = ?, rev = ?, updated_at = ?
+       WHERE id = ? AND rev = ? AND active = 1 AND mode != 'disabled'
          AND (poll_lease_until IS NULL OR poll_lease_until <= ?)`,
     )
-    .bind(leaseUntil, now, account.id, now)
+    .bind(leaseUntil, claimedRev, now, account.id, account.rev, now)
     .run();
   if (!claim.meta.changes) {
     return {
@@ -1244,10 +1534,10 @@ export async function pollCrmChannelAccount(
     await env.DB
       .prepare(
         `UPDATE crm_channel_accounts
-         SET poll_lease_until = NULL, health_state = ?, last_error = ?, last_error_at = ?, updated_at = ?
-         WHERE id = ?`,
+         SET poll_lease_until = NULL, health_state = ?, last_error = ?, last_error_at = ?, rev = rev + 1, updated_at = ?
+         WHERE id = ? AND rev = ? AND poll_lease_until = ?`,
       )
-      .bind(nextHealth, pollRes.detail, now, now, account.id)
+      .bind(nextHealth, pollRes.detail, now, now, account.id, claimedRev, leaseUntil)
       .run();
     return {
       ok: false,
@@ -1257,15 +1547,29 @@ export async function pollCrmChannelAccount(
   }
 
   const ingest = await ingestChannelInboundEvents(env, account, pollRes.events, now);
-  const nextCursor = pollRes.nextCursor ?? account.poll_cursor;
+
+  // NEVER advance the polling cursor beyond durably processed events!
+  let nextCursor = account.poll_cursor;
+  if (ingest.budgetExhausted || ingest.unprocessedCount > 0) {
+    const prevWatermark = parseZohoPollCursor(account.poll_cursor).watermarkTs;
+    if (ingest.lastProcessedReceivedAt !== null && ingest.lastProcessedReceivedAt > prevWatermark) {
+      nextCursor = formatZohoPollCursor({ watermarkTs: ingest.lastProcessedReceivedAt, offset: 0 });
+    }
+  } else {
+    nextCursor = pollRes.nextCursor ?? account.poll_cursor;
+  }
+
+  const nextHealth: ChannelHealthState = ingest.budgetExhausted ? 'degraded' : 'connected';
+  const lastErr = ingest.budgetExhausted ? 'poll_processing_budget_partial' : null;
   await env.DB
     .prepare(
       `UPDATE crm_channel_accounts
        SET poll_cursor = ?, poll_lease_until = NULL, last_poll_at = ?,
-           health_state = 'connected', last_error = NULL, last_error_at = NULL, updated_at = ?
-       WHERE id = ?`,
+           health_state = ?, last_error = ?, last_error_at = CASE WHEN ? IS NULL THEN NULL ELSE ? END,
+           rev = rev + 1, updated_at = ?
+       WHERE id = ? AND rev = ? AND poll_lease_until = ?`,
     )
-    .bind(nextCursor, now, now, account.id)
+    .bind(nextCursor, now, nextHealth, lastErr, lastErr, now, now, account.id, claimedRev, leaseUntil)
     .run();
 
   return {
@@ -1275,7 +1579,7 @@ export async function pollCrmChannelAccount(
     duplicatesSkipped: ingest.duplicatesSkipped,
     optOutsRecorded: ingest.optOutsRecorded,
     cursor: nextCursor,
-    healthState: 'connected',
+    healthState: nextHealth,
   };
 }
 
@@ -1533,26 +1837,52 @@ function pollChannelNowCommand(): CommandDefinition<
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
-    plan: async ({ env, actor, tokenHash, input, now }) => {
-      const res = await pollCrmChannelAccount(env, input.accountId, now, {
-        limit: input.limit,
-        simulatedMessages: input.simulatedMessages,
-      });
-      if (!res.ok) {
-        return { kind: 'refuse', error: res.error, detail: res.detail };
+    plan: async ({ env, actor, tokenHash, input }) => {
+      // Read-only pre-check ONLY; NEVER run side-effecting poll before crmActorFence & idempotency commit!
+      const account = await env.DB
+        .prepare(`SELECT id, provider, mode, active, poll_cursor, health_state FROM crm_channel_accounts WHERE id = ?`)
+        .bind(input.accountId)
+        .first<Pick<ChannelAccountRow, 'id' | 'provider' | 'mode' | 'active' | 'poll_cursor' | 'health_state'>>();
+      if (!account) return { kind: 'refuse', error: 'not_found' };
+      if (account.provider !== 'email_zoho') {
+        return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'provider_not_pull_based' } };
+      }
+      if (account.mode === 'disabled' || account.active !== 1) {
+        return { kind: 'refuse', error: 'provider_unavailable', detail: { reason: 'channel_account_disabled' } };
       }
       return {
         kind: 'commit',
         result: {
           accountId: input.accountId,
-          leased: res.leased,
-          ingested: res.ingested,
-          duplicatesSkipped: res.duplicatesSkipped,
-          optOutsRecorded: res.optOutsRecorded,
-          cursor: res.cursor,
-          healthState: res.healthState,
+          leased: false,
+          ingested: 0,
+          duplicatesSkipped: 0,
+          optOutsRecorded: 0,
+          cursor: account.poll_cursor,
+          healthState: account.health_state,
         },
         fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.channels.manage', '*')],
+        postCommitExecute: async ({ env: execEnv, now: execNow }) => {
+          const res = await pollCrmChannelAccount(execEnv, input.accountId, execNow, {
+            limit: input.limit,
+            simulatedMessages: input.simulatedMessages,
+          });
+          if (!res.ok) {
+            return { ok: false, error: res.error, detail: res.detail };
+          }
+          return {
+            ok: true,
+            result: {
+              accountId: input.accountId,
+              leased: res.leased,
+              ingested: res.ingested,
+              duplicatesSkipped: res.duplicatesSkipped,
+              optOutsRecorded: res.optOutsRecorded,
+              cursor: res.cursor,
+              healthState: res.healthState,
+            },
+          };
+        },
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1874,12 +2204,24 @@ function processOutboxNowCommand(): CommandDefinition<ProcessOutboxNowInput, Out
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
-    plan: async ({ env, actor, tokenHash, input, now }) => {
-      const summary = await processCrmOutbox(env, now, { limit: input.limit ?? 10 });
+    plan: async ({ env, actor, tokenHash, input }) => {
+      // NEVER dispatch outbox items before crmActorFence & crm_commands idempotency commit!
       return {
         kind: 'commit',
-        result: summary,
+        result: {
+          expiredMovedToReview: 0,
+          attempted: 0,
+          sent: 0,
+          requeued: 0,
+          failed: 0,
+          reviewRequired: 0,
+          cancelled: 0,
+        },
         fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.channels.manage', '*')],
+        postCommitExecute: async ({ env: execEnv, now: execNow }) => {
+          const summary = await processCrmOutbox(execEnv, execNow, { limit: input.limit ?? 10 });
+          return { ok: true, result: summary };
+        },
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),

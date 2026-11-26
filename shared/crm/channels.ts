@@ -255,6 +255,78 @@ export function normalizeEmailSubject(subject: string | null | undefined): strin
     .toLowerCase();
 }
 
+/**
+ * Extracts RFC 5322 `Message-Id`, `In-Reply-To`, and `References` from raw header text
+ * (such as Zoho Mail's `GET .../header?raw=true` `headerContent`), unfolding continuation lines.
+ */
+export function parseRawRfcHeaders(rawHeaders: string | null | undefined): {
+  messageId: string | null;
+  inReplyTo: string | null;
+  references: string[];
+} {
+  if (!rawHeaders || typeof rawHeaders !== 'string') {
+    return { messageId: null, inReplyTo: null, references: [] };
+  }
+  const unfolded = rawHeaders.replace(/\r?\n[ \t]+/g, ' ');
+  let messageId: string | null = null;
+  let inReplyTo: string | null = null;
+  let references: string[] = [];
+
+  for (const line of unfolded.split(/\r?\n/)) {
+    const colon = line.indexOf(':');
+    if (colon <= 0) continue;
+    const name = line.slice(0, colon).trim().toLowerCase();
+    const val = line.slice(colon + 1).trim();
+    if (!val) continue;
+    if (name === 'message-id' && !messageId) {
+      messageId = normalizeRfcMessageId(val);
+    } else if (name === 'in-reply-to' && !inReplyTo) {
+      inReplyTo = normalizeRfcMessageId(val);
+    } else if (name === 'references') {
+      references = parseRfcReferences(val);
+    }
+  }
+  return { messageId, inReplyTo, references };
+}
+
+export interface ZohoPollCursor {
+  watermarkTs: number;
+  offset: number;
+}
+
+export function parseZohoPollCursor(raw: string | null | undefined): ZohoPollCursor {
+  if (!raw) return { watermarkTs: 0, offset: 0 };
+  const trimmed = raw.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return { watermarkTs: Number(trimmed) || 0, offset: 0 };
+  }
+  try {
+    const p = JSON.parse(trimmed) as { watermarkTs?: unknown; offset?: unknown };
+    return {
+      watermarkTs:
+        typeof p.watermarkTs === 'number' && Number.isFinite(p.watermarkTs) && p.watermarkTs >= 0
+          ? Math.floor(p.watermarkTs)
+          : 0,
+      offset:
+        typeof p.offset === 'number' && Number.isFinite(p.offset) && p.offset >= 0
+          ? Math.floor(p.offset)
+          : 0,
+    };
+  } catch {
+    return { watermarkTs: 0, offset: 0 };
+  }
+}
+
+export function formatZohoPollCursor(cursor: ZohoPollCursor): string {
+  if (cursor.offset <= 0) {
+    return String(Math.max(0, Math.floor(cursor.watermarkTs)));
+  }
+  return JSON.stringify({
+    watermarkTs: Math.max(0, Math.floor(cursor.watermarkTs)),
+    offset: Math.max(0, Math.floor(cursor.offset)),
+  });
+}
+
 /* ---------- Opt-Out Detection & Provider-Scoped Identity Normalization ---------- */
 
 const OPT_OUT_PATTERNS = [

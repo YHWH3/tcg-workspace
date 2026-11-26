@@ -198,7 +198,8 @@ export function parseWhatsAppWebhookPayload(body: unknown, now = Date.now()): Ad
   for (const entry of root.entry) {
     for (const change of entry.changes ?? []) {
       if (change.field !== 'messages' || !change.value) continue;
-      const toEndpoint = change.value.metadata?.display_phone_number ?? change.value.metadata?.phone_number_id ?? null;
+      const phoneNumberId = change.value.metadata?.phone_number_id?.trim() || null;
+      const toEndpoint = change.value.metadata?.display_phone_number ?? phoneNumberId;
 
       for (const msg of change.value.messages ?? []) {
         if (!msg.id || !msg.from) continue;
@@ -216,6 +217,7 @@ export function parseWhatsAppWebhookPayload(body: unknown, now = Date.now()): Ad
           kind: 'message',
           externalEventId: msg.id,
           channel: 'whatsapp',
+          receivingAccountId: phoneNumberId,
           fromEndpoint: fromNorm,
           toEndpoint,
           externalThreadId: fromNorm,
@@ -241,6 +243,7 @@ export function parseWhatsAppWebhookPayload(body: unknown, now = Date.now()): Ad
           kind: 'status',
           externalEventId: `wa_status:${st.id}:${st.status}:${st.timestamp ?? tsMs}`,
           channel: 'whatsapp',
+          receivingAccountId: phoneNumberId,
           externalMessageId: st.id,
           status: st.status,
           errorDetail: errDetail,

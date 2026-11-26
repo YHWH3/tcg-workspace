@@ -686,14 +686,16 @@ function simulateInboundCommand(): CommandDefinition<
             .prepare(
               `UPDATE crm_conversations
                SET person_id = COALESCE(person_id, ?),
-                   window_expires_at = COALESCE(?, window_expires_at),
-                   human_agent_window_expires_at = COALESCE(?, human_agent_window_expires_at),
-                   last_message_at = ?, last_inbound_at = ?, unread_count = unread_count + 1,
+                   window_expires_at = CASE WHEN ? IS NULL THEN window_expires_at ELSE MAX(COALESCE(window_expires_at, 0), ?) END,
+                   human_agent_window_expires_at = CASE WHEN ? IS NULL THEN human_agent_window_expires_at ELSE MAX(COALESCE(human_agent_window_expires_at, 0), ?) END,
+                   last_message_at = MAX(last_message_at, ?),
+                   last_inbound_at = MAX(COALESCE(last_inbound_at, 0), ?),
+                   unread_count = unread_count + 1,
                    state = CASE WHEN state = 'closed' THEN 'open' ELSE state END,
                    rev = rev + 1, updated_at = ?
                WHERE id = ?`,
             )
-            .bind(personId, windowExpires, humanAgentExpires, now, now, now, targetConv.id),
+            .bind(personId, windowExpires, windowExpires, humanAgentExpires, humanAgentExpires, now, now, now, targetConv.id),
         );
       } else {
         rows.push(
@@ -1264,6 +1266,9 @@ function sendMessageCommand(): CommandDefinition<
 
       const account = await resolveChannelAccountForSend(env.DB, conv.channel, conv.channel_account_id);
       const accountConfig = parseChannelAccountConfig(account?.config_json);
+      if (conv.channel_account_id && !account) {
+        return { kind: 'refuse', error: 'provider_unavailable', detail: { reason: 'channel_account_not_found' } };
+      }
       if (!account && !isLocalTestSimulatedMode(env)) {
         return { kind: 'refuse', error: 'provider_unavailable', detail: { reason: 'channel_account_not_configured' } };
       }
@@ -1287,8 +1292,12 @@ function sendMessageCommand(): CommandDefinition<
       if (input.templateId) {
         approvedTpl =
           (await env.DB
-            .prepare(`SELECT * FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'`)
-            .bind(input.templateId, conv.channel)
+            .prepare(
+              `SELECT * FROM crm_templates
+               WHERE id = ? AND channel = ? AND status = 'approved'
+                 AND (channel_account_id IS NULL OR channel_account_id = ?)`,
+            )
+            .bind(input.templateId, conv.channel, account?.id ?? null)
             .first<TemplateRow>()) ?? null;
       }
 

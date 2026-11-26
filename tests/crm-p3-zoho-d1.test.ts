@@ -399,9 +399,9 @@ describe('CRM S5 Zoho Mail Adapter, RFC 5322 Threading, Durable Polling & Outbox
     expect(await fx!.db.prepare("SELECT status FROM crm_messages WHERE id = 'msg-stale-lease'").first('status')).toBe('review_required');
   });
 
-  it('verifies production Zoho Mail adapter request shape, exact DC host allowlist, redirect:error, and HTTP 5xx -> ambiguous', async () => {
+  it('verifies Zoho Mail adapter request shape under local-test mock fetch, exact DC host allowlist, redirect:error, HTTP 5xx -> ambiguous, and G3 production block', async () => {
     await setupFixture({
-      localTest: false,
+      localTest: true,
       extraEnv: {
         ZOHO_MAIL_TEST_SECRET: JSON.stringify({ accessToken: '1000.test_access_token' }),
       },

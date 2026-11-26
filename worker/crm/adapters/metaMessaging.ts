@@ -186,8 +186,10 @@ export function parseMetaMessagingWebhookPayload(
 
   const events: AdapterInboundEvent[] = [];
   for (const entry of root.entry) {
+    const entryAccountId = entry.id?.trim() || null;
     for (const item of entry.messaging ?? []) {
       const ts = typeof item.timestamp === 'number' && item.timestamp > 0 ? item.timestamp : now;
+      const receivingAccountId = item.recipient?.id?.trim() || entryAccountId;
 
       if (item.message) {
         if (item.message.is_echo === true) continue;
@@ -203,8 +205,9 @@ export function parseMetaMessagingWebhookPayload(
           kind: 'message',
           externalEventId: mid,
           channel,
+          receivingAccountId,
           fromEndpoint: scopedSender,
-          toEndpoint: item.recipient?.id ?? entry.id ?? null,
+          toEndpoint: receivingAccountId,
           externalThreadId: scopedSender,
           subject: `${channel === 'instagram' ? 'Instagram DM' : 'Facebook Messenger'} ${scopedSender}`,
           bodyText: bodyText.slice(0, 8000),
@@ -223,8 +226,9 @@ export function parseMetaMessagingWebhookPayload(
           kind: 'message',
           externalEventId: item.postback.mid ?? `${channel}_pb_${item.sender.id}_${ts}`,
           channel,
+          receivingAccountId,
           fromEndpoint: scopedSender,
-          toEndpoint: item.recipient?.id ?? entry.id ?? null,
+          toEndpoint: receivingAccountId,
           externalThreadId: scopedSender,
           subject: `${channel === 'instagram' ? 'Instagram DM' : 'Facebook Messenger'} ${scopedSender}`,
           bodyText: bodyText.slice(0, 8000),
@@ -241,6 +245,7 @@ export function parseMetaMessagingWebhookPayload(
             kind: 'status',
             externalEventId: `${channel}_deliv:${mid}`,
             channel,
+            receivingAccountId: entryAccountId ?? item.sender?.id?.trim() ?? item.recipient?.id?.trim() ?? null,
             externalMessageId: mid,
             status: 'delivered',
             timestamp: item.delivery.watermark ?? ts,
@@ -255,6 +260,7 @@ export function parseMetaMessagingWebhookPayload(
           kind: 'status',
           externalEventId: `${channel}_read:${item.read.mid}`,
           channel,
+          receivingAccountId: entryAccountId ?? item.sender?.id?.trim() ?? item.recipient?.id?.trim() ?? null,
           externalMessageId: item.read.mid,
           status: 'read',
           timestamp: item.read.watermark ?? ts,
@@ -270,6 +276,7 @@ export function parseMetaMessagingWebhookPayload(
           kind: 'opt_out',
           externalEventId: `${channel}_optout:${scopedSender}:${ts}`,
           channel,
+          receivingAccountId,
           fromEndpoint: scopedSender,
           reason: item.optout.ref ?? 'meta_optout',
           timestamp: ts,

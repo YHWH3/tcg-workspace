@@ -124,3 +124,17 @@ Per **A-28**, comprehensive 18-project cross-browser UX certification matrices (
 3. **Deterministic local package gate:**
    - `node scripts/verify-p3-communications.mjs` runs typecheck, all targeted P2 hardening + P3 communications + core CRM Vitest suites, pack validation, and certification selftests in one terminal command and emits a concise machine-readable JSON summary report (optionally saved via `--json-out`).
 
+---
+
+## 11. P3 Communications Hardening & Zoho G3 Gate (P4 Prerequisite)
+
+- **Budget-safe ingest & webhook recovery:** `ingestChannelInboundEvents` tracks `budgetExhausted`, `unprocessedCount`, and `lastProcessedReceivedAt`. `pollCrmChannelAccount` never advances `poll_cursor` beyond durably processed events. `/api/crm/webhooks/:provider` returns HTTP `503` (`retryable: true`) whenever D1 budget prevents processing every event so Meta retries rather than losing events.
+- **Exact duplicate vs DB error distinction:** Only `UNIQUE constraint failed: crm_inbound_events` increments `duplicatesSkipped`; `D1BudgetExhausted` and unrelated database errors propagate so genuine failures are never misclassified as duplicates.
+- **Pre-dispatch revalidation:** Immediately before provider dispatch, `processCrmOutbox` revalidates current sender account active state, `crm.send:<channel>` capability, linked-record `ReadGate` access, canonical person active non-retired endpoint, effective non-broadening consent, explicit channel account state/config, account-scoped approved template, and window/`HUMAN_AGENT` eligibility.
+- **Exact lease-generation fencing:** Outbox completion writes are fenced by `(status='sending', attempts, lease_until)` + `changes() = 1` before updating `crm_messages`/`crm_conversations`. Poll completion writes are fenced by `(rev, poll_lease_until)`.
+- **SQL-enforced monotonicity:** Inbound receipt transitions enforce monotonic rank in SQL `WHERE status IN (...)`; conversation `window_expires_at` / `human_agent_window_expires_at` use `MAX(COALESCE(..., 0), ?)`.
+- **Provider-account-scoped webhooks & routing:** Webhooks verify `X-Hub-Signature-256` against active accounts and strictly match every event's `receivingAccountId` (`phone_number_id` / `entry.id` / `recipient.id`); unmatched receiving accounts return `403 unmatched_receiving_account`. Deduplication, threading, and send-account resolution never fall back to an arbitrary account.
+- **Command-fenced manual sweeps:** `channel.poll_now` and `outbox.process_now` commit `crmActorFence` + `crm_commands` idempotency row BEFORE executing via `postCommitExecute`.
+- **Zoho Mail G3 production gate:** Official Zoho Mail REST API separates list (`/messages/view?start=&limit=`), full body (`/folders/{folderId}/messages/{id}/content`), and raw RFC 5322 headers (`/header?raw=true` -> `headerContent`). Production Zoho activation and dispatch/polling are explicitly blocked (`zoho_production_pending_G3`) outside `local-test` pending G3 verification (`O-20`, `O-21`).
+
+
