@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { CRM_CHANNELS } from './capabilities';
+import { CrmTemplateDtoSchema } from './channels';
+import { CrmConsentScopeSchema } from './identity';
 import type { ProgrammeProfileV1 } from './programmes';
 
 export const CONVERSATION_CHANNELS = [
@@ -161,6 +163,10 @@ export const SendMessageInputSchema = z.object({
   messageId: z.string().min(1).max(128).optional(),
   bodyText: z.string().trim().min(1).max(8000),
   templateId: z.string().min(1).max(128).optional(),
+  templateParams: z.array(z.string().max(500)).max(12).optional(),
+  purpose: CrmConsentScopeSchema.optional(),
+  useHumanAgentTag: z.boolean().optional(),
+  deliveryMode: z.enum(['immediate', 'queued']).optional(),
 }).strict();
 export type SendMessageInput = z.infer<typeof SendMessageInputSchema>;
 
@@ -179,13 +185,17 @@ export const CrmMessageDtoSchema = z.object({
   id: z.string().min(1),
   conversationId: z.string().min(1),
   direction: z.enum(['inbound', 'outbound', 'note']),
-  status: z.enum(['received', 'draft', 'queued', 'sending', 'sent', 'delivered', 'failed', 'note']),
+  status: z.enum(['received', 'draft', 'queued', 'sending', 'sent', 'delivered', 'read', 'failed', 'review_required', 'cancelled', 'note']),
   channel: z.string().min(1),
   senderEndpoint: z.string().nullable(),
   recipientEndpoint: z.string().nullable(),
   authorUserId: z.string().nullable(),
   authorName: z.string().nullable(),
   bodyText: z.string(),
+  rfcMessageId: z.string().nullable().optional(),
+  inReplyTo: z.string().nullable().optional(),
+  templateId: z.string().nullable().optional(),
+  messageTag: z.string().nullable().optional(),
   aiMetadata: z.object({
     citedFactIds: z.array(z.string()).default([]),
     unconfirmedItems: z.array(z.string()).default([]),
@@ -194,6 +204,8 @@ export const CrmMessageDtoSchema = z.object({
   errorCode: z.string().nullable(),
   errorDetail: z.string().nullable(),
   sentAt: z.number().int().nullable(),
+  deliveredAt: z.number().int().nullable().optional(),
+  readAt: z.number().int().nullable().optional(),
   createdAt: z.number().int().nonnegative(),
 }).strict();
 export type CrmMessageDto = z.infer<typeof CrmMessageDtoSchema>;
@@ -201,6 +213,7 @@ export type CrmMessageDto = z.infer<typeof CrmMessageDtoSchema>;
 export const CrmConversationDtoSchema = z.object({
   id: z.string().min(1),
   channel: z.enum(CONVERSATION_CHANNELS),
+  channelAccountId: z.string().nullable().optional(),
   externalThreadId: z.string().nullable(),
   personId: z.string().nullable(),
   personName: z.string().nullable(),
@@ -212,6 +225,9 @@ export const CrmConversationDtoSchema = z.object({
   assigneeName: z.string().nullable(),
   windowExpiresAt: z.number().int().nullable(),
   windowOpen: z.boolean(),
+  humanAgentWindowExpiresAt: z.number().int().nullable().optional(),
+  humanAgentEligible: z.boolean().optional(),
+  requiresTemplate: z.boolean().optional(),
   lastMessageAt: z.number().int().nonnegative(),
   lastInboundAt: z.number().int().nullable(),
   lastOutboundAt: z.number().int().nullable(),
@@ -249,6 +265,8 @@ export const ConversationDetailResponseSchema = z.object({
   consentStatus: z.enum(['granted', 'withdrawn', 'unrecorded']),
   verifiedFacts: z.array(CrmFactDtoSchema),
   staleFacts: z.array(CrmFactDtoSchema),
+  approvedTemplates: z.array(CrmTemplateDtoSchema).optional(),
+  channelAccountMode: z.enum(['simulated', 'production', 'disabled']).optional(),
   canSend: z.boolean(),
   simulatedMode: z.boolean(),
 }).strict();

@@ -186,5 +186,9 @@
   {
     "name": "0047_crm_merge.sql",
     "sha256": "986a7cb447bb5b0d85f6a7c19efd83c0a7b00c8b8dec12fa50256eeaf23a8d3a"
+  },
+  {
+    "name": "0048_crm_communications.sql",
+    "sha256": "98c1cc35502e08aabf8539326dba9c9f54cbfbfaa31621c2f7bea05023963611"
   }
 ]
