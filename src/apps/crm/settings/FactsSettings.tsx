@@ -108,6 +108,9 @@ export function FactsSettings({ status }: { status: CrmStatus }) {
           <Link to="/crm/settings/programmes" className="crm-btn-secondary">
             Programme profiles
           </Link>
+          <Link to="/crm/settings/channels" className="crm-btn-secondary">
+            Channels
+          </Link>
           <button type="button" disabled={loading || isOffline} onClick={() => void loadFacts()} className="crm-btn-secondary">
             <RefreshCw size={15} aria-hidden="true" className={loading ? 'animate-spin' : ''} />
             <span>Refresh</span>

@@ -286,8 +286,10 @@ export default function CrmShell() {
         : []),
   ];
 
-  const routeLabel = pathname.startsWith('/crm/settings/facts')
-    ? 'Verified knowledge'
+  const routeLabel = pathname.startsWith('/crm/settings/channels')
+    ? 'Channels & delivery'
+    : pathname.startsWith('/crm/settings/facts')
+      ? 'Verified knowledge'
     : pathname.startsWith('/crm/settings/automations')
       ? 'Automation recipes'
       : pathname.startsWith('/crm/settings/programmes')

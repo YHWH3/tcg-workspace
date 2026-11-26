@@ -7,8 +7,10 @@ import {
   Lock,
   MessageSquare,
   Plus,
+  Radio,
   RefreshCw,
   Send,
+  ShieldAlert,
   Sparkles,
   StickyNote,
   UserCheck,
@@ -43,6 +45,7 @@ import {
   generateCrmRequestId,
   linkConversationPerson,
   logManualConversation,
+  resolveMessageReview,
   retryConversationMessage,
   saveConversationDraft,
   sendConversationMessage,
@@ -72,6 +75,7 @@ export function ConversationsView(_props: { status: CrmStatus }) {
   // Composer state
   const [composerMode, setComposerMode] = useState<'reply' | 'note'>('reply');
   const [draftText, setDraftText] = useState('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [editingDraftId, setEditingDraftId] = useState<string | undefined>(undefined);
   const [aiMetaPreview, setAiMetaPreview] = useState<{
     citedFactIds: string[];
@@ -170,14 +174,23 @@ export function ConversationsView(_props: { status: CrmStatus }) {
             conversationId: detail.conversation.id,
             messageId: editingDraftId,
             bodyText: draftText.trim(),
+            ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}),
+            ...(detail.conversation.humanAgentEligible ? { useHumanAgentTag: true } : {}),
           },
           { requestId: generateCrmRequestId() },
         );
         if (res.ok) {
           setDraftText('');
+          setSelectedTemplateId('');
           setEditingDraftId(undefined);
           setAiMetaPreview(null);
-          setNotice(`Sent via simulated adapter (${res.result.receiptId}).`);
+          setNotice(
+            res.result.message.status === 'review_required'
+              ? 'Provider outcome was ambiguous — moved to human review before any retry.'
+              : res.result.message.status === 'queued'
+                ? 'Queued for outbox delivery.'
+                : `Sent (${res.result.receiptId}).`,
+          );
           await Promise.all([loadDetail(), loadList()]);
         } else {
           setError(describeCommandError(res));
@@ -422,6 +435,14 @@ export function ConversationsView(_props: { status: CrmStatus }) {
                   <Plus size={13} aria-hidden="true" />
                   <span>Log</span>
                 </button>
+                <Link
+                  to="/crm/settings/channels"
+                  className="crm-btn-secondary !min-h-9 !px-2.5 !py-1 !text-xs"
+                  title="Channel settings & delivery history"
+                >
+                  <Radio size={13} aria-hidden="true" />
+                  <span>Channels</span>
+                </Link>
               </div>
             </div>
 
@@ -536,7 +557,14 @@ export function ConversationsView(_props: { status: CrmStatus }) {
                       <h2 className="truncate text-sm font-semibold">{detail.conversation.subject}</h2>
                       <p className="truncate text-[var(--crm-text-muted)]">
                         {detail.conversation.channel} ·{' '}
-                        {detail.conversation.windowOpen ? 'Window open' : 'Window closed'}
+                        {detail.conversation.humanAgentEligible
+                          ? '7d Human Agent window'
+                          : detail.conversation.windowOpen
+                            ? 'Window open'
+                            : detail.conversation.requiresTemplate
+                              ? '24h window closed (approved template required)'
+                              : 'Window closed'}
+                        {detail.channelAccountMode ? ` · ${detail.channelAccountMode}` : ''}
                       </p>
                     </div>
                   </div>
@@ -655,10 +683,63 @@ export function ConversationsView(_props: { status: CrmStatus }) {
                         <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-[var(--crm-text)]">
                           {m.bodyText}
                         </p>
+                        {m.messageTag && (
+                          <p className="mt-1 text-[11px] font-medium text-[var(--crm-primary)]">
+                            Tag: {m.messageTag}
+                          </p>
+                        )}
+                        {m.inReplyTo && (
+                          <p className="mt-1 truncate text-[10px] text-[var(--crm-text-muted)]">
+                            In-Reply-To: {m.inReplyTo}
+                          </p>
+                        )}
                         {m.aiMetadata && m.aiMetadata.citedFactIds.length > 0 && (
                           <p className="mt-1.5 text-[11px] text-[var(--crm-text-muted)]">
                             Cited verified facts: {m.aiMetadata.citedFactIds.join(', ')}
                           </p>
+                        )}
+                        {m.status === 'review_required' && detail.canSend && (
+                          <div
+                            className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border px-2.5 py-2 text-[11px]"
+                            style={{
+                              backgroundColor: 'var(--crm-warn-bg)',
+                              color: 'var(--crm-warn-text)',
+                              borderColor: 'var(--crm-warn-border)',
+                            }}
+                          >
+                            <span className="inline-flex items-center gap-1 font-semibold">
+                              <ShieldAlert size={12} aria-hidden="true" />
+                              <span>Ambiguous delivery — confirm before retrying</span>
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                disabled={isOffline || busyAction}
+                                onClick={() =>
+                                  void resolveMessageReview(
+                                    { messageId: m.id, resolution: 'confirm_sent' },
+                                    { requestId: generateCrmRequestId() },
+                                  ).then(() => loadDetail())
+                                }
+                                className="crm-btn-primary !min-h-8 !px-2 !py-1 !text-[11px]"
+                              >
+                                Confirm sent
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isOffline || busyAction}
+                                onClick={() =>
+                                  void resolveMessageReview(
+                                    { messageId: m.id, resolution: 'mark_failed' },
+                                    { requestId: generateCrmRequestId() },
+                                  ).then(() => loadDetail())
+                                }
+                                className="crm-btn-secondary !min-h-8 !px-2 !py-1 !text-[11px]"
+                              >
+                                Mark failed
+                              </button>
+                            </div>
+                          </div>
                         )}
                         {m.status === 'failed' && detail.canSend && (
                           <button
@@ -740,11 +821,44 @@ export function ConversationsView(_props: { status: CrmStatus }) {
                     </p>
                   )}
 
-                  {composerMode === 'reply' && !detail.conversation.windowOpen && (
-                    <p className="flex items-center gap-1.5 text-xs text-[var(--crm-warn-text)]">
+                  {composerMode === 'reply' && detail.conversation.humanAgentEligible && (
+                    <p className="flex items-center gap-1.5 text-xs text-[var(--crm-primary)]">
                       <Clock size={13} aria-hidden="true" />
-                      <span>24h channel window is closed. Wait for new inbound or add a note.</span>
+                      <span>24h window elapsed — human reply eligible within 7 days via Meta HUMAN_AGENT tag.</span>
                     </p>
+                  )}
+
+                  {composerMode === 'reply' && !detail.conversation.windowOpen && (
+                    <div className="space-y-1.5">
+                      <p className="flex items-center gap-1.5 text-xs text-[var(--crm-warn-text)]">
+                        <Clock size={13} aria-hidden="true" />
+                        <span>
+                          {detail.conversation.requiresTemplate
+                            ? '24h WhatsApp window is closed. Choose an approved template to send.'
+                            : 'Messaging window is closed. Wait for new inbound or add an internal note.'}
+                        </span>
+                      </p>
+                      {detail.conversation.requiresTemplate && (
+                        <select
+                          aria-label="Approved message template"
+                          className="crm-select !min-h-10 !text-xs"
+                          value={selectedTemplateId}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            setSelectedTemplateId(id);
+                            const found = (detail.approvedTemplates ?? []).find((t) => t.id === id);
+                            if (found && !draftText.trim()) setDraftText(found.bodyText);
+                          }}
+                        >
+                          <option value="">Select approved template…</option>
+                          {(detail.approvedTemplates ?? []).map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name} ({t.language} · {t.category})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   )}
 
                   <textarea
@@ -789,12 +903,18 @@ export function ConversationsView(_props: { status: CrmStatus }) {
                           !draftText.trim() ||
                           !detail.canSend ||
                           detail.consentStatus === 'withdrawn' ||
-                          !detail.conversation.windowOpen
+                          (!detail.conversation.windowOpen && !selectedTemplateId)
                         }
                         className="crm-btn-primary !min-h-10 !text-xs"
                       >
                         <Send size={14} aria-hidden="true" />
-                        <span>Send reply</span>
+                        <span>
+                          {selectedTemplateId
+                            ? 'Send template'
+                            : detail.conversation.humanAgentEligible
+                              ? 'Send (Human Agent)'
+                              : 'Send reply'}
+                        </span>
                       </button>
                     )}
                   </div>

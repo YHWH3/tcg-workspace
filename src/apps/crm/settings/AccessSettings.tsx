@@ -1074,6 +1074,9 @@ export function AccessSettings({
           <Link to="/crm/settings/facts" className="crm-btn-secondary">
             Knowledge
           </Link>
+          <Link to="/crm/settings/channels" className="crm-btn-secondary">
+            Channels
+          </Link>
           <button
             type="button"
             className="crm-btn-secondary"

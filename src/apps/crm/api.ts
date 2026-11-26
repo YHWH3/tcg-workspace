@@ -48,6 +48,24 @@ import {
   type UpdateProgrammeProfileInput,
 } from '../../../shared/crm/programmes';
 import {
+  ChannelsOverviewResponseSchema,
+  CrmChannelAccountDtoSchema,
+  CrmTemplateDtoSchema,
+  TemplatesListResponseSchema,
+  type ChannelsOverviewResponse,
+  type ConfigureChannelAccountInput,
+  type CrmChannelAccountDto,
+  type CrmTemplateDto,
+  type PollChannelNowInput,
+  type ProcessOutboxNowInput,
+  type ResolveMessageReviewInput,
+  type SetChannelAccountModeInput,
+  type SubmitTemplateInput,
+  type SyncTemplateStatusInput,
+  type TemplatesListResponse,
+  type UpsertTemplateInput,
+} from '../../../shared/crm/channels';
+import {
   ConversationDetailResponseSchema,
   ConversationsPageResponseSchema,
   CrmConversationDtoSchema,
@@ -881,6 +899,138 @@ export function generateAiConversationDraft(input: GenerateAiDraftInput, opts?: 
 }
 
 // ---------------------------------------------------------------------------
+// P3 Channels, Templates, Polling & Delivery Review APIs (S5, S11, S12)
+// ---------------------------------------------------------------------------
+
+export function fetchChannelsOverview(): Promise<ChannelsOverviewResponse> {
+  return fetchCrmRead('/api/crm/read/channels', ChannelsOverviewResponseSchema);
+}
+
+export function fetchCrmTemplates(opts?: { channel?: string; status?: string }): Promise<TemplatesListResponse> {
+  const qs = new URLSearchParams();
+  if (opts?.channel) qs.set('channel', opts.channel);
+  if (opts?.status) qs.set('status', opts.status);
+  const q = qs.toString();
+  return fetchCrmRead(`/api/crm/read/templates${q ? `?${q}` : ''}`, TemplatesListResponseSchema);
+}
+
+export function configureChannelAccount(
+  input: ConfigureChannelAccountInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ account: CrmChannelAccountDto }> | CommandError> {
+  return runCrmCommand(
+    'channel.configure',
+    { ...input },
+    z.object({ account: CrmChannelAccountDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function setChannelAccountMode(
+  input: SetChannelAccountModeInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ account: CrmChannelAccountDto }> | CommandError> {
+  return runCrmCommand(
+    'channel.set_mode',
+    { ...input },
+    z.object({ account: CrmChannelAccountDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function pollChannelAccountNow(
+  input: PollChannelNowInput,
+  opts?: RunCrmCommandOptions,
+) {
+  return runCrmCommand(
+    'channel.poll_now',
+    { ...input },
+    z.object({
+      accountId: z.string(),
+      leased: z.boolean(),
+      ingested: z.number().int().nonnegative(),
+      duplicatesSkipped: z.number().int().nonnegative(),
+      optOutsRecorded: z.number().int().nonnegative(),
+      cursor: z.string().nullable(),
+      healthState: z.enum(['disconnected', 'connected', 'degraded', 'error']),
+    }).strict(),
+    opts,
+  );
+}
+
+export function upsertCrmTemplate(
+  input: UpsertTemplateInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ template: CrmTemplateDto }> | CommandError> {
+  return runCrmCommand(
+    'template.upsert',
+    { ...input },
+    z.object({ template: CrmTemplateDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function submitCrmTemplate(
+  input: SubmitTemplateInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ template: CrmTemplateDto }> | CommandError> {
+  return runCrmCommand(
+    'template.submit',
+    { ...input },
+    z.object({ template: CrmTemplateDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function syncCrmTemplateStatus(
+  input: SyncTemplateStatusInput,
+  opts?: RunCrmCommandOptions,
+): Promise<CommandResult<{ template: CrmTemplateDto }> | CommandError> {
+  return runCrmCommand(
+    'template.sync_status',
+    { ...input },
+    z.object({ template: CrmTemplateDtoSchema }).strict(),
+    opts,
+  );
+}
+
+export function resolveMessageReview(
+  input: ResolveMessageReviewInput,
+  opts?: RunCrmCommandOptions,
+) {
+  return runCrmCommand(
+    'message.resolve_review',
+    { ...input },
+    z.object({
+      messageId: z.string(),
+      status: z.enum(['sent', 'failed', 'cancelled']),
+      providerReceipt: z.string().nullable(),
+    }).strict(),
+    opts,
+  );
+}
+
+export function processOutboxNow(
+  input: ProcessOutboxNowInput = {},
+  opts?: RunCrmCommandOptions,
+) {
+  return runCrmCommand(
+    'outbox.process_now',
+    { ...input },
+    z.object({
+      expiredMovedToReview: z.number().int().nonnegative(),
+      attempted: z.number().int().nonnegative(),
+      sent: z.number().int().nonnegative(),
+      requeued: z.number().int().nonnegative(),
+      failed: z.number().int().nonnegative(),
+      reviewRequired: z.number().int().nonnegative(),
+      cancelled: z.number().int().nonnegative(),
+    }).strict(),
+    opts,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // S9 Pipelines & Patrons APIs
 // ---------------------------------------------------------------------------
 
@@ -1012,6 +1162,20 @@ export function describeCommandError(err: CommandError | CrmTransportError | unk
           return 'Merging and unmerging people must be confirmed directly in the CRM interface.';
         case 'already_unmerged':
           return 'This merge has already been unmerged.';
+        case 'expected_revisions_required':
+          return 'Reload the reviewed records before confirming this merge or unmerge.';
+        case 'person_merged_or_archived':
+          return 'This person record has been merged or archived. Perform changes on the canonical contact instead.';
+        case 'secret_name_required_for_production':
+          return 'Provide a Worker secret binding name before enabling production transport.';
+        case 'worker_secret_not_bound':
+          return 'The configured Worker secret is not bound in this environment. Production transport stays disabled.';
+        case 'zoho_config_incomplete_pending_O20':
+          return 'Zoho Mail data centre, account ID, and sender address (O-20) are required before enabling production mode.';
+        case 'whatsapp_phone_number_id_required_pending_O04':
+          return 'WhatsApp Phone Number ID (O-04) is required before enabling production mode.';
+        case 'provider_channel_mismatch':
+          return 'Selected provider does not match the chosen channel.';
       }
     }
     if (cmdErr.error === 'forbidden' && reason === 'admin_required') {

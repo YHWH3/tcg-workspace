@@ -13,6 +13,7 @@ import { PipelineView } from './pipeline/PipelineView';
 import { ProgrammesView } from './programmes/ProgrammesView';
 import { AccessSettings } from './settings/AccessSettings';
 import { AutomationsSettings } from './settings/AutomationsSettings';
+import { ChannelsSettings } from './settings/ChannelsSettings';
 import { FactsSettings } from './settings/FactsSettings';
 import { ProgrammesSettings } from './settings/ProgrammesSettings';
 
@@ -21,7 +22,9 @@ export function CrmRoutes({ status }: { status: CrmStatus }) {
   const canManage = canManageCrmAccess(status);
 
   useEffect(() => {
-    if (pathname.startsWith('/crm/settings/facts')) {
+    if (pathname.startsWith('/crm/settings/channels')) {
+      document.title = 'Channels & delivery — TCG CRM';
+    } else if (pathname.startsWith('/crm/settings/facts')) {
       document.title = 'Verified knowledge — TCG CRM';
     } else if (pathname.startsWith('/crm/settings/automations')) {
       document.title = 'Automation recipes — TCG CRM';
@@ -84,6 +87,10 @@ export function CrmRoutes({ status }: { status: CrmStatus }) {
       <Route
         path="settings/facts"
         element={<FactsSettings status={status} />}
+      />
+      <Route
+        path="settings/channels"
+        element={<ChannelsSettings status={status} />}
       />
       <Route path="*" element={<Navigate to="/crm" replace />} />
     </Routes>
