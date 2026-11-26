@@ -13,8 +13,18 @@ import type { Env } from '../auth';
 import { createReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
-import { crmActorFence, loadCrmReadContext, loadReadableTaskRecord } from './read';
-import { canAccessCrmApi } from './rules';
+import {
+  actorGrantsStmt,
+  crmActorFence,
+  evaluateCrmReadAuthRows,
+  finalizeCrmReadAuth,
+  loadReadableTaskRecord,
+  loadReadableTaskRecords,
+  sessionAuthStmt,
+  type CrmGrantRow,
+  type CrmSessionRow,
+} from './read';
+import { canAccessCrmApi, isCrmEnabled } from './rules';
 
 function parseJsonSafe(raw: string | null | undefined): Record<string, unknown> | null {
   if (!raw) return null;
@@ -211,22 +221,34 @@ export async function readPatrons(
   | { status: 200; body: PatronsReadResponse }
   | { status: 401 | 403 | 404; body: { error: 'unauthenticated' | 'forbidden' | 'not_found' } }
 > {
-  const auth = await loadCrmReadContext(env, actorId, tokenHash);
-  if (!auth.ok) return { status: auth.status, body: auth.body };
+  if (!isCrmEnabled(env)) {
+    return { status: 404, body: { error: 'not_found' } };
+  }
 
-  const { results } = await env.DB
-    .prepare(
-      `SELECT id, data, seq, updated_at
-       FROM records
-       WHERE collection = 'tasks'
-         AND json_extract(data, '$.boardId') = ?
-         AND json_extract(data, '$.deleted') IS NOT 1
-       ORDER BY updated_at DESC, id DESC
-       LIMIT ?`,
-    )
-    .bind(WEBSITE_INBOX_ID, PATRONS_SCAN_LIMIT + 1)
-    .all<{ id: string; data: string; seq: number; updated_at: number | null }>();
+  const batchNow = Date.now();
+  const [sessionRes, grantsRes, inboxRes] = await env.DB.batch([
+    sessionAuthStmt(env.DB, actorId, tokenHash, batchNow),
+    actorGrantsStmt(env.DB, actorId),
+    env.DB
+      .prepare(
+        `SELECT id, data, seq, updated_at
+         FROM records
+         WHERE collection = 'tasks'
+           AND json_extract(data, '$.boardId') = ?
+           AND json_extract(data, '$.deleted') IS NOT 1
+         ORDER BY updated_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .bind(WEBSITE_INBOX_ID, PATRONS_SCAN_LIMIT + 1),
+  ]);
 
+  const batchAuth = evaluateCrmReadAuthRows(
+    sessionRes.results[0] as CrmSessionRow | undefined,
+    grantsRes.results as unknown as CrmGrantRow[],
+  );
+  if (!batchAuth.ok) return { status: batchAuth.status, body: batchAuth.body };
+
+  const results = inboxRes.results as unknown as { id: string; data: string; seq: number; updated_at: number | null }[];
   const partial = results.length > PATRONS_SCAN_LIMIT;
   const patronCandidates: { id: string; rev: number; updatedAt: number; data: Record<string, unknown> }[] = [];
   for (const row of results.slice(0, PATRONS_SCAN_LIMIT)) {
@@ -277,10 +299,17 @@ export async function readPatrons(
       )
       .bind(JSON.stringify(emails))
       .all<{ person_id: string; value_norm: string }>();
+    const matchedIds = [...new Set(epRes.results.map((r) => r.person_id))];
+    const readablePeople = await loadReadableTaskRecords(env, gate, matchedIds);
     for (const r of epRes.results) {
-      personByEmail.set(r.value_norm, r.person_id);
+      if (readablePeople.has(r.person_id)) {
+        personByEmail.set(r.value_norm, r.person_id);
+      }
     }
   }
+
+  const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate });
+  if (!finalAuth.ok) return { status: finalAuth.status, body: finalAuth.body };
 
   const countsByTier = { founding: 0, builder: 0, partner: 0, unspecified: 0 };
   const items: PatronProjectionDto[] = [];

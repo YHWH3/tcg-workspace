@@ -42,19 +42,26 @@ import { CRM_PROJECTION } from '../../shared/crm/projection';
 import type { Mutation } from '../../shared/types';
 import type { Env } from '../auth';
 import { sha256Hex } from '../password';
-import { createReadGate } from '../readAccess';
+import { createReadGate, type ReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
 import { deliverViaSimulatedAdapter, isLocalTestSimulatedMode } from './adapters/simulated';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
 import { mapFactRow, type FactRow } from './facts';
 import {
+  actorGrantsStmt,
   crmActorFence,
   decodeTimeIdCursor,
   encodeTimeIdCursor,
+  evaluateCrmReadAuthRows,
+  finalizeCrmReadAuth,
   loadCrmReadContext,
   loadReadableTaskRecord,
+  loadReadableTaskRecords,
+  sessionAuthStmt,
+  type CrmGrantRow,
+  type CrmSessionRow,
 } from './read';
-import { canAccessCrmApi, evaluateCapability } from './rules';
+import { canAccessCrmApi, evaluateCapability, isCrmEnabled } from './rules';
 
 interface ConvRow {
   id: string;
@@ -96,6 +103,7 @@ interface MsgRow {
   error_detail: string | null;
   sent_at: number | null;
   created_at: number;
+  updated_at?: number;
 }
 
 function isDigitalSendChannel(ch: string): ch is CrmChannel {
@@ -106,14 +114,111 @@ function sendCapabilityForChannel(ch: CrmChannel): CrmCapability {
   return `crm.send:${ch}` as CrmCapability;
 }
 
-function convRevFence(db: D1Database, convId: string, expectedRev: number): D1PreparedStatement {
+function convRevFence(
+  db: D1Database,
+  convId: string,
+  expectedRev: number,
+  extra?: { channel?: string; personId?: string | null; disallowSpam?: boolean },
+): D1PreparedStatement {
+  if (!extra) {
+    return db
+      .prepare(
+        `SELECT CASE WHEN EXISTS (
+           SELECT 1 FROM crm_conversations WHERE id = ? AND rev = ?
+         ) THEN 1 ELSE json_extract('{', '$') END`,
+      )
+      .bind(convId, expectedRev);
+  }
   return db
     .prepare(
       `SELECT CASE WHEN EXISTS (
-         SELECT 1 FROM crm_conversations WHERE id = ? AND rev = ?
+         SELECT 1 FROM crm_conversations
+         WHERE id = ? AND rev = ?
+           AND (? IS NULL OR channel = ?)
+           AND COALESCE(person_id, '') = COALESCE(?, '')
+           AND (? = 0 OR state != 'spam')
        ) THEN 1 ELSE json_extract('{', '$') END`,
     )
-    .bind(convId, expectedRev);
+    .bind(
+      convId,
+      expectedRev,
+      extra.channel ?? null,
+      extra.channel ?? null,
+      extra.personId ?? null,
+      extra.disallowSpam ? 1 : 0,
+    );
+}
+
+function consentNotWithdrawnFence(db: D1Database, personId: string, channel: string): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT CASE WHEN COALESCE((
+         SELECT status FROM crm_consents
+         WHERE person_id = ? AND channel IN (?, 'any')
+         ORDER BY
+           CASE
+             WHEN channel = ? AND scope = 'transactional' THEN 0
+             WHEN channel = 'any' AND scope = 'transactional' THEN 1
+             ELSE 2
+           END ASC,
+           recorded_at DESC,
+           id DESC
+         LIMIT 1
+       ), 'unrecorded') != 'withdrawn' THEN 1 ELSE json_extract('{', '$') END`,
+    )
+    .bind(personId, channel, channel);
+}
+
+function activeEndpointFence(db: D1Database, endpointId: string, personId: string): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT CASE WHEN EXISTS (
+         SELECT 1 FROM crm_endpoints WHERE id = ? AND person_id = ? AND retired_at IS NULL
+       ) THEN 1 ELSE json_extract('{', '$') END`,
+    )
+    .bind(endpointId, personId);
+}
+
+function windowOrApprovedTemplateFence(
+  db: D1Database,
+  convId: string,
+  channel: string,
+  templateId: string | null,
+  now: number,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT CASE WHEN (
+         EXISTS (
+           SELECT 1 FROM crm_conversations
+           WHERE id = ? AND window_expires_at IS NOT NULL AND window_expires_at > ?
+         )
+         OR (
+           ? IS NOT NULL AND EXISTS (
+             SELECT 1 FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'
+           )
+         )
+       ) THEN 1 ELSE json_extract('{', '$') END`,
+    )
+    .bind(convId, now, templateId, templateId, channel);
+}
+
+function changesOneFence(db: D1Database): D1PreparedStatement {
+  return db.prepare(`SELECT CASE WHEN changes() = 1 THEN 1 ELSE json_extract('{', '$') END`);
+}
+
+async function assertConversationTargetsReadable(
+  env: Env,
+  actorId: string,
+  conv: { person_id: string | null; organisation_id?: string | null; application_id?: string | null },
+  gate: ReadGate = createReadGate(env.DB, actorId),
+): Promise<boolean> {
+  const ids = [conv.person_id, conv.organisation_id, conv.application_id].filter(
+    (id): id is string => typeof id === 'string' && id.length > 0,
+  );
+  if (ids.length === 0) return true;
+  const readable = await loadReadableTaskRecords(env, gate, ids);
+  return ids.every((id) => readable.has(id));
 }
 
 function mapConvRow(
@@ -188,10 +293,11 @@ async function loadConsentAndEndpointsForPerson(
 ): Promise<{
   withdrawn: boolean;
   consentStatus: 'granted' | 'withdrawn' | 'unrecorded';
+  primaryEndpointId: string | null;
   primaryEndpoint: string | null;
 }> {
   if (!personId) {
-    return { withdrawn: false, consentStatus: 'unrecorded', primaryEndpoint: null };
+    return { withdrawn: false, consentStatus: 'unrecorded', primaryEndpointId: null, primaryEndpoint: null };
   }
   const epKind = channel === 'call' || channel === 'in_person' ? 'phone' : channel;
   const [consRes, epRes] = await db.batch([
@@ -206,7 +312,7 @@ async function loadConsentAndEndpointsForPerson(
       .bind(personId, channel),
     db
       .prepare(
-        `SELECT value_norm, is_primary FROM crm_endpoints
+        `SELECT id, value_norm, is_primary FROM crm_endpoints
          WHERE person_id = ? AND kind = ? AND retired_at IS NULL
          ORDER BY is_primary DESC, created_at ASC LIMIT 5`,
       )
@@ -223,10 +329,11 @@ async function loadConsentAndEndpointsForPerson(
   const anyTrans = consRows.find((r) => r.channel === 'any' && r.scope === 'transactional');
   const effective = specificTrans ?? anyTrans ?? consRows[0];
 
-  const eps = epRes.results as unknown as { value_norm: string; is_primary: number }[];
+  const eps = epRes.results as unknown as { id: string; value_norm: string; is_primary: number }[];
   return {
     withdrawn: effective?.status === 'withdrawn',
     consentStatus: effective ? effective.status : 'unrecorded',
+    primaryEndpointId: eps[0]?.id ?? null,
     primaryEndpoint: eps[0]?.value_norm ?? null,
   };
 }
@@ -434,6 +541,9 @@ function simulateInboundCommand(): CommandDefinition<
           .prepare(`SELECT * FROM crm_conversations WHERE channel = ? AND external_thread_id = ? LIMIT 1`)
           .bind(input.channel, input.externalThreadId)
           .first<ConvRow>();
+        if (targetConv && !(await assertConversationTargetsReadable(env, actor.id, targetConv))) {
+          return { kind: 'refuse', error: 'not_found' };
+        }
       }
 
       const convId = targetConv?.id ?? `conv_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
@@ -555,6 +665,9 @@ function linkConversationPersonCommand(): CommandDefinition<
         loadReadableTaskRecord(env, actor.id, input.personId),
       ]);
       if (!conv || !person) return { kind: 'refuse', error: 'not_found' };
+      if (!(await assertConversationTargetsReadable(env, actor.id, conv))) {
+        return { kind: 'refuse', error: 'not_found' };
+      }
       if (input.expectedRev !== undefined && conv.rev !== input.expectedRev) {
         return { kind: 'refuse', error: 'stale' };
       }
@@ -569,7 +682,7 @@ function linkConversationPersonCommand(): CommandDefinition<
         result: { conversationId: conv.id, personId: person.id },
         fences: [
           () => crmActorFence(env.DB, actor, tokenHash),
-          convRevFence(env.DB, conv.id, conv.rev),
+          convRevFence(env.DB, conv.id, conv.rev, { personId: conv.person_id }),
         ],
         rows: [
           env.DB
@@ -611,6 +724,9 @@ function assignConversationCommand(): CommandDefinition<
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const conv = await env.DB.prepare(`SELECT * FROM crm_conversations WHERE id = ?`).bind(input.conversationId).first<ConvRow>();
       if (!conv) return { kind: 'refuse', error: 'not_found' };
+      if (!(await assertConversationTargetsReadable(env, actor.id, conv))) {
+        return { kind: 'refuse', error: 'not_found' };
+      }
       if (input.expectedRev !== undefined && conv.rev !== input.expectedRev) return { kind: 'refuse', error: 'stale' };
       if (input.assigneeId) {
         const assignee = await env.DB.prepare(`SELECT id FROM users WHERE id = ? AND disabled_at IS NULL`).bind(input.assigneeId).first();
@@ -649,35 +765,37 @@ function setConversationStateCommand(): CommandDefinition<
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const conv = await env.DB.prepare(`SELECT * FROM crm_conversations WHERE id = ?`).bind(input.conversationId).first<ConvRow>();
       if (!conv) return { kind: 'refuse', error: 'not_found' };
+      if (!(await assertConversationTargetsReadable(env, actor.id, conv))) {
+        return { kind: 'refuse', error: 'not_found' };
+      }
       if (input.expectedRev !== undefined && conv.rev !== input.expectedRev) return { kind: 'refuse', error: 'stale' };
 
       let records: Mutation[] | undefined;
       let recordExpect: Map<string, number> | undefined;
       if (conv.person_id) {
         const person = await loadReadableTaskRecord(env, actor.id, conv.person_id);
-        if (person) {
-          const countRes = await env.DB
-            .prepare(`SELECT COUNT(*) AS n FROM crm_conversations WHERE person_id = ? AND state = 'open' AND id != ?`)
-            .bind(person.id, conv.id)
-            .first<{ n: number }>();
-          records = [
-            {
-              id: person.id,
-              collection: 'tasks',
-              patch: {
-                [CRM_PROJECTION.openConversations]: (countRes?.n ?? 0) + (input.state === 'open' ? 1 : 0),
-              },
-              ts: now,
+        if (!person) return { kind: 'refuse', error: 'not_found' };
+        const countRes = await env.DB
+          .prepare(`SELECT COUNT(*) AS n FROM crm_conversations WHERE person_id = ? AND state = 'open' AND id != ?`)
+          .bind(person.id, conv.id)
+          .first<{ n: number }>();
+        records = [
+          {
+            id: person.id,
+            collection: 'tasks',
+            patch: {
+              [CRM_PROJECTION.openConversations]: (countRes?.n ?? 0) + (input.state === 'open' ? 1 : 0),
             },
-          ];
-          recordExpect = new Map([[person.id, person.seq]]);
-        }
+            ts: now,
+          },
+        ];
+        recordExpect = new Map([[person.id, person.seq]]);
       }
 
       return {
         kind: 'commit',
         result: { conversationId: conv.id, state: input.state },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash), convRevFence(env.DB, conv.id, conv.rev)],
+        fences: [() => crmActorFence(env.DB, actor, tokenHash), convRevFence(env.DB, conv.id, conv.rev, { personId: conv.person_id })],
         rows: [
           env.DB
             .prepare(`UPDATE crm_conversations SET state = ?, unread_count = CASE WHEN ? = 'closed' THEN 0 ELSE unread_count END, rev = rev + 1, updated_at = ? WHERE id = ?`)
@@ -705,6 +823,9 @@ function addMessageNoteCommand(): CommandDefinition<AddMessageNoteInput, { messa
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const conv = await env.DB.prepare(`SELECT * FROM crm_conversations WHERE id = ?`).bind(input.conversationId).first<ConvRow>();
       if (!conv) return { kind: 'refuse', error: 'not_found' };
+      if (!(await assertConversationTargetsReadable(env, actor.id, conv))) {
+        return { kind: 'refuse', error: 'not_found' };
+      }
 
       const msgId = `note_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
       const msgRow: MsgRow = {
@@ -729,7 +850,7 @@ function addMessageNoteCommand(): CommandDefinition<AddMessageNoteInput, { messa
       return {
         kind: 'commit',
         result: { message: mapMsgRow(msgRow) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [() => crmActorFence(env.DB, actor, tokenHash), convRevFence(env.DB, conv.id, conv.rev)],
         rows: [
           env.DB
             .prepare(
@@ -759,25 +880,60 @@ function saveMessageDraftCommand(): CommandDefinition<SaveMessageDraftInput, { m
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
-    plan: async ({ env, actor, tokenHash, input, now }) => {
+    plan: async ({ env, actor, tokenHash, input, expected, now }) => {
       const conv = await env.DB.prepare(`SELECT * FROM crm_conversations WHERE id = ?`).bind(input.conversationId).first<ConvRow>();
       if (!conv) return { kind: 'refuse', error: 'not_found' };
+      if (!(await assertConversationTargetsReadable(env, actor.id, conv))) {
+        return { kind: 'refuse', error: 'not_found' };
+      }
+      if (expected?.get(conv.id) !== undefined && expected.get(conv.id) !== conv.rev) {
+        return { kind: 'refuse', error: 'stale' };
+      }
+
+      const aiMetaJson = input.aiMetadata ? JSON.stringify(input.aiMetadata) : null;
 
       if (input.messageId) {
         const existing = await env.DB
-          .prepare(`SELECT * FROM crm_messages WHERE id = ? AND conversation_id = ? AND status = 'draft'`)
+          .prepare(`SELECT * FROM crm_messages WHERE id = ? AND conversation_id = ?`)
           .bind(input.messageId, conv.id)
           .first<MsgRow>();
-        if (!existing) return { kind: 'refuse', error: 'not_found' };
-        const updated: MsgRow = { ...existing, body_text: input.bodyText };
+        if (!existing || existing.direction !== 'outbound') return { kind: 'refuse', error: 'not_found' };
+        if (existing.status !== 'draft') {
+          return { kind: 'refuse', error: 'stale', detail: { reason: 'message_not_draft', status: existing.status } };
+        }
+        if (expected?.get(existing.id) !== undefined && expected.get(existing.id) !== existing.updated_at) {
+          return { kind: 'refuse', error: 'stale' };
+        }
+        const expectedMsgUpdatedAt = existing.updated_at ?? existing.created_at;
+        const updated: MsgRow = {
+          ...existing,
+          body_text: input.bodyText,
+          ai_metadata_json: aiMetaJson ?? existing.ai_metadata_json,
+        };
         return {
           kind: 'commit',
           result: { message: mapMsgRow(updated) },
-          fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+          fences: [
+            () => crmActorFence(env.DB, actor, tokenHash),
+            convRevFence(env.DB, conv.id, conv.rev, { personId: conv.person_id }),
+            env.DB
+              .prepare(
+                `SELECT CASE WHEN EXISTS (
+                   SELECT 1 FROM crm_messages
+                   WHERE id = ? AND conversation_id = ? AND direction = 'outbound' AND status = 'draft' AND updated_at = ?
+                 ) THEN 1 ELSE json_extract('{', '$') END`,
+              )
+              .bind(existing.id, conv.id, expectedMsgUpdatedAt),
+          ],
           rows: [
             env.DB
-              .prepare(`UPDATE crm_messages SET body_text = ?, author_user_id = ?, updated_at = ? WHERE id = ?`)
-              .bind(input.bodyText, actor.id, now, existing.id),
+              .prepare(
+                `UPDATE crm_messages
+                 SET body_text = ?, author_user_id = ?, ai_metadata_json = COALESCE(?, ai_metadata_json), updated_at = ?
+                 WHERE id = ? AND conversation_id = ? AND direction = 'outbound' AND status = 'draft' AND updated_at = ?`,
+              )
+              .bind(input.bodyText, actor.id, aiMetaJson, now, existing.id, conv.id, expectedMsgUpdatedAt),
+            changesOneFence(env.DB),
           ],
         };
       }
@@ -795,7 +951,7 @@ function saveMessageDraftCommand(): CommandDefinition<SaveMessageDraftInput, { m
         body_text: input.bodyText,
         external_message_id: null,
         template_id: null,
-        ai_metadata_json: null,
+        ai_metadata_json: aiMetaJson,
         error_code: null,
         error_detail: null,
         sent_at: null,
@@ -804,15 +960,18 @@ function saveMessageDraftCommand(): CommandDefinition<SaveMessageDraftInput, { m
       return {
         kind: 'commit',
         result: { message: mapMsgRow(row) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash),
+          convRevFence(env.DB, conv.id, conv.rev, { personId: conv.person_id }),
+        ],
         rows: [
           env.DB
             .prepare(
               `INSERT INTO crm_messages
                  (id, conversation_id, direction, status, channel, sender_endpoint, recipient_endpoint, author_user_id, body_text, body_html_sanitized, external_message_id, template_id, ai_metadata_json, error_code, error_detail, sent_at, created_at, updated_at)
-               VALUES (?, ?, 'outbound', 'draft', ?, NULL, NULL, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+               VALUES (?, ?, 'outbound', 'draft', ?, NULL, NULL, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, ?, ?)`,
             )
-            .bind(msgId, conv.id, conv.channel, actor.id, input.bodyText, now, now),
+            .bind(msgId, conv.id, conv.channel, actor.id, input.bodyText, aiMetaJson, now, now),
         ],
       };
     },
@@ -820,6 +979,55 @@ function saveMessageDraftCommand(): CommandDefinition<SaveMessageDraftInput, { m
       pokeLive(env, executionCtx);
     },
   };
+}
+
+async function authorizeDigitalMessageReplay(
+  actor: Parameters<NonNullable<CommandDefinition['authorizeReplay']>>[0],
+  conversationId: string,
+  env: Env,
+  via: string,
+): Promise<boolean> {
+  if (via !== 'ui') return false;
+  const conv = await env.DB
+    .prepare(`SELECT id, channel, person_id, organisation_id, application_id FROM crm_conversations WHERE id = ?`)
+    .bind(conversationId)
+    .first<Pick<ConvRow, 'id' | 'channel' | 'person_id' | 'organisation_id' | 'application_id'>>();
+  if (!conv || !isDigitalSendChannel(conv.channel)) return false;
+  const sendCap = sendCapabilityForChannel(conv.channel);
+  if (!evaluateCapability(actor, sendCap, '*')) return false;
+  return assertConversationTargetsReadable(env, actor.id, conv);
+}
+
+async function classifyMessageFenceAbort(
+  env: Env,
+  convId: string,
+  templateId: string | null,
+  now = Date.now(),
+) {
+  const conv = await env.DB
+    .prepare(`SELECT id, channel, person_id, window_expires_at FROM crm_conversations WHERE id = ?`)
+    .bind(convId)
+    .first<Pick<ConvRow, 'id' | 'channel' | 'person_id' | 'window_expires_at'>>();
+  if (!conv) return { ok: false as const, error: 'not_found' as const, retryable: false };
+  const { withdrawn, primaryEndpointId } = await loadConsentAndEndpointsForPerson(env.DB, conv.person_id, conv.channel);
+  if (withdrawn) return { ok: false as const, error: 'consent_withdrawn' as const, retryable: false };
+  if (conv.person_id && !primaryEndpointId) {
+    return {
+      ok: false as const,
+      error: 'invalid_input' as const,
+      detail: { reason: 'no_active_endpoint' },
+      retryable: false,
+    };
+  }
+  if (!isChannelWindowOpen(conv.channel, conv.window_expires_at, now)) {
+    if (!templateId) return { ok: false as const, error: 'window_closed' as const, retryable: false };
+    const tpl = await env.DB
+      .prepare(`SELECT id FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'`)
+      .bind(templateId, conv.channel)
+      .first();
+    if (!tpl) return { ok: false as const, error: 'window_closed' as const, retryable: false };
+  }
+  return null;
 }
 
 function sendMessageCommand(): CommandDefinition<
@@ -836,11 +1044,24 @@ function sendMessageCommand(): CommandDefinition<
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
-    plan: async ({ env, actor, tokenHash, input, requestId, now }) => {
+    authorizeReplay: async (actor, input, _stored, { env, via }) =>
+      authorizeDigitalMessageReplay(actor, input.conversationId, env, via),
+    classifyFenceError: async ({ env, input }) =>
+      classifyMessageFenceAbort(env, input.conversationId, input.templateId ?? null),
+    plan: async ({ env, actor, tokenHash, input, expected, requestId, now }) => {
       const conv = await env.DB.prepare(`SELECT * FROM crm_conversations WHERE id = ?`).bind(input.conversationId).first<ConvRow>();
       if (!conv) return { kind: 'refuse', error: 'not_found' };
+      if (!(await assertConversationTargetsReadable(env, actor.id, conv))) {
+        return { kind: 'refuse', error: 'not_found' };
+      }
       if (!isDigitalSendChannel(conv.channel)) {
         return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'manual_channel_no_send' } };
+      }
+      if (conv.state === 'spam') {
+        return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'conversation_spam' } };
+      }
+      if (expected?.get(conv.id) !== undefined && expected.get(conv.id) !== conv.rev) {
+        return { kind: 'refuse', error: 'stale' };
       }
 
       const sendCap = sendCapabilityForChannel(conv.channel);
@@ -848,9 +1069,44 @@ function sendMessageCommand(): CommandDefinition<
         return { kind: 'refuse', error: 'forbidden' };
       }
 
-      const { withdrawn, primaryEndpoint } = await loadConsentAndEndpointsForPerson(env.DB, conv.person_id, conv.channel);
+      let existingMsg: MsgRow | null = null;
+      if (input.messageId) {
+        existingMsg = await env.DB
+          .prepare(`SELECT * FROM crm_messages WHERE id = ? AND conversation_id = ?`)
+          .bind(input.messageId, conv.id)
+          .first<MsgRow>();
+        if (!existingMsg || existingMsg.direction !== 'outbound') {
+          return { kind: 'refuse', error: 'not_found' };
+        }
+        if (existingMsg.status !== 'draft') {
+          return {
+            kind: 'refuse',
+            error: 'stale',
+            detail: { reason: 'message_already_sent', status: existingMsg.status },
+          };
+        }
+        if (expected?.get(existingMsg.id) !== undefined && expected.get(existingMsg.id) !== existingMsg.updated_at) {
+          return { kind: 'refuse', error: 'stale' };
+        }
+        const priorOutbox = await env.DB
+          .prepare(`SELECT id FROM crm_outbox WHERE message_id = ? LIMIT 1`)
+          .bind(existingMsg.id)
+          .first();
+        if (priorOutbox) {
+          return { kind: 'refuse', error: 'stale', detail: { reason: 'message_already_queued' } };
+        }
+      }
+
+      const { withdrawn, primaryEndpointId, primaryEndpoint } = await loadConsentAndEndpointsForPerson(
+        env.DB,
+        conv.person_id,
+        conv.channel,
+      );
       if (withdrawn) {
         return { kind: 'refuse', error: 'consent_withdrawn' };
+      }
+      if (conv.person_id && (!primaryEndpointId || !primaryEndpoint)) {
+        return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'no_active_endpoint' } };
       }
 
       if (!isChannelWindowOpen(conv.channel, conv.window_expires_at, now)) {
@@ -866,7 +1122,7 @@ function sendMessageCommand(): CommandDefinition<
         }
       }
 
-      const msgId = input.messageId ?? `msg_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+      const msgId = existingMsg?.id ?? `msg_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
       const delivery = deliverViaSimulatedAdapter(env, {
         channel: conv.channel,
         messageId: msgId,
@@ -889,75 +1145,120 @@ function sendMessageCommand(): CommandDefinition<
         body_text: input.bodyText,
         external_message_id: delivery.receiptId,
         template_id: input.templateId ?? null,
-        ai_metadata_json: null,
+        ai_metadata_json: existingMsg?.ai_metadata_json ?? null,
         error_code: null,
         error_detail: null,
         sent_at: now,
-        created_at: now,
+        created_at: existingMsg?.created_at ?? now,
       };
 
-      const rows: D1PreparedStatement[] = [
-        input.messageId
-          ? env.DB
-              .prepare(
-                `UPDATE crm_messages
-                 SET status = 'sent', body_text = ?, recipient_endpoint = ?, author_user_id = ?,
-                     external_message_id = ?, template_id = ?, sent_at = ?, updated_at = ?, error_code = NULL, error_detail = NULL
-                 WHERE id = ? AND conversation_id = ? AND direction = 'outbound'`,
-              )
-              .bind(input.bodyText, primaryEndpoint, actor.id, delivery.receiptId, input.templateId ?? null, now, now, msgId, conv.id)
-          : env.DB
-              .prepare(
-                `INSERT INTO crm_messages
-                   (id, conversation_id, direction, status, channel, sender_endpoint, recipient_endpoint, author_user_id, body_text, body_html_sanitized, external_message_id, template_id, ai_metadata_json, error_code, error_detail, sent_at, created_at, updated_at)
-                 VALUES (?, ?, 'outbound', 'sent', ?, NULL, ?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, ?, ?, ?)`,
-              )
-              .bind(msgId, conv.id, conv.channel, primaryEndpoint, actor.id, input.bodyText, delivery.receiptId, input.templateId ?? null, now, now, now),
+      const expectedMsgUpdatedAt = existingMsg ? (existingMsg.updated_at ?? existingMsg.created_at) : null;
+      const rows: D1PreparedStatement[] = [];
+      if (existingMsg && expectedMsgUpdatedAt !== null) {
+        rows.push(
+          env.DB
+            .prepare(
+              `UPDATE crm_messages
+               SET status = 'sent', body_text = ?, recipient_endpoint = ?, author_user_id = ?,
+                   external_message_id = ?, template_id = ?, sent_at = ?, updated_at = ?, error_code = NULL, error_detail = NULL
+               WHERE id = ? AND conversation_id = ? AND direction = 'outbound' AND status = 'draft' AND updated_at = ?`,
+            )
+            .bind(
+              input.bodyText,
+              primaryEndpoint,
+              actor.id,
+              delivery.receiptId,
+              input.templateId ?? null,
+              now,
+              now,
+              msgId,
+              conv.id,
+              expectedMsgUpdatedAt,
+            ),
+          changesOneFence(env.DB),
+        );
+      } else {
+        rows.push(
+          env.DB
+            .prepare(
+              `INSERT INTO crm_messages
+                 (id, conversation_id, direction, status, channel, sender_endpoint, recipient_endpoint, author_user_id, body_text, body_html_sanitized, external_message_id, template_id, ai_metadata_json, error_code, error_detail, sent_at, created_at, updated_at)
+               VALUES (?, ?, 'outbound', 'sent', ?, NULL, ?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, ?, ?, ?)`,
+            )
+            .bind(msgId, conv.id, conv.channel, primaryEndpoint, actor.id, input.bodyText, delivery.receiptId, input.templateId ?? null, now, now, now),
+        );
+      }
+      rows.push(
         env.DB
           .prepare(
             `INSERT INTO crm_outbox
                (id, message_id, conversation_id, channel_account_id, actor_id, request_id, status, attempts, max_attempts, next_attempt_at, last_error, provider_receipt, created_at, updated_at)
-             VALUES (?, ?, ?, NULL, ?, ?, 'sent', 1, 3, NULL, NULL, ?, ?, ?)
-             ON CONFLICT(message_id) DO UPDATE SET
-               status = 'sent', attempts = attempts + 1, provider_receipt = excluded.provider_receipt, last_error = NULL, updated_at = excluded.updated_at`,
+             VALUES (?, ?, ?, NULL, ?, ?, 'sent', 1, 3, NULL, NULL, ?, ?, ?)`,
           )
           .bind(outboxId, msgId, conv.id, actor.id, requestId, delivery.receiptId, now, now),
         env.DB
           .prepare(
             `UPDATE crm_conversations
              SET last_outbound_at = ?, last_message_at = ?, unread_count = 0, rev = rev + 1, updated_at = ?
-             WHERE id = ?`,
+             WHERE id = ? AND rev = ?`,
           )
-          .bind(now, now, now, conv.id),
-      ];
+          .bind(now, now, now, conv.id, conv.rev),
+        changesOneFence(env.DB),
+      );
 
       let records: Mutation[] | undefined;
       let recordExpect: Map<string, number> | undefined;
       if (conv.person_id) {
         const person = await loadReadableTaskRecord(env, actor.id, conv.person_id);
-        if (person) {
-          records = [
-            {
-              id: person.id,
-              collection: 'tasks',
-              patch: {
-                [CRM_PROJECTION.lastOutboundAt]: now,
-                [CRM_PROJECTION.lastContactAt]: now,
-              },
-              ts: now,
+        if (!person) return { kind: 'refuse', error: 'not_found' };
+        records = [
+          {
+            id: person.id,
+            collection: 'tasks',
+            patch: {
+              [CRM_PROJECTION.lastOutboundAt]: now,
+              [CRM_PROJECTION.lastContactAt]: now,
             },
-          ];
-          recordExpect = new Map([[person.id, person.seq]]);
-        }
+            ts: now,
+          },
+        ];
+        recordExpect = new Map([[person.id, person.seq]]);
       }
+
+      const fences = [
+        () => crmActorFence(env.DB, actor, tokenHash, sendCap, '*'),
+        convRevFence(env.DB, conv.id, conv.rev, {
+          channel: conv.channel,
+          personId: conv.person_id,
+          disallowSpam: true,
+        }),
+        ...(conv.person_id ? [consentNotWithdrawnFence(env.DB, conv.person_id, conv.channel)] : []),
+        ...(conv.person_id && primaryEndpointId
+          ? [activeEndpointFence(env.DB, primaryEndpointId, conv.person_id)]
+          : []),
+        ...(conv.channel !== 'email'
+          ? [windowOrApprovedTemplateFence(env.DB, conv.id, conv.channel, input.templateId ?? null, now)]
+          : []),
+        ...(existingMsg && expectedMsgUpdatedAt !== null
+          ? [
+              env.DB
+                .prepare(
+                  `SELECT CASE WHEN EXISTS (
+                     SELECT 1 FROM crm_messages
+                     WHERE id = ? AND conversation_id = ? AND direction = 'outbound' AND status = 'draft' AND updated_at = ?
+                   ) AND NOT EXISTS (
+                     SELECT 1 FROM crm_outbox WHERE message_id = ?
+                   ) THEN 1 ELSE json_extract('{', '$') END`,
+                )
+                .bind(existingMsg.id, conv.id, expectedMsgUpdatedAt, existingMsg.id),
+            ]
+          : []),
+      ];
 
       return {
         kind: 'commit',
         result: { message: mapMsgRow(msgRow), receiptId: delivery.receiptId },
-        fences: [
-          () => crmActorFence(env.DB, actor, tokenHash, sendCap, '*'),
-          convRevFence(env.DB, conv.id, conv.rev),
-        ],
+        fences,
         rows,
         records,
         recordExpect,
@@ -979,22 +1280,67 @@ function retryMessageCommand(): CommandDefinition<RetryMessageInput, { messageId
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
-    plan: async ({ env, actor, tokenHash, input, requestId, now }) => {
+    authorizeReplay: async (actor, input, _stored, { env, via }) => {
+      if (via !== 'ui') return false;
       const msg = await env.DB
-        .prepare(`SELECT * FROM crm_messages WHERE id = ? AND direction = 'outbound' AND status IN ('failed', 'draft')`)
+        .prepare(`SELECT conversation_id FROM crm_messages WHERE id = ?`)
+        .bind(input.messageId)
+        .first<{ conversation_id: string }>();
+      if (!msg) return false;
+      return authorizeDigitalMessageReplay(actor, msg.conversation_id, env, via);
+    },
+    classifyFenceError: async ({ env, input }) => {
+      const msg = await env.DB
+        .prepare(`SELECT conversation_id, template_id FROM crm_messages WHERE id = ?`)
+        .bind(input.messageId)
+        .first<{ conversation_id: string; template_id: string | null }>();
+      if (!msg) return { ok: false as const, error: 'not_found' as const, retryable: false };
+      return classifyMessageFenceAbort(env, msg.conversation_id, msg.template_id);
+    },
+    plan: async ({ env, actor, tokenHash, input, expected, requestId, now }) => {
+      const msg = await env.DB
+        .prepare(`SELECT * FROM crm_messages WHERE id = ? AND direction = 'outbound'`)
         .bind(input.messageId)
         .first<MsgRow>();
       if (!msg) return { kind: 'refuse', error: 'not_found' };
+      if (msg.status !== 'failed' && msg.status !== 'draft') {
+        return { kind: 'refuse', error: 'stale', detail: { reason: 'message_not_retryable', status: msg.status } };
+      }
+      if (expected?.get(msg.id) !== undefined && expected.get(msg.id) !== msg.updated_at) {
+        return { kind: 'refuse', error: 'stale' };
+      }
+
       const conv = await env.DB.prepare(`SELECT * FROM crm_conversations WHERE id = ?`).bind(msg.conversation_id).first<ConvRow>();
       if (!conv || !isDigitalSendChannel(conv.channel)) return { kind: 'refuse', error: 'not_found' };
+      if (!(await assertConversationTargetsReadable(env, actor.id, conv))) {
+        return { kind: 'refuse', error: 'not_found' };
+      }
+      if (expected?.get(conv.id) !== undefined && expected.get(conv.id) !== conv.rev) {
+        return { kind: 'refuse', error: 'stale' };
+      }
 
       const sendCap = sendCapabilityForChannel(conv.channel);
       if (!evaluateCapability(actor, sendCap, '*')) return { kind: 'refuse', error: 'forbidden' };
 
-      const { withdrawn, primaryEndpoint } = await loadConsentAndEndpointsForPerson(env.DB, conv.person_id, conv.channel);
+      const { withdrawn, primaryEndpointId, primaryEndpoint } = await loadConsentAndEndpointsForPerson(
+        env.DB,
+        conv.person_id,
+        conv.channel,
+      );
       if (withdrawn) return { kind: 'refuse', error: 'consent_withdrawn' };
-      if (!isChannelWindowOpen(conv.channel, conv.window_expires_at, now) && !msg.template_id) {
-        return { kind: 'refuse', error: 'window_closed' };
+      if (conv.person_id && (!primaryEndpointId || !primaryEndpoint)) {
+        return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'no_active_endpoint' } };
+      }
+
+      if (!isChannelWindowOpen(conv.channel, conv.window_expires_at, now)) {
+        if (!msg.template_id) {
+          return { kind: 'refuse', error: 'window_closed' };
+        }
+        const tpl = await env.DB
+          .prepare(`SELECT id FROM crm_templates WHERE id = ? AND channel = ? AND status = 'approved'`)
+          .bind(msg.template_id, conv.channel)
+          .first();
+        if (!tpl) return { kind: 'refuse', error: 'window_closed' };
       }
 
       const delivery = deliverViaSimulatedAdapter(env, {
@@ -1004,28 +1350,84 @@ function retryMessageCommand(): CommandDefinition<RetryMessageInput, { messageId
       }, now);
       if (!delivery.ok) return { kind: 'refuse', error: 'provider_unavailable' };
 
+      const expectedMsgUpdatedAt = msg.updated_at ?? msg.created_at;
       const outboxId = `ob_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+
+      let records: Mutation[] | undefined;
+      let recordExpect: Map<string, number> | undefined;
+      if (conv.person_id) {
+        const person = await loadReadableTaskRecord(env, actor.id, conv.person_id);
+        if (!person) return { kind: 'refuse', error: 'not_found' };
+        records = [
+          {
+            id: person.id,
+            collection: 'tasks',
+            patch: {
+              [CRM_PROJECTION.lastOutboundAt]: now,
+              [CRM_PROJECTION.lastContactAt]: now,
+            },
+            ts: now,
+          },
+        ];
+        recordExpect = new Map([[person.id, person.seq]]);
+      }
+
       return {
         kind: 'commit',
         result: { messageId: msg.id, receiptId: delivery.receiptId },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash, sendCap, '*'), convRevFence(env.DB, conv.id, conv.rev)],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash, sendCap, '*'),
+          convRevFence(env.DB, conv.id, conv.rev, {
+            channel: conv.channel,
+            personId: conv.person_id,
+            disallowSpam: true,
+          }),
+          ...(conv.person_id ? [consentNotWithdrawnFence(env.DB, conv.person_id, conv.channel)] : []),
+          ...(conv.person_id && primaryEndpointId
+            ? [activeEndpointFence(env.DB, primaryEndpointId, conv.person_id)]
+            : []),
+          ...(conv.channel !== 'email'
+            ? [windowOrApprovedTemplateFence(env.DB, conv.id, conv.channel, msg.template_id, now)]
+            : []),
+          env.DB
+            .prepare(
+              `SELECT CASE WHEN EXISTS (
+                 SELECT 1 FROM crm_messages
+                 WHERE id = ? AND conversation_id = ? AND direction = 'outbound'
+                   AND status IN ('failed', 'draft') AND updated_at = ?
+               ) AND NOT EXISTS (
+                 SELECT 1 FROM crm_outbox WHERE message_id = ? AND status IN ('queued', 'sending', 'sent')
+               ) THEN 1 ELSE json_extract('{', '$') END`,
+            )
+            .bind(msg.id, conv.id, expectedMsgUpdatedAt, msg.id),
+        ],
         rows: [
           env.DB
-            .prepare(`UPDATE crm_messages SET status = 'sent', external_message_id = ?, sent_at = ?, error_code = NULL, error_detail = NULL, updated_at = ? WHERE id = ?`)
-            .bind(delivery.receiptId, now, now, msg.id),
+            .prepare(
+              `UPDATE crm_messages
+               SET status = 'sent', recipient_endpoint = ?, external_message_id = ?, sent_at = ?, error_code = NULL, error_detail = NULL, updated_at = ?
+               WHERE id = ? AND conversation_id = ? AND direction = 'outbound' AND status IN ('failed', 'draft') AND updated_at = ?`,
+            )
+            .bind(primaryEndpoint, delivery.receiptId, now, now, msg.id, conv.id, expectedMsgUpdatedAt),
+          changesOneFence(env.DB),
           env.DB
             .prepare(
               `INSERT INTO crm_outbox
                  (id, message_id, conversation_id, channel_account_id, actor_id, request_id, status, attempts, max_attempts, next_attempt_at, last_error, provider_receipt, created_at, updated_at)
                VALUES (?, ?, ?, NULL, ?, ?, 'sent', 1, 3, NULL, NULL, ?, ?, ?)
                ON CONFLICT(message_id) DO UPDATE SET
-                 status = 'sent', attempts = attempts + 1, provider_receipt = excluded.provider_receipt, last_error = NULL, updated_at = excluded.updated_at`,
+                 status = 'sent', attempts = attempts + 1, actor_id = excluded.actor_id, request_id = excluded.request_id, provider_receipt = excluded.provider_receipt, last_error = NULL, updated_at = excluded.updated_at
+               WHERE crm_outbox.status = 'failed'`,
             )
             .bind(outboxId, msg.id, conv.id, actor.id, requestId, delivery.receiptId, now, now),
+          changesOneFence(env.DB),
           env.DB
-            .prepare(`UPDATE crm_conversations SET last_outbound_at = ?, last_message_at = ?, rev = rev + 1, updated_at = ? WHERE id = ?`)
-            .bind(now, now, now, conv.id),
+            .prepare(`UPDATE crm_conversations SET last_outbound_at = ?, last_message_at = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`)
+            .bind(now, now, now, conv.id, conv.rev),
+          changesOneFence(env.DB),
         ],
+        records,
+        recordExpect,
       };
     },
     afterCommit: ({ env, executionCtx }) => {
@@ -1049,6 +1451,9 @@ function generateAiDraftCommand(): CommandDefinition<
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const conv = await env.DB.prepare(`SELECT * FROM crm_conversations WHERE id = ?`).bind(input.conversationId).first<ConvRow>();
       if (!conv) return { kind: 'refuse', error: 'not_found' };
+      if (!(await assertConversationTargetsReadable(env, actor.id, conv))) {
+        return { kind: 'refuse', error: 'not_found' };
+      }
 
       const [factsRes, progRow, personRow] = await Promise.all([
         env.DB
@@ -1117,7 +1522,10 @@ function generateAiDraftCommand(): CommandDefinition<
           unconfirmedItems: composed.unconfirmedItems,
           staleFactWarnings: composed.staleFactWarnings,
         },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash),
+          convRevFence(env.DB, conv.id, conv.rev, { personId: conv.person_id }),
+        ],
         rows: [
           env.DB
             .prepare(
@@ -1172,50 +1580,51 @@ export async function readConversations(
     if (!parsedCursor) return { status: 400, body: { error: 'invalid_cursor' } };
   }
 
-  const [convRes, usersRes] = await env.DB.batch([
+  const batchNow = Date.now();
+  const [sessionRes, grantsRes, convRes, usersRes] = await env.DB.batch([
+    sessionAuthStmt(env.DB, actorId, tokenHash, batchNow),
+    actorGrantsStmt(env.DB, actorId),
     env.DB
       .prepare(`SELECT * FROM crm_conversations ORDER BY last_message_at DESC, id DESC LIMIT ?`)
       .bind(CONV_SCAN_LIMIT + 1),
     env.DB.prepare(`SELECT id, name FROM users`),
   ]);
 
+  const batchAuth = evaluateCrmReadAuthRows(
+    sessionRes.results[0] as CrmSessionRow | undefined,
+    grantsRes.results as unknown as CrmGrantRow[],
+  );
+  if (!batchAuth.ok) return { status: batchAuth.status, body: batchAuth.body };
+
   const rawConvs = convRes.results as unknown as ConvRow[];
-  const partial = rawConvs.length > CONV_SCAN_LIMIT;
+  let partial = rawConvs.length > CONV_SCAN_LIMIT;
   const rows = rawConvs.slice(0, CONV_SCAN_LIMIT);
   const userNameById = new Map<string, string>(
     (usersRes.results as unknown as { id: string; name: string }[]).map((u) => [u.id, u.name]),
   );
 
-  // Batch ReadGate check on referenced linked people
-  const personIds = [...new Set(rows.map((r) => r.person_id).filter((id): id is string => Boolean(id)))];
-  const personTitleById = new Map<string, string>();
-  const deniedPersonIds = new Set<string>();
-  if (personIds.length > 0) {
-    const gate = createReadGate(env.DB, actorId);
-    const { results: recRows } = await env.DB
-      .prepare(`SELECT id, data, seq FROM records WHERE collection = 'tasks' AND id IN (SELECT value FROM json_each(?))`)
-      .bind(JSON.stringify(personIds))
-      .all<{ id: string; data: string; seq: number }>();
-    const kept = await gate.filter(recRows.map((r) => ({ id: r.id, rev: r.seq })));
-    const allowed = new Set(kept.map((k) => k.id));
-    for (const pid of personIds) {
-      if (!allowed.has(pid)) deniedPersonIds.add(pid);
-    }
-    for (const r of recRows) {
-      if (!allowed.has(r.id)) continue;
-      try {
-        const d = JSON.parse(r.data) as { title?: unknown };
-        personTitleById.set(r.id, typeof d.title === 'string' && d.title.trim() ? d.title : 'Untitled');
-      } catch {
-        /* ignore */
-      }
-    }
-  }
+  // Batch ReadGate check on all referenced linked records (person, organisation, application)
+  const gate = createReadGate(env.DB, actorId);
+  const linkedIds = [
+    ...new Set(
+      rows
+        .flatMap((r) => [r.person_id, r.organisation_id, r.application_id])
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const readableLinked = await loadReadableTaskRecords(env, gate, linkedIds);
 
   const counts = { all: 0, unassigned: 0, mine: 0, unmatched: 0, snoozed: 0, closed: 0 };
   const visible: ConvRow[] = [];
   for (const r of rows) {
-    if (r.person_id && deniedPersonIds.has(r.person_id)) continue;
+    const linkedOk =
+      (!r.person_id || readableLinked.has(r.person_id)) &&
+      (!r.organisation_id || readableLinked.has(r.organisation_id)) &&
+      (!r.application_id || readableLinked.has(r.application_id));
+    if (!linkedOk) {
+      partial = true;
+      continue;
+    }
     visible.push(r);
     if (r.state !== 'spam') counts.all += 1;
     if (r.state === 'open' && !r.assignee_id) counts.unassigned += 1;
@@ -1224,6 +1633,9 @@ export async function readConversations(
     if (r.state === 'snoozed') counts.snoozed += 1;
     if (r.state === 'closed' || r.state === 'spam') counts.closed += 1;
   }
+
+  const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate });
+  if (!finalAuth.ok) return { status: finalAuth.status, body: finalAuth.body };
 
   const filter: ConversationFilter =
     opts.filter === 'unassigned' || opts.filter === 'mine' || opts.filter === 'unmatched' || opts.filter === 'snoozed' || opts.filter === 'closed'
@@ -1257,13 +1669,20 @@ export async function readConversations(
   return {
     status: 200,
     body: {
-      items: pageRows.map((r) =>
-        mapConvRow(r, {
-          personName: r.person_id ? personTitleById.get(r.person_id) ?? null : null,
+      items: pageRows.map((r) => {
+        const pRec = r.person_id ? readableLinked.get(r.person_id) : undefined;
+        const pTitle =
+          pRec && typeof pRec.data.title === 'string' && pRec.data.title.trim()
+            ? pRec.data.title
+            : pRec
+              ? 'Untitled'
+              : null;
+        return mapConvRow(r, {
+          personName: pTitle,
           assigneeName: r.assignee_id ? userNameById.get(r.assignee_id) ?? null : null,
           now,
-        }),
-      ),
+        });
+      }),
       next,
       counts,
       simulatedMode: isLocalTestSimulatedMode(env),
@@ -1281,35 +1700,44 @@ export async function readConversationDetail(
   | { status: 200; body: ConversationDetailResponse }
   | { status: 401 | 403 | 404; body: { error: 'unauthenticated' | 'forbidden' | 'not_found' } }
 > {
-  const auth = await loadCrmReadContext(env, actorId, tokenHash);
-  if (!auth.ok) return { status: auth.status, body: auth.body };
-
-  const conv = await env.DB
-    .prepare(`SELECT * FROM crm_conversations WHERE id = ?`)
-    .bind(conversationId)
-    .first<ConvRow>();
-  if (!conv) return { status: 404, body: { error: 'not_found' } };
-
-  let personName: string | null = null;
-  let personEndpoints: { id: string; kind: string; valueNorm: string; isPrimary: boolean }[] = [];
-  if (conv.person_id) {
-    const person = await loadReadableTaskRecord(env, actorId, conv.person_id);
-    if (!person) return { status: 404, body: { error: 'not_found' } };
-    personName = typeof person.data.title === 'string' && person.data.title.trim() ? person.data.title : 'Untitled';
-    const epRes = await env.DB
-      .prepare(`SELECT id, kind, value_norm, is_primary FROM crm_endpoints WHERE person_id = ? AND retired_at IS NULL ORDER BY is_primary DESC`)
-      .bind(person.id)
-      .all<{ id: string; kind: string; value_norm: string; is_primary: number }>();
-    personEndpoints = epRes.results.map((e) => ({
-      id: e.id,
-      kind: e.kind,
-      valueNorm: e.value_norm,
-      isPrimary: e.is_primary === 1,
-    }));
+  if (!isCrmEnabled(env)) {
+    return { status: 404, body: { error: 'not_found' } };
   }
 
+  const batchNow = Date.now();
+  const [sessionRes, grantsRes, convRes] = await env.DB.batch([
+    sessionAuthStmt(env.DB, actorId, tokenHash, batchNow),
+    actorGrantsStmt(env.DB, actorId),
+    env.DB.prepare(`SELECT * FROM crm_conversations WHERE id = ?`).bind(conversationId),
+  ]);
+
+  const auth = evaluateCrmReadAuthRows(
+    sessionRes.results[0] as CrmSessionRow | undefined,
+    grantsRes.results as unknown as CrmGrantRow[],
+  );
+  if (!auth.ok) return { status: auth.status, body: auth.body };
+
+  const conv = convRes.results[0] as unknown as ConvRow | undefined;
+  if (!conv) return { status: 404, body: { error: 'not_found' } };
+
+  const gate = createReadGate(env.DB, actorId);
+  const linkedIds = [conv.person_id, conv.organisation_id, conv.application_id].filter(
+    (id): id is string => Boolean(id),
+  );
+  const readableLinked = await loadReadableTaskRecords(env, gate, linkedIds);
+  if (linkedIds.some((id) => !readableLinked.has(id))) {
+    return { status: 404, body: { error: 'not_found' } };
+  }
+
+  const person = conv.person_id ? readableLinked.get(conv.person_id) : undefined;
+  const personName = person
+    ? typeof person.data.title === 'string' && person.data.title.trim()
+      ? person.data.title
+      : 'Untitled'
+    : null;
+
   const now = Date.now();
-  const [msgsRes, factsRes, consentInfo, assigneeRow] = await Promise.all([
+  const [msgsRes, factsRes, epRes, consentInfo, assigneeRow] = await Promise.all([
     env.DB
       .prepare(
         `SELECT m.*, u.name AS author_name
@@ -1329,18 +1757,34 @@ export async function readConversationDetail(
       )
       .bind(conv.programme_slug)
       .all<FactRow>(),
+    conv.person_id
+      ? env.DB
+          .prepare(`SELECT id, kind, value_norm, is_primary FROM crm_endpoints WHERE person_id = ? AND retired_at IS NULL ORDER BY is_primary DESC`)
+          .bind(conv.person_id)
+          .all<{ id: string; kind: string; value_norm: string; is_primary: number }>()
+      : Promise.resolve({ results: [] as { id: string; kind: string; value_norm: string; is_primary: number }[] }),
     loadConsentAndEndpointsForPerson(env.DB, conv.person_id, conv.channel),
     conv.assignee_id
       ? env.DB.prepare(`SELECT name FROM users WHERE id = ?`).bind(conv.assignee_id).first<{ name: string }>()
       : Promise.resolve(null),
   ]);
 
+  const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate, deniedStatus: 404 });
+  if (!finalAuth.ok) return { status: finalAuth.status, body: finalAuth.body };
+
+  const personEndpoints = epRes.results.map((e) => ({
+    id: e.id,
+    kind: e.kind,
+    valueNorm: e.value_norm,
+    isPrimary: e.is_primary === 1,
+  }));
+
   const mappedFacts = factsRes.results.map((r) => mapFactRow(r, now));
   const verifiedFacts = mappedFacts.filter((f) => !f.isStale);
   const staleFacts = mappedFacts.filter((f) => f.isStale);
   const canSend =
     isDigitalSendChannel(conv.channel) &&
-    evaluateCapability(auth.actor, sendCapabilityForChannel(conv.channel), '*') &&
+    evaluateCapability(finalAuth.actor, sendCapabilityForChannel(conv.channel), '*') &&
     isLocalTestSimulatedMode(env);
 
   return {

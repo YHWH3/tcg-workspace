@@ -11,11 +11,20 @@ import {
   CRM_PROGRAMME_BY_SLUG,
   ProgrammeProfileV1Schema,
 } from '../../shared/crm/programmes';
+import { argsHash } from '../../shared/stablejson';
 import type { Env } from '../auth';
+import { PreviewError, previewUrl, proposeCrmCommandPreview } from '../aiPreviews';
 import { createSuggestion } from '../aiSuggestions';
-import { createReadGate } from '../readAccess';
 import { listApprovals, readableTargets } from '../approvals';
-import { buildActorFromRows } from './read';
+import { loadConnection } from '../connectorAccess';
+import { createReadGate } from '../readAccess';
+import {
+  buildActorFromRows,
+  loadReadableTaskRecords,
+  type CrmGrantRow,
+  type CrmSessionRow,
+} from './read';
+import type { CrmCommandPreviewPlan } from './previewExecutor';
 import { canAccessCrmApi, isCrmEnabled, type CrmActor } from './rules';
 import { mapFactRow, type FactRow } from './facts';
 
@@ -34,14 +43,25 @@ export interface CrmMcpCtx {
 
 type LoadedMcpActor =
   | { ok: true; actor: CrmActor; actorName: string }
-  | { ok: false; code: 'crm_disabled' | 'crm_forbidden'; message: string };
+  | { ok: false; code: 'crm_disabled' | 'crm_forbidden' | 'connector_revoked'; message: string };
 
 /**
- * Resolves CRM authority for an OAuth/assistant MCP caller (no browser session cookie tokenHash).
+ * Resolves CRM authority for an OAuth/assistant MCP caller, intersecting
+ * Workspace CRM grants with active ai_connections connector authority.
  */
 async function loadMcpCrmActor(env: Env, userId: string): Promise<LoadedMcpActor> {
   if (!isCrmEnabled(env)) {
     return { ok: false, code: 'crm_disabled', message: 'CRM is disabled on this workspace.' };
+  }
+  if (env.CONNECTOR) {
+    const conn = await loadConnection(env.DB, userId, env.CONNECTOR.id);
+    if (!conn || conn.version !== env.CONNECTOR.version) {
+      return {
+        ok: false,
+        code: 'connector_revoked',
+        message: 'AI connector authorization is revoked, expired, or outdated.',
+      };
+    }
   }
   const [userRes, grantRes] = await env.DB.batch([
     env.DB
@@ -59,21 +79,11 @@ async function loadMcpCrmActor(env: Env, userId: string): Promise<LoadedMcpActor
       )
       .bind(userId),
   ]);
-  const userRow = userRes.results[0] as
-    | { id: string; name: string; disabled_at: number | null; canonicalRole: string }
-    | undefined;
+  const userRow = userRes.results[0] as CrmSessionRow | undefined;
   if (!userRow) {
     return { ok: false, code: 'crm_forbidden', message: 'CRM account not found or unauthorized.' };
   }
-  const actor = buildActorFromRows(
-    userRow,
-    grantRes.results as unknown as {
-      capability: string;
-      scope: string;
-      granted_by: string;
-      granted_at: number;
-    }[],
-  );
+  const actor = buildActorFromRows(userRow, grantRes.results as unknown as CrmGrantRow[]);
   if (!canAccessCrmApi(actor)) {
     return {
       ok: false,
@@ -84,25 +94,21 @@ async function loadMcpCrmActor(env: Env, userId: string): Promise<LoadedMcpActor
   return { ok: true, actor, actorName: userRow.name };
 }
 
-function mcpActorSqlFence(db: D1Database, actor: CrmActor): D1PreparedStatement {
-  if (actor.role === 'owner') {
-    return db
-      .prepare(
-        `SELECT CASE WHEN EXISTS (
-           SELECT 1 FROM users WHERE id = ? AND disabled_at IS NULL AND COALESCE(workspace_role, role) = 'owner'
-         ) THEN 1 ELSE json_extract('{', '$') END`,
-      )
-      .bind(actor.id);
+async function revalidateMcpCrmAfterRead(
+  env: Env,
+  userId: string,
+  gate?: ReturnType<typeof createReadGate>,
+): Promise<LoadedMcpActor> {
+  const recheck = await loadMcpCrmActor(env, userId);
+  if (!recheck.ok) return recheck;
+  if (gate && !(await gate.validateObserved())) {
+    return {
+      ok: false,
+      code: 'crm_forbidden',
+      message: 'Access or connector scope changed during request; re-read current data.',
+    };
   }
-  return db
-    .prepare(
-      `SELECT CASE WHEN EXISTS (
-         SELECT 1 FROM users WHERE id = ? AND disabled_at IS NULL AND COALESCE(workspace_role, role) = ? AND COALESCE(workspace_role, role) != 'guest'
-       ) AND EXISTS (
-         SELECT 1 FROM crm_capability_grants WHERE user_id = ? AND capability = 'crm.access' AND scope = '*'
-       ) THEN 1 ELSE json_extract('{', '$') END`,
-    )
-    .bind(actor.id, actor.role, actor.id);
+  return recheck;
 }
 
 function parseJsonSafe(raw: string | null | undefined): Record<string, unknown> | null {
@@ -132,9 +138,22 @@ async function resolveBoardIdsByKey(db: D1Database, keys: readonly string[]): Pr
   return out;
 }
 
+const OPTIONAL_REQUEST_ID_SCHEMA = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{8,64}$/)
+  .optional()
+  .describe('Optional idempotency key (8-64 chars) so retries do not create duplicate proposals.');
+
+const OPTIONAL_WORKFLOW_ID_SCHEMA = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,64}$/)
+  .optional()
+  .describe('Optional AI workflow correlation ID.');
+
 /**
  * Registers all 8 S4 CRM MCP tools (5 read + 3 proposal-only).
- * Intentionally exposes zero side-effect CRM tools (never registers message.send or capability changes).
+ * Intentionally exposes zero side-effect CRM tools and routes CRM proposals through
+ * `ai_previews` / `ai_suggestions` for human browser review and command-journaled execution.
  */
 export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
   // 1. Read: crm_find_people
@@ -190,9 +209,12 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
         candidates.push({ id: row.id, rev: row.seq, data: d });
       }
 
-      const gate = ctx.env.READ_GATE ?? createReadGate(ctx.env.DB, ctx.userId);
+      const gate = ctx.env.READ_GATE ?? createReadGate(ctx.env.DB, ctx.userId, ctx.env.CONNECTOR);
       const kept = await gate.filter(candidates.slice(0, 100).map((c) => ({ id: c.id, rev: c.rev })));
       const allowed = new Set(kept.map((k) => k.id));
+
+      const finalAuth = await revalidateMcpCrmAfterRead(ctx.env, ctx.userId, gate);
+      if (!finalAuth.ok) return err(finalAuth.code, finalAuth.message);
 
       const people = candidates
         .filter((c) => allowed.has(c.id))
@@ -224,34 +246,31 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
       const auth = await loadMcpCrmActor(ctx.env, ctx.userId);
       if (!auth.ok) return err(auth.code, auth.message);
 
-      const gate = ctx.env.READ_GATE ?? createReadGate(ctx.env.DB, ctx.userId);
-      const row = await ctx.env.DB
-        .prepare(`SELECT id, data, seq FROM records WHERE id = ? AND collection = 'tasks'`)
-        .bind(personId)
-        .first<{ id: string; data: string; seq: number }>();
-      if (!row) return err('not_found', 'Person not found.');
-      const d = parseJsonSafe(row.data);
-      if (!d || d.deleted === true) return err('not_found', 'Person not found.');
-      const kept = await gate.filter([{ id: row.id, rev: row.seq }]);
-      if (kept.length === 0) return err('not_found', 'Person not found.');
+      const gate = ctx.env.READ_GATE ?? createReadGate(ctx.env.DB, ctx.userId, ctx.env.CONNECTOR);
+      const personMap = await loadReadableTaskRecords(ctx.env, gate, [personId]);
+      const person = personMap.get(personId);
+      if (!person) return err('not_found', 'Person not found.');
 
       const [epRes, consRes, convRes] = await ctx.env.DB.batch([
         ctx.env.DB
           .prepare(`SELECT id, kind, value_norm, is_primary, verified_at FROM crm_endpoints WHERE person_id = ? AND retired_at IS NULL`)
-          .bind(row.id),
+          .bind(person.id),
         ctx.env.DB
           .prepare(`SELECT id, channel, scope, status, source, recorded_at FROM crm_consents WHERE person_id = ? ORDER BY recorded_at DESC LIMIT 20`)
-          .bind(row.id),
+          .bind(person.id),
         ctx.env.DB
           .prepare(`SELECT id, channel, subject, state, last_message_at FROM crm_conversations WHERE person_id = ? ORDER BY last_message_at DESC LIMIT 10`)
-          .bind(row.id),
+          .bind(person.id),
       ]);
+
+      const finalAuth = await revalidateMcpCrmAfterRead(ctx.env, ctx.userId, gate);
+      if (!finalAuth.ok) return err(finalAuth.code, finalAuth.message);
 
       return txt({
         person: {
-          id: row.id,
-          name: String(d.title ?? 'Untitled'),
-          url: `${ctx.origin}/crm/people/${row.id}`,
+          id: person.id,
+          name: String(person.data.title ?? 'Untitled'),
+          url: `${ctx.origin}/crm/people/${person.id}`,
         },
         endpoints: epRes.results,
         consents: consRes.results,
@@ -275,7 +294,7 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
     async ({ filter = 'all', conversationId, limit = 20 }) => {
       const auth = await loadMcpCrmActor(ctx.env, ctx.userId);
       if (!auth.ok) return err(auth.code, auth.message);
-      const gate = ctx.env.READ_GATE ?? createReadGate(ctx.env.DB, ctx.userId);
+      const gate = ctx.env.READ_GATE ?? createReadGate(ctx.env.DB, ctx.userId, ctx.env.CONNECTOR);
 
       if (conversationId) {
         const [convRow, msgRes] = await Promise.all([
@@ -283,6 +302,8 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
             id: string;
             channel: string;
             person_id: string | null;
+            organisation_id: string | null;
+            application_id: string | null;
             programme_slug: string | null;
             subject: string;
             state: string;
@@ -292,9 +313,18 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
           ctx.env.DB.prepare(`SELECT id, direction, status, body_text, created_at FROM crm_messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 30`).bind(conversationId).all(),
         ]);
         if (!convRow) return err('not_found', 'Conversation not found.');
-        if (convRow.person_id && !(await gate.canRead(convRow.person_id))) {
-          return err('not_found', 'Conversation not found.');
+        const linkedIds = [convRow.person_id, convRow.organisation_id, convRow.application_id].filter(
+          (id): id is string => Boolean(id),
+        );
+        if (linkedIds.length > 0) {
+          const readable = await loadReadableTaskRecords(ctx.env, gate, linkedIds);
+          if (linkedIds.some((id) => !readable.has(id))) {
+            return err('not_found', 'Conversation not found.');
+          }
         }
+        const finalAuth = await revalidateMcpCrmAfterRead(ctx.env, ctx.userId, gate);
+        if (!finalAuth.ok) return err(finalAuth.code, finalAuth.message);
+
         return txt({
           conversation: {
             ...convRow,
@@ -308,7 +338,7 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
 
       const { results } = await ctx.env.DB
         .prepare(
-          `SELECT id, channel, person_id, programme_slug, subject, state, assignee_id, window_expires_at, last_message_at
+          `SELECT id, channel, person_id, organisation_id, application_id, programme_slug, subject, state, assignee_id, window_expires_at, last_message_at
            FROM crm_conversations
            ORDER BY last_message_at DESC, id DESC
            LIMIT 100`,
@@ -317,6 +347,8 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
           id: string;
           channel: string;
           person_id: string | null;
+          organisation_id: string | null;
+          application_id: string | null;
           programme_slug: string | null;
           subject: string;
           state: string;
@@ -325,11 +357,26 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
           last_message_at: number;
         }>();
 
-      const personIds = [...new Set(results.map((r) => r.person_id).filter((id): id is string => Boolean(id)))];
-      const dec = personIds.length ? await gate.decide(personIds) : null;
+      const linkedIds = [
+        ...new Set(
+          results
+            .flatMap((r) => [r.person_id, r.organisation_id, r.application_id])
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const readableMap = linkedIds.length ? await loadReadableTaskRecords(ctx.env, gate, linkedIds) : new Map();
+
+      const finalAuth = await revalidateMcpCrmAfterRead(ctx.env, ctx.userId, gate);
+      if (!finalAuth.ok) return err(finalAuth.code, finalAuth.message);
 
       const filtered = results.filter((c) => {
-        if (c.person_id && dec && dec.enabled && !dec.readable.has(c.person_id)) return false;
+        if (
+          (c.person_id && !readableMap.has(c.person_id)) ||
+          (c.organisation_id && !readableMap.has(c.organisation_id)) ||
+          (c.application_id && !readableMap.has(c.application_id))
+        ) {
+          return false;
+        }
         if (filter === 'unassigned') return c.state === 'open' && !c.assignee_id;
         if (filter === 'mine') return c.state === 'open' && c.assignee_id === ctx.userId;
         if (filter === 'unmatched') return c.state === 'open' && !c.person_id;
@@ -352,7 +399,7 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
   server.registerTool(
     'crm_home',
     {
-      description: 'Read My Work operational summary: unanswered CRM conversations, pending approvals, and due follow-up counts (read-only).',
+      description: 'Read My Work operational summary: unanswered CRM conversations and pending approvals (read-only).',
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
@@ -360,27 +407,48 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
       const auth = await loadMcpCrmActor(ctx.env, ctx.userId);
       if (!auth.ok) return err(auth.code, auth.message);
 
-      const gate = ctx.env.READ_GATE ?? createReadGate(ctx.env.DB, ctx.userId);
+      const gate = ctx.env.READ_GATE ?? createReadGate(ctx.env.DB, ctx.userId, ctx.env.CONNECTOR);
       const [unansweredRes, pendingApprovals] = await Promise.all([
         ctx.env.DB
           .prepare(
-            `SELECT id, channel, person_id, subject, last_inbound_at
+            `SELECT id, channel, person_id, organisation_id, application_id, subject, last_inbound_at
              FROM crm_conversations
              WHERE state = 'open' AND last_inbound_at IS NOT NULL
                AND (last_outbound_at IS NULL OR last_inbound_at > last_outbound_at)
              ORDER BY last_inbound_at DESC LIMIT 20`,
           )
-          .all<{ id: string; channel: string; person_id: string | null; subject: string; last_inbound_at: number }>(),
+          .all<{
+            id: string;
+            channel: string;
+            person_id: string | null;
+            organisation_id: string | null;
+            application_id: string | null;
+            subject: string;
+            last_inbound_at: number;
+          }>(),
         listApprovals(ctx.env.DB, { userId: ctx.userId, mine: 'approver', status: 'pending', limit: 20 }),
       ]);
-      const convPersonIds = [...new Set(unansweredRes.results.map((c) => c.person_id).filter((id): id is string => Boolean(id)))];
-      const [canReadAppr, convDec] = await Promise.all([
+      const convLinkedIds = [
+        ...new Set(
+          unansweredRes.results
+            .flatMap((c) => [c.person_id, c.organisation_id, c.application_id])
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const [canReadAppr, readableConvTargets] = await Promise.all([
         readableTargets(ctx.env.DB, ctx.userId, pendingApprovals, gate),
-        convPersonIds.length ? gate.decide(convPersonIds) : Promise.resolve(null),
+        loadReadableTaskRecords(ctx.env, gate, convLinkedIds),
       ]);
+
+      const finalAuth = await revalidateMcpCrmAfterRead(ctx.env, ctx.userId, gate);
+      if (!finalAuth.ok) return err(finalAuth.code, finalAuth.message);
+
       const visibleApprovals = pendingApprovals.filter(canReadAppr);
       const visibleUnanswered = unansweredRes.results.filter(
-        (c) => !c.person_id || !convDec || !convDec.enabled || convDec.readable.has(c.person_id),
+        (c) =>
+          (!c.person_id || readableConvTargets.has(c.person_id)) &&
+          (!c.organisation_id || readableConvTargets.has(c.organisation_id)) &&
+          (!c.application_id || readableConvTargets.has(c.application_id)),
       );
 
       return txt({
@@ -422,6 +490,9 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
         .bind(programmeSlug?.trim() || null)
         .all<FactRow>();
 
+      const finalAuth = await revalidateMcpCrmAfterRead(ctx.env, ctx.userId);
+      if (!finalAuth.ok) return err(finalAuth.code, finalAuth.message);
+
       const facts = results
         .map((r) => mapFactRow(r, now))
         .filter((f) => includeStale || !f.isStale);
@@ -430,39 +501,58 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
     },
   );
 
-  // 6. Proposal: crm_draft_message
+  // 6. Proposal: crm_draft_message (frozen ai_previews proposal -> human browser approval -> crm_commands journaled draft)
   server.registerTool(
     'crm_draft_message',
     {
-      description: 'Generate and save a non-sending draft reply inside CRM strictly grounded in verified, non-stale `crm_facts`. Never sends outbound messages or enters the outbox.',
+      description: 'Propose a frozen, human-reviewed grounded draft reply (`ai_previews` -> `message.save_draft`). No database draft is saved until a signed-in human approves in Workspace, and AI cannot send messages.',
       inputSchema: z.object({
         conversationId: z.string().min(1).max(128),
         guidance: z.string().max(400).optional().describe('Optional tone or emphasis guidance for staff review'),
+        requestId: OPTIONAL_REQUEST_ID_SCHEMA,
+        workflowId: OPTIONAL_WORKFLOW_ID_SCHEMA,
       }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ conversationId, guidance }) => {
+    async ({ conversationId, guidance, requestId, workflowId }) => {
       const auth = await loadMcpCrmActor(ctx.env, ctx.userId);
       if (!auth.ok) return err(auth.code, auth.message);
 
+      const canonicalArgs = { conversationId, guidance: guidance ?? null };
+      const gate = ctx.env.READ_GATE ?? createReadGate(ctx.env.DB, ctx.userId, ctx.env.CONNECTOR);
       const conv = await ctx.env.DB
-        .prepare(`SELECT id, channel, person_id, programme_slug, subject FROM crm_conversations WHERE id = ?`)
+        .prepare(
+          `SELECT id, channel, person_id, organisation_id, application_id, programme_slug, subject, rev
+           FROM crm_conversations WHERE id = ?`,
+        )
         .bind(conversationId)
         .first<{
           id: string;
           channel: string;
           person_id: string | null;
+          organisation_id: string | null;
+          application_id: string | null;
           programme_slug: string | null;
           subject: string;
+          rev: number;
         }>();
       if (!conv) return err('not_found', 'Conversation not found.');
-      const gate = ctx.env.READ_GATE ?? createReadGate(ctx.env.DB, ctx.userId);
-      if (conv.person_id && !(await gate.canRead(conv.person_id))) {
-        return err('not_found', 'Conversation not found.');
+
+      const linkedIds = [conv.person_id, conv.organisation_id, conv.application_id].filter(
+        (id): id is string => Boolean(id),
+      );
+      let personName: string | null = null;
+      if (linkedIds.length > 0) {
+        const readable = await loadReadableTaskRecords(ctx.env, gate, linkedIds);
+        if (linkedIds.some((id) => !readable.has(id))) {
+          return err('not_found', 'Conversation not found.');
+        }
+        const pRec = conv.person_id ? readable.get(conv.person_id) : undefined;
+        personName = typeof pRec?.data.title === 'string' ? pRec.data.title : null;
       }
 
       const now = Date.now();
-      const [factsRes, progRow, personRow] = await Promise.all([
+      const [factsRes, progRow] = await Promise.all([
         ctx.env.DB
           .prepare(
             `SELECT * FROM crm_facts
@@ -474,10 +564,10 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
         conv.programme_slug
           ? ctx.env.DB.prepare(`SELECT profile_json FROM crm_programme_profiles WHERE slug = ?`).bind(conv.programme_slug).first<{ profile_json: string }>()
           : Promise.resolve(null),
-        conv.person_id
-          ? ctx.env.DB.prepare(`SELECT data FROM records WHERE id = ?`).bind(conv.person_id).first<{ data: string }>()
-          : Promise.resolve(null),
       ]);
+
+      const postReadAuth = await revalidateMcpCrmAfterRead(ctx.env, ctx.userId, gate);
+      if (!postReadAuth.ok) return err(postReadAuth.code, postReadAuth.message);
 
       const allVerified = factsRes.results.map((r) => mapFactRow(r, now));
       const verifiedFacts: CrmFactDto[] = allVerified.filter((f) => !f.isStale);
@@ -487,8 +577,6 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
         ? ProgrammeProfileV1Schema.safeParse(JSON.parse(progRow.profile_json))
         : null;
       const profile = parsedProfile?.success ? parsedProfile.data : def?.defaultProfile ?? null;
-      const personData = parseJsonSafe(personRow?.data);
-      const personName = typeof personData?.title === 'string' ? personData.title : null;
 
       const composed = composeGroundedAiDraft({
         personName,
@@ -500,34 +588,67 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
         now,
       });
 
-      const msgId = `msg_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
-      const aiMeta = JSON.stringify({
-        citedFactIds: composed.citedFactIds,
-        unconfirmedItems: composed.unconfirmedItems,
-        staleFactWarnings: composed.staleFactWarnings,
-        source: 'mcp',
-      });
+      const plan: CrmCommandPreviewPlan = {
+        kind: 'crm_command',
+        command: 'message.save_draft',
+        input: {
+          conversationId: conv.id,
+          bodyText: composed.bodyText,
+          aiMetadata: {
+            citedFactIds: composed.citedFactIds,
+            unconfirmedItems: composed.unconfirmedItems,
+            staleFactWarnings: composed.staleFactWarnings,
+          },
+        },
+        expected: { [conv.id]: conv.rev },
+        summary: {
+          targetId: conv.id,
+          previewFields: {
+            conversationId: conv.id,
+            channel: conv.channel,
+            subject: conv.subject,
+            bodyText: composed.bodyText,
+            citedFactIds: composed.citedFactIds,
+            unconfirmedItems: composed.unconfirmedItems,
+          },
+          warnings: [
+            'Drafts do not enter crm_outbox or send messages. Only humans may send in the CRM UI.',
+            ...composed.staleFactWarnings,
+          ],
+        },
+      };
 
-      await ctx.env.DB.batch([
-        mcpActorSqlFence(ctx.env.DB, auth.actor),
-        ctx.env.DB
-          .prepare(
-            `INSERT INTO crm_messages
-               (id, conversation_id, direction, status, channel, sender_endpoint, recipient_endpoint, author_user_id, body_text, body_html_sanitized, external_message_id, template_id, ai_metadata_json, error_code, error_detail, sent_at, created_at, updated_at)
-             VALUES (?, ?, 'outbound', 'draft', ?, NULL, NULL, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, ?, ?)`,
-          )
-          .bind(msgId, conv.id, conv.channel, ctx.userId, composed.bodyText, aiMeta, now, now),
-      ]);
-
-      return txt({
-        status: 'draft_saved',
-        messageId: msgId,
-        conversationId: conv.id,
-        citedFactIds: composed.citedFactIds,
-        unconfirmedItems: composed.unconfirmedItems,
-        reviewUrl: `${ctx.origin}/crm/conversations/${conv.id}`,
-        note: 'Draft saved for human review only. Humans must click Send in the CRM UI.',
-      });
+      try {
+        const preview = await proposeCrmCommandPreview(
+          ctx.env,
+          ctx.userId,
+          'crm_draft_message',
+          { tool: 'crm_draft_message', args: canonicalArgs },
+          plan,
+          {
+            sourceIds: linkedIds,
+            requestId,
+            workflowId,
+            resultMeta: {
+              conversationId: conv.id,
+              citedFactIds: composed.citedFactIds,
+              unconfirmedItems: composed.unconfirmedItems,
+            },
+          },
+        );
+        return txt({
+          ...preview,
+          humanApprovalRequired: true,
+          reviewUrl: previewUrl(ctx.origin, preview.previewId),
+          conversationId: conv.id,
+          citedFactIds: composed.citedFactIds,
+          unconfirmedItems: composed.unconfirmedItems,
+          staleFactWarnings: composed.staleFactWarnings,
+          note: 'Frozen preview created. A human must approve the review URL before saving the draft. Retry execution using execute_preview with the same previewId/argsHash.',
+        });
+      } catch (e) {
+        return err(e instanceof PreviewError ? e.code : 'proposal_failed', e instanceof Error ? e.message : undefined);
+      }
     },
   );
 
@@ -541,10 +662,11 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
         suggestedStatus: z.string().min(1).max(64).optional(),
         suggestedProgrammeSlug: z.string().min(1).max(64).optional(),
         rationale: z.string().trim().min(1).max(2000),
+        requestId: OPTIONAL_REQUEST_ID_SCHEMA,
       }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ recordId, suggestedStatus, suggestedProgrammeSlug, rationale }) => {
+    async ({ recordId, suggestedStatus, suggestedProgrammeSlug, rationale, requestId }) => {
       const auth = await loadMcpCrmActor(ctx.env, ctx.userId);
       if (!auth.ok) return err(auth.code, auth.message);
 
@@ -562,7 +684,45 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
       }
 
       try {
-        const suggestion = await createSuggestion(ctx.env, ctx.userId, recordId, patch, rationale, 'mcp-crm');
+        let deterministicId: string | undefined;
+        if (requestId) {
+          deterministicId = `sgt_${(await argsHash({ userId: ctx.userId, requestId })).slice(0, 28)}`;
+          const prior = await ctx.env.DB
+            .prepare(`SELECT id, target_id, patch_json, rationale, status, source_hash, source_rev FROM ai_suggestions WHERE id = ? AND user_id = ?`)
+            .bind(deterministicId, ctx.userId)
+            .first<{
+              id: string;
+              target_id: string;
+              patch_json: string;
+              rationale: string;
+              status: string;
+              source_hash: string;
+              source_rev: number;
+            }>();
+          if (prior) {
+            if (prior.target_id !== recordId || prior.patch_json !== JSON.stringify(patch) || prior.rationale !== rationale) {
+              return err('requestId_conflict', 'requestId was already used with different triage arguments.');
+            }
+            return txt({
+              suggestionId: prior.id,
+              status: prior.status,
+              sourceHash: prior.source_hash,
+              sourceRev: prior.source_rev,
+              replayed: true,
+              reviewUrl: `${ctx.origin}/ai`,
+            });
+          }
+        }
+        const suggestion = await createSuggestion(
+          ctx.env,
+          ctx.userId,
+          recordId,
+          patch,
+          rationale,
+          'mcp-crm',
+          'user-selected',
+          deterministicId,
+        );
         return txt({ ...suggestion, reviewUrl: `${ctx.origin}/ai` });
       } catch (e) {
         return err('proposal_failed', e instanceof Error ? e.message : 'Unable to propose triage.');
@@ -570,21 +730,23 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
     },
   );
 
-  // 8. Proposal: crm_propose_fact
+  // 8. Proposal: crm_propose_fact (frozen ai_previews proposal -> human approval -> command-journaled draft fact)
   server.registerTool(
     'crm_propose_fact',
     {
-      description: 'Propose a draft operational fact in `crm_facts` (`status = draft`). Only authorized humans (`crm.configure`) may verify facts.',
+      description: 'Propose a frozen draft operational fact via `ai_previews` (`fact.propose`). Requires human browser approval before creating a draft fact; only humans with `crm.configure` may verify facts.',
       inputSchema: z.object({
         title: z.string().trim().min(1).max(200),
         statement: z.string().trim().min(1).max(2000),
         programmeSlug: z.string().max(64).nullable().optional(),
         category: z.string().trim().min(1).max(64).optional(),
         sourceRef: z.string().trim().max(300).optional(),
+        requestId: OPTIONAL_REQUEST_ID_SCHEMA,
+        workflowId: OPTIONAL_WORKFLOW_ID_SCHEMA,
       }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ title, statement, programmeSlug = null, category = 'general', sourceRef }) => {
+    async ({ title, statement, programmeSlug = null, category = 'general', sourceRef, requestId, workflowId }) => {
       const auth = await loadMcpCrmActor(ctx.env, ctx.userId);
       if (!auth.ok) return err(auth.code, auth.message);
       if (programmeSlug && !CRM_PROGRAMME_BY_SLUG.has(programmeSlug)) {
@@ -594,27 +756,59 @@ export function registerCrmMcpTools(server: McpServer, ctx: CrmMcpCtx): void {
         return err('invalid_input', 'Invalid programme scope.');
       }
 
-      const factId = `fact_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
-      const now = Date.now();
       const scope = programmeSlug ? `programme:${programmeSlug}` : 'global';
+      const canonicalArgs = {
+        title,
+        statement,
+        programmeSlug,
+        category,
+        sourceRef: sourceRef ?? 'mcp-proposal',
+      };
+      const plan: CrmCommandPreviewPlan = {
+        kind: 'crm_command',
+        command: 'fact.propose',
+        input: canonicalArgs,
+        summary: {
+          targetId: scope,
+          previewFields: {
+            title,
+            statement,
+            scope,
+            programmeSlug,
+            category,
+            sourceRef: sourceRef ?? 'mcp-proposal',
+            status: 'draft',
+          },
+          warnings: [
+            'Creates an unverified draft fact only. Only humans holding crm.configure may verify facts.',
+          ],
+        },
+      };
 
-      await ctx.env.DB.batch([
-        mcpActorSqlFence(ctx.env.DB, auth.actor),
-        ctx.env.DB
-          .prepare(
-            `INSERT INTO crm_facts
-               (id, scope, programme_slug, category, title, statement, source_ref, status, review_by, verified_by, verified_at, retired_by, retired_at, rev, created_by, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', NULL, NULL, NULL, NULL, NULL, 1, ?, ?, ?)`,
-          )
-          .bind(factId, scope, programmeSlug, category, title, statement, sourceRef ?? 'mcp-proposal', ctx.userId, now, now),
-      ]);
-
-      return txt({
-        factId,
-        status: 'draft',
-        scope,
-        reviewUrl: `${ctx.origin}/crm/settings/facts`,
-      });
+      try {
+        const preview = await proposeCrmCommandPreview(
+          ctx.env,
+          ctx.userId,
+          'crm_propose_fact',
+          { tool: 'crm_propose_fact', args: canonicalArgs },
+          plan,
+          {
+            requestId,
+            workflowId,
+            resultMeta: { scope, title },
+          },
+        );
+        return txt({
+          ...preview,
+          humanApprovalRequired: true,
+          reviewUrl: previewUrl(ctx.origin, preview.previewId),
+          scope,
+          statusAfterApproval: 'draft',
+          note: 'Frozen preview created. A human must approve the review URL before creating the draft fact. Retry execution using execute_preview with the same previewId/argsHash.',
+        });
+      } catch (e) {
+        return err(e instanceof PreviewError ? e.code : 'proposal_failed', e instanceof Error ? e.message : undefined);
+      }
     },
   );
 }

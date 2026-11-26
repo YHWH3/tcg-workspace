@@ -132,7 +132,14 @@ export interface CommandDefinition<I = Record<string, unknown>, O = unknown> {
     actor: CrmActor,
     input: I,
     stored: CommandResult<O> | CommandError,
-  ) => boolean;
+    ctx: { env: Env; via: CrmCommandChannel },
+  ) => boolean | Promise<boolean>;
+  classifyFenceError?: (args: {
+    env: Env;
+    actor: CrmActor;
+    via: CrmCommandChannel;
+    input: I;
+  }) => Promise<CommandResult<O> | CommandError | null>;
   plan: (ctx: {
     env: Env;
     actor: CrmActor;
@@ -307,7 +314,7 @@ export async function runCommand(args: {
   // Check pre-commit idempotency row.
   const existingCmd = cmdRes.results[0] as StoredCommandRow | undefined;
   if (existingCmd) {
-    return resolveStoredCommand(existingCmd, def, actor, parsed.input, requestHash, envelope.requestId);
+    return resolveStoredCommand(existingCmd, def, actor, parsed.input, requestHash, envelope.requestId, env, via);
   }
 
   const expectedMap = envelope.expected
@@ -473,6 +480,7 @@ export async function runCommand(args: {
       def,
       actorId: actor.id,
       tokenHash,
+      via,
       input: parsed.input,
       requestId: envelope.requestId,
       requestHash,
@@ -493,14 +501,16 @@ export async function runCommand(args: {
   };
 }
 
-function resolveStoredCommand(
+async function resolveStoredCommand(
   row: StoredCommandRow,
   def: AnyCommandDefinition,
   actor: CrmActor,
   input: unknown,
   requestHash: string,
   requestId: string,
-): RunCommandOutcome {
+  env: Env,
+  via: CrmCommandChannel,
+): Promise<RunCommandOutcome> {
   if (row.name !== def.name || row.request_hash !== requestHash) {
     return {
       status: 200,
@@ -508,7 +518,7 @@ function resolveStoredCommand(
     };
   }
   const stored = JSON.parse(row.result) as CommandResult<unknown> | CommandError;
-  if (def.authorizeReplay && !def.authorizeReplay(actor, input, stored)) {
+  if (def.authorizeReplay && !(await def.authorizeReplay(actor, input, stored, { env, via }))) {
     return { status: 200, body: makeCommandError('forbidden') };
   }
   return { status: 200, body: stored };
@@ -520,13 +530,14 @@ function resolveStoredCommand(
  * 1. dead session / disabled actor -> 401
  * 2. lost actor authority -> 200 forbidden
  * 3. crm_commands row exists -> idempotency_conflict or authorized replay
- * 4. no crm_commands row -> stale (fence abort) | constraint map / rethrow 500 | 503 write_interrupted
+ * 4. no crm_commands row -> classifyFenceError / stale (fence abort) | constraint map / rethrow 500 | 503 write_interrupted
  */
 async function recoverAfterCommitFailure(args: {
   env: Env;
   def: AnyCommandDefinition;
   actorId: string;
   tokenHash: string;
+  via: CrmCommandChannel;
   input: unknown;
   requestId: string;
   requestHash: string;
@@ -538,6 +549,7 @@ async function recoverAfterCommitFailure(args: {
     def,
     actorId,
     tokenHash,
+    via,
     input,
     requestId,
     requestHash,
@@ -587,8 +599,8 @@ async function recoverAfterCommitFailure(args: {
   const recoveredActor = buildActor(sessionRow, grantsRes.results as unknown as GrantRow[]);
   if (
     !canAccessCrmApi(recoveredActor) ||
-    !def.authorizeCoarse(recoveredActor) ||
-    (def.authorizeFine && !def.authorizeFine(recoveredActor, input))
+    !def.authorizeCoarse(recoveredActor, via) ||
+    (def.authorizeFine && !def.authorizeFine(recoveredActor, input, via))
   ) {
     return { status: 200, body: makeCommandError('forbidden') };
   }
@@ -596,11 +608,15 @@ async function recoverAfterCommitFailure(args: {
   // Third: existing crm_commands row -> replay or idempotency_conflict.
   const existingCmd = cmdRes.results[0] as unknown as StoredCommandRow | undefined;
   if (existingCmd) {
-    return resolveStoredCommand(existingCmd, def, recoveredActor, input, requestHash, requestId);
+    return resolveStoredCommand(existingCmd, def, recoveredActor, input, requestHash, requestId, env, via);
   }
 
   // Fourth: confirmed rolled back (no crm_commands row).
   if (fenceAborted || isMalformedJsonError(commitError)) {
+    if (def.classifyFenceError) {
+      const classified = await def.classifyFenceError({ env, actor: recoveredActor, via, input });
+      if (classified) return { status: 200, body: classified };
+    }
     return { status: 200, body: makeCommandError('stale') };
   }
 

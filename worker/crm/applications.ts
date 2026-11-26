@@ -3,6 +3,7 @@ import {
   CreateApplicationFromSubmissionInputSchema,
   CRM_PROGRAMME_BY_SLUG,
   CRM_PROGRAMMES,
+  ProgrammeProfileV1Schema,
   programmeForWebsiteForm,
   type ConvertApplicationInput,
   type CreateApplicationFromSubmissionInput,
@@ -11,6 +12,7 @@ import {
   type TimelineEntryDto,
   type TimelineResponse,
 } from '../../shared/crm/programmes';
+import { addDays, daysBetween, parseDateOnly, toDateOnlyInZone, dateOnlyStartInZone, workspaceToday } from '../../shared/dates';
 import { normalizeEmail } from '../../shared/crm/identity';
 import { CRM_PROJECTION } from '../../shared/crm/projection';
 import { linkId } from '../../shared/linkid';
@@ -20,13 +22,21 @@ import type { Env } from '../auth';
 import { listApprovals, readableTargets } from '../approvals';
 import { createReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
+import { readWorkspaceSettings } from '../workspaceSettings';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
 import {
+  actorGrantsStmt,
   crmActorFence,
   decodeTimeIdCursor,
   encodeTimeIdCursor,
+  evaluateCrmReadAuthRows,
+  finalizeCrmReadAuth,
   loadCrmReadContext,
   loadReadableTaskRecord,
+  loadReadableTaskRecords,
+  sessionAuthStmt,
+  type CrmGrantRow,
+  type CrmSessionRow,
 } from './read';
 import { canAccessCrmApi } from './rules';
 
@@ -553,10 +563,15 @@ export async function readTimeline(
 
   const limit = Math.min(TIMELINE_MAX_LIMIT, Math.max(1, opts.limit ?? TIMELINE_DEFAULT_LIMIT));
 
-  const subject = await loadReadableTaskRecord(env, actorId, opts.subjectId);
+  const gate = createReadGate(env.DB, actorId);
+  const subjectMap = await loadReadableTaskRecords(env, gate, [opts.subjectId]);
+  const subject = subjectMap.get(opts.subjectId);
   if (!subject) return { status: 404, body: { error: 'not_found' } };
 
-  const [linksRes, convsRes, consentsRes, actRes, boardsRes] = await env.DB.batch([
+  const batchNow = Date.now();
+  const [sessionRes, grantsRes, linksRes, convsRes, consentsRes, actRes, boardsRes] = await env.DB.batch([
+    sessionAuthStmt(env.DB, actorId, tokenHash, batchNow),
+    actorGrantsStmt(env.DB, actorId),
     env.DB
       .prepare(
         `SELECT id, data FROM records
@@ -568,7 +583,7 @@ export async function readTimeline(
       .bind(subject.id, subject.id),
     env.DB
       .prepare(
-        `SELECT id, channel, subject, state, last_message_at, created_at
+        `SELECT id, channel, person_id, organisation_id, application_id, subject, state, last_message_at, created_at
          FROM crm_conversations
          WHERE person_id = ? OR organisation_id = ? OR application_id = ?
          ORDER BY last_message_at DESC, id DESC
@@ -597,6 +612,12 @@ export async function readTimeline(
     env.DB.prepare(`SELECT id, data FROM records WHERE collection = 'boards' LIMIT 200`),
   ]);
 
+  const batchAuth = evaluateCrmReadAuthRows(
+    sessionRes.results[0] as CrmSessionRow | undefined,
+    grantsRes.results as unknown as CrmGrantRow[],
+  );
+  if (!batchAuth.ok) return { status: batchAuth.status, body: batchAuth.body };
+
   const boardKeyById = new Map<string, string>();
   for (const b of boardsRes.results as unknown as { id: string; data: string }[]) {
     const pd = parseJsonSafe(b.data);
@@ -606,6 +627,21 @@ export async function readTimeline(
   }
 
   const linkedIds = new Set<string>([subject.id]);
+  const convRows = convsRes.results as unknown as {
+    id: string;
+    channel: string;
+    person_id: string | null;
+    organisation_id: string | null;
+    application_id: string | null;
+    subject: string;
+    state: string;
+    last_message_at: number;
+  }[];
+  for (const conv of convRows) {
+    if (conv.person_id) linkedIds.add(conv.person_id);
+    if (conv.organisation_id) linkedIds.add(conv.organisation_id);
+    if (conv.application_id) linkedIds.add(conv.application_id);
+  }
   if (typeof subject.data._crm_source_submission_id === 'string') {
     linkedIds.add(subject.data._crm_source_submission_id);
   }
@@ -636,7 +672,6 @@ export async function readTimeline(
     listApprovals(env.DB, { userId: actorId, targetId: subject.id, limit: 40 }),
   ]);
 
-  const gate = createReadGate(env.DB, actorId);
   const parsedRelated: { id: string; rev: number; updatedAt: number; data: Record<string, unknown> }[] = [];
   for (const r of relatedRecordsRes.results) {
     const data = parseJsonSafe(r.data);
@@ -654,6 +689,9 @@ export async function readTimeline(
     readableTargets(env.DB, actorId, approvalsList, gate),
   ]);
   const allowedIds = new Set(keptRelated.map((r) => r.id));
+
+  const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate, deniedStatus: 404 });
+  if (!finalAuth.ok) return { status: finalAuth.status, body: finalAuth.body };
 
   const entries: TimelineEntryDto[] = [];
 
@@ -700,13 +738,14 @@ export async function readTimeline(
     });
   }
 
-  for (const conv of convsRes.results as unknown as {
-    id: string;
-    channel: string;
-    subject: string;
-    state: string;
-    last_message_at: number;
-  }[]) {
+  for (const conv of convRows) {
+    if (
+      (conv.person_id && !allowedIds.has(conv.person_id)) ||
+      (conv.organisation_id && !allowedIds.has(conv.organisation_id)) ||
+      (conv.application_id && !allowedIds.has(conv.application_id))
+    ) {
+      continue;
+    }
     entries.push({
       id: `conv:${conv.id}`,
       kind: 'conversation',
@@ -774,14 +813,18 @@ export async function readTimeline(
   };
 }
 
-const DAY_MS = 86_400_000;
 const HOME_SCAN_LIMIT = 1500;
+
+function extractTitleSlugMap(): Map<string, string> {
+  return new Map(CRM_PROGRAMMES.map((p) => [p.name.trim().toLowerCase(), p.slug]));
+}
 
 /**
  * GET /api/crm/read/home
- * My Work summary (today, thisWeek, recently) covering ageing applications,
- * due/overdue follow-up activities, pending approvals waiting on actor,
- * unanswered conversations, and recent CRM updates.
+ * My Work summary (today, shared, thisWeek, recently) covering owner-assigned
+ * follow-ups, shared unassigned items, ReadGate-filtered conversations, pending
+ * approvals waiting on actor, and programme-target ageing applications using
+ * configured workspace timezone boundaries.
  */
 export async function readCrmHome(
   env: Env,
@@ -794,43 +837,58 @@ export async function readCrmHome(
   const auth = await loadCrmReadContext(env, actorId, tokenHash);
   if (!auth.ok) return { status: auth.status, body: auth.body };
 
-  const now = Date.now();
-  const endOfToday = new Date(now);
-  endOfToday.setUTCHours(23, 59, 59, 999);
-  const todayEndMs = endOfToday.getTime();
-  const weekEndMs = todayEndMs + 7 * DAY_MS;
+  let timeZone = 'UTC';
+  try {
+    timeZone = (await readWorkspaceSettings(env)).timeZone;
+  } catch {
+    timeZone = 'UTC';
+  }
 
-  const [boardsRes, tasksRes, convsRes, pendingApprovals] = await Promise.all([
-    env.DB.prepare(`SELECT id, data FROM records WHERE collection = 'boards' LIMIT 200`).all<{ id: string; data: string }>(),
-    env.DB
-      .prepare(`SELECT id, data, seq, updated_at FROM records WHERE collection = 'tasks' ORDER BY updated_at DESC LIMIT ?`)
-      .bind(HOME_SCAN_LIMIT + 1)
-      .all<RawRow>(),
-    env.DB
-      .prepare(
-        `SELECT id, channel, subject, last_inbound_at, last_outbound_at, last_message_at, assignee_id
+  const now = Date.now();
+  const todayKey = workspaceToday(now, timeZone);
+  const weekEndKey = addDays(todayKey, 7) ?? todayKey;
+
+  const [batchRes, pendingApprovals] = await Promise.all([
+    env.DB.batch([
+      sessionAuthStmt(env.DB, actorId, tokenHash, now),
+      actorGrantsStmt(env.DB, actorId),
+      env.DB.prepare(`SELECT id, data FROM records WHERE collection = 'boards' LIMIT 200`),
+      env.DB
+        .prepare(`SELECT id, data, seq, updated_at FROM records WHERE collection = 'tasks' ORDER BY updated_at DESC LIMIT ?`)
+        .bind(HOME_SCAN_LIMIT + 1),
+      env.DB.prepare(
+        `SELECT id, data FROM records
+         WHERE collection = 'links'
+           AND json_extract(data, '$.deleted') IS NOT 1
+           AND json_extract(data, '$.kind') = 'relation'
+           AND json_extract(data, '$.fieldId') = 'f_programme'
+         LIMIT 1000`,
+      ),
+      env.DB.prepare(
+        `SELECT id, channel, person_id, organisation_id, application_id, subject, last_inbound_at, last_outbound_at, last_message_at, assignee_id
          FROM crm_conversations
          WHERE state = 'open'
            AND last_inbound_at IS NOT NULL
            AND (last_outbound_at IS NULL OR last_inbound_at > last_outbound_at)
          ORDER BY last_inbound_at DESC, id DESC
-         LIMIT 40`,
-      )
-      .all<{
-        id: string;
-        channel: string;
-        subject: string;
-        last_inbound_at: number;
-        last_outbound_at: number | null;
-        last_message_at: number;
-        assignee_id: string | null;
-      }>(),
+         LIMIT 60`,
+      ),
+      env.DB.prepare(`SELECT slug, programme_record_id, profile_json FROM crm_programme_profiles`),
+    ]),
     listApprovals(env.DB, { userId: actorId, mine: 'approver', status: 'pending', limit: 30 }),
   ]);
 
-  let partial = tasksRes.results.length > HOME_SCAN_LIMIT;
+  const [sessionRes, grantsRes, boardsRes, tasksRes, progLinksRes, convsRes, progProfilesRes] = batchRes;
+  const batchAuth = evaluateCrmReadAuthRows(
+    sessionRes.results[0] as CrmSessionRow | undefined,
+    grantsRes.results as unknown as CrmGrantRow[],
+  );
+  if (!batchAuth.ok) return { status: batchAuth.status, body: batchAuth.body };
+
+  const taskRows = tasksRes.results as unknown as RawRow[];
+  let partial = taskRows.length > HOME_SCAN_LIMIT;
   const boardKeyById = new Map<string, string>();
-  for (const b of boardsRes.results) {
+  for (const b of boardsRes.results as unknown as { id: string; data: string }[]) {
     const pd = parseJsonSafe(b.data);
     if (!pd || pd.deleted === true) continue;
     if (typeof pd.templateDbKey === 'string') boardKeyById.set(b.id, pd.templateDbKey);
@@ -838,7 +896,7 @@ export async function readCrmHome(
 
   const gate = createReadGate(env.DB, actorId);
   const parsedTasks: { id: string; rev: number; updatedAt: number; boardKey?: string; boardId: string; data: Record<string, unknown> }[] = [];
-  for (const row of tasksRes.results.slice(0, HOME_SCAN_LIMIT)) {
+  for (const row of taskRows.slice(0, HOME_SCAN_LIMIT)) {
     const data = parseJsonSafe(row.data);
     if (!data || data.deleted === true || data.archived === true) continue;
     const bId = typeof data.boardId === 'string' ? data.boardId : '';
@@ -855,18 +913,84 @@ export async function readCrmHome(
     }
   }
 
-  const [keptTasks, canReadAppr] = await Promise.all([
+  const convRows = convsRes.results as unknown as {
+    id: string;
+    channel: string;
+    person_id: string | null;
+    organisation_id: string | null;
+    application_id: string | null;
+    subject: string;
+    last_inbound_at: number;
+    last_outbound_at: number | null;
+    last_message_at: number;
+    assignee_id: string | null;
+  }[];
+  const convLinkedIds = [
+    ...new Set(
+      convRows.flatMap((c) => [c.person_id, c.organisation_id, c.application_id]).filter((id): id is string => Boolean(id)),
+    ),
+  ];
+
+  const [keptTasks, readableConvLinked, canReadAppr] = await Promise.all([
     gate.filter(parsedTasks.map((t) => ({ id: t.id, rev: t.rev }))),
+    loadReadableTaskRecords(env, gate, convLinkedIds),
     readableTargets(env.DB, actorId, pendingApprovals, gate),
   ]);
   const readableIds = new Set(keptTasks.map((t) => t.id));
 
+  const targetDaysBySlug = new Map<string, number | null>();
+  for (const p of CRM_PROGRAMMES) {
+    targetDaysBySlug.set(p.slug, p.defaultProfile.responseTargetDays);
+  }
+  const slugByProgRecordId = new Map<string, string>();
+  const progByTitle = extractTitleSlugMap();
+
+  for (const rec of parsedTasks) {
+    if (!readableIds.has(rec.id) || rec.boardKey !== 'programs') continue;
+    const slug =
+      (typeof rec.data._crm_programme_slug === 'string' && rec.data._crm_programme_slug) ||
+      (typeof rec.data.p_f_slug === 'string' && rec.data.p_f_slug.trim()) ||
+      (typeof rec.data.title === 'string' ? progByTitle.get(rec.data.title.trim().toLowerCase()) : undefined);
+    if (slug && CRM_PROGRAMME_BY_SLUG.has(slug)) {
+      slugByProgRecordId.set(rec.id, slug);
+    }
+  }
+
+  for (const row of progProfilesRes.results as unknown as { slug: string; programme_record_id: string | null; profile_json: string }[]) {
+    if (row.programme_record_id && !slugByProgRecordId.has(row.programme_record_id) && CRM_PROGRAMME_BY_SLUG.has(row.slug)) {
+      slugByProgRecordId.set(row.programme_record_id, row.slug);
+    }
+    try {
+      const parsed = ProgrammeProfileV1Schema.safeParse(JSON.parse(row.profile_json));
+      if (parsed.success) {
+        targetDaysBySlug.set(row.slug, parsed.data.responseTargetDays);
+      }
+    } catch {
+      /* retain canonical default */
+    }
+  }
+
+  const progSlugByAppId = new Map<string, string>();
+  for (const linkRow of progLinksRes.results as unknown as { id: string; data: string }[]) {
+    const ld = parseJsonSafe(linkRow.data);
+    if (!ld || ld.deleted === true) continue;
+    const fromId = typeof ld.fromId === 'string' ? ld.fromId : '';
+    const toId = typeof ld.toId === 'string' ? ld.toId : '';
+    const slug = slugByProgRecordId.get(toId) ?? slugByProgRecordId.get(fromId);
+    if (!slug) continue;
+    const appId = slugByProgRecordId.has(toId) ? fromId : toId;
+    if (!progSlugByAppId.has(appId)) progSlugByAppId.set(appId, slug);
+  }
+
   const today: HomeWorkItemDto[] = [];
+  const shared: HomeWorkItemDto[] = [];
   const thisWeek: HomeWorkItemDto[] = [];
   const recently: HomeWorkItemDto[] = [];
   let ageingApplications = 0;
   let dueFollowUps = 0;
   let unansweredConversations = 0;
+  let unassignedFollowUps = 0;
+  let unassignedConversations = 0;
   let pendingApprovalsCount = 0;
 
   for (const ap of pendingApprovals) {
@@ -885,24 +1009,44 @@ export async function readCrmHome(
     });
   }
 
-  for (const conv of convsRes.results) {
-    unansweredConversations += 1;
-    today.push({
-      id: `conv:${conv.id}`,
-      kind: 'conversation_unanswered',
-      title: conv.subject || `Unanswered ${conv.channel} thread`,
-      subtitle: `${conv.channel} awaiting reply`,
-      dueTs: conv.last_inbound_at,
-      updatedTs: conv.last_message_at,
-      route: `/crm/conversations/${conv.id}`,
-      urgency: 'high',
-      conversationId: conv.id,
-    });
+  for (const conv of convRows) {
+    const linkedOk =
+      (!conv.person_id || readableConvLinked.has(conv.person_id)) &&
+      (!conv.organisation_id || readableConvLinked.has(conv.organisation_id)) &&
+      (!conv.application_id || readableConvLinked.has(conv.application_id));
+    if (!linkedOk) {
+      partial = true;
+      continue;
+    }
+    if (conv.assignee_id === actorId) {
+      unansweredConversations += 1;
+      today.push({
+        id: `conv:${conv.id}`,
+        kind: 'conversation_unanswered',
+        title: conv.subject || `Unanswered ${conv.channel} thread`,
+        subtitle: `${conv.channel} · assigned to you`,
+        dueTs: conv.last_inbound_at,
+        updatedTs: conv.last_message_at,
+        route: `/crm/conversations/${conv.id}`,
+        urgency: 'high',
+        conversationId: conv.id,
+      });
+    } else if (!conv.assignee_id) {
+      unansweredConversations += 1;
+      unassignedConversations += 1;
+      shared.push({
+        id: `conv:${conv.id}`,
+        kind: 'conversation_unanswered',
+        title: conv.subject || `Unassigned ${conv.channel} thread`,
+        subtitle: `${conv.channel} · unassigned awaiting reply`,
+        dueTs: conv.last_inbound_at,
+        updatedTs: conv.last_message_at,
+        route: `/crm/conversations/${conv.id}`,
+        urgency: 'normal',
+        conversationId: conv.id,
+      });
+    }
   }
-
-  const defaultAppTargetDays =
-    CRM_PROGRAMMES.find((p) => p.defaultProfile.responseTargetDays !== null)?.defaultProfile
-      .responseTargetDays ?? 5;
 
   for (const rec of parsedTasks) {
     if (!readableIds.has(rec.id)) continue;
@@ -911,38 +1055,83 @@ export async function readCrmHome(
     if (rec.boardKey === 'activities') {
       const done = rec.data.status === 'done' || rec.data.p_f_done === true;
       if (!done) {
-        const whenStr =
-          (typeof rec.data.p_f_when === 'string' && rec.data.p_f_when) ||
-          (typeof rec.data.p_f_due === 'string' && rec.data.p_f_due) ||
+        const ownerId =
+          (typeof rec.data.p_f_owner === 'string' && rec.data.p_f_owner.trim()) ||
+          (typeof rec.data.assigneeId === 'string' && rec.data.assigneeId.trim()) ||
           null;
-        const whenMs = whenStr && Number.isFinite(Date.parse(whenStr)) ? Date.parse(whenStr) : null;
-        if (whenMs !== null && whenMs <= todayEndMs) {
-          dueFollowUps += 1;
-          today.push({
-            id: `act:${rec.id}`,
-            kind: whenMs < now ? 'followup_overdue' : 'followup_due',
-            title,
-            subtitle: whenMs < now ? 'Overdue follow-up' : 'Due today',
-            dueTs: whenMs,
-            updatedTs: rec.updatedAt,
-            route: '/crm/activities',
-            urgency: whenMs < now ? 'high' : 'normal',
-            recordId: rec.id,
-            boardId: rec.boardId,
-          });
-        } else if (whenMs !== null && whenMs <= weekEndMs) {
-          thisWeek.push({
-            id: `act:${rec.id}`,
-            kind: 'followup_due',
-            title,
-            subtitle: `Scheduled ${new Date(whenMs).toISOString().slice(0, 10)}`,
-            dueTs: whenMs,
-            updatedTs: rec.updatedAt,
-            route: '/crm/activities',
-            urgency: 'low',
-            recordId: rec.id,
-            boardId: rec.boardId,
-          });
+        const rawDue = typeof rec.data.p_f_due === 'string' ? rec.data.p_f_due.trim() : '';
+        const rawWhen = typeof rec.data.p_f_when === 'string' ? rec.data.p_f_when.trim() : '';
+        let dueKey: string | null = null;
+        let dueTs: number | null = null;
+        if (parseDateOnly(rawDue)) {
+          dueKey = rawDue;
+          dueTs =
+            (rawWhen && Number.isFinite(Date.parse(rawWhen)) ? Date.parse(rawWhen) : null) ??
+            dateOnlyStartInZone(dueKey, timeZone);
+        } else if (rawWhen && Number.isFinite(Date.parse(rawWhen))) {
+          dueTs = Date.parse(rawWhen);
+          dueKey = toDateOnlyInZone(dueTs, timeZone);
+        }
+
+        if (dueKey) {
+          if (ownerId === actorId) {
+            if (dueKey < todayKey) {
+              dueFollowUps += 1;
+              today.push({
+                id: `act:${rec.id}`,
+                kind: 'followup_overdue',
+                title,
+                subtitle: 'Overdue follow-up',
+                dueTs,
+                updatedTs: rec.updatedAt,
+                route: '/crm/activities',
+                urgency: 'high',
+                recordId: rec.id,
+                boardId: rec.boardId,
+              });
+            } else if (dueKey === todayKey) {
+              dueFollowUps += 1;
+              today.push({
+                id: `act:${rec.id}`,
+                kind: 'followup_due',
+                title,
+                subtitle: 'Due today',
+                dueTs,
+                updatedTs: rec.updatedAt,
+                route: '/crm/activities',
+                urgency: 'normal',
+                recordId: rec.id,
+                boardId: rec.boardId,
+              });
+            } else if (dueKey > todayKey && dueKey <= weekEndKey) {
+              thisWeek.push({
+                id: `act:${rec.id}`,
+                kind: 'followup_due',
+                title,
+                subtitle: `Scheduled ${dueKey}`,
+                dueTs,
+                updatedTs: rec.updatedAt,
+                route: '/crm/activities',
+                urgency: 'low',
+                recordId: rec.id,
+                boardId: rec.boardId,
+              });
+            }
+          } else if (ownerId === null && dueKey <= todayKey) {
+            unassignedFollowUps += 1;
+            shared.push({
+              id: `act:${rec.id}`,
+              kind: dueKey < todayKey ? 'followup_overdue' : 'followup_due',
+              title,
+              subtitle: dueKey < todayKey ? `Unassigned · overdue (${dueKey})` : `Unassigned · due ${dueKey}`,
+              dueTs,
+              updatedTs: rec.updatedAt,
+              route: '/crm/activities',
+              urgency: dueKey < todayKey ? 'high' : 'normal',
+              recordId: rec.id,
+              boardId: rec.boardId,
+            });
+          }
         }
       }
     }
@@ -950,22 +1139,35 @@ export async function readCrmHome(
     if (rec.boardKey === 'applications') {
       const status = typeof rec.data.status === 'string' ? rec.data.status : 'received';
       const terminal = ['accepted', 'declined', 'withdrawn', 'not_now', 'converted'].includes(status);
-      const createdAt = Number(rec.data.createdAt ?? rec.updatedAt ?? now);
-      const ageDays = Math.floor((now - createdAt) / DAY_MS);
-      if (!terminal && ageDays >= defaultAppTargetDays) {
-        ageingApplications += 1;
-        thisWeek.push({
-          id: `app:${rec.id}`,
-          kind: 'application_ageing',
-          title,
-          subtitle: `${ageDays}d in ${status.replace(/_/g, ' ')}`,
-          dueTs: createdAt,
-          updatedTs: rec.updatedAt,
-          route: `/crm/applications/${rec.id}`,
-          urgency: 'normal',
-          recordId: rec.id,
-          boardId: rec.boardId,
-        });
+      if (!terminal) {
+        const formId = typeof rec.data.p_f_form === 'string' ? rec.data.p_f_form : undefined;
+        const progSlug =
+          (typeof rec.data._crm_programme_slug === 'string' && rec.data._crm_programme_slug) ||
+          progSlugByAppId.get(rec.id) ||
+          programmeForWebsiteForm(formId)?.slug ||
+          null;
+        const targetDays = progSlug ? (targetDaysBySlug.get(progSlug) ?? null) : null;
+        if (targetDays !== null) {
+          const createdAt = Number(rec.data.createdAt ?? rec.updatedAt ?? now);
+          const createdKey = toDateOnlyInZone(createdAt, timeZone) ?? todayKey;
+          const ageDays = Math.max(0, daysBetween(createdKey, todayKey) ?? 0);
+          if (ageDays >= targetDays) {
+            ageingApplications += 1;
+            const progName = CRM_PROGRAMME_BY_SLUG.get(progSlug!)?.name ?? progSlug ?? 'Programme';
+            thisWeek.push({
+              id: `app:${rec.id}`,
+              kind: 'application_ageing',
+              title,
+              subtitle: `${progName} · ${ageDays}d (target ${targetDays}d)`,
+              dueTs: createdAt,
+              updatedTs: rec.updatedAt,
+              route: `/crm/applications/${rec.id}`,
+              urgency: 'normal',
+              recordId: rec.id,
+              boardId: rec.boardId,
+            });
+          }
+        }
       }
     }
 
@@ -997,10 +1199,14 @@ export async function readCrmHome(
     }
   }
 
+  const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate });
+  if (!finalAuth.ok) return { status: finalAuth.status, body: finalAuth.body };
+
   return {
     status: 200,
     body: {
       today: today.slice(0, 25),
+      shared: shared.slice(0, 25),
       thisWeek: thisWeek.slice(0, 25),
       recently: recently.slice(0, 15),
       counts: {
@@ -1008,6 +1214,8 @@ export async function readCrmHome(
         pendingApprovals: pendingApprovalsCount,
         dueFollowUps,
         unansweredConversations,
+        unassignedFollowUps,
+        unassignedConversations,
       },
       partial,
     },

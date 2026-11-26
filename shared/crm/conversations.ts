@@ -148,6 +148,11 @@ export const SaveMessageDraftInputSchema = z.object({
   conversationId: z.string().min(1).max(128),
   messageId: z.string().min(1).max(128).optional(),
   bodyText: z.string().trim().min(1).max(8000),
+  aiMetadata: z.object({
+    citedFactIds: z.array(z.string().max(64)).max(50),
+    unconfirmedItems: z.array(z.string().max(300)).max(50),
+    staleFactWarnings: z.array(z.string().max(300)).max(50).optional(),
+  }).strict().optional(),
 }).strict();
 export type SaveMessageDraftInput = z.infer<typeof SaveMessageDraftInputSchema>;
 

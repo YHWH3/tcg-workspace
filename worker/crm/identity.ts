@@ -33,11 +33,18 @@ import { createReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
 import {
+  actorGrantsStmt,
   crmActorFence,
   decodeTimeIdCursor,
   encodeTimeIdCursor,
+  evaluateCrmReadAuthRows,
+  finalizeCrmReadAuth,
   loadCrmReadContext,
   loadReadableTaskRecord,
+  loadReadableTaskRecords,
+  sessionAuthStmt,
+  type CrmGrantRow,
+  type CrmSessionRow,
 } from './read';
 import { canAccessCrmApi, evaluateCapability } from './rules';
 
@@ -967,10 +974,15 @@ export async function readPersonDetail(
   const auth = await loadCrmReadContext(env, actorId, tokenHash);
   if (!auth.ok) return auth;
 
-  const person = await loadReadableTaskRecord(env, actorId, personId);
+  const gate = createReadGate(env.DB, actorId);
+  const personMap = await loadReadableTaskRecords(env, gate, [personId]);
+  const person = personMap.get(personId);
   if (!person) return { status: 404, body: { error: 'not_found' } };
 
-  const [epRes, consentRes, dupRes] = await env.DB.batch([
+  const batchNow = Date.now();
+  const [sessionRes, grantsRes, epRes, consentRes, dupRes] = await env.DB.batch([
+    sessionAuthStmt(env.DB, actorId, tokenHash, batchNow),
+    actorGrantsStmt(env.DB, actorId),
     env.DB
       .prepare(`SELECT * FROM crm_endpoints WHERE person_id = ? ORDER BY retired_at IS NOT NULL ASC, is_primary DESC, created_at ASC`)
       .bind(person.id),
@@ -990,14 +1002,24 @@ export async function readPersonDetail(
       .bind(person.id, person.id),
   ]);
 
+  const batchAuth = evaluateCrmReadAuthRows(
+    sessionRes.results[0] as CrmSessionRow | undefined,
+    grantsRes.results as unknown as CrmGrantRow[],
+  );
+  if (!batchAuth.ok) return batchAuth;
+
   const endpoints = (epRes.results as unknown as EndpointRow[]).map(mapEndpoint);
   const consentHistory = (consentRes.results as unknown as ConsentRow[]).map(mapConsent);
   const latestConsents = latestConsentsFromHistory(consentRes.results as unknown as ConsentRow[]);
 
   const dupRows = dupRes.results as unknown as DuplicateRow[];
-  const gate = createReadGate(env.DB, actorId);
   const peerIds = dupRows.map((d) => (d.person_a_id === person.id ? d.person_b_id : d.person_a_id));
-  const readablePeers = new Set((await gate.filter(peerIds.map((id) => ({ id })))).map((r) => r.id));
+  const readablePeers = peerIds.length
+    ? new Set((await gate.filter(peerIds.map((id) => ({ id })))).map((r) => r.id))
+    : new Set<string>();
+
+  const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate, deniedStatus: 404 });
+  if (!finalAuth.ok) return finalAuth;
 
   const duplicateCandidates: DuplicateCandidateDto[] = dupRows
     .filter((d) => readablePeers.has(d.person_a_id === person.id ? d.person_b_id : d.person_a_id))
@@ -1048,8 +1070,9 @@ export async function readDuplicates(
     return { status: 400, body: { error: 'invalid_cursor' } };
   }
 
-  const res = cursor
-    ? await env.DB
+  const batchNow = Date.now();
+  const dupStmt = cursor
+    ? env.DB
         .prepare(
           `SELECT d.*, ra.data AS a_data, rb.data AS b_data
            FROM crm_duplicate_candidates d
@@ -1060,8 +1083,7 @@ export async function readDuplicates(
            LIMIT ?`,
         )
         .bind(state, cursor.ts, cursor.ts, cursor.id, DUPLICATES_PAGE_LIMIT + 1)
-        .all<DuplicateRow>()
-    : await env.DB
+    : env.DB
         .prepare(
           `SELECT d.*, ra.data AS a_data, rb.data AS b_data
            FROM crm_duplicate_candidates d
@@ -1071,15 +1093,30 @@ export async function readDuplicates(
            ORDER BY d.created_at DESC, d.id DESC
            LIMIT ?`,
         )
-        .bind(state, DUPLICATES_PAGE_LIMIT + 1)
-        .all<DuplicateRow>();
+        .bind(state, DUPLICATES_PAGE_LIMIT + 1);
 
-  const rows = res.results;
+  const [sessionRes, grantsRes, res] = await env.DB.batch([
+    sessionAuthStmt(env.DB, actorId, tokenHash, batchNow),
+    actorGrantsStmt(env.DB, actorId),
+    dupStmt,
+  ]);
+  const batchAuth = evaluateCrmReadAuthRows(
+    sessionRes.results[0] as CrmSessionRow | undefined,
+    grantsRes.results as unknown as CrmGrantRow[],
+  );
+  if (!batchAuth.ok) return batchAuth;
+
+  const rows = res.results as unknown as DuplicateRow[];
   const hasMore = rows.length > DUPLICATES_PAGE_LIMIT;
   const page = hasMore ? rows.slice(0, DUPLICATES_PAGE_LIMIT) : rows;
   const gate = createReadGate(env.DB, actorId);
   const allPersonIds = [...new Set(page.flatMap((r) => [r.person_a_id, r.person_b_id]))];
-  const readableSet = new Set((await gate.filter(allPersonIds.map((id) => ({ id })))).map((r) => r.id));
+  const readableSet = allPersonIds.length
+    ? new Set((await gate.filter(allPersonIds.map((id) => ({ id })))).map((r) => r.id))
+    : new Set<string>();
+
+  const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate });
+  if (!finalAuth.ok) return finalAuth;
 
   let partial = hasMore;
   const items: DuplicateCandidateDto[] = [];

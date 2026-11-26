@@ -40,7 +40,11 @@ export function CrmHome({ status }: { status: CrmStatus }) {
   }, [loadHome]);
 
   const hasWork = Boolean(
-    home && (home.today.length > 0 || home.thisWeek.length > 0 || home.recently.length > 0),
+    home &&
+      (home.today.length > 0 ||
+        home.shared.length > 0 ||
+        home.thisWeek.length > 0 ||
+        home.recently.length > 0),
   );
 
   return (
@@ -95,6 +99,12 @@ export function CrmHome({ status }: { status: CrmStatus }) {
               <span>{home.counts.ageingApplications} ageing apps</span>
               <span>·</span>
               <span>{home.counts.dueFollowUps} due follow-ups</span>
+              {(home.counts.unassignedConversations + home.counts.unassignedFollowUps) > 0 && (
+                <>
+                  <span>·</span>
+                  <span>{home.counts.unassignedConversations + home.counts.unassignedFollowUps} unassigned</span>
+                </>
+              )}
               <button
                 type="button"
                 disabled={loading || isOffline}
@@ -118,6 +128,28 @@ export function CrmHome({ status }: { status: CrmStatus }) {
               <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">Today</h3>
               <ul className="space-y-1.5">
                 {home.today.slice(0, 8).map((item) => (
+                  <li key={item.id}>
+                    <Link
+                      to={item.route}
+                      className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-[var(--crm-border)] bg-[var(--crm-bg)] px-3 py-2 text-xs hover:bg-[var(--crm-surface-2)]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">{item.title}</p>
+                        <p className="truncate text-[var(--crm-text-muted)]">{item.subtitle}</p>
+                      </div>
+                      <ArrowRight size={14} aria-hidden="true" className="shrink-0 text-[var(--crm-text-muted)]" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {home.shared.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">Shared / Unassigned</h3>
+              <ul className="space-y-1.5">
+                {home.shared.slice(0, 8).map((item) => (
                   <li key={item.id}>
                     <Link
                       to={item.route}

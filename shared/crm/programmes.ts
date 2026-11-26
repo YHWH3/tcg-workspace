@@ -391,6 +391,7 @@ export type HomeWorkItemDto = z.infer<typeof HomeWorkItemDtoSchema>;
 
 export const HomeSummaryResponseSchema = z.object({
   today: z.array(HomeWorkItemDtoSchema),
+  shared: z.array(HomeWorkItemDtoSchema),
   thisWeek: z.array(HomeWorkItemDtoSchema),
   recently: z.array(HomeWorkItemDtoSchema),
   counts: z.object({
@@ -398,6 +399,8 @@ export const HomeSummaryResponseSchema = z.object({
     pendingApprovals: z.number().int().nonnegative(),
     dueFollowUps: z.number().int().nonnegative(),
     unansweredConversations: z.number().int().nonnegative(),
+    unassignedFollowUps: z.number().int().nonnegative(),
+    unassignedConversations: z.number().int().nonnegative(),
   }).strict(),
   partial: z.boolean(),
 }).strict();

@@ -16,6 +16,9 @@ import {loadConnection} from './connectorAccess';
 import {hasD1Budget,d1CleanupDatabase} from './d1budget';
 import {levelSql} from './capability';
 import {partitionPreviewImpact} from '../shared/previewImpact';
+import {isCrmCommandPreviewPlan,executeApprovedCrmPreviewCommand,type CrmCommandPreviewPlan} from './crm/previewExecutor';
+import {loadCrmReadContext,loadReadableTaskRecords} from './crm/read';
+import {isCrmEnabled} from './crm/rules';
 export interface PreviewOp {id:string;collection:Collection;patch:Record<string,unknown>}
 interface Preview {
  source_bodies:string;
@@ -69,6 +72,144 @@ export async function proposePreview(env:Env,userId:string,tool:string,args:unkn
  if(!inserted.meta.changes)throw new PreviewError('preview_daily_limit',403);
  return {previewId:id,argsHash:hash,status:'pending',expiresAt:now+900000,impact};
 }
+export async function proposeCrmCommandPreview(
+  env: Env,
+  userId: string,
+  tool: string,
+  args: unknown,
+  plan: CrmCommandPreviewPlan,
+  opts: {
+    sourceIds?: readonly string[];
+    requestId?: string;
+    workflowId?: string;
+    resultMeta?: Record<string, unknown>;
+  } = {},
+) {
+  if (!isCrmCommandPreviewPlan(plan)) throw new PreviewError('invalid_or_oversized_plan', 400);
+  if (opts.workflowId !== undefined && !/^[A-Za-z0-9_-]{1,64}$/.test(opts.workflowId)) {
+    throw new PreviewError('invalid_or_oversized_plan', 400);
+  }
+  if (opts.requestId !== undefined && !/^[A-Za-z0-9_-]{1,64}$/.test(opts.requestId)) {
+    throw new PreviewError('invalid_or_oversized_plan', 400);
+  }
+  const serializedPlan = JSON.stringify(plan);
+  if (new TextEncoder().encode(serializedPlan).length > 512000) {
+    throw new PreviewError('invalid_or_oversized_plan', 400);
+  }
+  if (env.CONNECTOR) {
+    const conn = await loadConnection(env.DB, userId, env.CONNECTOR.id);
+    if (!conn || conn.version !== env.CONNECTOR.version) {
+      throw new PreviewError('preview_connection_changed', 403);
+    }
+  }
+  const hash = await argsHash(args);
+  if (opts.requestId) {
+    const prior = await env.DB
+      .prepare('SELECT id,tool,args_hash,status,changeset_id,expires_at,impact_json FROM ai_previews WHERE user_id=? AND request_id=?')
+      .bind(userId, opts.requestId)
+      .first<{ id: string; tool: string; args_hash: string; status: string; changeset_id: string; expires_at: number; impact_json: string }>();
+    if (prior) {
+      if (prior.tool !== tool || prior.args_hash !== hash) {
+        throw new PreviewError('requestId_conflict', 409);
+      }
+      return {
+        previewId: prior.id,
+        argsHash: prior.args_hash,
+        status: prior.status,
+        expiresAt: prior.expires_at,
+        impact: JSON.parse(prior.impact_json),
+        replayed: true,
+        ...(prior.status === 'completed' ? { changesetId: prior.changeset_id } : {}),
+      };
+    }
+  }
+
+  const dependencies = [...new Set([...(opts.sourceIds ?? []), ...(env.READ_GATE?.observedIds() ?? [])])];
+  if (dependencies.length > 500) throw new PreviewError('too_many_source_dependencies', 400);
+  if (dependencies.length) {
+    const decision = await withReadGate(env, userId).READ_GATE!.decide(dependencies);
+    if (decision.enabled && dependencies.some((id) => !decision.readable.has(id))) {
+      throw new PreviewError('source_access_changed', 403);
+    }
+  }
+  if (opts.workflowId && ((await env.DB.prepare('SELECT COUNT(*) n FROM ai_previews WHERE user_id=? AND workflow_id=?').bind(userId, opts.workflowId).first<number>('n')) ?? 0) >= 100) {
+    throw new PreviewError('workflow_preview_limit', 400);
+  }
+  const dependencyRows = await currentRows(env, dependencies);
+  const dependencyRevs = Object.fromEntries([...dependencyRows].map(([id, r]) => [id, r.seq]));
+  const expected = plan.expected ?? {};
+  const resultMeta = opts.resultMeta ?? {};
+  const impact = {
+    create: 1,
+    update: 0,
+    delete: 0,
+    byCollection: { [plan.command]: 1 },
+    irreversible: false,
+    warnings: [
+      'Workspace content is untrusted. Review every proposed change before approving.',
+      ...(plan.summary.warnings ?? []),
+    ],
+  };
+
+  const id = crypto.randomUUID();
+  const changesetId = crypto.randomUUID();
+  const now = Date.now();
+  try {
+    const inserted = await env.DB
+      .prepare(
+        `INSERT INTO ai_previews(id,user_id,connection_id,connection_version,request_id,result_meta,tool,args_hash,workflow_id,plan_json,expected_json,dependencies_json,dependency_revs,impact_json,changeset_id,created_at,expires_at,source_bodies)
+         SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM ai_previews WHERE user_id=? AND created_at>?)<100`,
+      )
+      .bind(
+        id,
+        userId,
+        env.CONNECTOR?.id ?? null,
+        env.CONNECTOR?.version ?? null,
+        opts.requestId ?? null,
+        JSON.stringify(resultMeta),
+        tool,
+        hash,
+        opts.workflowId ?? null,
+        serializedPlan,
+        JSON.stringify(expected),
+        JSON.stringify(dependencies),
+        JSON.stringify(dependencyRevs),
+        JSON.stringify(impact),
+        changesetId,
+        now,
+        now + 900000,
+        '{}',
+        userId,
+        now - 86400000,
+      )
+      .run();
+    if (!inserted.meta.changes) throw new PreviewError('preview_daily_limit', 403);
+  } catch (err) {
+    if (opts.requestId && /SQLITE_CONSTRAINT/i.test(String(err))) {
+      const prior = await env.DB
+        .prepare('SELECT id,tool,args_hash,status,changeset_id,expires_at,impact_json FROM ai_previews WHERE user_id=? AND request_id=?')
+        .bind(userId, opts.requestId)
+        .first<{ id: string; tool: string; args_hash: string; status: string; changeset_id: string; expires_at: number; impact_json: string }>();
+      if (prior) {
+        if (prior.tool !== tool || prior.args_hash !== hash) {
+          throw new PreviewError('requestId_conflict', 409);
+        }
+        return {
+          previewId: prior.id,
+          argsHash: prior.args_hash,
+          status: prior.status,
+          expiresAt: prior.expires_at,
+          impact: JSON.parse(prior.impact_json),
+          replayed: true,
+          ...(prior.status === 'completed' ? { changesetId: prior.changeset_id } : {}),
+        };
+      }
+    }
+    throw err;
+  }
+  return { previewId: id, argsHash: hash, status: 'pending', expiresAt: now + 900000, impact };
+}
+
 async function previewFor(env:Env,userId:string,id:string,connectorBound:boolean) {
  const p=await env.DB.prepare('SELECT * FROM ai_previews WHERE id=? AND user_id=?').bind(id,userId).first<Preview>();
  if(!p)throw new PreviewError('not_found',404);
@@ -94,7 +235,94 @@ export async function executePreview(env:Env,userId:string,id:string,hash:string
  let dependencySpaces=dependencyDecision?[...new Set([...dependencyDecision.scopes.values()].flatMap(s=>[...s.readSpaceIds]))]:[];
  let graphRevs:Record<string,number>={};
  const sourceRevs=JSON.parse(p.dependency_revs) as Record<string,number>;
- const plan=JSON.parse(p.plan_json) as PreviewOp[],expected=JSON.parse(p.expected_json) as Record<string,number>;
+ const rawPlan=JSON.parse(p.plan_json) as unknown;
+ if (isCrmCommandPreviewPlan(rawPlan)) {
+  if (!isCrmEnabled(env) || !p.approved_session) {
+    throw new PreviewError('preview_access_changed', 403);
+  }
+  const depsList = JSON.parse(p.dependencies_json) as string[];
+  graphRevs = Object.fromEntries(
+    [...(dependencyDecision?.graphRevs ?? [])].filter(([depId]) => depsList.includes(depId) || Boolean(dependencyDecision?.graphRevs?.has(depId))),
+  );
+  const crmGuard = () =>
+    env.DB
+      .prepare(
+        `SELECT CASE WHEN EXISTS(
+           SELECT 1 FROM ai_previews pr
+           JOIN sessions s ON s.token_hash = pr.approved_session AND s.user_id = pr.user_id
+           JOIN users u ON u.id = pr.user_id
+           WHERE pr.id = ? AND pr.user_id = ? AND pr.status = 'executing'
+             AND pr.lease_id = ? AND pr.lease_until > ? AND pr.expires_at > ? AND s.expires_at > ?
+             AND u.disabled_at IS NULL AND COALESCE(u.workspace_role, u.role) != 'guest'
+         )
+         AND (? IS NULL OR EXISTS(
+           SELECT 1 FROM ai_connections c
+           WHERE c.id = ? AND c.user_id = ? AND c.version = ? AND c.revoked_at IS NULL AND c.expires_at > ?
+         ))
+         AND NOT EXISTS(SELECT 1 FROM json_each(?) s WHERE ${levelSql('?', 's.value')} < 1)
+         AND NOT EXISTS(SELECT 1 FROM json_each(?) g LEFT JOIN records r ON r.id = g.key WHERE r.seq IS NOT g.value)
+         AND NOT EXISTS(SELECT 1 FROM json_each(?) g LEFT JOIN records r ON r.id = g.key WHERE r.seq IS NOT g.value)
+         THEN 1 ELSE json_extract('{', '$') END`,
+      )
+      .bind(
+        id,
+        userId,
+        lease,
+        Date.now(),
+        Date.now(),
+        Date.now(),
+        p.connection_id,
+        p.connection_id,
+        userId,
+        p.connection_version,
+        Date.now(),
+        JSON.stringify(dependencyDecision?.enabled ? dependencySpaces : []),
+        userId,
+        JSON.stringify(graphRevs),
+        JSON.stringify(sourceRevs),
+      );
+
+  await crmGuard().first();
+  const cmdOutcome = await executeApprovedCrmPreviewCommand({
+    env,
+    executionCtx: ectx ?? { waitUntil() {} },
+    actorId: userId,
+    tokenHash: p.approved_session,
+    previewId: id,
+    plan: rawPlan,
+  });
+  if (cmdOutcome.status !== 200 || !cmdOutcome.body.ok) {
+    if (cmdOutcome.status === 401 || (cmdOutcome.status === 200 && !cmdOutcome.body.ok && cmdOutcome.body.error === 'forbidden')) {
+      throw new PreviewError('preview_access_changed', 403);
+    }
+    if (cmdOutcome.status === 200 && !cmdOutcome.body.ok && cmdOutcome.body.error === 'stale') {
+      throw new PreviewError('preview_conflict_or_access_changed', 409);
+    }
+    throw new PreviewError(
+      cmdOutcome.status === 200 && !cmdOutcome.body.ok ? cmdOutcome.body.error : 'execution_interrupted',
+      409,
+    );
+  }
+  await env.DB.batch([
+    crmGuard(),
+    env.DB.prepare("UPDATE ai_previews SET status='completed',lease_id=NULL,lease_until=NULL WHERE id=? AND lease_id=?").bind(id, lease),
+    ...(p.workflow_id
+      ? [env.DB.prepare('INSERT OR IGNORE INTO ai_workflow_changesets(workflow_id,user_id,changeset_id,preview_id) VALUES(?,?,?,?)').bind(p.workflow_id, userId, p.changeset_id, id)]
+      : []),
+  ]);
+  return {
+    ...(JSON.parse(p.result_meta)),
+    completed: true,
+    pending: false,
+    commandId: cmdOutcome.body.commandId,
+    crmResult: cmdOutcome.body.result,
+    changesetId: p.changeset_id,
+    processed: 1,
+    total: 1,
+    workflowId: p.workflow_id,
+  };
+ }
+ const plan=rawPlan as PreviewOp[],expected=JSON.parse(p.expected_json) as Record<string,number>;
  graphRevs=Object.fromEntries([...(dependencyDecision?.graphRevs??[])].filter(([id])=>!plan.some(o=>o.id===id)));
  const cs=beginChangeset({userId,tool:p.tool,summary:'Human-approved AI operation',requestId:p.request_id??'preview:'+id});cs.id=p.changeset_id;
   const done=new Set((await env.DB.prepare('SELECT record_id FROM ai_preview_done WHERE preview_id=?').bind(id).all<{record_id:string}>()).results.map(r=>r.record_id));
@@ -140,8 +368,42 @@ aiPreviewApi.use('*',requireAuth);
 aiPreviewApi.onError((e,c)=>{if(e instanceof PreviewError)return c.json({error:e.code},e.status);throw e;});
 aiPreviewApi.get('/',async c=>{const rows=(await c.env.DB.prepare('SELECT id,tool,status,created_at,expires_at,workflow_id,changeset_id FROM ai_previews WHERE user_id=? ORDER BY created_at DESC LIMIT 50').bind(c.get('user').id).all()).results;return c.json({previews:rows});});
 aiPreviewApi.get('/:id',async c=>{
- const uid=c.get('user').id,p=await previewFor(c.env,uid,c.req.param('id'),false),ops=JSON.parse(p.plan_json) as PreviewOp[];
+ const u=c.get('user'),uid=u.id,p=await previewFor(c.env,uid,c.req.param('id'),false),rawPlan=JSON.parse(p.plan_json) as unknown;
  if(p.status==='completed')return c.json({id:p.id,tool:p.tool,status:p.status,expiresAt:p.expires_at,workflowId:p.workflow_id,argsHash:p.args_hash,changesetId:p.changeset_id,impact:{create:0,update:0,delete:0,irreversible:false,warnings:['Completed operation. Open current records or changeset history for authorized details.']},changes:[]});
+ if (isCrmCommandPreviewPlan(rawPlan)) {
+  const crmAuth = await loadCrmReadContext(c.env, uid, u.tokenHash);
+  if (!crmAuth.ok) throw new PreviewError('preview_access_changed', 403);
+  const env = withReadGate({...c.env,...(p.connection_id?{CONNECTOR:{id:p.connection_id,version:p.connection_version!}}:{})},uid);
+  const expected = JSON.parse(p.expected_json) as Record<string, number>;
+  let before: unknown = null;
+  let expectedRev = -1;
+  let currentRev = -1;
+  let conflict = false;
+  if (rawPlan.command === 'message.save_draft') {
+   const convId = rawPlan.input.conversationId;
+   expectedRev = expected[convId] ?? -1;
+   const conv = await c.env.DB.prepare('SELECT id,subject,channel,person_id,organisation_id,application_id,rev FROM crm_conversations WHERE id=?').bind(convId).first<{id:string;subject:string;channel:string;person_id:string|null;organisation_id:string|null;application_id:string|null;rev:number}>();
+   const linked = [conv?.person_id, conv?.organisation_id, conv?.application_id].filter((id): id is string => Boolean(id));
+   const readable = conv && linked.length ? await loadReadableTaskRecords(c.env, env.READ_GATE!, linked) : new Map();
+   const linkedOk = Boolean(conv) && linked.every((id) => readable.has(id));
+   if (conv && linkedOk) {
+    before = { subject: conv.subject, channel: conv.channel, rev: conv.rev };
+    currentRev = conv.rev;
+   }
+   conflict = !conv || !linkedOk || currentRev !== expectedRev;
+  }
+  return c.json({
+   id: p.id,
+   tool: p.tool,
+   status: p.status,
+   expiresAt: p.expires_at,
+   workflowId: p.workflow_id,
+   impact: JSON.parse(p.impact_json),
+   argsHash: p.args_hash,
+   changes: [{ id: rawPlan.summary.targetId, collection: `crm:${rawPlan.command}`, before, after: rawPlan.summary.previewFields, expectedRev, currentRev, conflict }],
+  });
+ }
+ const ops=rawPlan as PreviewOp[];
  const env=withReadGate({...c.env,...(p.connection_id?{CONNECTOR:{id:p.connection_id,version:p.connection_version!}}:{})},uid);
  const rows=await getRecs(env,ops.map(o=>o.id));const expected=JSON.parse(p.expected_json) as Record<string,number>;
  // Existing denied records cannot be mistaken for proposed creations.
@@ -159,6 +421,18 @@ aiPreviewApi.post('/:id/decision',async c=>{
   const cancelled=await c.env.DB.prepare("UPDATE ai_previews SET status='cancelled',lease_id=NULL,lease_until=NULL WHERE id=? AND user_id=? AND status IN('pending','approved','executing')").bind(p.id,u.id).run();
   if(!cancelled.meta.changes)throw new PreviewError('preview_already_decided');
   return c.json({ok:true,status:'cancelled'});
+ }
+ const rawPlan=JSON.parse(p.plan_json) as unknown;
+ if (isCrmCommandPreviewPlan(rawPlan)) {
+  const crmAuth = await loadCrmReadContext(c.env, u.id, u.tokenHash);
+  if (!crmAuth.ok) throw new PreviewError('preview_access_changed', 403);
+  if (rawPlan.command === 'message.save_draft') {
+   const expected = JSON.parse(p.expected_json) as Record<string, number>;
+   const conv = await c.env.DB.prepare('SELECT rev FROM crm_conversations WHERE id=?').bind(rawPlan.input.conversationId).first<{rev:number}>();
+   if (!conv || conv.rev !== expected[rawPlan.input.conversationId]) {
+    throw new PreviewError('source_body_changed');
+   }
+  }
  }
  const result=(await c.env.DB.batch([bodyFence(c.env,JSON.parse(p.source_bodies)),c.env.DB.prepare(`UPDATE ai_previews SET status=?,approved_at=?,approved_session=? WHERE id=? AND user_id=? AND status='pending' AND expires_at>?`).bind(body.decision==='approve'?'approved':'cancelled',Date.now(),u.tokenHash,p.id,u.id,Date.now())]))[1];
  if(!result.meta.changes)throw new PreviewError('preview_already_decided');

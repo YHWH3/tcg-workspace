@@ -25,6 +25,7 @@ vi.mock('@modelcontextprotocol/server', () => ({
 vi.mock('agents/mcp/server', () => ({ createMcpHandler: vi.fn() }));
 
 import { createWorkspaceServer } from '../worker/mcp';
+import { aiPreviewApi } from '../worker/aiPreviews';
 
 let fx: AuditFixture | undefined;
 afterEach(async () => {
@@ -33,9 +34,9 @@ afterEach(async () => {
   capturedTools.clear();
 });
 
-function makeMcpCtx(userId: string) {
+function makeMcpCtx(userId: string, connector?: { id: string; version: number }) {
   return {
-    env: fx!.env,
+    env: connector ? { ...fx!.env, CONNECTOR: connector } : fx!.env,
     ectx: ctx,
     userId,
     userRole: 'member',
@@ -53,8 +54,8 @@ function makeMcpCtx(userId: string) {
   } as never;
 }
 
-describe('S4 CRM MCP tools (read & proposal-only with CRM_ENABLED + crm.access gating)', () => {
-  it('registers all 8 read/proposal tools, zero side-effect CRM tools, and enforces CRM_ENABLED & crm.access at call time', async () => {
+describe('S4 CRM MCP tools (read & proposal-only via ai_previews with CRM_ENABLED + crm.access gating)', () => {
+  it('registers all 8 read/proposal tools, zero side-effect CRM tools, and routes proposals through frozen ai_previews + human approval', async () => {
     fx = await openAuditFixture(
       [
         { id: 'owner1', role: 'admin' },
@@ -69,6 +70,10 @@ describe('S4 CRM MCP tools (read & proposal-only with CRM_ENABLED + crm.access g
       fx.db.prepare(
         "INSERT INTO crm_capability_grants (user_id, capability, scope, granted_by, granted_at) VALUES ('member1', 'crm.access', '*', 'owner1', 1)",
       ),
+      fx.db.prepare(
+        `INSERT INTO ai_connections (id, user_id, client_id, spaces_json, version, created_at, expires_at)
+         VALUES ('conn-m1', 'member1', 'claude', '["space-core"]', 1, ?, ?)`,
+      ).bind(Date.now(), Date.now() + 86_400_000),
       fx.db.prepare(
         `INSERT INTO records (id, collection, data, field_ts, seq, space_id)
          VALUES
@@ -85,8 +90,10 @@ describe('S4 CRM MCP tools (read & proposal-only with CRM_ENABLED + crm.access g
       ),
     ]);
 
+    const connector = { id: 'conn-m1', version: 1 };
+
     // Ensure CRM send/admin tools are NOT registered on MCP server
-    createWorkspaceServer(makeMcpCtx('member1'));
+    createWorkspaceServer(makeMcpCtx('member1', connector));
     expect(capturedTools.has('message.send')).toBe(false);
     expect(capturedTools.has('crm_send_message')).toBe(false);
     expect(capturedTools.has('crm_find_people')).toBe(true);
@@ -106,9 +113,9 @@ describe('S4 CRM MCP tools (read & proposal-only with CRM_ENABLED + crm.access g
     expect(unauthRes.isError).toBe(true);
     expect(JSON.parse(unauthRes.content[0].text)).toMatchObject({ error: 'crm_forbidden' });
 
-    // Authorized member1 succeeds: searches person, generates grounded draft without outbox write, proposes draft fact
+    // Authorized member1 succeeds: searches person, proposes frozen draft & fact previews, human approves in UI, execute_preview lands rows
     capturedTools.clear();
-    createWorkspaceServer(makeMcpCtx('member1'));
+    createWorkspaceServer(makeMcpCtx('member1', connector));
 
     const findRes = await capturedTools.get('crm_find_people')!.handler({ query: 'Asha' });
     expect(findRes.isError).toBeFalsy();
@@ -116,20 +123,64 @@ describe('S4 CRM MCP tools (read & proposal-only with CRM_ENABLED + crm.access g
     expect(found.people).toHaveLength(1);
     expect(found.people[0].primaryEmail).toBe('asha@example.org');
 
-    const draftRes = await capturedTools.get('crm_draft_message')!.handler({ conversationId: 'conv-1' });
+    const draftRes = await capturedTools.get('crm_draft_message')!.handler({ conversationId: 'conv-1', requestId: 'mcp_draft_req_01' });
     expect(draftRes.isError).toBeFalsy();
-    const drafted = JSON.parse(draftRes.content[0].text) as { status: string; citedFactIds: string[] };
-    expect(drafted.status).toBe('draft_saved');
+    const drafted = JSON.parse(draftRes.content[0].text) as { previewId: string; argsHash: string; status: string; humanApprovalRequired: boolean; citedFactIds: string[] };
+    expect(drafted.status).toBe('pending');
+    expect(drafted.humanApprovalRequired).toBe(true);
     expect(drafted.citedFactIds).toEqual(['fact-1']);
+    expect(await fx.db.prepare('SELECT COUNT(*) AS n FROM crm_messages').first('n')).toBe(0);
     expect(await fx.db.prepare('SELECT COUNT(*) AS n FROM crm_outbox').first('n')).toBe(0);
 
+    // Human approves in Workspace review route, then MCP executes preview
+    const approveDraft = await aiPreviewApi.request(
+      `/${drafted.previewId}/decision`,
+      {
+        method: 'POST',
+        headers: fx.auth('member1'),
+        body: JSON.stringify({ decision: 'approve', argsHash: drafted.argsHash }),
+      },
+      fx.env,
+      ctx,
+    );
+    expect(approveDraft.status).toBe(200);
+    const execDraft = await capturedTools.get('execute_preview')!.handler({ previewId: drafted.previewId, argsHash: drafted.argsHash });
+    expect(execDraft.isError).toBeFalsy();
+    const execDraftJson = JSON.parse(execDraft.content[0].text) as { completed: boolean; commandId: string; crmResult: { message: { status: string } } };
+    expect(execDraftJson.completed).toBe(true);
+    expect(execDraftJson.crmResult.message.status).toBe('draft');
+    expect(await fx.db.prepare("SELECT COUNT(*) AS n FROM crm_messages WHERE status = 'draft'").first('n')).toBe(1);
+    expect(await fx.db.prepare('SELECT COUNT(*) AS n FROM crm_outbox').first('n')).toBe(0);
+
+    // Same frozen-preview lifecycle for crm_propose_fact
     const factRes = await capturedTools.get('crm_propose_fact')!.handler({
       title: 'Parking note',
       statement: 'Street parking available nearby.',
       programmeSlug: 'common-lab',
+      requestId: 'mcp_fact_req_01',
     });
     expect(factRes.isError).toBeFalsy();
-    const proposedFact = JSON.parse(factRes.content[0].text) as { status: string };
-    expect(proposedFact.status).toBe('draft');
+    const proposedFact = JSON.parse(factRes.content[0].text) as { previewId: string; argsHash: string; status: string; humanApprovalRequired: boolean };
+    expect(proposedFact.status).toBe('pending');
+    expect(proposedFact.humanApprovalRequired).toBe(true);
+    expect(await fx.db.prepare("SELECT COUNT(*) AS n FROM crm_facts WHERE status = 'draft'").first('n')).toBe(0);
+
+    const approveFact = await aiPreviewApi.request(
+      `/${proposedFact.previewId}/decision`,
+      {
+        method: 'POST',
+        headers: fx.auth('member1'),
+        body: JSON.stringify({ decision: 'approve', argsHash: proposedFact.argsHash }),
+      },
+      fx.env,
+      ctx,
+    );
+    expect(approveFact.status).toBe(200);
+    const execFact = await capturedTools.get('execute_preview')!.handler({ previewId: proposedFact.previewId, argsHash: proposedFact.argsHash });
+    expect(execFact.isError).toBeFalsy();
+    const execFactJson = JSON.parse(execFact.content[0].text) as { completed: boolean; crmResult: { fact: { status: string } } };
+    expect(execFactJson.completed).toBe(true);
+    expect(execFactJson.crmResult.fact.status).toBe('draft');
+    expect(await fx.db.prepare("SELECT COUNT(*) AS n FROM crm_facts WHERE status = 'draft'").first('n')).toBe(1);
   });
 });

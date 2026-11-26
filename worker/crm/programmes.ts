@@ -14,8 +14,17 @@ import type { Env } from '../auth';
 import { createReadGate } from '../readAccess';
 import { pokeLive } from '../sync';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
-import { crmActorFence, loadCrmReadContext, loadReadableTaskRecord } from './read';
-import { canAccessCrmApi, evaluateCapability } from './rules';
+import {
+  actorGrantsStmt,
+  crmActorFence,
+  evaluateCrmReadAuthRows,
+  finalizeCrmReadAuth,
+  loadReadableTaskRecord,
+  sessionAuthStmt,
+  type CrmGrantRow,
+  type CrmSessionRow,
+} from './read';
+import { canAccessCrmApi, evaluateCapability, isCrmEnabled } from './rules';
 
 interface ProgrammeProfileRow {
   slug: string;
@@ -235,10 +244,14 @@ export async function readProgrammes(
   | { status: 200; body: ProgrammesListResponse }
   | { status: 401 | 403 | 404; body: { error: 'unauthenticated' | 'forbidden' | 'not_found' } }
 > {
-  const auth = await loadCrmReadContext(env, actorId, tokenHash);
-  if (!auth.ok) return { status: auth.status, body: auth.body };
+  if (!isCrmEnabled(env)) {
+    return { status: 404, body: { error: 'not_found' } };
+  }
 
-  const [profilesRes, boardsRes, tasksRes, linksRes] = await env.DB.batch([
+  const batchNow = Date.now();
+  const [sessionRes, grantsRes, profilesRes, boardsRes, tasksRes, linksRes] = await env.DB.batch([
+    sessionAuthStmt(env.DB, actorId, tokenHash, batchNow),
+    actorGrantsStmt(env.DB, actorId),
     env.DB.prepare(
       `SELECT slug, programme_record_id, work_area, name, profile_json, rev, updated_by, updated_at
        FROM crm_programme_profiles`,
@@ -252,9 +265,15 @@ export async function readProgrammes(
       .bind(READ_TASK_CAP + 1),
   ]);
 
+  const batchAuth = evaluateCrmReadAuthRows(
+    sessionRes.results[0] as CrmSessionRow | undefined,
+    grantsRes.results as unknown as CrmGrantRow[],
+  );
+  if (!batchAuth.ok) return { status: batchAuth.status, body: batchAuth.body };
+
   const rawTasks = tasksRes.results as unknown as RawRecordRow[];
   const rawLinks = linksRes.results as unknown as RawRecordRow[];
-  let partial = rawTasks.length > READ_TASK_CAP || rawLinks.length > READ_TASK_CAP;
+  const partial = rawTasks.length > READ_TASK_CAP || rawLinks.length > READ_TASK_CAP;
 
   const boardKeyById = new Map<string, string>();
   for (const b of boardsRes.results as unknown as { id: string; data: string }[]) {
@@ -353,6 +372,9 @@ export async function readProgrammes(
     else if (peerKind === 'people') bucket.people.add(peerId);
   }
 
+  const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate });
+  if (!finalAuth.ok) return { status: finalAuth.status, body: finalAuth.body };
+
   const programmes: ProgrammeSummaryDto[] = CRM_PROGRAMMES.map((def) => {
     const stored = storedProfiles.get(def.slug);
     const profile = parseProfileSafe(stored?.profile_json, def.defaultProfile);
@@ -365,7 +387,7 @@ export async function readProgrammes(
       rev: stored?.rev ?? 0,
       updatedAt: stored?.updated_at ?? null,
       updatedBy: stored?.updated_by ?? null,
-      canConfigure: evaluateCapability(auth.actor, 'crm.configure', programmeScopeForSlug(def.slug)),
+      canConfigure: evaluateCapability(finalAuth.actor, 'crm.configure', programmeScopeForSlug(def.slug)),
       profile,
       counts: {
         applications: counts?.applications.size ?? 0,

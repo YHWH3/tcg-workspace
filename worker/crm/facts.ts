@@ -13,8 +13,8 @@ import { isRegisteredProgrammeSlug, programmeScopeForSlug } from '../../shared/c
 import type { Env } from '../auth';
 import { pokeLive } from '../sync';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
-import { crmActorFence, loadCrmReadContext } from './read';
-import { canAccessCrmApi, evaluateCapability } from './rules';
+import { crmActorFence, evaluateCrmReadAuthRows, sessionAuthStmt, actorGrantsStmt, type CrmSessionRow, type CrmGrantRow } from './read';
+import { isCrmEnabled, canAccessCrmApi, evaluateCapability } from './rules';
 
 export interface FactRow {
   id: string;
@@ -262,8 +262,9 @@ export async function readFacts(
   | { status: 200; body: FactsListResponse }
   | { status: 401 | 403 | 404; body: { error: 'unauthenticated' | 'forbidden' | 'not_found' } }
 > {
-  const auth = await loadCrmReadContext(env, actorId, tokenHash);
-  if (!auth.ok) return { status: auth.status, body: auth.body };
+  if (!isCrmEnabled(env)) {
+    return { status: 404, body: { error: 'not_found' } };
+  }
 
   const statusFilter =
     opts.status === 'draft' || opts.status === 'verified' || opts.status === 'retired'
@@ -271,18 +272,29 @@ export async function readFacts(
       : null;
   const progFilter = opts.programmeSlug?.trim() || null;
 
-  const { results } = await env.DB
-    .prepare(
-      `SELECT * FROM crm_facts
-       WHERE (?1 IS NULL OR status = ?1)
-         AND (?2 IS NULL OR programme_slug = ?2 OR programme_slug IS NULL)
-       ORDER BY updated_at DESC, id DESC
-       LIMIT ?3`,
-    )
-    .bind(statusFilter, progFilter, FACTS_CAP + 1)
-    .all<FactRow>();
-
   const now = Date.now();
+  // Single atomic D1 batch: authority snapshot + facts payload together (SC-2.2 parity).
+  const [sessionRes, grantsRes, factsRes] = await env.DB.batch([
+    sessionAuthStmt(env.DB, actorId, tokenHash, now),
+    actorGrantsStmt(env.DB, actorId),
+    env.DB
+      .prepare(
+        `SELECT * FROM crm_facts
+         WHERE (?1 IS NULL OR status = ?1)
+           AND (?2 IS NULL OR programme_slug = ?2 OR programme_slug IS NULL)
+         ORDER BY updated_at DESC, id DESC
+         LIMIT ?3`,
+      )
+      .bind(statusFilter, progFilter, FACTS_CAP + 1),
+  ]);
+
+  const auth = evaluateCrmReadAuthRows(
+    sessionRes.results[0] as CrmSessionRow | undefined,
+    grantsRes.results as unknown as CrmGrantRow[],
+  );
+  if (!auth.ok) return { status: auth.status, body: auth.body };
+
+  const results = factsRes.results as unknown as FactRow[];
   const partial = results.length > FACTS_CAP;
   const mapped = results
     .slice(0, FACTS_CAP)
