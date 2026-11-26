@@ -1015,6 +1015,110 @@ try {
   shots.mergeHistoryMobileDark = await capture(mobP2Dark, 'merge-history-mobile-dark.png');
   await mobP2DarkCtx.close();
 
+  // =========================================================================
+  // Part E — P3 Communications (Channels Settings, Templates & Mobile Check)
+  // =========================================================================
+  const p3WaAccount = await requestJson('/api/crm/commands/channel.configure', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p3_wa_acct',
+      input: {
+        channel: 'whatsapp',
+        provider: 'whatsapp_cloud',
+        label: 'Riverbank WhatsApp Desk (Disabled)',
+        externalId: 'wa-demo-phone-01',
+        mode: 'disabled',
+        active: false,
+        config: { phoneNumberId: '100000000001', graphVersion: 'v21.0' },
+      },
+    },
+  });
+  assert.equal(p3WaAccount.ok, true, 'Configure disabled WhatsApp Cloud channel account');
+
+  const p3ZohoAccount = await requestJson('/api/crm/commands/channel.configure', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p3_zoho_acct',
+      input: {
+        channel: 'email',
+        provider: 'email_zoho',
+        label: 'Riverbank Zoho Mail (Disabled)',
+        externalId: 'hello@riverbank.example',
+        mode: 'disabled',
+        active: false,
+        config: { dataCenter: 'in', fromAddress: 'hello@riverbank.example' },
+      },
+    },
+  });
+  assert.equal(p3ZohoAccount.ok, true, 'Configure disabled Zoho Mail channel account');
+
+  const p3Tpl = await requestJson('/api/crm/commands/template.upsert', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p3_tpl_upsert',
+      input: {
+        channel: 'whatsapp',
+        name: 'programme_followup_utility',
+        language: 'en',
+        category: 'utility',
+        bodyText: 'Hello {{1}}, we have an update regarding {{2}}.',
+        variables: ['name', 'programme'],
+      },
+    },
+  });
+  assert.equal(p3Tpl.ok, true, 'Create WhatsApp template draft');
+
+  const p3TplSync = await requestJson('/api/crm/commands/template.sync_status', {
+    token: owner.token,
+    body: {
+      requestId: 'demo_p3_tpl_approve',
+      input: {
+        templateId: p3Tpl.result.template.id,
+        status: 'approved',
+        providerTemplateId: 'meta_tpl_demo_01',
+      },
+    },
+  });
+  assert.equal(p3TplSync.ok, true, 'Sync WhatsApp template approved status');
+
+  const { context: p3DesktopCtx, page: p3Desktop } = await openAuthedPage(browser, owner, {
+    viewport: { width: 1440, height: 900 },
+    colorScheme: 'light',
+  });
+  await p3Desktop.emulateMedia({ colorScheme: 'light' });
+  await p3Desktop.goto(fixture.base + '/crm/settings/channels');
+  await expect(p3Desktop.getByRole('heading', { name: 'Channels, templates & delivery' })).toBeVisible({ timeout: 15_000 });
+  await expect(p3Desktop.getByText('Riverbank WhatsApp Desk (Disabled)')).toBeVisible({ timeout: 15_000 });
+  await expect(p3Desktop.getByText('Riverbank Zoho Mail (Disabled)')).toBeVisible({ timeout: 15_000 });
+  const p3DesktopOverflow = await p3Desktop.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  assert.equal(p3DesktopOverflow, false, 'Desktop Channels settings must not overflow horizontally');
+  shots.channelsDesktopLight = await capture(p3Desktop, 'channels-desktop-light.png');
+
+  await p3Desktop.getByRole('tab', { name: /Templates/ }).click();
+  await expect(p3Desktop.getByText('programme_followup_utility')).toBeVisible({ timeout: 15_000 });
+  await p3Desktop.getByRole('tab', { name: /Delivery & review/ }).click();
+  await expect(p3Desktop.getByRole('button', { name: /Process due outbox/i })).toBeVisible({ timeout: 15_000 });
+
+  await p3Desktop.emulateMedia({ colorScheme: 'dark' });
+  await p3Desktop.getByRole('button', { name: 'Dark theme' }).click();
+  await p3Desktop.getByRole('tab', { name: /Channels/ }).click();
+  shots.channelsDesktopDark = await capture(p3Desktop, 'channels-desktop-dark.png');
+  await p3DesktopCtx.close();
+
+  const { context: p3MobCtx, page: p3Mob } = await openAuthedPage(mobileBrowser, owner, {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    colorScheme: 'light',
+  });
+  await p3Mob.goto(fixture.base + '/crm/settings/channels');
+  await expect(p3Mob.getByRole('heading', { name: 'Channels, templates & delivery' })).toBeVisible({ timeout: 15_000 });
+  await expect(p3Mob.getByText('Riverbank WhatsApp Desk (Disabled)')).toBeVisible({ timeout: 15_000 });
+  const p3MobOverflow = await p3Mob.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  assert.equal(p3MobOverflow, false, 'Mobile 390px Channels settings must not overflow horizontally');
+  shots.channelsMobileLight = await capture(p3Mob, 'channels-mobile-light.png');
+  await p3MobCtx.close();
+
   assert.equal(fingerprint(root), sourceFingerprint, 'Source changed during CRM demo check');
   const evidence = {
     base: fixture.base,
@@ -1027,6 +1131,7 @@ try {
     patrons: COMMONS_PATRON_SUBMISSIONS.length,
     facts: COMMONS_FACTS.length,
     p2MergeVerified: true,
+    p3CommunicationsVerified: true,
     shots,
   };
   writeFileSync(join(artifacts, 'ready.json'), JSON.stringify(evidence, null, 2));

@@ -108,3 +108,19 @@ These account-specific choices are **not invented** in P3 and remain pending own
 | `O-17` | Message/webhook retention, export and privacy erasure timelines | Bounded payload hashes stored in `crm_inbound_events`; no premature destructive retention sweep |
 | `P-16` | Email open/click tracking off by default | Enforced off; no tracking pixels or link rewriters |
 | `P-20` | "Conversations" area naming & `Asia/Kolkata` timezone confirmation | Preserved as configurable defaults |
+
+---
+
+## 10. Controlled Parallel Execution & Optional CI Certification Analysis (A-28)
+
+Per **A-28**, comprehensive 18-project cross-browser UX certification matrices (`npm run qa:ux -- --crm` and `npm run qa:ux`) run at **P4** and **P6** rather than on every intermediate package. Analysis of the existing UX lab runner (`scripts/qa-ux.mjs`, `scripts/ux-lab/project-isolation.mjs`) identifies two safe efficiency options when full certification runs are scheduled:
+
+1. **Controlled local parallelism (zero external cost):**
+   - `runIsolatedProjects()` currently executes all 18 projects serially even though each child already spawns its own loopback HTTPS Wrangler server on an ephemeral `freePort()` with an isolated D1 directory under `<output>/projects/<project>/`.
+   - Running a single upfront `npm run build` followed by bounded concurrency (`2–3` concurrent projects via a future `UX_CONCURRENCY` worker pool passing `--skip-build`) keeps strict per-project D1/port/fingerprint isolation while cutting local 18-project runtime by ~2–3× without risking `dist/` write races or OOM thrashing.
+2. **Optional manual-only GitHub Actions CI certification (zero automatic spend):**
+   - No `.github/workflows` currently exist in the repository; none are added or auto-triggered on push/PR so there is zero unintended paid CI consumption.
+   - If Paul authorizes CI-assisted certification at P4 or P6, an explicit **`workflow_dispatch`-only** workflow can shard the 18 projects into 3 engine jobs (`chromium*`, `firefox*`, `webkit*`, 6 projects each) using `npm run qa:ux -- --skip-build --project=<engine>-*`, uploading only sanitized `summary.json`/`coverage.json` (never raw Playwright traces containing disposable session tokens, per `scripts/qa-ux.mjs:74-75`).
+3. **Deterministic local package gate:**
+   - `node scripts/verify-p3-communications.mjs` runs typecheck, all targeted P2 hardening + P3 communications + core CRM Vitest suites, pack validation, and certification selftests in one terminal command and emits a concise machine-readable JSON summary report (optionally saved via `--json-out`).
+
