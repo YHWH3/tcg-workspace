@@ -43,6 +43,7 @@ import {fieldEvidenceApi} from './fieldEvidence';
 import {commitmentsApi} from './commitments';
 import {eventOpsApi} from './eventOps';
 import { crmApi } from './crm';
+import { crmWebhooksApi } from './crm/webhooks';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 // API state must not survive account switches or public-form disable/re-enable
@@ -121,6 +122,7 @@ app.route('/api/finance',financeApi);
 app.route('/api/field-evidence',fieldEvidenceApi);
 app.route('/api/event-ops',eventOpsApi);
 app.route('/api/commitments',commitmentsApi);
+app.route('/api/crm/webhooks', crmWebhooksApi);
 app.route('/api/crm', crmApi);
 app.route('/api', admin);
 

@@ -65,6 +65,8 @@ import {
   type ChannelAccountRow,
 } from './adapters/types';
 import { pollZohoMailInbound, sendViaZohoMail } from './adapters/zohoMail';
+import { sendViaWhatsAppCloud } from './adapters/whatsappCloud';
+import { sendViaMetaMessaging } from './adapters/metaMessaging';
 import type { AnyCommandDefinition, CommandDefinition } from './commands';
 import {
   latestConsentRowsPerTupleStmt,
@@ -338,13 +340,13 @@ export async function dispatchAdapterSend(
     if (overrides.whatsappSender) {
       return overrides.whatsappSender(env, input, fetchFn);
     }
-    return { ok: false, errorClass: 'auth', detail: 'whatsapp_adapter_not_registered' };
+    return sendViaWhatsAppCloud(env, input, fetchFn);
   }
   if (account.provider === 'instagram_meta' || account.provider === 'facebook_meta') {
     if (overrides.metaSender) {
       return overrides.metaSender(env, input, fetchFn);
     }
-    return { ok: false, errorClass: 'auth', detail: 'meta_adapter_not_registered' };
+    return sendViaMetaMessaging(env, input, fetchFn);
   }
 
   // Generic simulated provider
