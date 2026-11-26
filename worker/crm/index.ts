@@ -45,6 +45,7 @@ import {
 } from './conversations';
 import { createS4FactCommandDefs, readFacts } from './facts';
 import { createS10MergeCommandDefs, readMergeHistory, readMergePreview } from './merge';
+import { createS7MoneyCommandDefs, readMoneyOverview } from './money';
 import { createS9PipelineCommandDefs, readPatrons } from './pipelines';
 import { isCrmEnabled } from './rules';
 
@@ -59,6 +60,7 @@ export function createS0CommandRegistry(): CommandRegistry {
     ...createS4ConversationCommandDefs(),
     ...createP3ChannelCommandDefs(),
     ...createS6BookingCommandDefs(),
+    ...createS7MoneyCommandDefs(),
     ...createS9PipelineCommandDefs(),
   ]);
 }
@@ -245,6 +247,12 @@ crmApi.get('/read/booking/:id', async (c) => {
 crmApi.get('/read/booking/:id/screening', async (c) => {
   const user = c.get('user');
   const outcome = await readBookingScreening(c.env, user.id, user.tokenHash, c.req.param('id')!);
+  return c.json(outcome.body, outcome.status);
+});
+
+crmApi.get('/read/money', async (c) => {
+  const user = c.get('user');
+  const outcome = await readMoneyOverview(c.env, user.id, user.tokenHash);
   return c.json(outcome.body, outcome.status);
 });
 
