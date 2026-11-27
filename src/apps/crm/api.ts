@@ -1216,8 +1216,28 @@ export function confirmBooking(
 export function cancelBooking(
   input: CancelBookingInput,
   opts?: RunCrmCommandOptions,
-): Promise<CommandResult<{ booking: CrmBookingDto }> | CommandError> {
-  return runCrmCommand('booking.cancel', { ...input }, z.object({ booking: CrmBookingDtoSchema }).strict(), opts);
+): Promise<
+  | CommandResult<{
+      booking: CrmBookingDto;
+      refundReviewRequired?: boolean;
+      refundableByCurrency?: { currency: string; netPaidMinor: number }[];
+      cancellationPolicyText?: string | null;
+    }>
+  | CommandError
+> {
+  return runCrmCommand(
+    'booking.cancel',
+    { ...input },
+    z
+      .object({
+        booking: CrmBookingDtoSchema,
+        refundReviewRequired: z.boolean().optional(),
+        refundableByCurrency: z.array(z.object({ currency: z.string(), netPaidMinor: z.number().int() }).strict()).optional(),
+        cancellationPolicyText: z.string().nullable().optional(),
+      })
+      .strict(),
+    opts,
+  );
 }
 
 export function transferBooking(
@@ -1670,6 +1690,11 @@ export function describeCommandError(err: CommandError | CrmTransportError | unk
           return 'Selected provider does not match the chosen channel.';
         case 'edition_policy_unconfigured_pending_O05':
           return 'Edition capacity, hold duration, max group size, or confirmation policy must be configured first (pending O-05).';
+        case 'cancellation_policy_unconfigured_pending_O06':
+          return 'Configure the edition cancellation policy before cancelling a paid booking (pending O-06).';
+        case 'price_option_required_pending_O05':
+        case 'booking_price_unconfigured_pending_O05':
+          return 'Select a configured price option before requesting or confirming a payment-gated booking (pending O-05).';
         case 'edition_not_open':
           return 'This edition is not open for new bookings.';
         case 'max_group_size_exceeded':

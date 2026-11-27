@@ -3,9 +3,12 @@
  * Deterministic P4 Operations Comprehensive Certification Runner
  *
  * Designed to run unattended in a local terminal without burning AI model quota.
- * Records exact git commit SHA & source fingerprint, enforces A-24 test accounting,
- * preserves accepted Workspace & CRM baselines, runs P3/P4 visual references separately,
- * and writes a concise machine-readable JSON report to `.artifacts/p4-certification/report.json`.
+ * Records exact git commit SHA & source fingerprint, enforces strict A-24 test
+ * accounting against the exact documented 3-test SI-01 allowlist, preserves all
+ * accepted Workspace & CRM baselines (verified via SHA-256 tree snapshots),
+ * enforces record-then-independent-verify for new P3/P4 visual references, validates
+ * exact 18-project matrix coverage, and writes a machine-readable JSON report to
+ * `.artifacts/p4-certification/report.json`.
  *
  * Usage:
  *   node scripts/verify-p4-operations.mjs                  # Full certification (default UX_CONCURRENCY=2)
@@ -17,6 +20,15 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fingerprint, freePort } from './certification/core.mjs';
+import {
+  CRM_P4_BASELINE_DIR,
+  discoverVitestFiles,
+  evaluateIsolatedSi01Retry,
+  evaluateVitestA24,
+  snapshotBaselineProvenance,
+  validateMatrixSummary,
+  verifyPreservedBaselinesUnchanged,
+} from './certification/p4-runner-lib.mjs';
 import { resolveConcurrency } from './ux-lab/project-isolation.mjs';
 import { startFixture } from './phase4-fixture.mjs';
 
@@ -26,13 +38,6 @@ const args = process.argv.slice(2);
 const quick = args.includes('--quick');
 const concurrency = resolveConcurrency(args, process.env);
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
-// Documented SI-01 pre-existing parallel-contention signatures eligible for isolated A-24 retry ONLY
-const DOCUMENTED_SI01_FILES = new Set([
-  'tests/phase11-backup-d1.test.ts',
-  'tests/phase12-audit-d1.test.ts',
-  'tests/phase13-ops-d1.test.ts',
-]);
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -61,7 +66,7 @@ function runStep(id, label, cmd, cmdArgs, extraEnv = {}) {
 
 async function runDisposableMigrationCheck() {
   const id = 'migrations_disposable_d1';
-  const label = 'Apply all 49 immutable migrations to fresh disposable D1';
+  const label = 'Apply all 50 immutable migrations to fresh disposable D1';
   const t0 = Date.now();
   console.log(`\n=== [${id}] ${label} ===`);
   const dir = join(OUT_DIR, 'disposable-migrations-check');
@@ -75,12 +80,12 @@ async function runDisposableMigrationCheck() {
       vars: { CRM_ENABLED: 'true', WORKSPACE_ENV: 'local-test' },
     });
     const out = await owned.sql(
-      "SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type='table' AND name IN ('crm_editions','crm_bookings','crm_allocations','crm_participants','crm_attendance','crm_screenings','crm_payment_requests','crm_ledger_entries','crm_refund_policies','crm_refund_requests','crm_membership_schemes','crm_memberships');",
+      "SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type='table' AND name IN ('crm_editions','crm_bookings','crm_allocations','crm_participants','crm_attendance','crm_screenings','crm_payment_requests','crm_ledger_entries','crm_refund_policies','crm_refund_requests','crm_membership_schemes','crm_memberships','crm_membership_periods');",
     );
     const cnt = Number(out?.[0]?.results?.[0]?.cnt ?? 0);
-    const ok = cnt === 12;
+    const ok = cnt === 13;
     const durationMs = Date.now() - t0;
-    steps.push({ id, label, ok, exitCode: ok ? 0 : 1, durationMs });
+    steps.push({ id, label, ok, exitCode: ok ? 0 : 1, durationMs, details: { p4TablesFound: cnt, expected: 13 } });
     console.log(`--- [${id}] ${ok ? 'PASS' : 'FAIL'} (${(durationMs / 1000).toFixed(1)}s) ---`);
     return ok;
   } catch (err) {
@@ -96,12 +101,13 @@ async function runDisposableMigrationCheck() {
 
 function runVitestWithA24() {
   const id = 'vitest_full_a24';
-  const label = 'Full Vitest suite with A-24 isolated SI-01 accounting';
+  const label = 'Full Vitest suite with strict A-24 / SI-01 accounting';
   const t0 = Date.now();
   console.log(`\n=== [${id}] ${label} ===`);
   const jsonReport = join(OUT_DIR, 'vitest-full.json');
   rmSync(jsonReport, { force: true });
 
+  const expectedTestFiles = discoverVitestFiles(ROOT);
   const res = spawnSync(
     join(ROOT, 'node_modules/.bin/vitest'),
     ['run', '--reporter=default', '--reporter=json', `--outputFile=${jsonReport}`],
@@ -117,7 +123,9 @@ function runVitestWithA24() {
     }
   }
 
-  if ((res.status ?? 1) === 0 && parsed?.success) {
+  const evaluation = evaluateVitestA24(parsed, expectedTestFiles, ROOT);
+
+  if (evaluation.ok && (res.status ?? 1) === 0) {
     const durationMs = Date.now() - t0;
     steps.push({
       id,
@@ -126,9 +134,11 @@ function runVitestWithA24() {
       exitCode: 0,
       durationMs,
       details: {
+        expectedFiles: expectedTestFiles.length,
         totalFiles: parsed.numTotalTestSuites,
         passedTests: parsed.numPassedTests,
         failedTests: parsed.numFailedTests,
+        pendingTests: parsed.numPendingTests,
         si01Retried: [],
       },
     });
@@ -136,15 +146,7 @@ function runVitestWithA24() {
     return true;
   }
 
-  // Inspect failures strictly under A-24: ONLY documented SI-01 files may retry sequentially
-  const failedFiles = (parsed?.testResults ?? [])
-    .filter((tr) => tr.status === 'failed')
-    .map((tr) => tr.name.replace(`${ROOT}/`, ''));
-
-  const nonSi01Failures = failedFiles.filter((f) => !DOCUMENTED_SI01_FILES.has(f));
-  const si01Failures = failedFiles.filter((f) => DOCUMENTED_SI01_FILES.has(f));
-
-  if (!failedFiles.length || nonSi01Failures.length > 0) {
+  if (evaluation.reasons.length > 0 || evaluation.needsIsolatedRetry.length === 0) {
     const durationMs = Date.now() - t0;
     steps.push({
       id,
@@ -152,22 +154,39 @@ function runVitestWithA24() {
       ok: false,
       exitCode: res.status ?? 1,
       durationMs,
-      details: { failedFiles, nonSi01Failures, si01Retried: [] },
+      details: {
+        expectedFiles: expectedTestFiles.length,
+        reasons: evaluation.reasons.length ? evaluation.reasons : ['vitest_nonzero_exit_without_si01_match'],
+        matchedSi01: evaluation.matchedSi01,
+        si01Retried: [],
+      },
     });
-    console.log(`--- [${id}] FAIL (non-SI-01 failures: ${nonSi01Failures.join(', ') || 'unknown'}) ---`);
+    console.log(`--- [${id}] FAIL (${evaluation.reasons.join('; ') || 'non-SI-01 failure'}) ---`);
     return false;
   }
 
   const si01Results = [];
   let allSi01Passed = true;
-  for (const file of si01Failures) {
+  for (const file of evaluation.needsIsolatedRetry) {
     console.log(`\n[A-24] Isolated retry of documented SI-01 file: ${file}`);
-    const retry = spawnSync(join(ROOT, 'node_modules/.bin/vitest'), ['run', file], {
-      cwd: ROOT,
-      stdio: 'inherit',
-    });
-    const passed = (retry.status ?? 1) === 0;
-    si01Results.push({ file, passedIsolated: passed });
+    const retryJson = join(OUT_DIR, `vitest-si01-${file.replace(/[^a-z0-9]/gi, '_')}.json`);
+    rmSync(retryJson, { force: true });
+    const retry = spawnSync(
+      join(ROOT, 'node_modules/.bin/vitest'),
+      ['run', file, '--reporter=default', '--reporter=json', `--outputFile=${retryJson}`],
+      { cwd: ROOT, stdio: 'inherit' },
+    );
+    let retryParsed = null;
+    if (existsSync(retryJson)) {
+      try {
+        retryParsed = JSON.parse(readFileSync(retryJson, 'utf8'));
+      } catch {
+        retryParsed = null;
+      }
+    }
+    const retryEval = evaluateIsolatedSi01Retry(file, retryParsed, ROOT);
+    const passed = (retry.status ?? 1) === 0 && retryEval.ok;
+    si01Results.push({ file, passedIsolated: passed, reasons: retryEval.reasons });
     if (!passed) allSi01Passed = false;
   }
 
@@ -178,10 +197,66 @@ function runVitestWithA24() {
     ok: allSi01Passed,
     exitCode: allSi01Passed ? 0 : 1,
     durationMs,
-    details: { initialFailedFiles: failedFiles, si01Retried: si01Results },
+    details: {
+      expectedFiles: expectedTestFiles.length,
+      matchedSi01: evaluation.matchedSi01,
+      si01Retried: si01Results,
+    },
   });
-  console.log(`--- [${id}] ${allSi01Passed ? 'PASS (via A-24 SI-01 isolated verification)' : 'FAIL'} ---`);
+  console.log(`--- [${id}] ${allSi01Passed ? 'PASS (via strict A-24 SI-01 isolated verification)' : 'FAIL'} ---`);
   return allSi01Passed;
+}
+
+function runValidatedMatrixStep({ id, label, kind, uxArgs, outputSubdir }) {
+  const t0 = Date.now();
+  console.log(`\n=== [${id}] ${label} ===`);
+  const uxOutput = join(OUT_DIR, outputSubdir);
+  rmSync(uxOutput, { recursive: true, force: true });
+  mkdirSync(uxOutput, { recursive: true });
+
+  const res = spawnSync(npmCmd, ['run', 'qa:ux', '--', ...uxArgs], {
+    cwd: ROOT,
+    env: { ...process.env, UX_CONCURRENCY: String(concurrency), UX_OUTPUT: uxOutput },
+    stdio: 'inherit',
+  });
+
+  const summaryPath = join(uxOutput, 'summary.json');
+  let summary = null;
+  if (existsSync(summaryPath)) {
+    try {
+      summary = JSON.parse(readFileSync(summaryPath, 'utf8'));
+    } catch {
+      summary = null;
+    }
+  }
+
+  const validation = validateMatrixSummary(kind, summary, {
+    expectedSha: sha,
+    expectedFingerprint: startFingerprint,
+  });
+
+  const durationMs = Date.now() - t0;
+  const ok = (res.status ?? 1) === 0 && validation.ok;
+  steps.push({
+    id,
+    label,
+    ok,
+    exitCode: ok ? 0 : res.status || 1,
+    durationMs,
+    details: {
+      kind,
+      summaryPath,
+      baselineReview: summary?.baselineReview ?? null,
+      stats: validation.stats ?? null,
+      reasons: validation.reasons,
+    },
+  });
+  console.log(
+    `--- [${id}] ${ok ? 'PASS' : 'FAIL'} (${(durationMs / 1000).toFixed(1)}s)${
+      validation.reasons.length ? ` | ${validation.reasons.join('; ')}` : ''
+    } ---`,
+  );
+  return ok;
 }
 
 async function main() {
@@ -200,6 +275,7 @@ async function main() {
       'scripts/certification/release-preflight.test.mjs',
       'scripts/certification/release-rehearsal.test.mjs',
       'scripts/certification/test-files.test.mjs',
+      'scripts/certification/p4-runner.test.mjs',
       'scripts/access/selftest.mjs',
     ]) && allOk;
   allOk = runStep('release_preflight', 'Release preflight & migration hashes', npmCmd, ['run', 'release:preflight']) && allOk;
@@ -209,7 +285,7 @@ async function main() {
     allOk =
       runStep(
         'vitest_p4_focused',
-        'Focused P3 hardening + P4 Operations + Merge/Isolation Vitest suites',
+        'Focused P3/P4 hardening, Operations & Merge/Isolation Vitest suites',
         join(ROOT, 'node_modules/.bin/vitest'),
         [
           'run',
@@ -218,6 +294,7 @@ async function main() {
           'tests/crm-p4-bookings-d1.test.ts',
           'tests/crm-p4-money-d1.test.ts',
           'tests/crm-p4-memberships-merge-d1.test.ts',
+          'tests/crm-p4-hardening-d1.test.ts',
           'tests/crm-p4-client.test.ts',
           'tests/crm-p2-merge-d1.test.ts',
           'tests/crm-isolation.test.ts',
@@ -229,44 +306,76 @@ async function main() {
     allOk = runStep('demo_studio', 'Studio Workspace demo check', npmCmd, ['run', 'demo:studio', '--', '--check']) && allOk;
     allOk = runStep('demo_crm', 'Expanded Commons CRM demo check (P1–P4)', npmCmd, ['run', 'demo:crm', '--', '--check']) && allOk;
 
+    // Snapshot preserved baseline directories BEFORE running any UX matrix.
+    // If crm-p4-baselines already exists, preserve it too (never silently overwrite existing baselines).
+    const p4BaselinesExistedBefore = existsSync(join(ROOT, CRM_P4_BASELINE_DIR, 'provenance.json'));
+    const extraPreserved = p4BaselinesExistedBefore ? [CRM_P4_BASELINE_DIR] : [];
+    const baselinesBefore = snapshotBaselineProvenance(ROOT, extraPreserved);
+
     // 1. Complete Workspace CRM-off 18-project matrix against preserved accepted baselines
     allOk =
-      runStep(
-        'ux_workspace_18',
-        `Workspace CRM-off 18-project UX matrix (UX_CONCURRENCY=${concurrency})`,
-        npmCmd,
-        ['run', 'qa:ux', '--', '--skip-build', `--concurrency=${concurrency}`],
-        { UX_CONCURRENCY: String(concurrency) },
-      ) && allOk;
+      runValidatedMatrixStep({
+        id: 'ux_workspace_18',
+        label: `Workspace CRM-off 18-project UX matrix (UX_CONCURRENCY=${concurrency})`,
+        kind: 'workspace',
+        uxArgs: ['--skip-build', `--concurrency=${concurrency}`],
+        outputSubdir: 'ux-workspace-18',
+      }) && allOk;
 
-    // 2. Complete CRM P3/P4 18-project UX matrix with separate visual references
-    const p4BaselinesExist = existsSync(join(ROOT, '.artifacts/ux-lab/crm-p4-baselines/provenance.json'));
+    // 2. CRM P3/P4 18-project UX matrix:
+    //    If separate P3/P4 references do not yet exist, record them first, THEN ALWAYS
+    //    run an independent non-record verification pass against them.
+    if (!p4BaselinesExistedBefore) {
+      allOk =
+        runValidatedMatrixStep({
+          id: 'ux_crm_p4_record_18',
+          label: `CRM P3/P4 18-project UX matrix — record separate unreviewed references (UX_CONCURRENCY=${concurrency})`,
+          kind: 'crm_p4_record',
+          uxArgs: ['--crm-p4', '--skip-build', `--concurrency=${concurrency}`, '--record'],
+          outputSubdir: 'ux-crm-p4-record-18',
+        }) && allOk;
+    }
+
     allOk =
-      runStep(
-        'ux_crm_p4_18',
-        `CRM P3/P4 18-project UX matrix (${p4BaselinesExist ? 'verify' : 'record separate references'}, UX_CONCURRENCY=${concurrency})`,
-        npmCmd,
-        [
-          'run',
-          'qa:ux',
-          '--',
-          '--crm-p4',
-          '--skip-build',
-          `--concurrency=${concurrency}`,
-          ...(p4BaselinesExist ? [] : ['--record']),
-        ],
-        { UX_CONCURRENCY: String(concurrency) },
-      ) && allOk;
+      runValidatedMatrixStep({
+        id: 'ux_crm_p4_verify_18',
+        label: `CRM P3/P4 18-project UX matrix — independent non-record verification (UX_CONCURRENCY=${concurrency})`,
+        kind: 'crm_p4_verify',
+        uxArgs: ['--crm-p4', '--skip-build', `--concurrency=${concurrency}`],
+        outputSubdir: 'ux-crm-p4-verify-18',
+      }) && allOk;
 
     // 3. Complete CRM S0/P1/P2 18-project UX matrix against preserved crm-baselines
     allOk =
-      runStep(
-        'ux_crm_core_18',
-        `CRM Core S0/P1/P2 18-project UX matrix (UX_CONCURRENCY=${concurrency})`,
-        npmCmd,
-        ['run', 'qa:ux', '--', '--crm', '--skip-build', `--concurrency=${concurrency}`],
-        { UX_CONCURRENCY: String(concurrency) },
-      ) && allOk;
+      runValidatedMatrixStep({
+        id: 'ux_crm_core_18',
+        label: `CRM Core S0/P1/P2 18-project UX matrix (UX_CONCURRENCY=${concurrency})`,
+        kind: 'crm_core',
+        uxArgs: ['--crm', '--skip-build', `--concurrency=${concurrency}`],
+        outputSubdir: 'ux-crm-core-18',
+      }) && allOk;
+
+    // Verify all preserved baselines & provenance files are byte-for-byte unchanged
+    const baselinesAfter = snapshotBaselineProvenance(ROOT, extraPreserved);
+    const baselineCheck = verifyPreservedBaselinesUnchanged(baselinesBefore, baselinesAfter);
+    steps.push({
+      id: 'preserved_baselines_integrity',
+      label: 'Verify preserved Workspace & CRM baselines and provenance unchanged',
+      ok: baselineCheck.ok,
+      exitCode: baselineCheck.ok ? 0 : 1,
+      durationMs: 0,
+      details: {
+        preservedDirs: Object.keys(baselinesBefore),
+        p4ReferencesCreatedThisRun: !p4BaselinesExistedBefore,
+        diffs: baselineCheck.diffs,
+      },
+    });
+    if (!baselineCheck.ok) {
+      allOk = false;
+      console.error(`--- [preserved_baselines_integrity] FAIL: ${baselineCheck.diffs.join('; ')} ---`);
+    } else {
+      console.log('--- [preserved_baselines_integrity] PASS ---');
+    }
   }
 
   const endFingerprint = fingerprint(ROOT);
@@ -290,6 +399,7 @@ async function main() {
     sourceFingerprint: startFingerprint,
     sourceUnchanged,
     uxConcurrency: concurrency,
+    baselineReview: 'GENERATED_REFERENCE_NOT_HUMAN_ACCEPTANCE',
     startedAt,
     finishedAt: new Date().toISOString(),
     passed: allOk,
@@ -301,6 +411,7 @@ async function main() {
   console.log('\n============================================================');
   console.log(`P4 Verification Report (${report.mode}): ${report.passed ? 'PASSED' : 'FAILED'}`);
   console.log(`Commit: ${sha} | Fingerprint unchanged: ${sourceUnchanged}`);
+  console.log(`Baseline status: ${report.baselineReview}`);
   console.log(`JSON Report: ${reportPath}`);
   for (const st of steps) {
     console.log(`  - [${st.ok ? 'PASS' : 'FAIL'}] ${st.id}: ${st.label} (${(st.durationMs / 1000).toFixed(1)}s)`);

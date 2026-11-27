@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allocatePaymentRequests,
+  computeBookingAgreedDue,
   derivePaymentStatus,
   evaluateEffectiveMembershipState,
+  evaluateMembershipPeriodCoverage,
   formatMemberIdentifier,
   formatMinorMoney,
   isForeignCurrencyBlocked,
@@ -88,5 +91,70 @@ describe('P4 shared operational & money helpers', () => {
         now,
       }),
     ).toBe('lapsed');
+  });
+
+  it('computes authoritative booking due, per-request payment allocation, and historical membership period coverage', () => {
+    expect(computeBookingAgreedDue({ unitAmountMinor: 100000, seats: 2, currency: 'INR' })).toEqual({
+      dueMinor: 200000,
+      currency: 'INR',
+    });
+    expect(computeBookingAgreedDue({ unitAmountMinor: null, seats: 2, currency: 'INR' })).toBeNull();
+    expect(computeBookingAgreedDue({ unitAmountMinor: 0, seats: 2, currency: 'INR' })).toEqual({
+      dueMinor: 0,
+      currency: 'INR',
+    });
+    expect(computeBookingAgreedDue({ unitAmountMinor: 100000, seats: 0, currency: 'INR' })).toBeNull();
+
+    // Direct receipt against request 1 leaves request 2 issued; unlinked receipt allocates FIFO
+    const alloc1 = allocatePaymentRequests(
+      [
+        { id: 'pr1', amountMinor: 10000, createdAt: 1 },
+        { id: 'pr2', amountMinor: 190000, createdAt: 2 },
+      ],
+      [{ amountMinor: 10000, paymentRequestId: 'pr1' }],
+    );
+    expect(alloc1.map((r) => ({ id: r.id, state: r.state }))).toEqual([
+      { id: 'pr1', state: 'paid' },
+      { id: 'pr2', state: 'issued' },
+    ]);
+
+    const alloc2 = allocatePaymentRequests(
+      [
+        { id: 'pr1', amountMinor: 10000, createdAt: 1 },
+        { id: 'pr2', amountMinor: 190000, createdAt: 2 },
+      ],
+      [
+        { amountMinor: 10000, paymentRequestId: 'pr1' },
+        { amountMinor: 200000, paymentRequestId: null },
+      ],
+    );
+    expect(alloc2.map((r) => ({ id: r.id, state: r.state }))).toEqual([
+      { id: 'pr1', state: 'paid' },
+      { id: 'pr2', state: 'overpaid' },
+    ]);
+
+    // Historical periods preserve frozen contribution requirements (50k + 75k = 125k)
+    const covFull = evaluateMembershipPeriodCoverage(
+      [
+        { id: 'mp1', periodNumber: 1, requiredAmountMinor: 50000, validFrom: 0, validUntil: 1000 },
+        { id: 'mp2', periodNumber: 2, requiredAmountMinor: 75000, validFrom: 1000, validUntil: 2000 },
+      ],
+      125000,
+    );
+    expect(covFull.supportedPeriods.map((p) => p.id)).toEqual(['mp1', 'mp2']);
+    expect(covFull.unsupportedPeriods).toEqual([]);
+    expect(covFull.requiredActiveMinor).toBe(125000);
+
+    // Refund of 30k leaves 95k -> Period 2 (needs 75k after 50k) is unsupported, Period 1 stays supported!
+    const covPartial = evaluateMembershipPeriodCoverage(
+      [
+        { id: 'mp1', periodNumber: 1, requiredAmountMinor: 50000, validFrom: 0, validUntil: 1000 },
+        { id: 'mp2', periodNumber: 2, requiredAmountMinor: 75000, validFrom: 1000, validUntil: 2000 },
+      ],
+      95000,
+    );
+    expect(covPartial.supportedPeriods.map((p) => p.id)).toEqual(['mp1']);
+    expect(covPartial.unsupportedPeriods.map((p) => p.id)).toEqual(['mp2']);
+    expect(covPartial.supportedPeriods[0]?.validUntil).toBe(1000);
   });
 });

@@ -22,6 +22,7 @@ import {
   UpdateParticipantInputSchema,
   UpsertEditionInputSchema,
   UpsertScreeningInputSchema,
+  computeBookingAgreedDue,
   type AcceptWaitlistOfferInput,
   type AttendanceState,
   type BookingDetailResponse,
@@ -165,8 +166,50 @@ interface SeatCountRow {
   held_seats: number;
 }
 
+const SQLITE_NOW_MS = `CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)`;
+
 function changesOneFence(db: D1Database): D1PreparedStatement {
   return db.prepare(`SELECT CASE WHEN changes() = 1 THEN 1 ELSE json_extract('{', '$') END`);
+}
+
+function editionPolicyFence(db: D1Database, editionId: string, rev: number, requireOpen = true): D1PreparedStatement {
+  return db
+    .prepare(
+      requireOpen
+        ? `SELECT CASE WHEN EXISTS (SELECT 1 FROM crm_editions WHERE id = ? AND rev = ? AND state = 'open') THEN 1 ELSE json_extract('{', '$') END`
+        : `SELECT CASE WHEN EXISTS (SELECT 1 FROM crm_editions WHERE id = ? AND rev = ?) THEN 1 ELSE json_extract('{', '$') END`,
+    )
+    .bind(editionId, rev);
+}
+
+async function authorizeBookingLinkedRecords(
+  env: Env,
+  actorId: string,
+  bookingId: string,
+): Promise<{ booking: BookingRow; edition: EditionRow } | null> {
+  const bk = await env.DB.prepare(`SELECT * FROM crm_bookings WHERE id = ?`).bind(bookingId).first<BookingRow>();
+  if (!bk) return null;
+  const ed = await env.DB.prepare(`SELECT * FROM crm_editions WHERE id = ?`).bind(bk.edition_id).first<EditionRow>();
+  if (!ed) return null;
+  const [evRec, bookerRec] = await Promise.all([
+    loadReadableTaskRecord(env, actorId, ed.event_record_id),
+    loadReadableTaskRecord(env, actorId, bk.booker_person_id),
+  ]);
+  if (!evRec || !bookerRec) return null;
+  return { booking: bk, edition: ed };
+}
+
+async function authorizeParticipantLinkedRecords(
+  env: Env,
+  actorId: string,
+  participantId: string,
+): Promise<{ participant: ParticipantRow; booking: BookingRow; edition: EditionRow } | null> {
+  const pt = await env.DB.prepare(`SELECT * FROM crm_participants WHERE id = ?`).bind(participantId).first<ParticipantRow>();
+  if (!pt) return null;
+  const linked = await authorizeBookingLinkedRecords(env, actorId, pt.booking_id);
+  if (!linked) return null;
+  if (pt.person_id && !(await loadReadableTaskRecord(env, actorId, pt.person_id))) return null;
+  return { participant: pt, ...linked };
 }
 
 function parseStringArray(raw: string | null | undefined): string[] {
@@ -396,7 +439,7 @@ export function buildConditionalAllocationInsert(
        WHERE COALESCE(
          (SELECT SUM(seats) FROM crm_allocations
           WHERE edition_id = ? AND released_at IS NULL
-            AND (kind = 'confirmed' OR (kind = 'hold' AND expires_at > ?))),
+            AND (kind = 'confirmed' OR (kind = 'hold' AND expires_at > MAX(?, ${SQLITE_NOW_MS})))),
          0
        ) + ? <= (
          SELECT capacity FROM crm_editions
@@ -426,8 +469,8 @@ export async function sweepExpiredBookingHolds(db: D1Database, now = Date.now(),
   const expiredRes = await db
     .prepare(
       `SELECT id, state FROM crm_bookings
-       WHERE (state IN ('held', 'awaiting_payment') AND hold_expires_at IS NOT NULL AND hold_expires_at <= ?)
-          OR (state = 'offered' AND offer_expires_at IS NOT NULL AND offer_expires_at <= ?)
+       WHERE (state IN ('held', 'awaiting_payment') AND hold_expires_at IS NOT NULL AND hold_expires_at <= MAX(?, ${SQLITE_NOW_MS}))
+          OR (state = 'offered' AND offer_expires_at IS NOT NULL AND offer_expires_at <= MAX(?, ${SQLITE_NOW_MS}))
        LIMIT ?`,
     )
     .bind(now, now, limit)
@@ -441,7 +484,7 @@ export async function sweepExpiredBookingHolds(db: D1Database, now = Date.now(),
         .prepare(
           `UPDATE crm_allocations
            SET released_at = ?, release_reason = 'hold_expired', updated_at = ?
-           WHERE booking_id = ? AND kind = 'hold' AND released_at IS NULL AND expires_at <= ?`,
+           WHERE booking_id = ? AND kind = 'hold' AND released_at IS NULL AND expires_at <= MAX(?, ${SQLITE_NOW_MS})`,
         )
         .bind(now, now, b.id, now),
       db
@@ -474,6 +517,10 @@ function upsertEditionCommand(): CommandDefinition<UpsertEditionInput, { edition
     },
     authorizeFine: (actor, input) =>
       evaluateCapability(actor, 'crm.configure', `programme:${input.programmeSlug}`),
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      if (!evaluateCapability(actor, 'crm.configure', `programme:${input.programmeSlug}`)) return false;
+      return (await loadReadableTaskRecord(env, actor.id, input.eventRecordId)) !== null;
+    },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const eventRec = await loadReadableTaskRecord(env, actor.id, input.eventRecordId);
       if (!eventRec) return { kind: 'refuse', error: 'not_found' };
@@ -543,11 +590,15 @@ function upsertEditionCommand(): CommandDefinition<UpsertEditionInput, { edition
       const statsMap = existing ? await computeEditionSeatStats(env.DB, [existing.id], now) : new Map();
       const stats = statsMap.get(id) ?? { confirmed: 0, held: 0, waitlisted: 0 };
 
-      if (capacity !== null && capacity < stats.confirmed) {
+      if (capacity !== null && capacity < stats.confirmed + stats.held) {
         return {
           kind: 'refuse',
           error: 'capacity_exceeded',
-          detail: { reason: 'capacity_below_confirmed_seats', confirmedSeats: stats.confirmed },
+          detail: {
+            reason: 'capacity_below_allocated_seats',
+            confirmedSeats: stats.confirmed,
+            heldSeats: stats.held,
+          },
         };
       }
 
@@ -630,11 +681,13 @@ function upsertEditionCommand(): CommandDefinition<UpsertEditionInput, { edition
           ? env.DB
               .prepare(
                 `SELECT CASE WHEN COALESCE(
-                   (SELECT SUM(seats) FROM crm_allocations WHERE edition_id = ? AND released_at IS NULL AND kind = 'confirmed'),
+                   (SELECT SUM(seats) FROM crm_allocations
+                    WHERE edition_id = ? AND released_at IS NULL
+                      AND (kind = 'confirmed' OR (kind = 'hold' AND expires_at > MAX(?, ${SQLITE_NOW_MS})))),
                    0
                  ) <= ? THEN 1 ELSE json_extract('{', '$') END`,
               )
-              .bind(existing.id, capacity)
+              .bind(existing.id, now, capacity)
           : null;
 
       return {
@@ -676,6 +729,22 @@ function requestBookingCommand(): CommandDefinition<
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      const edition = await env.DB
+        .prepare(`SELECT event_record_id FROM crm_editions WHERE id = ?`)
+        .bind(input.editionId)
+        .first<{ event_record_id: string }>();
+      if (!edition) return false;
+      const [evRec, bookerRec] = await Promise.all([
+        loadReadableTaskRecord(env, actor.id, edition.event_record_id),
+        loadReadableTaskRecord(env, actor.id, input.bookerPersonId),
+      ]);
+      if (!evRec || !bookerRec) return false;
+      if (input.applicationId && !(await loadReadableTaskRecord(env, actor.id, input.applicationId))) {
+        return false;
+      }
+      return true;
+    },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const edition = await env.DB
         .prepare(`SELECT * FROM crm_editions WHERE id = ?`)
@@ -685,8 +754,16 @@ function requestBookingCommand(): CommandDefinition<
       if (edition.state !== 'open') {
         return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'edition_not_open', state: edition.state } };
       }
-      if (edition.capacity === null || edition.max_group_size === null || edition.hold_minutes === null) {
+      if (
+        edition.capacity === null ||
+        edition.max_group_size === null ||
+        edition.hold_minutes === null ||
+        edition.confirm_before_payment === null
+      ) {
         return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'edition_policy_unconfigured_pending_O05' } };
+      }
+      if (edition.requires_screening === 1 && parseStringArray(edition.screening_questions_json).length === 0) {
+        return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'screening_questions_unconfigured_pending_O06' } };
       }
       if (input.seats > edition.max_group_size) {
         return {
@@ -711,9 +788,14 @@ function requestBookingCommand(): CommandDefinition<
         };
       }
 
+      const expectMap = new Map<string, number>([
+        [bookerRec.id, bookerRec.seq],
+        [eventRec.id, eventRec.seq],
+      ]);
       if (input.applicationId) {
         const appRec = await loadReadableTaskRecord(env, actor.id, input.applicationId);
         if (!appRec) return { kind: 'refuse', error: 'not_found' };
+        expectMap.set(appRec.id, appRec.seq);
       }
 
       const priceOptions = parsePriceOptions(edition.price_options_json);
@@ -723,6 +805,12 @@ function requestBookingCommand(): CommandDefinition<
         if (!chosenOption) {
           return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'unknown_price_option' } };
         }
+      } else if (edition.confirm_before_payment === 0) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: { reason: 'price_option_required_pending_O05' },
+        };
       }
 
       const statsMap = await computeEditionSeatStats(env.DB, [edition.id], now);
@@ -825,6 +913,7 @@ function requestBookingCommand(): CommandDefinition<
         fences: [
           () => crmActorFence(env.DB, actor, tokenHash),
           () => notArchivedAliasFence(env.DB, bookerRec.id),
+          editionPolicyFence(env.DB, edition.id, edition.rev, true),
         ],
         rows,
         records: [
@@ -835,7 +924,7 @@ function requestBookingCommand(): CommandDefinition<
             ts: now,
           },
         ],
-        recordExpect: new Map([[bookerRec.id, bookerRec.seq]]),
+        recordExpect: expectMap,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -852,6 +941,8 @@ function holdBookingCommand(): CommandDefinition<HoldBookingInput, { booking: Cr
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) =>
+      (await authorizeBookingLinkedRecords(env, actor.id, input.bookingId)) !== null,
     classifyFenceError: async ({ env, input }) => {
       const bk = await env.DB
         .prepare(`SELECT id, edition_id, seats, rev, state FROM crm_bookings WHERE id = ?`)
@@ -926,7 +1017,10 @@ function holdBookingCommand(): CommandDefinition<HoldBookingInput, { booking: Cr
       return {
         kind: 'commit',
         result: { booking: mapBookingRow(updatedBooking, edition.title, edition.programme_slug, bookerTitle, now) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash),
+          editionPolicyFence(env.DB, edition.id, edition.rev, true),
+        ],
         rows: [
           env.DB
             .prepare(
@@ -991,31 +1085,64 @@ function confirmBookingCommand(): CommandDefinition<ConfirmBookingInput, { booki
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) =>
+      (await authorizeBookingLinkedRecords(env, actor.id, input.bookingId)) !== null,
     classifyFenceError: async ({ env, input }) => {
       const bk = await env.DB
-        .prepare(`SELECT id, edition_id, seats, state, hold_expires_at FROM crm_bookings WHERE id = ?`)
+        .prepare(`SELECT id, edition_id, seats, state, hold_expires_at, unit_amount_minor, currency FROM crm_bookings WHERE id = ?`)
         .bind(input.bookingId)
-        .first<Pick<BookingRow, 'id' | 'edition_id' | 'seats' | 'state' | 'hold_expires_at'>>();
+        .first<Pick<BookingRow, 'id' | 'edition_id' | 'seats' | 'state' | 'hold_expires_at' | 'unit_amount_minor' | 'currency'>>();
       if (!bk) return { ok: false, error: 'not_found', retryable: false };
       if ((bk.state === 'held' || bk.state === 'awaiting_payment') && bk.hold_expires_at !== null && bk.hold_expires_at <= Date.now()) {
         return { ok: false, error: 'hold_expired', retryable: false };
       }
       const ed = await env.DB
-        .prepare(`SELECT id, capacity FROM crm_editions WHERE id = ?`)
+        .prepare(`SELECT id, state, capacity, confirm_before_payment FROM crm_editions WHERE id = ?`)
         .bind(bk.edition_id)
-        .first<Pick<EditionRow, 'id' | 'capacity'>>();
-      if (ed && ed.capacity !== null) {
-        const statsMap = await computeEditionSeatStats(env.DB, [ed.id], Date.now());
-        const st = statsMap.get(ed.id) ?? { confirmed: 0, held: 0, waitlisted: 0 };
-        const availableSeats = Math.max(0, ed.capacity - (st.confirmed + st.held));
-        if (availableSeats < bk.seats) {
+        .first<Pick<EditionRow, 'id' | 'state' | 'capacity' | 'confirm_before_payment'>>();
+      if (!ed || ed.state !== 'open') {
+        return { ok: false, error: 'invalid_input', detail: { reason: 'edition_not_open' }, retryable: false };
+      }
+      if (ed.capacity === null || ed.confirm_before_payment === null) {
+        return { ok: false, error: 'invalid_input', detail: { reason: 'edition_policy_unconfigured_pending_O05' }, retryable: false };
+      }
+      if (ed.confirm_before_payment === 0) {
+        const agreed = computeBookingAgreedDue({
+          unitAmountMinor: bk.unit_amount_minor,
+          seats: bk.seats,
+          currency: bk.currency,
+        });
+        if (!agreed) {
+          return { ok: false, error: 'invalid_input', detail: { reason: 'booking_price_unconfigured_pending_O05' }, retryable: false };
+        }
+        const payRow = await env.DB
+          .prepare(
+            `SELECT
+               COALESCE((SELECT SUM(amount_minor) FROM crm_ledger_entries WHERE object_type = 'booking' AND object_id = ? AND currency = ?), 0) AS net_paid,
+               COALESCE((SELECT SUM(amount_minor) FROM crm_refund_requests WHERE object_type = 'booking' AND object_id = ? AND currency = ? AND state IN ('requested','approved')), 0) AS pending_refunds`,
+          )
+          .bind(bk.id, agreed.currency, bk.id, agreed.currency)
+          .first<{ net_paid: number; pending_refunds: number }>();
+        const covered = Number(payRow?.net_paid ?? 0) - Number(payRow?.pending_refunds ?? 0);
+        if (covered < agreed.dueMinor) {
           return {
             ok: false,
-            error: 'capacity_exceeded',
-            detail: { confirmedSeats: st.confirmed, heldSeats: st.held, availableSeats },
+            error: 'invalid_input',
+            detail: { reason: 'payment_required_before_confirm', requiredMinor: agreed.dueMinor, coveredMinor: covered, currency: agreed.currency },
             retryable: false,
           };
         }
+      }
+      const statsMap = await computeEditionSeatStats(env.DB, [ed.id], Date.now());
+      const st = statsMap.get(ed.id) ?? { confirmed: 0, held: 0, waitlisted: 0 };
+      const availableSeats = Math.max(0, ed.capacity - (st.confirmed + st.held));
+      if (availableSeats < bk.seats) {
+        return {
+          ok: false,
+          error: 'capacity_exceeded',
+          detail: { confirmedSeats: st.confirmed, heldSeats: st.held, availableSeats },
+          retryable: false,
+        };
       }
       return null;
     },
@@ -1048,36 +1175,97 @@ function confirmBookingCommand(): CommandDefinition<ConfirmBookingInput, { booki
         return { kind: 'refuse', error: 'stale', detail: { reason: 'booking_cannot_confirm', state: eff } };
       }
 
-      // Payment policy gate (never allow stage edit to bypass authoritative ledger payment status)
-      if (edition.confirm_before_payment === 0 && bk.payment_status !== 'paid' && bk.payment_status !== 'overpaid') {
-        return {
-          kind: 'refuse',
-          error: 'invalid_input',
-          detail: { reason: 'payment_required_before_confirm', paymentStatus: bk.payment_status },
-        };
+      const extraFences: (() => D1PreparedStatement)[] = [];
+
+      // Authoritative ledger payment policy gate (derived from agreed price * seats & currency, never a smaller payment request)
+      if (edition.confirm_before_payment === 0) {
+        const agreed = computeBookingAgreedDue({
+          unitAmountMinor: bk.unit_amount_minor,
+          seats: bk.seats,
+          currency: bk.currency,
+        });
+        if (!agreed) {
+          return {
+            kind: 'refuse',
+            error: 'invalid_input',
+            detail: { reason: 'booking_price_unconfigured_pending_O05' },
+          };
+        }
+        const payRow = await env.DB
+          .prepare(
+            `SELECT
+               COALESCE((SELECT SUM(amount_minor) FROM crm_ledger_entries WHERE object_type = 'booking' AND object_id = ? AND currency = ?), 0) AS net_paid,
+               COALESCE((SELECT SUM(amount_minor) FROM crm_refund_requests WHERE object_type = 'booking' AND object_id = ? AND currency = ? AND state IN ('requested','approved')), 0) AS pending_refunds`,
+          )
+          .bind(bk.id, agreed.currency, bk.id, agreed.currency)
+          .first<{ net_paid: number; pending_refunds: number }>();
+        const covered = Number(payRow?.net_paid ?? 0) - Number(payRow?.pending_refunds ?? 0);
+        if (covered < agreed.dueMinor) {
+          return {
+            kind: 'refuse',
+            error: 'invalid_input',
+            detail: {
+              reason: 'payment_required_before_confirm',
+              requiredMinor: agreed.dueMinor,
+              coveredMinor: covered,
+              currency: agreed.currency,
+            },
+          };
+        }
+        extraFences.push(
+          () =>
+            env.DB
+              .prepare(
+                `SELECT CASE WHEN EXISTS (
+                   SELECT 1 FROM crm_bookings b
+                   WHERE b.id = ? AND b.rev = ? AND b.currency = ?
+                     AND b.unit_amount_minor IS NOT NULL AND b.unit_amount_minor > 0
+                     AND (
+                       COALESCE((SELECT SUM(amount_minor) FROM crm_ledger_entries WHERE object_type = 'booking' AND object_id = b.id AND currency = b.currency), 0)
+                       - COALESCE((SELECT SUM(amount_minor) FROM crm_refund_requests WHERE object_type = 'booking' AND object_id = b.id AND currency = b.currency AND state IN ('requested','approved')), 0)
+                     ) >= (b.unit_amount_minor * b.seats)
+                 ) THEN 1 ELSE json_extract('{', '$') END`,
+              )
+              .bind(bk.id, bk.rev, agreed.currency),
+        );
       }
 
       const activeHold = await env.DB
         .prepare(
           `SELECT id FROM crm_allocations
-           WHERE booking_id = ? AND edition_id = ? AND kind = 'hold' AND released_at IS NULL AND expires_at > ?
+           WHERE booking_id = ? AND edition_id = ? AND kind = 'hold' AND released_at IS NULL AND expires_at > MAX(?, ${SQLITE_NOW_MS})
            LIMIT 1`,
         )
         .bind(bk.id, edition.id, now)
         .first<{ id: string }>();
+
+      if ((bk.state === 'held' || bk.state === 'awaiting_payment') && !activeHold) {
+        return { kind: 'refuse', error: 'hold_expired', detail: { reason: 'hold_expired_rebook_required' } };
+      }
 
       const statsMap = await computeEditionSeatStats(env.DB, [edition.id], now);
       const stats = statsMap.get(edition.id) ?? { confirmed: 0, held: 0, waitlisted: 0 };
 
       const allocRows: D1PreparedStatement[] = [];
       if (activeHold) {
+        extraFences.push(
+          () =>
+            env.DB
+              .prepare(
+                `SELECT CASE WHEN EXISTS (
+                   SELECT 1 FROM crm_bookings
+                   WHERE id = ? AND rev = ? AND (hold_expires_at IS NULL OR hold_expires_at > MAX(?, ${SQLITE_NOW_MS}))
+                 ) THEN 1 ELSE json_extract('{', '$') END`,
+              )
+              .bind(bk.id, bk.rev, now),
+        );
         // Atomically convert the existing unexpired hold to confirmed (no extra seats needed)
         allocRows.push(
           env.DB
             .prepare(
               `UPDATE crm_allocations
                SET kind = 'confirmed', expires_at = NULL, updated_at = ?
-               WHERE id = ? AND released_at IS NULL AND kind = 'hold' AND expires_at > ?`,
+               WHERE id = ? AND released_at IS NULL AND kind = 'hold' AND expires_at > MAX(?, ${SQLITE_NOW_MS})`,
             )
             .bind(now, activeHold.id, now),
           changesOneFence(env.DB),
@@ -1112,7 +1300,11 @@ function confirmBookingCommand(): CommandDefinition<ConfirmBookingInput, { booki
       return {
         kind: 'commit',
         result: { booking: mapBookingRow(updatedBooking, edition.title, edition.programme_slug, bookerTitle, now) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash),
+          editionPolicyFence(env.DB, edition.id, edition.rev, true),
+          ...extraFences,
+        ],
         rows: [
           ...allocRows,
           env.DB
@@ -1151,16 +1343,26 @@ function confirmBookingCommand(): CommandDefinition<ConfirmBookingInput, { booki
   };
 }
 
-function cancelBookingCommand(): CommandDefinition<CancelBookingInput, { booking: CrmBookingDto }> {
+function cancelBookingCommand(): CommandDefinition<
+  CancelBookingInput,
+  {
+    booking: CrmBookingDto;
+    refundReviewRequired: boolean;
+    refundableByCurrency: { currency: string; netPaidMinor: number }[];
+    cancellationPolicyText: string | null;
+  }
+> {
   return {
     name: 'booking.cancel',
-    projectionKeys: [CRM_PROJECTION.bookingStatus],
+    projectionKeys: [CRM_PROJECTION.bookingStatus, CRM_PROJECTION.editionBookedSeats, CRM_PROJECTION.editionHeldSeats],
     authorizeCoarse: (actor, via) => via === 'ui' && canAccessCrmApi(actor),
     parseInput: (raw) => {
       const parsed = CancelBookingInputSchema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) =>
+      (await authorizeBookingLinkedRecords(env, actor.id, input.bookingId)) !== null,
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const bk = await env.DB.prepare(`SELECT * FROM crm_bookings WHERE id = ?`).bind(input.bookingId).first<BookingRow>();
       if (!bk) return { kind: 'refuse', error: 'not_found' };
@@ -1178,6 +1380,50 @@ function cancelBookingCommand(): CommandDefinition<CancelBookingInput, { booking
       ]);
       if (!eventRec || !bookerRec) return { kind: 'refuse', error: 'not_found' };
 
+      const [ledRes, activeAllocRes] = await env.DB.batch([
+        env.DB
+          .prepare(
+            `SELECT currency, COUNT(*) AS cnt, COALESCE(SUM(amount_minor), 0) AS net_minor
+             FROM crm_ledger_entries
+             WHERE object_type = 'booking' AND object_id = ?
+             GROUP BY currency`,
+          )
+          .bind(bk.id),
+        env.DB
+          .prepare(
+            `SELECT kind, seats FROM crm_allocations
+             WHERE booking_id = ? AND edition_id = ? AND released_at IS NULL
+               AND (kind = 'confirmed' OR (kind = 'hold' AND expires_at > MAX(?, ${SQLITE_NOW_MS})))`,
+          )
+          .bind(bk.id, edition.id, now),
+      ]);
+
+      const ledgerRows = ledRes.results as unknown as { currency: string; cnt: number; net_minor: number }[];
+      const totalLedgerCount = ledgerRows.reduce((sum, r) => sum + Number(r.cnt ?? 0), 0);
+      const refundableByCurrency = ledgerRows
+        .filter((r) => Number(r.net_minor ?? 0) > 0)
+        .map((r) => ({ currency: r.currency, netPaidMinor: Number(r.net_minor) }))
+        .sort((a, b) => a.currency.localeCompare(b.currency));
+      const refundReviewRequired = refundableByCurrency.length > 0;
+
+      // Fail closed (O-06): cancelling a paid booking requires an owner-configured cancellation policy!
+      if (refundReviewRequired && !edition.cancellation_policy_text?.trim()) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: {
+            reason: 'cancellation_policy_unconfigured_pending_O06',
+            refundableByCurrency,
+          },
+        };
+      }
+
+      const activeAllocs = activeAllocRes.results as unknown as { kind: 'hold' | 'confirmed'; seats: number }[];
+      const releasedConfirmed = activeAllocs.filter((a) => a.kind === 'confirmed').reduce((s, a) => s + a.seats, 0);
+      const releasedHeld = activeAllocs.filter((a) => a.kind === 'hold').reduce((s, a) => s + a.seats, 0);
+      const statsMap = await computeEditionSeatStats(env.DB, [edition.id], now);
+      const stats = statsMap.get(edition.id) ?? { confirmed: 0, held: 0, waitlisted: 0 };
+
       const updated: BookingRow = {
         ...bk,
         state: 'cancelled',
@@ -1191,8 +1437,22 @@ function cancelBookingCommand(): CommandDefinition<CancelBookingInput, { booking
 
       return {
         kind: 'commit',
-        result: { booking: mapBookingRow(updated, edition.title, edition.programme_slug, bookerTitle, now) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        result: {
+          booking: mapBookingRow(updated, edition.title, edition.programme_slug, bookerTitle, now),
+          refundReviewRequired,
+          refundableByCurrency,
+          cancellationPolicyText: edition.cancellation_policy_text,
+        },
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash),
+          editionPolicyFence(env.DB, edition.id, edition.rev, false),
+          env.DB
+            .prepare(
+              `SELECT CASE WHEN (SELECT COUNT(*) FROM crm_ledger_entries WHERE object_type = 'booking' AND object_id = ?) = ?
+               THEN 1 ELSE json_extract('{', '$') END`,
+            )
+            .bind(bk.id, totalLedgerCount),
+        ],
         rows: [
           env.DB
             .prepare(
@@ -1224,8 +1484,20 @@ function cancelBookingCommand(): CommandDefinition<CancelBookingInput, { booking
             patch: { [CRM_PROJECTION.bookingStatus]: 'cancelled' },
             ts: now,
           },
+          {
+            id: eventRec.id,
+            collection: 'tasks',
+            patch: {
+              [CRM_PROJECTION.editionBookedSeats]: Math.max(0, stats.confirmed - releasedConfirmed),
+              [CRM_PROJECTION.editionHeldSeats]: Math.max(0, stats.held - releasedHeld),
+            },
+            ts: now,
+          },
         ],
-        recordExpect: new Map([[bookerRec.id, bookerRec.seq]]),
+        recordExpect: new Map([
+          [bookerRec.id, bookerRec.seq],
+          [eventRec.id, eventRec.seq],
+        ]),
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1235,11 +1507,22 @@ function cancelBookingCommand(): CommandDefinition<CancelBookingInput, { booking
 function transferBookingCommand(): CommandDefinition<TransferBookingInput, { booking: CrmBookingDto }> {
   return {
     name: 'booking.transfer',
+    projectionKeys: [CRM_PROJECTION.bookingStatus, CRM_PROJECTION.editionBookedSeats, CRM_PROJECTION.editionHeldSeats],
     authorizeCoarse: (actor, via) => via === 'ui' && canAccessCrmApi(actor),
     parseInput: (raw) => {
       const parsed = TransferBookingInputSchema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
+    },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      const linked = await authorizeBookingLinkedRecords(env, actor.id, input.bookingId);
+      if (!linked) return false;
+      const targetEd = await env.DB
+        .prepare(`SELECT event_record_id FROM crm_editions WHERE id = ?`)
+        .bind(input.targetEditionId)
+        .first<{ event_record_id: string }>();
+      if (!targetEd) return false;
+      return (await loadReadableTaskRecord(env, actor.id, targetEd.event_record_id)) !== null;
     },
     classifyFenceError: async ({ env, input }) => {
       const bk = await env.DB.prepare(`SELECT seats FROM crm_bookings WHERE id = ?`).bind(input.bookingId).first<{ seats: number }>();
@@ -1281,8 +1564,21 @@ function transferBookingCommand(): CommandDefinition<TransferBookingInput, { boo
         env.DB.prepare(`SELECT * FROM crm_editions WHERE id = ?`).bind(input.targetEditionId).first<EditionRow>(),
       ]);
       if (!sourceEd || !targetEd) return { kind: 'refuse', error: 'not_found' };
-      if (targetEd.state !== 'open' || targetEd.capacity === null || targetEd.hold_minutes === null) {
+      if (
+        targetEd.state !== 'open' ||
+        targetEd.capacity === null ||
+        targetEd.hold_minutes === null ||
+        targetEd.max_group_size === null ||
+        targetEd.confirm_before_payment === null
+      ) {
         return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'target_edition_not_open_or_unconfigured' } };
+      }
+      if (bk.seats > targetEd.max_group_size) {
+        return {
+          kind: 'refuse',
+          error: 'invalid_input',
+          detail: { reason: 'group_size_exceeds_policy', maxGroupSize: targetEd.max_group_size },
+        };
       }
 
       const [srcEvent, tgtEvent, bookerRec] = await Promise.all([
@@ -1296,6 +1592,50 @@ function transferBookingCommand(): CommandDefinition<TransferBookingInput, { boo
       const targetExpiresAt = targetKind === 'hold' ? now + targetEd.hold_minutes * 60_000 : null;
       const nextState: BookingState = targetKind === 'confirmed' ? 'confirmed' : 'held';
       const newAllocId = `al_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+
+      const fences: (D1PreparedStatement | (() => D1PreparedStatement))[] = [
+        () => crmActorFence(env.DB, actor, tokenHash),
+        editionPolicyFence(env.DB, sourceEd.id, sourceEd.rev, false),
+        editionPolicyFence(env.DB, targetEd.id, targetEd.rev, true),
+      ];
+
+      if (targetKind === 'confirmed' && targetEd.confirm_before_payment === 0) {
+        const agreed = computeBookingAgreedDue({
+          unitAmountMinor: bk.unit_amount_minor,
+          seats: bk.seats,
+          currency: bk.currency,
+        });
+        if (!agreed) {
+          return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'booking_price_unconfigured_pending_O05' } };
+        }
+        const [ledRes, refRes] = await env.DB.batch([
+          env.DB
+            .prepare(`SELECT COALESCE(SUM(amount_minor), 0) AS net_minor FROM crm_ledger_entries WHERE object_type = 'booking' AND object_id = ? AND currency = ?`)
+            .bind(bk.id, agreed.currency),
+          env.DB
+            .prepare(`SELECT COALESCE(SUM(amount_minor), 0) AS pending_minor FROM crm_refund_requests WHERE object_type = 'booking' AND object_id = ? AND currency = ? AND state IN ('requested', 'approved')`)
+            .bind(bk.id, agreed.currency),
+        ]);
+        const netPaid = Number((ledRes.results[0] as { net_minor: number } | undefined)?.net_minor ?? 0);
+        const pendingRef = Number((refRes.results[0] as { pending_minor: number } | undefined)?.pending_minor ?? 0);
+        if (netPaid - pendingRef < agreed.dueMinor) {
+          return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'payment_required_before_confirm' } };
+        }
+        fences.push(
+          env.DB
+            .prepare(
+              `SELECT CASE WHEN (
+                 COALESCE((SELECT SUM(amount_minor) FROM crm_ledger_entries WHERE object_type = 'booking' AND object_id = ? AND currency = ?), 0)
+                 - COALESCE((SELECT SUM(amount_minor) FROM crm_refund_requests WHERE object_type = 'booking' AND object_id = ? AND currency = ? AND state IN ('requested', 'approved')), 0)
+               ) >= ? THEN 1 ELSE json_extract('{', '$') END`,
+            )
+            .bind(bk.id, agreed.currency, bk.id, agreed.currency, agreed.dueMinor),
+        );
+      }
+
+      const statsMap = await computeEditionSeatStats(env.DB, [sourceEd.id, targetEd.id], now);
+      const srcStats = statsMap.get(sourceEd.id) ?? { confirmed: 0, held: 0, waitlisted: 0 };
+      const tgtStats = statsMap.get(targetEd.id) ?? { confirmed: 0, held: 0, waitlisted: 0 };
 
       const updated: BookingRow = {
         ...bk,
@@ -1311,7 +1651,7 @@ function transferBookingCommand(): CommandDefinition<TransferBookingInput, { boo
       return {
         kind: 'commit',
         result: { booking: mapBookingRow(updated, targetEd.title, targetEd.programme_slug, bookerTitle, now) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences,
         rows: [
           // 1. Atomically allocate seats in TARGET edition first (aborts entire batch if full!)
           buildConditionalAllocationInsert(env.DB, {
@@ -1347,6 +1687,37 @@ function transferBookingCommand(): CommandDefinition<TransferBookingInput, { boo
             .prepare(`UPDATE crm_screenings SET edition_id = ?, programme_slug = ?, rev = rev + 1, updated_at = ? WHERE booking_id = ?`)
             .bind(targetEd.id, targetEd.programme_slug, now, bk.id),
         ],
+        records: [
+          {
+            id: bookerRec.id,
+            collection: 'tasks',
+            patch: { [CRM_PROJECTION.bookingStatus]: nextState },
+            ts: now,
+          },
+          {
+            id: srcEvent.id,
+            collection: 'tasks',
+            patch: {
+              [CRM_PROJECTION.editionBookedSeats]: eff === 'confirmed' ? Math.max(0, srcStats.confirmed - bk.seats) : srcStats.confirmed,
+              [CRM_PROJECTION.editionHeldSeats]: eff === 'held' || eff === 'awaiting_payment' ? Math.max(0, srcStats.held - bk.seats) : srcStats.held,
+            },
+            ts: now,
+          },
+          {
+            id: tgtEvent.id,
+            collection: 'tasks',
+            patch: {
+              [CRM_PROJECTION.editionBookedSeats]: targetKind === 'confirmed' ? tgtStats.confirmed + bk.seats : tgtStats.confirmed,
+              [CRM_PROJECTION.editionHeldSeats]: targetKind === 'hold' ? tgtStats.held + bk.seats : tgtStats.held,
+            },
+            ts: now,
+          },
+        ],
+        recordExpect: new Map([
+          [bookerRec.id, bookerRec.seq],
+          [srcEvent.id, srcEvent.seq],
+          [tgtEvent.id, tgtEvent.seq],
+        ]),
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1362,6 +1733,8 @@ function offerWaitlistCommand(): CommandDefinition<OfferWaitlistInput, { booking
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) =>
+      (await authorizeBookingLinkedRecords(env, actor.id, input.bookingId)) !== null,
     classifyFenceError: async ({ env, input }) => {
       const bk = await env.DB.prepare(`SELECT edition_id, seats FROM crm_bookings WHERE id = ?`).bind(input.bookingId).first<{ edition_id: string; seats: number }>();
       if (!bk) return null;
@@ -1410,7 +1783,10 @@ function offerWaitlistCommand(): CommandDefinition<OfferWaitlistInput, { booking
       return {
         kind: 'commit',
         result: { booking: mapBookingRow(updated, edition.title, edition.programme_slug, bookerTitle, now) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash),
+          editionPolicyFence(env.DB, edition.id, edition.rev, true),
+        ],
         rows: [
           env.DB
             .prepare(`UPDATE crm_allocations SET released_at = ?, release_reason = 'superseded', updated_at = ? WHERE booking_id = ? AND released_at IS NULL`)
@@ -1434,6 +1810,11 @@ function offerWaitlistCommand(): CommandDefinition<OfferWaitlistInput, { booking
             .bind(expiresAt, expiresAt, now, bk.id, bk.rev),
           changesOneFence(env.DB),
         ],
+        recordExpect: new Map([
+          [eventRec.id, eventRec.seq],
+          [bookerRec.id, bookerRec.seq],
+        ]),
+        forceRecordsCommit: true,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1449,6 +1830,8 @@ function acceptWaitlistOfferCommand(): CommandDefinition<AcceptWaitlistOfferInpu
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) =>
+      (await authorizeBookingLinkedRecords(env, actor.id, input.bookingId)) !== null,
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const bk = await env.DB.prepare(`SELECT * FROM crm_bookings WHERE id = ?`).bind(input.bookingId).first<BookingRow>();
       if (!bk) return { kind: 'refuse', error: 'not_found' };
@@ -1462,7 +1845,7 @@ function acceptWaitlistOfferCommand(): CommandDefinition<AcceptWaitlistOfferInpu
         return { kind: 'refuse', error: 'hold_expired', detail: { reason: 'waitlist_offer_expired' } };
       }
       const edition = await env.DB.prepare(`SELECT * FROM crm_editions WHERE id = ?`).bind(bk.edition_id).first<EditionRow>();
-      if (!edition) return { kind: 'refuse', error: 'not_found' };
+      if (!edition || edition.state !== 'open') return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'edition_not_open' } };
       const [eventRec, bookerRec] = await Promise.all([
         loadReadableTaskRecord(env, actor.id, edition.event_record_id),
         loadReadableTaskRecord(env, actor.id, bk.booker_person_id),
@@ -1483,11 +1866,12 @@ function acceptWaitlistOfferCommand(): CommandDefinition<AcceptWaitlistOfferInpu
         result: { booking: mapBookingRow(updated, edition.title, edition.programme_slug, bookerTitle, now) },
         fences: [
           () => crmActorFence(env.DB, actor, tokenHash),
+          editionPolicyFence(env.DB, edition.id, edition.rev, true),
           env.DB
             .prepare(
               `SELECT CASE WHEN EXISTS (
                  SELECT 1 FROM crm_allocations
-                 WHERE booking_id = ? AND kind = 'hold' AND released_at IS NULL AND expires_at > ?
+                 WHERE booking_id = ? AND kind = 'hold' AND released_at IS NULL AND expires_at > MAX(?, ${SQLITE_NOW_MS})
                ) THEN 1 ELSE json_extract('{', '$') END`,
             )
             .bind(bk.id, now),
@@ -1497,11 +1881,16 @@ function acceptWaitlistOfferCommand(): CommandDefinition<AcceptWaitlistOfferInpu
             .prepare(
               `UPDATE crm_bookings
                SET state = 'held', offer_expires_at = NULL, rev = rev + 1, updated_at = ?
-               WHERE id = ? AND rev = ? AND state = 'offered' AND offer_expires_at > ?`,
+               WHERE id = ? AND rev = ? AND state = 'offered' AND offer_expires_at > MAX(?, ${SQLITE_NOW_MS})`,
             )
             .bind(now, bk.id, bk.rev, now),
           changesOneFence(env.DB),
         ],
+        recordExpect: new Map([
+          [eventRec.id, eventRec.seq],
+          [bookerRec.id, bookerRec.seq],
+        ]),
+        forceRecordsCommit: true,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1517,6 +1906,8 @@ function updateParticipantCommand(): CommandDefinition<UpdateParticipantInput, {
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) =>
+      (await authorizeParticipantLinkedRecords(env, actor.id, input.participantId)) !== null,
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const pt = await env.DB
         .prepare(`SELECT * FROM crm_participants WHERE id = ?`)
@@ -1526,11 +1917,21 @@ function updateParticipantCommand(): CommandDefinition<UpdateParticipantInput, {
       if (input.expectedRev !== undefined && pt.rev !== input.expectedRev) {
         return { kind: 'refuse', error: 'stale' };
       }
-      const ed = await env.DB.prepare(`SELECT event_record_id FROM crm_editions WHERE id = ?`).bind(pt.edition_id).first<{ event_record_id: string }>();
-      if (!ed || !(await loadReadableTaskRecord(env, actor.id, ed.event_record_id))) {
-        return { kind: 'refuse', error: 'not_found' };
-      }
+      const [ed, bk] = await Promise.all([
+        env.DB.prepare(`SELECT event_record_id FROM crm_editions WHERE id = ?`).bind(pt.edition_id).first<{ event_record_id: string }>(),
+        env.DB.prepare(`SELECT booker_person_id FROM crm_bookings WHERE id = ?`).bind(pt.booking_id).first<{ booker_person_id: string }>(),
+      ]);
+      if (!ed || !bk) return { kind: 'refuse', error: 'not_found' };
+      const [evRec, bookerRec] = await Promise.all([
+        loadReadableTaskRecord(env, actor.id, ed.event_record_id),
+        loadReadableTaskRecord(env, actor.id, bk.booker_person_id),
+      ]);
+      if (!evRec || !bookerRec) return { kind: 'refuse', error: 'not_found' };
 
+      const expectMap = new Map<string, number>([
+        [evRec.id, evRec.seq],
+        [bookerRec.id, bookerRec.seq],
+      ]);
       const nextPersonId = input.personId !== undefined ? input.personId : pt.person_id;
       if (nextPersonId) {
         const pRec = await loadReadableTaskRecord(env, actor.id, nextPersonId);
@@ -1543,6 +1944,7 @@ function updateParticipantCommand(): CommandDefinition<UpdateParticipantInput, {
             detail: { reason: 'person_merged_or_archived', mergedInto: aliasState.mergedInto },
           };
         }
+        expectMap.set(pRec.id, pRec.seq);
       }
 
       const updated: ParticipantRow = {
@@ -1571,6 +1973,8 @@ function updateParticipantCommand(): CommandDefinition<UpdateParticipantInput, {
             .bind(updated.person_id, updated.display_name, updated.state, updated.notes, now, pt.id, pt.rev),
           changesOneFence(env.DB),
         ],
+        recordExpect: expectMap,
+        forceRecordsCommit: true,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1586,16 +1990,24 @@ function recordAttendanceCommand(): CommandDefinition<RecordAttendanceInput, { a
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) =>
+      (await authorizeParticipantLinkedRecords(env, actor.id, input.participantId)) !== null,
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const pt = await env.DB
         .prepare(`SELECT * FROM crm_participants WHERE id = ?`)
         .bind(input.participantId)
         .first<ParticipantRow>();
       if (!pt || pt.state === 'cancelled') return { kind: 'refuse', error: 'not_found' };
-      const ed = await env.DB.prepare(`SELECT * FROM crm_editions WHERE id = ?`).bind(pt.edition_id).first<EditionRow>();
-      if (!ed || !(await loadReadableTaskRecord(env, actor.id, ed.event_record_id))) {
-        return { kind: 'refuse', error: 'not_found' };
-      }
+      const [ed, bk] = await Promise.all([
+        env.DB.prepare(`SELECT * FROM crm_editions WHERE id = ?`).bind(pt.edition_id).first<EditionRow>(),
+        env.DB.prepare(`SELECT booker_person_id FROM crm_bookings WHERE id = ?`).bind(pt.booking_id).first<{ booker_person_id: string }>(),
+      ]);
+      if (!ed || !bk) return { kind: 'refuse', error: 'not_found' };
+      const [evRec, bookerRec] = await Promise.all([
+        loadReadableTaskRecord(env, actor.id, ed.event_record_id),
+        loadReadableTaskRecord(env, actor.id, bk.booker_person_id),
+      ]);
+      if (!evRec || !bookerRec) return { kind: 'refuse', error: 'not_found' };
       const sessionDates = parseStringArray(ed.session_dates_json);
       if (sessionDates.length > 0 && !sessionDates.includes(input.sessionDate)) {
         return { kind: 'refuse', error: 'invalid_input', detail: { reason: 'session_date_not_in_edition' } };
@@ -1637,8 +2049,16 @@ function recordAttendanceCommand(): CommandDefinition<RecordAttendanceInput, { a
       return {
         kind: 'commit',
         result: { attendance: mapAttendanceRow(nextRow) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash)],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash),
+          editionPolicyFence(env.DB, ed.id, ed.rev, false),
+        ],
         rows: [stmt],
+        recordExpect: new Map([
+          [evRec.id, evRec.seq],
+          [bookerRec.id, bookerRec.seq],
+        ]),
+        forceRecordsCommit: true,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1654,17 +2074,30 @@ function upsertScreeningCommand(): CommandDefinition<UpsertScreeningInput, { scr
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      const linked = await authorizeParticipantLinkedRecords(env, actor.id, input.participantId);
+      if (!linked) return false;
+      return evaluateCapability(actor, 'crm.restricted.read', `programme:${linked.edition.programme_slug}`);
+    },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const pt = await env.DB.prepare(`SELECT * FROM crm_participants WHERE id = ?`).bind(input.participantId).first<ParticipantRow>();
       if (!pt) return { kind: 'refuse', error: 'not_found' };
-      const ed = await env.DB.prepare(`SELECT * FROM crm_editions WHERE id = ?`).bind(pt.edition_id).first<EditionRow>();
-      if (!ed) return { kind: 'refuse', error: 'not_found' };
+      const [ed, bk] = await Promise.all([
+        env.DB.prepare(`SELECT * FROM crm_editions WHERE id = ?`).bind(pt.edition_id).first<EditionRow>(),
+        env.DB.prepare(`SELECT booker_person_id FROM crm_bookings WHERE id = ?`).bind(pt.booking_id).first<{ booker_person_id: string }>(),
+      ]);
+      if (!ed || !bk) return { kind: 'refuse', error: 'not_found' };
 
       const scope = `programme:${ed.programme_slug}`;
       if (!evaluateCapability(actor, 'crm.restricted.read', scope)) {
         return { kind: 'refuse', error: 'forbidden' };
       }
-      if (!(await loadReadableTaskRecord(env, actor.id, ed.event_record_id))) {
+      const [evRec, bookerRec, ptPersonRec] = await Promise.all([
+        loadReadableTaskRecord(env, actor.id, ed.event_record_id),
+        loadReadableTaskRecord(env, actor.id, bk.booker_person_id),
+        pt.person_id ? loadReadableTaskRecord(env, actor.id, pt.person_id) : Promise.resolve(null),
+      ]);
+      if (!evRec || !bookerRec || (pt.person_id && !ptPersonRec)) {
         return { kind: 'refuse', error: 'not_found' };
       }
 
@@ -1717,11 +2150,19 @@ function upsertScreeningCommand(): CommandDefinition<UpsertScreeningInput, { scr
               now,
             );
 
+      const expectMap = new Map<string, number>([
+        [evRec.id, evRec.seq],
+        [bookerRec.id, bookerRec.seq],
+      ]);
+      if (ptPersonRec) expectMap.set(ptPersonRec.id, ptPersonRec.seq);
+
       return {
         kind: 'commit',
         result: { screening: mapScreeningRow(nextRow) },
         fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.restricted.read', scope)],
         rows: existing ? [stmt, changesOneFence(env.DB)] : [stmt],
+        recordExpect: expectMap,
+        forceRecordsCommit: true,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1738,6 +2179,11 @@ function reviewScreeningCommand(): CommandDefinition<ReviewScreeningInput, { scr
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      const linked = await authorizeParticipantLinkedRecords(env, actor.id, input.participantId);
+      if (!linked) return false;
+      return evaluateCapability(actor, 'crm.restricted.read', `programme:${linked.edition.programme_slug}`);
+    },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const existing = await env.DB
         .prepare(`SELECT * FROM crm_screenings WHERE participant_id = ?`)
@@ -1752,6 +2198,27 @@ function reviewScreeningCommand(): CommandDefinition<ReviewScreeningInput, { scr
       if (!evaluateCapability(actor, 'crm.restricted.read', scope)) {
         return { kind: 'refuse', error: 'forbidden' };
       }
+
+      const [pt, ed, bk] = await Promise.all([
+        env.DB.prepare(`SELECT person_id FROM crm_participants WHERE id = ?`).bind(existing.participant_id).first<{ person_id: string | null }>(),
+        env.DB.prepare(`SELECT event_record_id FROM crm_editions WHERE id = ?`).bind(existing.edition_id).first<{ event_record_id: string }>(),
+        env.DB.prepare(`SELECT booker_person_id FROM crm_bookings WHERE id = ?`).bind(existing.booking_id).first<{ booker_person_id: string }>(),
+      ]);
+      if (!pt || !ed || !bk) return { kind: 'refuse', error: 'not_found' };
+      const [evRec, bookerRec, ptPersonRec] = await Promise.all([
+        loadReadableTaskRecord(env, actor.id, ed.event_record_id),
+        loadReadableTaskRecord(env, actor.id, bk.booker_person_id),
+        pt.person_id ? loadReadableTaskRecord(env, actor.id, pt.person_id) : Promise.resolve(null),
+      ]);
+      if (!evRec || !bookerRec || (pt.person_id && !ptPersonRec)) {
+        return { kind: 'refuse', error: 'not_found' };
+      }
+
+      const expectMap = new Map<string, number>([
+        [evRec.id, evRec.seq],
+        [bookerRec.id, bookerRec.seq],
+      ]);
+      if (ptPersonRec) expectMap.set(ptPersonRec.id, ptPersonRec.seq);
 
       const updated: ScreeningRow = {
         ...existing,
@@ -1776,6 +2243,8 @@ function reviewScreeningCommand(): CommandDefinition<ReviewScreeningInput, { scr
             .bind(updated.state, updated.review_note, actor.id, now, now, existing.participant_id, existing.rev),
           changesOneFence(env.DB),
         ],
+        recordExpect: expectMap,
+        forceRecordsCommit: true,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1791,6 +2260,15 @@ function completeEditionCommand(): CommandDefinition<CompleteEditionInput, { edi
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      const ed = await env.DB
+        .prepare(`SELECT event_record_id, programme_slug FROM crm_editions WHERE id = ?`)
+        .bind(input.editionId)
+        .first<{ event_record_id: string; programme_slug: string }>();
+      if (!ed) return false;
+      if (!evaluateCapability(actor, 'crm.configure', `programme:${ed.programme_slug}`)) return false;
+      return (await loadReadableTaskRecord(env, actor.id, ed.event_record_id)) !== null;
+    },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const ed = await env.DB.prepare(`SELECT * FROM crm_editions WHERE id = ?`).bind(input.editionId).first<EditionRow>();
       if (!ed) return { kind: 'refuse', error: 'not_found' };
@@ -1801,7 +2279,8 @@ function completeEditionCommand(): CommandDefinition<CompleteEditionInput, { edi
       if (!evaluateCapability(actor, 'crm.configure', scope)) {
         return { kind: 'refuse', error: 'forbidden' };
       }
-      if (!(await loadReadableTaskRecord(env, actor.id, ed.event_record_id))) {
+      const eventRec = await loadReadableTaskRecord(env, actor.id, ed.event_record_id);
+      if (!eventRec) {
         return { kind: 'refuse', error: 'not_found' };
       }
 
@@ -1856,6 +2335,8 @@ function completeEditionCommand(): CommandDefinition<CompleteEditionInput, { edi
         result: { editionId: ed.id, completedBookings: confirmedCount },
         fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.configure', scope)],
         rows,
+        recordExpect: new Map([[eventRec.id, eventRec.seq]]),
+        forceRecordsCommit: true,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -2040,7 +2521,16 @@ export async function readBookingDetail(
   const paymentSummaryByCurrency: { currency: string; dueMinor: number; netPaidMinor: number; balanceMinor: number }[] = [];
   if (canReadMoney) {
     const byCur = new Map<string, { due: number; paid: number }>();
+    const agreed = computeBookingAgreedDue({
+      unitAmountMinor: bkRow.unit_amount_minor,
+      seats: bkRow.seats,
+      currency: bkRow.currency,
+    });
+    if (agreed) {
+      byCur.set(agreed.currency, { due: agreed.dueMinor, paid: 0 });
+    }
     for (const r of prRes.results as unknown as { currency: string; amount_minor: number }[]) {
+      if (agreed && r.currency === agreed.currency) continue;
       const cur = byCur.get(r.currency) ?? { due: 0, paid: 0 };
       cur.due += r.amount_minor;
       byCur.set(r.currency, cur);
@@ -2093,11 +2583,12 @@ export async function readBookingScreening(
 > {
   if (!isCrmEnabled(env)) return { status: 404, body: { error: 'not_found' } };
   const now = Date.now();
-  const [sessionRes, grantsRes, bkRes, scrRes] = await env.DB.batch([
+  const [sessionRes, grantsRes, bkRes, scrRes, ptRes] = await env.DB.batch([
     sessionAuthStmt(env.DB, actorId, tokenHash, now),
     actorGrantsStmt(env.DB, actorId),
     env.DB.prepare(`SELECT id, edition_id, booker_person_id FROM crm_bookings WHERE id = ?`).bind(bookingId),
     env.DB.prepare(`SELECT * FROM crm_screenings WHERE booking_id = ? ORDER BY created_at ASC`).bind(bookingId),
+    env.DB.prepare(`SELECT id, person_id FROM crm_participants WHERE booking_id = ?`).bind(bookingId),
   ]);
   const batchAuth = evaluateCrmReadAuthRows(
     sessionRes.results[0] as CrmSessionRow | undefined,
@@ -2116,8 +2607,13 @@ export async function readBookingScreening(
     return { status: 403, body: { error: 'forbidden' } };
   }
 
+  const ptRows = ptRes.results as unknown as { id: string; person_id: string | null }[];
+  const ptPersonById = new Map(ptRows.map((p) => [p.id, p.person_id]));
+  const linkedPersonIds = ptRows.map((p) => p.person_id).filter((id): id is string => Boolean(id));
   const gate = createReadGate(env.DB, actorId);
-  const readable = await loadReadableTaskRecords(env, gate, [edRow.event_record_id, bkRow.booker_person_id]);
+  const readable = await loadReadableTaskRecords(env, gate, [
+    ...new Set([edRow.event_record_id, bkRow.booker_person_id, ...linkedPersonIds]),
+  ]);
   if (!readable.has(edRow.event_record_id) || !readable.has(bkRow.booker_person_id)) {
     return { status: 404, body: { error: 'not_found' } };
   }
@@ -2129,13 +2625,18 @@ export async function readBookingScreening(
     return { status: 403, body: { error: 'forbidden' } };
   }
 
+  const visibleScreenings = (scrRes.results as unknown as ScreeningRow[]).filter((s) => {
+    const linkedPid = ptPersonById.get(s.participant_id);
+    return !linkedPid || readable.has(linkedPid);
+  });
+
   return {
     status: 200,
     body: BookingScreeningResponseSchema.parse({
       bookingId: bkRow.id,
       programmeSlug: edRow.programme_slug,
       questions: parseStringArray(edRow.screening_questions_json),
-      items: (scrRes.results as unknown as ScreeningRow[]).map(mapScreeningRow),
+      items: visibleScreenings.map(mapScreeningRow),
     }),
   };
 }

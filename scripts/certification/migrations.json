@@ -194,5 +194,9 @@
   {
     "name": "0049_crm_operations.sql",
     "sha256": "fefdc94add239578c7bad5245802aa1d74c09a297ce873a181a5c9f5b60d1d3f"
+  },
+  {
+    "name": "0050_crm_membership_periods.sql",
+    "sha256": "19a5b458fc4fc9c75874969fec78feb9718a8ad2674ce5e8d72c231ddafe0cf0"
   }
 ]

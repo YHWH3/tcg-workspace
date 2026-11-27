@@ -117,6 +117,147 @@ export function derivePaymentStatus(args: {
 }
 
 /**
+ * Authoritative booking due derived strictly from agreed price option (`unitAmountMinor * seats`) and currency.
+ * Returns null when the booking has no configured agreed price/currency.
+ */
+export function computeBookingAgreedDue(args: {
+  unitAmountMinor: number | null;
+  seats: number;
+  currency: string | null;
+}): { dueMinor: number; currency: string } | null {
+  if (args.unitAmountMinor === null || !args.currency) return null;
+  if (!Number.isInteger(args.unitAmountMinor) || args.unitAmountMinor < 0) return null;
+  if (!Number.isInteger(args.seats) || args.seats <= 0) return null;
+  return {
+    dueMinor: args.unitAmountMinor * args.seats,
+    currency: args.currency.trim().toUpperCase(),
+  };
+}
+
+export interface PaymentRequestAllocationInput {
+  id: string;
+  amountMinor: number;
+  createdAt: number;
+}
+
+export interface PaymentLedgerAllocationInput {
+  paymentRequestId: string | null;
+  amountMinor: number;
+}
+
+export interface PaymentRequestAllocationResult {
+  id: string;
+  allocatedMinor: number;
+  state: PaymentRequestState;
+}
+
+/**
+ * Deterministically allocates append-only ledger entries across open payment requests of a single object & currency:
+ * 1. Entries explicitly referencing a `paymentRequestId` apply directly to that request.
+ * 2. Remaining positive unlinked entries apply FIFO (`createdAt ASC, id ASC`) up to each request's due amount
+ *    (any surplus beyond the final open request stays on the final request -> `overpaid`).
+ * 3. Remaining negative unlinked entries (e.g., refunds) reduce allocated balances LIFO so refunded requests
+ *    accurately transition back from `paid` -> `part_paid` / `issued`.
+ */
+export function allocatePaymentRequests(
+  openRequests: readonly PaymentRequestAllocationInput[],
+  entries: readonly PaymentLedgerAllocationInput[],
+): PaymentRequestAllocationResult[] {
+  if (openRequests.length === 0) return [];
+  const ordered = [...openRequests].sort((a, b) =>
+    a.createdAt === b.createdAt ? a.id.localeCompare(b.id) : a.createdAt - b.createdAt,
+  );
+  const byId = new Map<string, number>();
+  for (const req of ordered) byId.set(req.id, 0);
+
+  let unlinkedPool = 0;
+  for (const e of entries) {
+    if (e.paymentRequestId && byId.has(e.paymentRequestId)) {
+      byId.set(e.paymentRequestId, (byId.get(e.paymentRequestId) ?? 0) + e.amountMinor);
+    } else {
+      unlinkedPool += e.amountMinor;
+    }
+  }
+
+  if (unlinkedPool > 0) {
+    for (let i = 0; i < ordered.length && unlinkedPool > 0; i += 1) {
+      const req = ordered[i]!;
+      const cur = byId.get(req.id) ?? 0;
+      const needed = Math.max(0, req.amountMinor - cur);
+      if (needed > 0) {
+        const take = Math.min(needed, unlinkedPool);
+        byId.set(req.id, cur + take);
+        unlinkedPool -= take;
+      }
+    }
+    if (unlinkedPool > 0) {
+      const last = ordered[ordered.length - 1]!;
+      byId.set(last.id, (byId.get(last.id) ?? 0) + unlinkedPool);
+      unlinkedPool = 0;
+    }
+  } else if (unlinkedPool < 0) {
+    let deficit = -unlinkedPool;
+    for (let i = ordered.length - 1; i >= 0 && deficit > 0; i -= 1) {
+      const req = ordered[i]!;
+      const cur = byId.get(req.id) ?? 0;
+      if (cur > 0) {
+        const deduct = Math.min(cur, deficit);
+        byId.set(req.id, cur - deduct);
+        deficit -= deduct;
+      }
+    }
+  }
+
+  return ordered.map((req) => {
+    const allocatedMinor = byId.get(req.id) ?? 0;
+    let state: PaymentRequestState;
+    if (allocatedMinor <= 0) state = 'issued';
+    else if (allocatedMinor < req.amountMinor) state = 'part_paid';
+    else if (allocatedMinor === req.amountMinor) state = 'paid';
+    else state = 'overpaid';
+    return { id: req.id, allocatedMinor, state };
+  });
+}
+
+export interface MembershipPeriodLike {
+  id: string;
+  periodNumber: number;
+  requiredAmountMinor: number;
+  validFrom: number;
+  validUntil: number;
+}
+
+/**
+ * Evaluates which active historical membership periods remain supported by `netPaidMinor`.
+ * Historical periods are consumed in ascending order using each period's frozen `requiredAmountMinor`,
+ * ensuring later scheme price changes never retroactively alter historical period requirements and
+ * refunds/reversals never leave unsupported active periods.
+ */
+export function evaluateMembershipPeriodCoverage(
+  activePeriods: readonly MembershipPeriodLike[],
+  netPaidMinor: number,
+): {
+  supportedPeriods: MembershipPeriodLike[];
+  unsupportedPeriods: MembershipPeriodLike[];
+  requiredActiveMinor: number;
+} {
+  const ordered = [...activePeriods].sort((a, b) => a.periodNumber - b.periodNumber);
+  const requiredActiveMinor = ordered.reduce((sum, p) => sum + p.requiredAmountMinor, 0);
+  let remaining = Math.max(0, netPaidMinor);
+  const supportedPeriods: MembershipPeriodLike[] = [];
+  const unsupportedPeriods: MembershipPeriodLike[] = [];
+  for (const p of ordered) {
+    if (remaining >= p.requiredAmountMinor) {
+      remaining -= p.requiredAmountMinor;
+      supportedPeriods.push(p);
+    } else {
+      unsupportedPeriods.push(p);
+    }
+  }
+  return { supportedPeriods, unsupportedPeriods, requiredActiveMinor };
+}
+
+/**
  * Evaluates whether a refund requires independent approval from a second person with `crm.refund.approve`.
  * Fail-closed: if policy threshold is null/undefined (unconfigured), independent approval is ALWAYS required!
  */

@@ -11,7 +11,11 @@ import {
   RecordManualReceiptInputSchema,
   RequestRefundInputSchema,
   ReverseLedgerEntryInputSchema,
+  allocatePaymentRequests,
+  computeBookingAgreedDue,
   derivePaymentStatus,
+  evaluateEffectiveMembershipState,
+  evaluateMembershipPeriodCoverage,
   isForeignCurrencyBlocked,
   requiresIndependentRefundApproval,
   summarizeLedgerByCurrency,
@@ -25,6 +29,7 @@ import {
   type EvidenceKind,
   type IssueRefundInput,
   type LedgerKind,
+  type MembershipState,
   type MoneyOverviewResponse,
   type PaymentRequestState,
   type PaymentStatus,
@@ -51,6 +56,10 @@ import {
   type CrmSessionRow,
 } from './read';
 import { canAccessCrmApi, evaluateCapability, isCrmEnabled } from './rules';
+
+const SQLITE_NOW_MS = `CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)`;
+
+type ReadableRecordRow = NonNullable<Awaited<ReturnType<typeof loadReadableTaskRecord>>>;
 
 interface PaymentRequestRow {
   id: string;
@@ -122,24 +131,54 @@ interface RefundRequestRow {
   updated_at: number;
 }
 
+interface MembershipPeriodRow {
+  id: string;
+  membership_id: string;
+  period_number: number;
+  required_amount_minor: number;
+  currency: string;
+  valid_from: number;
+  valid_until: number;
+  status: 'active' | 'invalidated';
+}
+
 interface TargetObjectContext {
   objectType: 'booking' | 'membership';
   objectId: string;
   personId: string;
   programmeSlug: string | null;
   expectedCurrency: string | null;
+  authoritativeDueMinor: number | null;
+  personRec: ReadableRecordRow;
+  eventRec?: ReadableRecordRow;
   booking?: BookingRow;
   membership?: {
     id: string;
     scheme_id: string;
     person_id: string;
-    state: string;
+    state: MembershipState;
+    valid_from: number | null;
     valid_until: number | null;
     period_count: number;
     rev: number;
     contribution_amount_minor: number | null;
     currency: string | null;
+    renewal_notice_days: number | null;
+    activePeriods: MembershipPeriodRow[];
   };
+}
+
+interface ObjectFinancialSnapshot {
+  dueMinor: number;
+  netPaidMinor: number;
+  ledgerCount: number;
+  requestsCount: number;
+  requestsTotalMinor: number;
+  refundTotalCount: number;
+  pendingRefundMinor: number;
+  issuedRefundCount: number;
+  openRequests: PaymentRequestRow[];
+  entries: { payment_request_id: string | null; amount_minor: number }[];
 }
 
 function changesOneFence(db: D1Database): D1PreparedStatement {
@@ -220,6 +259,12 @@ function mapRefundRequestRow(r: RefundRequestRow): CrmRefundRequestDto {
   });
 }
 
+function linkedRecordExpect(target: TargetObjectContext): Map<string, number> {
+  const map = new Map<string, number>([[target.personRec.id, target.personRec.seq]]);
+  if (target.eventRec) map.set(target.eventRec.id, target.eventRec.seq);
+  return map;
+}
+
 async function resolveFinancialTarget(
   env: Env,
   actorId: string,
@@ -242,105 +287,359 @@ async function resolveFinancialTarget(
       loadReadableTaskRecord(env, actorId, bk.booker_person_id),
     ]);
     if (!evRec || !personRec) return null;
+    const agreed = computeBookingAgreedDue({
+      unitAmountMinor: bk.unit_amount_minor,
+      seats: bk.seats,
+      currency: bk.currency,
+    });
     return {
       objectType: 'booking',
       objectId: bk.id,
       personId: bk.booker_person_id,
       programmeSlug: ed.programme_slug,
-      expectedCurrency: bk.currency,
+      expectedCurrency: agreed?.currency ?? bk.currency,
+      authoritativeDueMinor: agreed?.dueMinor ?? null,
+      personRec,
+      eventRec: evRec,
       booking: bk,
     };
   }
 
-  const mem = await env.DB
-    .prepare(
-      `SELECT m.id, m.scheme_id, m.person_id, m.state, m.valid_until, m.period_count, m.rev,
-              s.programme_slug, s.contribution_amount_minor, s.currency
-       FROM crm_memberships m
-       JOIN crm_membership_schemes s ON s.id = m.scheme_id
-       WHERE m.id = ?`,
-    )
-    .bind(objectId)
-    .first<{
-      id: string;
-      scheme_id: string;
-      person_id: string;
-      state: string;
-      valid_until: number | null;
-      period_count: number;
-      rev: number;
-      programme_slug: string;
-      contribution_amount_minor: number | null;
-      currency: string | null;
-    }>();
+  const [mem, periodsRes] = await Promise.all([
+    env.DB
+      .prepare(
+        `SELECT m.id, m.scheme_id, m.person_id, m.state, m.valid_from, m.valid_until, m.period_count, m.rev,
+                s.programme_slug, s.contribution_amount_minor, s.currency, s.renewal_notice_days
+         FROM crm_memberships m
+         JOIN crm_membership_schemes s ON s.id = m.scheme_id
+         WHERE m.id = ?`,
+      )
+      .bind(objectId)
+      .first<{
+        id: string;
+        scheme_id: string;
+        person_id: string;
+        state: MembershipState;
+        valid_from: number | null;
+        valid_until: number | null;
+        period_count: number;
+        rev: number;
+        programme_slug: string;
+        contribution_amount_minor: number | null;
+        currency: string | null;
+        renewal_notice_days: number | null;
+      }>(),
+    env.DB
+      .prepare(
+        `SELECT id, membership_id, period_number, required_amount_minor, currency, valid_from, valid_until, status
+         FROM crm_membership_periods
+         WHERE membership_id = ? AND status = 'active'
+         ORDER BY period_number ASC`,
+      )
+      .bind(objectId)
+      .all<MembershipPeriodRow>(),
+  ]);
   if (!mem) return null;
   const personRec = await loadReadableTaskRecord(env, actorId, mem.person_id);
   if (!personRec) return null;
+
+  const activePeriods = periodsRes.results;
+  const activePeriodsSum = activePeriods.reduce((sum, p) => sum + p.required_amount_minor, 0);
+  // Authoritative membership due preserves frozen historical periods; when awaiting contribution for next period,
+  // includes current scheme contribution so a smaller manual request can never falsely mark it 'paid'.
+  let authoritativeDueMinor: number | null = null;
+  if (activePeriods.length > 0) {
+    authoritativeDueMinor =
+      mem.state === 'awaiting_contribution' || mem.state === 'approved'
+        ? activePeriodsSum + (mem.contribution_amount_minor ?? 0)
+        : activePeriodsSum;
+  } else if (mem.contribution_amount_minor !== null) {
+    const periodsExpected = Math.max(1, mem.period_count);
+    authoritativeDueMinor = mem.contribution_amount_minor * periodsExpected;
+  }
+
   return {
     objectType: 'membership',
     objectId: mem.id,
     personId: mem.person_id,
     programmeSlug: mem.programme_slug,
-    expectedCurrency: mem.currency,
-    membership: mem,
+    expectedCurrency: activePeriods[0]?.currency ?? mem.currency,
+    authoritativeDueMinor,
+    personRec,
+    membership: {
+      ...mem,
+      activePeriods,
+    },
   };
 }
 
 async function computeObjectFinancialSnapshot(
   db: D1Database,
-  objectType: 'booking' | 'membership',
-  objectId: string,
+  target: TargetObjectContext,
   currency: string,
-): Promise<{
-  dueMinor: number;
-  netPaidMinor: number;
-  pendingRefundMinor: number;
-  issuedRefundCount: number;
-  openRequests: PaymentRequestRow[];
-}> {
+): Promise<ObjectFinancialSnapshot> {
   const [reqRes, ledRes, refRes] = await db.batch([
     db
       .prepare(
         `SELECT * FROM crm_payment_requests
          WHERE object_type = ? AND object_id = ? AND currency = ? AND state NOT IN ('cancelled', 'expired')
-         ORDER BY created_at ASC`,
+         ORDER BY created_at ASC, id ASC`,
       )
-      .bind(objectType, objectId, currency),
+      .bind(target.objectType, target.objectId, currency),
     db
       .prepare(
-        `SELECT COALESCE(SUM(amount_minor), 0) AS net_minor
+        `SELECT payment_request_id, amount_minor
          FROM crm_ledger_entries
-         WHERE object_type = ? AND object_id = ? AND currency = ?`,
+         WHERE object_type = ? AND object_id = ? AND currency = ?
+         ORDER BY recorded_at ASC, id ASC`,
       )
-      .bind(objectType, objectId, currency),
+      .bind(target.objectType, target.objectId, currency),
     db
       .prepare(
         `SELECT
+           COUNT(*) AS total_count,
            COALESCE(SUM(CASE WHEN state IN ('requested', 'approved') THEN amount_minor ELSE 0 END), 0) AS pending_minor,
            COALESCE(SUM(CASE WHEN state = 'issued' THEN 1 ELSE 0 END), 0) AS issued_count
          FROM crm_refund_requests
          WHERE object_type = ? AND object_id = ? AND currency = ?`,
       )
-      .bind(objectType, objectId, currency),
+      .bind(target.objectType, target.objectId, currency),
   ]);
   const openRequests = reqRes.results as unknown as PaymentRequestRow[];
-  const dueMinor = openRequests.reduce((sum, r) => sum + r.amount_minor, 0);
-  const netPaidMinor = Number((ledRes.results[0] as { net_minor: number } | undefined)?.net_minor ?? 0);
-  const refRow = refRes.results[0] as { pending_minor: number; issued_count: number } | undefined;
+  const entries = ledRes.results as unknown as { payment_request_id: string | null; amount_minor: number }[];
+  const requestsTotalMinor = openRequests.reduce((sum, r) => sum + r.amount_minor, 0);
+  const netPaidMinor = entries.reduce((sum, e) => sum + e.amount_minor, 0);
+  const refRow = refRes.results[0] as { total_count: number; pending_minor: number; issued_count: number } | undefined;
+
+  // Authoritative due:
+  // - Booking with agreed price: ALWAYS unit_amount_minor * seats (never bypassed by a smaller payment request).
+  // - Membership: max of authoritative historical/active requirement and open requests.
+  // - Unpriced fallback: open requests sum.
+  let dueMinor = requestsTotalMinor;
+  if (target.objectType === 'booking' && target.authoritativeDueMinor !== null && target.expectedCurrency === currency) {
+    dueMinor = target.authoritativeDueMinor;
+  } else if (
+    target.objectType === 'membership' &&
+    target.authoritativeDueMinor !== null &&
+    target.authoritativeDueMinor > 0 &&
+    target.expectedCurrency === currency
+  ) {
+    dueMinor = Math.max(target.authoritativeDueMinor, requestsTotalMinor);
+  }
+
   return {
     dueMinor,
     netPaidMinor,
+    ledgerCount: entries.length,
+    requestsCount: openRequests.length,
+    requestsTotalMinor,
+    refundTotalCount: Number(refRow?.total_count ?? 0),
     pendingRefundMinor: Number(refRow?.pending_minor ?? 0),
     issuedRefundCount: Number(refRow?.issued_count ?? 0),
     openRequests,
+    entries,
   };
 }
 
-function deriveRequestState(dueMinor: number, netPaidMinor: number): PaymentRequestState {
-  if (netPaidMinor <= 0) return 'issued';
-  if (netPaidMinor < dueMinor) return 'part_paid';
-  if (netPaidMinor === dueMinor) return 'paid';
-  return 'overpaid';
+/**
+ * Atomic SQL fence verifying no concurrent receipt, reversal, payment request, or refund request
+ * mutated this object's currency ledger/request state between plan() and commit().
+ */
+function buildFinancialSnapshotFence(
+  db: D1Database,
+  objectType: 'booking' | 'membership',
+  objectId: string,
+  currency: string,
+  snap: ObjectFinancialSnapshot,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT CASE WHEN
+         (SELECT COUNT(*) FROM crm_ledger_entries WHERE object_type = ? AND object_id = ? AND currency = ?) = ?
+         AND COALESCE((SELECT SUM(amount_minor) FROM crm_ledger_entries WHERE object_type = ? AND object_id = ? AND currency = ?), 0) = ?
+         AND (SELECT COUNT(*) FROM crm_payment_requests WHERE object_type = ? AND object_id = ? AND currency = ? AND state NOT IN ('cancelled', 'expired')) = ?
+         AND COALESCE((SELECT SUM(amount_minor) FROM crm_payment_requests WHERE object_type = ? AND object_id = ? AND currency = ? AND state NOT IN ('cancelled', 'expired')), 0) = ?
+         AND (SELECT COUNT(*) FROM crm_refund_requests WHERE object_type = ? AND object_id = ? AND currency = ?) = ?
+         AND COALESCE((SELECT SUM(CASE WHEN state IN ('requested', 'approved') THEN amount_minor ELSE 0 END) FROM crm_refund_requests WHERE object_type = ? AND object_id = ? AND currency = ?), 0) = ?
+       THEN 1 ELSE json_extract('{', '$') END`,
+    )
+    .bind(
+      objectType, objectId, currency, snap.ledgerCount,
+      objectType, objectId, currency, snap.netPaidMinor,
+      objectType, objectId, currency, snap.requestsCount,
+      objectType, objectId, currency, snap.requestsTotalMinor,
+      objectType, objectId, currency, snap.refundTotalCount,
+      objectType, objectId, currency, snap.pendingRefundMinor,
+    );
+}
+
+function buildMembershipPeriodsFence(
+  db: D1Database,
+  membershipId: string,
+  activePeriods: readonly MembershipPeriodRow[],
+): D1PreparedStatement {
+  const sum = activePeriods.reduce((acc, p) => acc + p.required_amount_minor, 0);
+  return db
+    .prepare(
+      `SELECT CASE WHEN
+         (SELECT COUNT(*) FROM crm_membership_periods WHERE membership_id = ? AND status = 'active') = ?
+         AND COALESCE((SELECT SUM(required_amount_minor) FROM crm_membership_periods WHERE membership_id = ? AND status = 'active'), 0) = ?
+       THEN 1 ELSE json_extract('{', '$') END`,
+    )
+    .bind(membershipId, activePeriods.length, membershipId, sum);
+}
+
+function buildPerRequestAllocationUpdates(
+  db: D1Database,
+  openRequests: readonly PaymentRequestRow[],
+  entriesAfter: readonly { paymentRequestId: string | null; amountMinor: number }[],
+  now: number,
+): D1PreparedStatement[] {
+  if (openRequests.length === 0) return [];
+  const allocated = allocatePaymentRequests(
+    openRequests.map((r) => ({ id: r.id, amountMinor: r.amount_minor, createdAt: r.created_at })),
+    entriesAfter,
+  );
+  const byId = new Map(openRequests.map((r) => [r.id, r]));
+  const stmts: D1PreparedStatement[] = [];
+  for (const res of allocated) {
+    const existing = byId.get(res.id);
+    if (!existing || existing.state === res.state) continue;
+    stmts.push(
+      db
+        .prepare(
+          `UPDATE crm_payment_requests
+           SET state = ?, rev = rev + 1, updated_at = ?
+           WHERE id = ? AND rev = ?`,
+        )
+        .bind(res.state, now, existing.id, existing.rev),
+      changesOneFence(db),
+    );
+  }
+  return stmts;
+}
+
+/**
+ * Re-evaluates historical membership period support after a reversal or refund.
+ * Never leaves an unsupported active period: invalidates uncovered periods from latest backwards,
+ * restores valid_until / period_count to the last supported period, or demotes to awaiting_contribution.
+ */
+function buildMembershipPostLedgerUpdates(args: {
+  db: D1Database;
+  target: TargetObjectContext;
+  nextNetPaidMinor: number;
+  nextPaymentStatus: PaymentStatus;
+  reason: string;
+  now: number;
+  personPatch: Record<string, unknown>;
+}): D1PreparedStatement[] {
+  const { db, target, nextNetPaidMinor, nextPaymentStatus, reason, now, personPatch } = args;
+  const mem = target.membership!;
+  const stmts: D1PreparedStatement[] = [];
+  const isTerminal = mem.state === 'cancelled' || mem.state === 'declined';
+
+  if (mem.activePeriods.length > 0 && !isTerminal) {
+    const coverage = evaluateMembershipPeriodCoverage(
+      mem.activePeriods.map((p) => ({
+        id: p.id,
+        periodNumber: p.period_number,
+        requiredAmountMinor: p.required_amount_minor,
+        validFrom: p.valid_from,
+        validUntil: p.valid_until,
+      })),
+      nextNetPaidMinor,
+    );
+
+    if (coverage.unsupportedPeriods.length > 0) {
+      for (const up of coverage.unsupportedPeriods) {
+        stmts.push(
+          db
+            .prepare(
+              `UPDATE crm_membership_periods
+               SET status = 'invalidated', invalidated_at = ?, invalidated_reason = ?
+               WHERE id = ? AND status = 'active'`,
+            )
+            .bind(now, reason, up.id),
+          changesOneFence(db),
+        );
+      }
+
+      if (coverage.supportedPeriods.length === 0) {
+        stmts.push(
+          db
+            .prepare(
+              `UPDATE crm_memberships
+               SET state = 'awaiting_contribution', valid_from = NULL, valid_until = NULL, period_count = 0, payment_status = ?, rev = rev + 1, updated_at = ?
+               WHERE id = ? AND rev = ?`,
+            )
+            .bind(nextPaymentStatus, now, mem.id, mem.rev),
+          changesOneFence(db),
+        );
+        personPatch[CRM_PROJECTION.membershipStatus] = 'awaiting_contribution';
+        personPatch[CRM_PROJECTION.membershipValidUntil] = null;
+        return stmts;
+      }
+
+      const firstSupported = coverage.supportedPeriods[0]!;
+      const lastSupported = coverage.supportedPeriods[coverage.supportedPeriods.length - 1]!;
+      const effNext = evaluateEffectiveMembershipState({
+        storedState: 'active',
+        validUntil: lastSupported.validUntil,
+        renewalNoticeDays: mem.renewal_notice_days,
+        now,
+      });
+      const storedNext: MembershipState = effNext === 'lapsed' ? 'lapsed' : 'active';
+      stmts.push(
+        db
+          .prepare(
+            `UPDATE crm_memberships
+             SET state = ?, valid_from = ?, valid_until = ?, period_count = ?, payment_status = ?, rev = rev + 1, updated_at = ?
+             WHERE id = ? AND rev = ?`,
+          )
+          .bind(
+            storedNext,
+            firstSupported.validFrom,
+            lastSupported.validUntil,
+            coverage.supportedPeriods.length,
+            nextPaymentStatus,
+            now,
+            mem.id,
+            mem.rev,
+          ),
+        changesOneFence(db),
+      );
+      personPatch[CRM_PROJECTION.membershipStatus] = storedNext;
+      personPatch[CRM_PROJECTION.membershipValidUntil] = lastSupported.validUntil;
+      return stmts;
+    }
+  } else if (!isTerminal && (mem.state === 'active' || mem.state === 'renewal_due')) {
+    // Legacy fallback when no crm_membership_periods rows exist
+    const reqPerPeriod = mem.contribution_amount_minor ?? 0;
+    const requiredForPeriods = reqPerPeriod * Math.max(1, mem.period_count);
+    if (requiredForPeriods <= 0 || nextNetPaidMinor < requiredForPeriods) {
+      stmts.push(
+        db
+          .prepare(
+            `UPDATE crm_memberships
+             SET state = 'awaiting_contribution', valid_from = NULL, valid_until = NULL, period_count = 0, payment_status = ?, rev = rev + 1, updated_at = ?
+             WHERE id = ? AND rev = ?`,
+          )
+          .bind(nextPaymentStatus, now, mem.id, mem.rev),
+        changesOneFence(db),
+      );
+      personPatch[CRM_PROJECTION.membershipStatus] = 'awaiting_contribution';
+      personPatch[CRM_PROJECTION.membershipValidUntil] = null;
+      return stmts;
+    }
+  }
+
+  stmts.push(
+    db
+      .prepare(`UPDATE crm_memberships SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`)
+      .bind(nextPaymentStatus, now, mem.id, mem.rev),
+    changesOneFence(db),
+  );
+  return stmts;
 }
 
 /* ---------- S7 Commands ---------- */
@@ -358,6 +657,11 @@ function createPaymentRequestCommand(): CommandDefinition<
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      if (!evaluateCapability(actor, 'crm.finance.record', '*')) return false;
+      const target = await resolveFinancialTarget(env, actor.id, input.objectType, input.objectId);
+      return target !== null;
+    },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       if (isForeignCurrencyBlocked(input.currency)) {
         return {
@@ -373,6 +677,20 @@ function createPaymentRequestCommand(): CommandDefinition<
           kind: 'refuse',
           error: 'currency_mismatch',
           detail: { expected: target.expectedCurrency, provided: input.currency },
+        };
+      }
+      if (target.booking && (target.booking.state === 'cancelled' || target.booking.state === 'completed')) {
+        return {
+          kind: 'refuse',
+          error: 'stale',
+          detail: { reason: 'booking_already_final', state: target.booking.state },
+        };
+      }
+      if (target.membership && (target.membership.state === 'cancelled' || target.membership.state === 'declined')) {
+        return {
+          kind: 'refuse',
+          error: 'stale',
+          detail: { reason: 'membership_already_final', state: target.membership.state },
         };
       }
 
@@ -417,23 +735,43 @@ function createPaymentRequestCommand(): CommandDefinition<
           ),
       ];
 
-      // Transition held booking -> awaiting_payment while preserving hold_expires_at
-      if (target.booking && target.booking.state === 'held') {
-        rows.push(
+      const fences: (D1PreparedStatement | (() => D1PreparedStatement))[] = [
+        () => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*'),
+      ];
+
+      if (target.booking) {
+        if (target.booking.state === 'held') {
+          rows.push(
+            env.DB
+              .prepare(
+                `UPDATE crm_bookings SET state = 'awaiting_payment', rev = rev + 1, updated_at = ?
+                 WHERE id = ? AND rev = ? AND state = 'held'`,
+              )
+              .bind(now, target.booking.id, target.booking.rev),
+            changesOneFence(env.DB),
+          );
+        } else {
+          fences.push(
+            env.DB
+              .prepare(`SELECT CASE WHEN EXISTS (SELECT 1 FROM crm_bookings WHERE id = ? AND rev = ?) THEN 1 ELSE json_extract('{', '$') END`)
+              .bind(target.booking.id, target.booking.rev),
+          );
+        }
+      } else if (target.membership) {
+        fences.push(
           env.DB
-            .prepare(
-              `UPDATE crm_bookings SET state = 'awaiting_payment', rev = rev + 1, updated_at = ?
-               WHERE id = ? AND state = 'held'`,
-            )
-            .bind(now, target.booking.id),
+            .prepare(`SELECT CASE WHEN EXISTS (SELECT 1 FROM crm_memberships WHERE id = ? AND rev = ?) THEN 1 ELSE json_extract('{', '$') END`)
+            .bind(target.membership.id, target.membership.rev),
         );
       }
 
       return {
         kind: 'commit',
         result: { paymentRequest: mapPaymentRequestRow(row) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*')],
+        fences,
         rows,
+        recordExpect: linkedRecordExpect(target),
+        forceRecordsCommit: true,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -460,6 +798,11 @@ function recordManualReceiptCommand(): CommandDefinition<
       const parsed = RecordManualReceiptInputSchema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
+    },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      if (!evaluateCapability(actor, 'crm.finance.record', '*')) return false;
+      const target = await resolveFinancialTarget(env, actor.id, input.objectType, input.objectId);
+      return target !== null;
     },
     plan: async ({ env, actor, tokenHash, input, requestId, now }) => {
       if (input.contributorResidency === 'foreign' || isForeignCurrencyBlocked(input.currency)) {
@@ -488,6 +831,9 @@ function recordManualReceiptCommand(): CommandDefinition<
             .bind(input.paymentRequestId, input.objectType, input.objectId)
             .first<PaymentRequestRow>()) ?? null;
         if (!payReq) return { kind: 'refuse', error: 'not_found' };
+        if (payReq.state === 'cancelled' || payReq.state === 'expired') {
+          return { kind: 'refuse', error: 'stale', detail: { reason: 'payment_request_closed', state: payReq.state } };
+        }
         if (payReq.currency !== input.currency) {
           return {
             kind: 'refuse',
@@ -497,7 +843,7 @@ function recordManualReceiptCommand(): CommandDefinition<
         }
       }
 
-      const snap = await computeObjectFinancialSnapshot(env.DB, input.objectType, input.objectId, input.currency);
+      const snap = await computeObjectFinancialSnapshot(env.DB, target, input.currency);
       const nextNetPaidMinor = snap.netPaidMinor + input.amountMinor;
       const nextPaymentStatus = derivePaymentStatus({
         dueMinor: snap.dueMinor,
@@ -515,7 +861,7 @@ function recordManualReceiptCommand(): CommandDefinition<
         currency: input.currency,
         object_type: input.objectType,
         object_id: input.objectId,
-        payment_request_id: payReq?.id ?? snap.openRequests[0]?.id ?? null,
+        payment_request_id: payReq?.id ?? null,
         person_id: target.personId,
         programme_slug: target.programmeSlug,
         evidence_kind: input.evidenceKind,
@@ -552,26 +898,23 @@ function recordManualReceiptCommand(): CommandDefinition<
             actor.id,
             now,
           ),
+        ...buildPerRequestAllocationUpdates(
+          env.DB,
+          snap.openRequests,
+          [
+            ...snap.entries.map((e) => ({ paymentRequestId: e.payment_request_id, amountMinor: e.amount_minor })),
+            { paymentRequestId: entryRow.payment_request_id, amountMinor: entryRow.amount_minor },
+          ],
+          now,
+        ),
       ];
 
-      // Update payment requests state based on authoritative ledger net
-      if (snap.openRequests.length > 0) {
-        const reqState = deriveRequestState(snap.dueMinor, nextNetPaidMinor);
-        rows.push(
-          env.DB
-            .prepare(
-              `UPDATE crm_payment_requests
-               SET state = ?, rev = rev + 1, updated_at = ?
-               WHERE object_type = ? AND object_id = ? AND currency = ? AND state NOT IN ('cancelled', 'expired')`,
-            )
-            .bind(reqState, now, input.objectType, input.objectId, input.currency),
-        );
-      }
+      const fences: (D1PreparedStatement | (() => D1PreparedStatement))[] = [
+        () => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*'),
+        buildFinancialSnapshotFence(env.DB, input.objectType, input.objectId, input.currency, snap),
+      ];
 
       let bookingStateAfter: string | null = null;
-      const personRec = await loadReadableTaskRecord(env, actor.id, target.personId);
-      if (!personRec) return { kind: 'refuse', error: 'not_found' };
-
       const personPatch: Record<string, unknown> = {
         [CRM_PROJECTION.paymentStatus]: nextPaymentStatus,
       };
@@ -579,16 +922,28 @@ function recordManualReceiptCommand(): CommandDefinition<
       if (target.booking) {
         const effState = effectiveBookingState(target.booking, now);
         // Payment received AFTER hold expiry -> MUST move to `paid_without_seat` review state!
-        // NEVER auto-oversell, NEVER auto-confirm, NEVER auto-refund!
+        // Uses current database time (SQLITE_NOW_MS) atomically so a hold expiring mid-flight cannot bypass review.
         if (effState === 'expired') {
           bookingStateAfter = 'paid_without_seat';
           personPatch[CRM_PROJECTION.bookingStatus] = 'paid_without_seat';
+          if (target.booking.state === 'held' || target.booking.state === 'awaiting_payment') {
+            fences.push(
+              env.DB
+                .prepare(
+                  `SELECT CASE WHEN EXISTS (
+                     SELECT 1 FROM crm_bookings
+                     WHERE id = ? AND rev = ? AND hold_expires_at IS NOT NULL AND hold_expires_at <= MAX(?, ${SQLITE_NOW_MS})
+                   ) THEN 1 ELSE json_extract('{', '$') END`,
+                )
+                .bind(target.booking.id, target.booking.rev, now),
+            );
+          }
           rows.push(
             env.DB
               .prepare(
                 `UPDATE crm_allocations
                  SET released_at = ?, release_reason = 'hold_expired', updated_at = ?
-                 WHERE booking_id = ? AND kind = 'hold' AND released_at IS NULL AND expires_at <= ?`,
+                 WHERE booking_id = ? AND kind = 'hold' AND released_at IS NULL AND expires_at <= MAX(?, ${SQLITE_NOW_MS})`,
               )
               .bind(now, now, target.booking.id, now),
             env.DB
@@ -602,6 +957,21 @@ function recordManualReceiptCommand(): CommandDefinition<
           );
         } else {
           bookingStateAfter = effState;
+          if (
+            (target.booking.state === 'held' || target.booking.state === 'awaiting_payment') &&
+            target.booking.hold_expires_at !== null
+          ) {
+            fences.push(
+              env.DB
+                .prepare(
+                  `SELECT CASE WHEN EXISTS (
+                     SELECT 1 FROM crm_bookings
+                     WHERE id = ? AND rev = ? AND hold_expires_at > MAX(?, ${SQLITE_NOW_MS})
+                   ) THEN 1 ELSE json_extract('{', '$') END`,
+                )
+                .bind(target.booking.id, target.booking.rev, now),
+            );
+          }
           rows.push(
             env.DB
               .prepare(
@@ -614,6 +984,7 @@ function recordManualReceiptCommand(): CommandDefinition<
           );
         }
       } else if (target.membership) {
+        fences.push(buildMembershipPeriodsFence(env.DB, target.membership.id, target.membership.activePeriods));
         rows.push(
           env.DB
             .prepare(
@@ -636,10 +1007,10 @@ function recordManualReceiptCommand(): CommandDefinition<
           currency: input.currency,
           bookingStateAfter,
         },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*')],
+        fences,
         rows,
-        records: [{ id: personRec.id, collection: 'tasks', patch: personPatch, ts: now }],
-        recordExpect: new Map([[personRec.id, personRec.seq]]),
+        records: [{ id: target.personRec.id, collection: 'tasks', patch: personPatch, ts: now }],
+        recordExpect: linkedRecordExpect(target),
       };
     },
     mapConstraintError: (err) => {
@@ -659,13 +1030,23 @@ function reverseLedgerEntryCommand(): CommandDefinition<
 > {
   return {
     name: 'ledger.reverse_entry',
-    projectionKeys: [CRM_PROJECTION.paymentStatus, CRM_PROJECTION.membershipStatus],
+    projectionKeys: [CRM_PROJECTION.paymentStatus, CRM_PROJECTION.membershipStatus, CRM_PROJECTION.membershipValidUntil],
     authorizeCoarse: (actor, via) =>
       via === 'ui' && canAccessCrmApi(actor) && evaluateCapability(actor, 'crm.finance.record', '*'),
     parseInput: (raw) => {
       const parsed = ReverseLedgerEntryInputSchema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
+    },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      if (!evaluateCapability(actor, 'crm.finance.record', '*')) return false;
+      const orig = await env.DB
+        .prepare(`SELECT object_type, object_id FROM crm_ledger_entries WHERE id = ?`)
+        .bind(input.entryId)
+        .first<{ object_type: 'booking' | 'membership'; object_id: string }>();
+      if (!orig) return false;
+      const target = await resolveFinancialTarget(env, actor.id, orig.object_type, orig.object_id);
+      return target !== null;
     },
     plan: async ({ env, actor, tokenHash, input, requestId, now }) => {
       const orig = await env.DB
@@ -687,10 +1068,8 @@ function reverseLedgerEntryCommand(): CommandDefinition<
 
       const target = await resolveFinancialTarget(env, actor.id, orig.object_type, orig.object_id);
       if (!target) return { kind: 'refuse', error: 'not_found' };
-      const personRec = await loadReadableTaskRecord(env, actor.id, orig.person_id);
-      if (!personRec) return { kind: 'refuse', error: 'not_found' };
 
-      const snap = await computeObjectFinancialSnapshot(env.DB, orig.object_type, orig.object_id, orig.currency);
+      const snap = await computeObjectFinancialSnapshot(env.DB, target, orig.currency);
       const revAmount = -orig.amount_minor;
       const nextNetPaidMinor = snap.netPaidMinor + revAmount;
       const nextPaymentStatus = derivePaymentStatus({
@@ -745,20 +1124,21 @@ function reverseLedgerEntryCommand(): CommandDefinition<
             actor.id,
             now,
           ),
+        ...buildPerRequestAllocationUpdates(
+          env.DB,
+          snap.openRequests,
+          [
+            ...snap.entries.map((e) => ({ paymentRequestId: e.payment_request_id, amountMinor: e.amount_minor })),
+            { paymentRequestId: revRow.payment_request_id, amountMinor: revRow.amount_minor },
+          ],
+          now,
+        ),
       ];
 
-      if (snap.openRequests.length > 0) {
-        const reqState = deriveRequestState(snap.dueMinor, nextNetPaidMinor);
-        rows.push(
-          env.DB
-            .prepare(
-              `UPDATE crm_payment_requests
-               SET state = ?, rev = rev + 1, updated_at = ?
-               WHERE object_type = ? AND object_id = ? AND currency = ? AND state NOT IN ('cancelled', 'expired')`,
-            )
-            .bind(reqState, now, orig.object_type, orig.object_id, orig.currency),
-        );
-      }
+      const fences: (D1PreparedStatement | (() => D1PreparedStatement))[] = [
+        () => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*'),
+        buildFinancialSnapshotFence(env.DB, orig.object_type, orig.object_id, orig.currency, snap),
+      ];
 
       const personPatch: Record<string, unknown> = {
         [CRM_PROJECTION.paymentStatus]: nextPaymentStatus,
@@ -767,35 +1147,23 @@ function reverseLedgerEntryCommand(): CommandDefinition<
       if (target.booking) {
         rows.push(
           env.DB
-            .prepare(`UPDATE crm_bookings SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ?`)
-            .bind(nextPaymentStatus, now, target.booking.id),
+            .prepare(`UPDATE crm_bookings SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`)
+            .bind(nextPaymentStatus, now, target.booking.id, target.booking.rev),
+          changesOneFence(env.DB),
         );
       } else if (target.membership) {
-        // S8 financial consistency: NEVER leave an unsupported 'active' membership when contribution receipt is reversed!
-        const reqPerPeriod = target.membership.contribution_amount_minor ?? 0;
-        const requiredForPeriods = reqPerPeriod * Math.max(1, target.membership.period_count);
-        const unsupportedActive =
-          (target.membership.state === 'active' || target.membership.state === 'renewal_due') &&
-          (requiredForPeriods <= 0 || nextNetPaidMinor < requiredForPeriods);
-        if (unsupportedActive) {
-          rows.push(
-            env.DB
-              .prepare(
-                `UPDATE crm_memberships
-                 SET state = 'awaiting_contribution', payment_status = ?, rev = rev + 1, updated_at = ?
-                 WHERE id = ? AND rev = ?`,
-              )
-              .bind(nextPaymentStatus, now, target.membership.id, target.membership.rev),
-            changesOneFence(env.DB),
-          );
-          personPatch[CRM_PROJECTION.membershipStatus] = 'awaiting_contribution';
-        } else {
-          rows.push(
-            env.DB
-              .prepare(`UPDATE crm_memberships SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ?`)
-              .bind(nextPaymentStatus, now, target.membership.id),
-          );
-        }
+        fences.push(buildMembershipPeriodsFence(env.DB, target.membership.id, target.membership.activePeriods));
+        rows.push(
+          ...buildMembershipPostLedgerUpdates({
+            db: env.DB,
+            target,
+            nextNetPaidMinor,
+            nextPaymentStatus,
+            reason: `reversal:${revRow.id}`,
+            now,
+            personPatch,
+          }),
+        );
       }
 
       return {
@@ -805,10 +1173,10 @@ function reverseLedgerEntryCommand(): CommandDefinition<
           paymentStatus: nextPaymentStatus,
           netPaidMinor: nextNetPaidMinor,
         },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*')],
+        fences,
         rows,
-        records: [{ id: personRec.id, collection: 'tasks', patch: personPatch, ts: now }],
-        recordExpect: new Map([[personRec.id, personRec.seq]]),
+        records: [{ id: target.personRec.id, collection: 'tasks', patch: personPatch, ts: now }],
+        recordExpect: linkedRecordExpect(target),
       };
     },
     mapConstraintError: (err) => {
@@ -838,6 +1206,8 @@ function configureRefundPolicyCommand(): CommandDefinition<
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: (actor) =>
+      (actor.role === 'owner' || actor.role === 'admin') && evaluateCapability(actor, 'crm.configure', '*'),
     plan: async ({ env, actor, tokenHash, input, now }) => {
       if (isForeignCurrencyBlocked(input.currency)) {
         return {
@@ -895,12 +1265,17 @@ function requestRefundCommand(): CommandDefinition<RequestRefundInput, { refundR
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      if (!evaluateCapability(actor, 'crm.finance.record', '*')) return false;
+      const target = await resolveFinancialTarget(env, actor.id, input.objectType, input.objectId);
+      return target !== null;
+    },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const target = await resolveFinancialTarget(env, actor.id, input.objectType, input.objectId);
       if (!target) return { kind: 'refuse', error: 'not_found' };
 
       const [snap, policy] = await Promise.all([
-        computeObjectFinancialSnapshot(env.DB, input.objectType, input.objectId, input.currency),
+        computeObjectFinancialSnapshot(env.DB, target, input.currency),
         env.DB.prepare(`SELECT * FROM crm_refund_policies WHERE currency = ?`).bind(input.currency).first<RefundPolicyRow>(),
       ]);
       const refundableMinor = Math.max(0, snap.netPaidMinor - snap.pendingRefundMinor);
@@ -943,7 +1318,6 @@ function requestRefundCommand(): CommandDefinition<RequestRefundInput, { refundR
         updated_at: now,
       };
 
-      // SQL fence rechecks netPaid - pendingRefunds >= amountMinor atomically!
       const refundableFence = env.DB
         .prepare(
           `SELECT CASE WHEN (
@@ -952,6 +1326,14 @@ function requestRefundCommand(): CommandDefinition<RequestRefundInput, { refundR
            ) >= ? THEN 1 ELSE json_extract('{', '$') END`,
         )
         .bind(input.objectType, input.objectId, input.currency, input.objectType, input.objectId, input.currency, input.amountMinor);
+
+      const policyFence = policy
+        ? env.DB
+            .prepare(`SELECT CASE WHEN EXISTS (SELECT 1 FROM crm_refund_policies WHERE currency = ? AND rev = ?) THEN 1 ELSE json_extract('{', '$') END`)
+            .bind(input.currency, policy.rev)
+        : env.DB
+            .prepare(`SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM crm_refund_policies WHERE currency = ?) THEN 1 ELSE json_extract('{', '$') END`)
+            .bind(input.currency);
 
       const rows: D1PreparedStatement[] = [
         env.DB
@@ -982,22 +1364,31 @@ function requestRefundCommand(): CommandDefinition<RequestRefundInput, { refundR
       if (target.booking) {
         rows.push(
           env.DB
-            .prepare(`UPDATE crm_bookings SET payment_status = 'refund_pending', rev = rev + 1, updated_at = ? WHERE id = ?`)
-            .bind(now, target.booking.id),
+            .prepare(`UPDATE crm_bookings SET payment_status = 'refund_pending', rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`)
+            .bind(now, target.booking.id, target.booking.rev),
+          changesOneFence(env.DB),
         );
       } else if (target.membership) {
         rows.push(
           env.DB
-            .prepare(`UPDATE crm_memberships SET payment_status = 'refund_pending', rev = rev + 1, updated_at = ? WHERE id = ?`)
-            .bind(now, target.membership.id),
+            .prepare(`UPDATE crm_memberships SET payment_status = 'refund_pending', rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`)
+            .bind(now, target.membership.id, target.membership.rev),
+          changesOneFence(env.DB),
         );
       }
 
       return {
         kind: 'commit',
         result: { refundRequest: mapRefundRequestRow(row) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*'), refundableFence],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*'),
+          buildFinancialSnapshotFence(env.DB, input.objectType, input.objectId, input.currency, snap),
+          refundableFence,
+          policyFence,
+        ],
         rows,
+        recordExpect: linkedRecordExpect(target),
+        forceRecordsCommit: true,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1014,6 +1405,16 @@ function decideRefundCommand(): CommandDefinition<DecideRefundInput, { refundReq
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      if (!evaluateCapability(actor, 'crm.refund.approve', '*')) return false;
+      const req = await env.DB
+        .prepare(`SELECT object_type, object_id FROM crm_refund_requests WHERE id = ?`)
+        .bind(input.refundRequestId)
+        .first<{ object_type: 'booking' | 'membership'; object_id: string }>();
+      if (!req) return false;
+      const target = await resolveFinancialTarget(env, actor.id, req.object_type, req.object_id);
+      return target !== null;
+    },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const req = await env.DB
         .prepare(`SELECT * FROM crm_refund_requests WHERE id = ?`)
@@ -1026,7 +1427,6 @@ function decideRefundCommand(): CommandDefinition<DecideRefundInput, { refundReq
       if (req.state !== 'requested') {
         return { kind: 'refuse', error: 'stale', detail: { reason: 'refund_not_awaiting_approval', state: req.state } };
       }
-      // Dual control: NEVER allow self-approval!
       if (req.requested_by === actor.id) {
         return { kind: 'refuse', error: 'forbidden', detail: { reason: 'self_approval_forbidden' } };
       }
@@ -1044,6 +1444,9 @@ function decideRefundCommand(): CommandDefinition<DecideRefundInput, { refundReq
         updated_at: now,
       };
 
+      const fences: (D1PreparedStatement | (() => D1PreparedStatement))[] = [
+        () => crmActorFence(env.DB, actor, tokenHash, 'crm.refund.approve', '*'),
+      ];
       const rows: D1PreparedStatement[] = [
         env.DB
           .prepare(
@@ -1056,7 +1459,8 @@ function decideRefundCommand(): CommandDefinition<DecideRefundInput, { refundReq
       ];
 
       if (nextState === 'rejected') {
-        const snap = await computeObjectFinancialSnapshot(env.DB, req.object_type, req.object_id, req.currency);
+        const snap = await computeObjectFinancialSnapshot(env.DB, target, req.currency);
+        fences.push(buildFinancialSnapshotFence(env.DB, req.object_type, req.object_id, req.currency, snap));
         const remainingPending = Math.max(0, snap.pendingRefundMinor - req.amount_minor);
         const ps = derivePaymentStatus({
           dueMinor: snap.dueMinor,
@@ -1067,14 +1471,16 @@ function decideRefundCommand(): CommandDefinition<DecideRefundInput, { refundReq
         if (target.booking) {
           rows.push(
             env.DB
-              .prepare(`UPDATE crm_bookings SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ?`)
-              .bind(ps, now, target.booking.id),
+              .prepare(`UPDATE crm_bookings SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`)
+              .bind(ps, now, target.booking.id, target.booking.rev),
+            changesOneFence(env.DB),
           );
         } else if (target.membership) {
           rows.push(
             env.DB
-              .prepare(`UPDATE crm_memberships SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ?`)
-              .bind(ps, now, target.membership.id),
+              .prepare(`UPDATE crm_memberships SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`)
+              .bind(ps, now, target.membership.id, target.membership.rev),
+            changesOneFence(env.DB),
           );
         }
       }
@@ -1082,8 +1488,10 @@ function decideRefundCommand(): CommandDefinition<DecideRefundInput, { refundReq
       return {
         kind: 'commit',
         result: { refundRequest: mapRefundRequestRow(updated) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.refund.approve', '*')],
+        fences,
         rows,
+        recordExpect: linkedRecordExpect(target),
+        forceRecordsCommit: true,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -1096,13 +1504,23 @@ function issueRefundCommand(): CommandDefinition<
 > {
   return {
     name: 'refund.issue',
-    projectionKeys: [CRM_PROJECTION.paymentStatus, CRM_PROJECTION.membershipStatus],
+    projectionKeys: [CRM_PROJECTION.paymentStatus, CRM_PROJECTION.membershipStatus, CRM_PROJECTION.membershipValidUntil],
     authorizeCoarse: (actor, via) =>
       via === 'ui' && canAccessCrmApi(actor) && evaluateCapability(actor, 'crm.finance.record', '*'),
     parseInput: (raw) => {
       const parsed = IssueRefundInputSchema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
+    },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      if (!evaluateCapability(actor, 'crm.finance.record', '*')) return false;
+      const req = await env.DB
+        .prepare(`SELECT object_type, object_id FROM crm_refund_requests WHERE id = ?`)
+        .bind(input.refundRequestId)
+        .first<{ object_type: 'booking' | 'membership'; object_id: string }>();
+      if (!req) return false;
+      const target = await resolveFinancialTarget(env, actor.id, req.object_type, req.object_id);
+      return target !== null;
     },
     plan: async ({ env, actor, tokenHash, input, requestId, now }) => {
       const req = await env.DB
@@ -1125,10 +1543,8 @@ function issueRefundCommand(): CommandDefinition<
 
       const target = await resolveFinancialTarget(env, actor.id, req.object_type, req.object_id);
       if (!target) return { kind: 'refuse', error: 'not_found' };
-      const personRec = await loadReadableTaskRecord(env, actor.id, req.person_id);
-      if (!personRec) return { kind: 'refuse', error: 'not_found' };
 
-      const snap = await computeObjectFinancialSnapshot(env.DB, req.object_type, req.object_id, req.currency);
+      const snap = await computeObjectFinancialSnapshot(env.DB, target, req.currency);
       if (req.amount_minor > snap.netPaidMinor) {
         return {
           kind: 'refuse',
@@ -1186,6 +1602,12 @@ function issueRefundCommand(): CommandDefinition<
         )
         .bind(req.object_type, req.object_id, req.currency, req.amount_minor);
 
+      const fences: (D1PreparedStatement | (() => D1PreparedStatement))[] = [
+        () => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*'),
+        buildFinancialSnapshotFence(env.DB, req.object_type, req.object_id, req.currency, snap),
+        netPaidFence,
+      ];
+
       const rows: D1PreparedStatement[] = [
         env.DB
           .prepare(
@@ -1216,20 +1638,16 @@ function issueRefundCommand(): CommandDefinition<
           )
           .bind(entryId, actor.id, now, now, req.id, req.rev),
         changesOneFence(env.DB),
+        ...buildPerRequestAllocationUpdates(
+          env.DB,
+          snap.openRequests,
+          [
+            ...snap.entries.map((e) => ({ paymentRequestId: e.payment_request_id, amountMinor: e.amount_minor })),
+            { paymentRequestId: null, amountMinor: entryRow.amount_minor },
+          ],
+          now,
+        ),
       ];
-
-      if (snap.openRequests.length > 0) {
-        const reqState = deriveRequestState(snap.dueMinor, nextNetPaidMinor);
-        rows.push(
-          env.DB
-            .prepare(
-              `UPDATE crm_payment_requests
-               SET state = ?, rev = rev + 1, updated_at = ?
-               WHERE object_type = ? AND object_id = ? AND currency = ? AND state NOT IN ('cancelled', 'expired')`,
-            )
-            .bind(reqState, now, req.object_type, req.object_id, req.currency),
-        );
-      }
 
       const personPatch: Record<string, unknown> = {
         [CRM_PROJECTION.paymentStatus]: nextPaymentStatus,
@@ -1237,31 +1655,23 @@ function issueRefundCommand(): CommandDefinition<
       if (target.booking) {
         rows.push(
           env.DB
-            .prepare(`UPDATE crm_bookings SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ?`)
-            .bind(nextPaymentStatus, now, target.booking.id),
+            .prepare(`UPDATE crm_bookings SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`)
+            .bind(nextPaymentStatus, now, target.booking.id, target.booking.rev),
+          changesOneFence(env.DB),
         );
       } else if (target.membership) {
-        const reqPerPeriod = target.membership.contribution_amount_minor ?? 0;
-        const requiredForPeriods = reqPerPeriod * Math.max(1, target.membership.period_count);
-        const unsupportedActive =
-          (target.membership.state === 'active' || target.membership.state === 'renewal_due') &&
-          (requiredForPeriods <= 0 || nextNetPaidMinor < requiredForPeriods);
-        if (unsupportedActive) {
-          rows.push(
-            env.DB
-              .prepare(
-                `UPDATE crm_memberships SET state = 'awaiting_contribution', payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ?`,
-              )
-              .bind(nextPaymentStatus, now, target.membership.id),
-          );
-          personPatch[CRM_PROJECTION.membershipStatus] = 'awaiting_contribution';
-        } else {
-          rows.push(
-            env.DB
-              .prepare(`UPDATE crm_memberships SET payment_status = ?, rev = rev + 1, updated_at = ? WHERE id = ?`)
-              .bind(nextPaymentStatus, now, target.membership.id),
-          );
-        }
+        fences.push(buildMembershipPeriodsFence(env.DB, target.membership.id, target.membership.activePeriods));
+        rows.push(
+          ...buildMembershipPostLedgerUpdates({
+            db: env.DB,
+            target,
+            nextNetPaidMinor,
+            nextPaymentStatus,
+            reason: `refund:${req.id}`,
+            now,
+            personPatch,
+          }),
+        );
       }
 
       return {
@@ -1271,10 +1681,10 @@ function issueRefundCommand(): CommandDefinition<
           entry: mapLedgerEntryRow(entryRow),
           paymentStatus: nextPaymentStatus,
         },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*'), netPaidFence],
+        fences,
         rows,
-        records: [{ id: personRec.id, collection: 'tasks', patch: personPatch, ts: now }],
-        recordExpect: new Map([[personRec.id, personRec.seq]]),
+        records: [{ id: target.personRec.id, collection: 'tasks', patch: personPatch, ts: now }],
+        recordExpect: linkedRecordExpect(target),
       };
     },
     mapConstraintError: (err) => {
@@ -1327,10 +1737,9 @@ export async function readMoneyOverview(
   );
   if (!batchAuth.ok) return { status: batchAuth.status, body: batchAuth.body };
 
-  const canReadFinance =
-    evaluateCapability(batchAuth.actor, 'crm.finance.read', '*') ||
-    evaluateCapability(batchAuth.actor, 'crm.refund.approve', '*');
-  if (!canReadFinance) {
+  const hasFinanceRead = evaluateCapability(batchAuth.actor, 'crm.finance.read', '*');
+  const hasRefundApprove = evaluateCapability(batchAuth.actor, 'crm.refund.approve', '*');
+  if (!hasFinanceRead && !hasRefundApprove) {
     return { status: 403, body: { error: 'forbidden' } };
   }
 
@@ -1339,32 +1748,69 @@ export async function readMoneyOverview(
   const refRows = refRes.results as unknown as RefundRequestRow[];
   const polRows = polRes.results as unknown as RefundPolicyRow[];
 
+  // Resolve linked Event record IDs for all booking-backed financial rows so ReadGate checks BOTH Person AND Event!
+  const bookingIds = [
+    ...new Set([
+      ...prRows.filter((r) => r.object_type === 'booking').map((r) => r.object_id),
+      ...ledRows.filter((r) => r.object_type === 'booking').map((r) => r.object_id),
+      ...refRows.filter((r) => r.object_type === 'booking').map((r) => r.object_id),
+    ]),
+  ];
+  const bookingEventById = new Map<string, string>();
+  if (bookingIds.length > 0) {
+    const bkEvRes = await env.DB
+      .prepare(
+        `SELECT b.id AS booking_id, e.event_record_id
+         FROM crm_bookings b
+         JOIN crm_editions e ON e.id = b.edition_id
+         WHERE b.id IN (SELECT value FROM json_each(?))`,
+      )
+      .bind(JSON.stringify(bookingIds))
+      .all<{ booking_id: string; event_record_id: string }>();
+    for (const r of bkEvRes.results) {
+      bookingEventById.set(r.booking_id, r.event_record_id);
+    }
+  }
+
   const gate = createReadGate(env.DB, actorId);
-  const personIds = [
+  const recordIdsToCheck = [
     ...new Set([
       ...prRows.map((r) => r.person_id),
       ...ledRows.map((r) => r.person_id),
       ...refRows.map((r) => r.person_id),
+      ...bookingEventById.values(),
     ]),
   ];
-  const readablePeople = await loadReadableTaskRecords(env, gate, personIds);
+  const readableRecords = await loadReadableTaskRecords(env, gate, recordIdsToCheck);
 
   const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate });
   if (!finalAuth.ok) return { status: finalAuth.status, body: finalAuth.body };
-  const stillAllowed =
-    evaluateCapability(finalAuth.actor, 'crm.finance.read', '*') ||
-    evaluateCapability(finalAuth.actor, 'crm.refund.approve', '*');
-  if (!stillAllowed) return { status: 403, body: { error: 'forbidden' } };
 
-  const visPr = prRows.filter((r) => readablePeople.has(r.person_id));
-  const visLed = ledRows.filter((r) => readablePeople.has(r.person_id));
-  const visRef = refRows.filter((r) => readablePeople.has(r.person_id));
+  const finalCanReadFinance = evaluateCapability(finalAuth.actor, 'crm.finance.read', '*');
+  const finalCanApproveRefunds = evaluateCapability(finalAuth.actor, 'crm.refund.approve', '*');
+  if (!finalCanReadFinance && !finalCanApproveRefunds) {
+    return { status: 403, body: { error: 'forbidden' } };
+  }
+
+  const canSeeFinancialRow = (r: { object_type: 'booking' | 'membership'; object_id: string; person_id: string }): boolean => {
+    if (!readableRecords.has(r.person_id)) return false;
+    if (r.object_type === 'booking') {
+      const evId = bookingEventById.get(r.object_id);
+      if (!evId || !readableRecords.has(evId)) return false;
+    }
+    return true;
+  };
+
+  // Payment evidence & raw ledger entries are strictly protected behind `crm.finance.read`.
+  // Approvers holding ONLY `crm.refund.approve` receive refund requests without exposing ledger payment evidence.
+  const visPr = finalCanReadFinance ? prRows.filter(canSeeFinancialRow) : [];
+  const visLed = finalCanReadFinance ? ledRows.filter(canSeeFinancialRow) : [];
+  const visRef = refRows.filter(canSeeFinancialRow);
 
   const totalsByCurrency = summarizeLedgerByCurrency(
     visLed.map((e) => ({ kind: e.kind, amountMinor: e.amount_minor, currency: e.currency })),
   );
 
-  // Programme income strictly isolated per (programmeSlug, currency) — NEVER mixes currencies!
   const progMap = new Map<string, { programmeSlug: string; currency: string; receiptsMinor: number; refundsMinor: number; netMinor: number }>();
   for (const e of visLed) {
     const slug = e.programme_slug ?? 'unassigned';
@@ -1395,7 +1841,7 @@ export async function readMoneyOverview(
       totalsByCurrency,
       programmeIncomeByCurrency,
       canRecordFinance: evaluateCapability(finalAuth.actor, 'crm.finance.record', '*'),
-      canApproveRefunds: evaluateCapability(finalAuth.actor, 'crm.refund.approve', '*'),
+      canApproveRefunds: finalCanApproveRefunds,
       partial:
         visPr.length < prRows.length ||
         visLed.length < ledRows.length ||

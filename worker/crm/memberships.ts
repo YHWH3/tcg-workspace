@@ -7,6 +7,7 @@ import {
   DecideMembershipInputSchema,
   MembershipsOverviewResponseSchema,
   UpsertMembershipSchemeInputSchema,
+  derivePaymentStatus,
   evaluateEffectiveMembershipState,
   formatMemberIdentifier,
   isForeignCurrencyBlocked,
@@ -80,8 +81,35 @@ interface MembershipRow {
   updated_at: number;
 }
 
+interface ActivePeriodRow {
+  id: string;
+  period_number: number;
+  required_amount_minor: number;
+  currency: string;
+  valid_from: number;
+  valid_until: number;
+}
+
 function changesOneFence(db: D1Database): D1PreparedStatement {
   return db.prepare(`SELECT CASE WHEN changes() = 1 THEN 1 ELSE json_extract('{', '$') END`);
+}
+
+function schemeRevFence(db: D1Database, schemeId: string, rev: number): D1PreparedStatement {
+  return db
+    .prepare(`SELECT CASE WHEN EXISTS (SELECT 1 FROM crm_membership_schemes WHERE id = ? AND rev = ?) THEN 1 ELSE json_extract('{', '$') END`)
+    .bind(schemeId, rev);
+}
+
+function activePeriodsFence(db: D1Database, membershipId: string, periods: readonly ActivePeriodRow[]): D1PreparedStatement {
+  const sum = periods.reduce((acc, p) => acc + p.required_amount_minor, 0);
+  return db
+    .prepare(
+      `SELECT CASE WHEN
+         (SELECT COUNT(*) FROM crm_membership_periods WHERE membership_id = ? AND status = 'active') = ?
+         AND COALESCE((SELECT SUM(required_amount_minor) FROM crm_membership_periods WHERE membership_id = ? AND status = 'active'), 0) = ?
+       THEN 1 ELSE json_extract('{', '$') END`,
+    )
+    .bind(membershipId, periods.length, membershipId, sum);
 }
 
 function mapSchemeRow(r: SchemeRow): CrmMembershipSchemeDto {
@@ -145,6 +173,47 @@ function schemePolicyError(s: SchemeRow): string | null {
   return null;
 }
 
+async function loadMembershipLedgerSummary(
+  db: D1Database,
+  membershipId: string,
+  currency: string,
+): Promise<{ netPaidMinor: number; pendingRefundMinor: number; issuedRefundCount: number; activePeriods: ActivePeriodRow[] }> {
+  const [ledRes, refRes, perRes] = await db.batch([
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_minor), 0) AS net_minor
+         FROM crm_ledger_entries
+         WHERE object_type = 'membership' AND object_id = ? AND currency = ?`,
+      )
+      .bind(membershipId, currency),
+    db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(CASE WHEN state IN ('requested', 'approved') THEN amount_minor ELSE 0 END), 0) AS pending_minor,
+           COALESCE(SUM(CASE WHEN state = 'issued' THEN 1 ELSE 0 END), 0) AS issued_count
+         FROM crm_refund_requests
+         WHERE object_type = 'membership' AND object_id = ? AND currency = ?`,
+      )
+      .bind(membershipId, currency),
+    db
+      .prepare(
+        `SELECT id, period_number, required_amount_minor, currency, valid_from, valid_until
+         FROM crm_membership_periods
+         WHERE membership_id = ? AND status = 'active'
+         ORDER BY period_number ASC`,
+      )
+      .bind(membershipId),
+  ]);
+  const netPaidMinor = Number((ledRes.results[0] as { net_minor: number } | undefined)?.net_minor ?? 0);
+  const refRow = refRes.results[0] as { pending_minor: number; issued_count: number } | undefined;
+  return {
+    netPaidMinor,
+    pendingRefundMinor: Number(refRow?.pending_minor ?? 0),
+    issuedRefundCount: Number(refRow?.issued_count ?? 0),
+    activePeriods: perRes.results as unknown as ActivePeriodRow[],
+  };
+}
+
 /* ---------- S8 Commands ---------- */
 
 function upsertMembershipSchemeCommand(): CommandDefinition<
@@ -163,6 +232,8 @@ function upsertMembershipSchemeCommand(): CommandDefinition<
       return { ok: true, input: parsed.data };
     },
     authorizeFine: (actor, input) =>
+      evaluateCapability(actor, 'crm.configure', `programme:${input.programmeSlug}`),
+    authorizeReplay: (actor, input) =>
       evaluateCapability(actor, 'crm.configure', `programme:${input.programmeSlug}`),
     plan: async ({ env, actor, tokenHash, input, now }) => {
       if (input.currency && isForeignCurrencyBlocked(input.currency)) {
@@ -282,6 +353,14 @@ function applyMembershipCommand(): CommandDefinition<ApplyMembershipInput, { mem
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      const personRec = await loadReadableTaskRecord(env, actor.id, input.personId);
+      if (!personRec) return false;
+      if (input.applicationId && !(await loadReadableTaskRecord(env, actor.id, input.applicationId))) {
+        return false;
+      }
+      return true;
+    },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const [scheme, personRec] = await Promise.all([
         env.DB.prepare(`SELECT * FROM crm_membership_schemes WHERE id = ?`).bind(input.schemeId).first<SchemeRow>(),
@@ -299,10 +378,11 @@ function applyMembershipCommand(): CommandDefinition<ApplyMembershipInput, { mem
           detail: { reason: 'person_merged_or_archived', mergedInto: aliasState.mergedInto },
         };
       }
+      const expectMap = new Map<string, number>([[personRec.id, personRec.seq]]);
       if (input.applicationId) {
-        if (!(await loadReadableTaskRecord(env, actor.id, input.applicationId))) {
-          return { kind: 'refuse', error: 'not_found' };
-        }
+        const appRec = await loadReadableTaskRecord(env, actor.id, input.applicationId);
+        if (!appRec) return { kind: 'refuse', error: 'not_found' };
+        expectMap.set(appRec.id, appRec.seq);
       }
 
       const id = `mem_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
@@ -332,6 +412,7 @@ function applyMembershipCommand(): CommandDefinition<ApplyMembershipInput, { mem
         fences: [
           () => crmActorFence(env.DB, actor, tokenHash),
           () => notArchivedAliasFence(env.DB, personRec.id),
+          schemeRevFence(env.DB, scheme.id, scheme.rev),
         ],
         rows: [
           env.DB
@@ -350,7 +431,7 @@ function applyMembershipCommand(): CommandDefinition<ApplyMembershipInput, { mem
             ts: now,
           },
         ],
-        recordExpect: new Map([[personRec.id, personRec.seq]]),
+        recordExpect: expectMap,
       };
     },
     afterCommit: ({ env, executionCtx }) => pokeLive(env, executionCtx),
@@ -366,6 +447,19 @@ function decideMembershipCommand(): CommandDefinition<DecideMembershipInput, { m
       const parsed = DecideMembershipInputSchema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
+    },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      const row = await env.DB
+        .prepare(
+          `SELECT m.person_id, s.programme_slug
+           FROM crm_memberships m JOIN crm_membership_schemes s ON s.id = m.scheme_id
+           WHERE m.id = ?`,
+        )
+        .bind(input.membershipId)
+        .first<{ person_id: string; programme_slug: string }>();
+      if (!row) return false;
+      if (!evaluateCapability(actor, 'crm.configure', `programme:${row.programme_slug}`)) return false;
+      return (await loadReadableTaskRecord(env, actor.id, row.person_id)) !== null;
     },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const mem = await env.DB.prepare(`SELECT * FROM crm_memberships WHERE id = ?`).bind(input.membershipId).first<MembershipRow>();
@@ -440,6 +534,15 @@ function issueMembershipContributionRequestCommand(): CommandDefinition<
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
     },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      if (!evaluateCapability(actor, 'crm.finance.record', '*')) return false;
+      const mem = await env.DB
+        .prepare(`SELECT person_id FROM crm_memberships WHERE id = ?`)
+        .bind(input.membershipId)
+        .first<{ person_id: string }>();
+      if (!mem) return false;
+      return (await loadReadableTaskRecord(env, actor.id, mem.person_id)) !== null;
+    },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const mem = await env.DB.prepare(`SELECT * FROM crm_memberships WHERE id = ?`).bind(input.membershipId).first<MembershipRow>();
       if (!mem) return { kind: 'refuse', error: 'not_found' };
@@ -480,7 +583,10 @@ function issueMembershipContributionRequestCommand(): CommandDefinition<
           membership: mapMembershipRow(updated, scheme, personTitle, now),
           paymentRequestId: prId,
         },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*')],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*'),
+          schemeRevFence(env.DB, scheme.id, scheme.rev),
+        ],
         rows: [
           env.DB
             .prepare(
@@ -501,9 +607,7 @@ function issueMembershipContributionRequestCommand(): CommandDefinition<
               now,
             ),
           env.DB
-            .prepare(
-              `UPDATE crm_memberships SET state = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`,
-            )
+            .prepare(`UPDATE crm_memberships SET state = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ?`)
             .bind(nextState, now, mem.id, mem.rev),
           changesOneFence(env.DB),
         ],
@@ -528,12 +632,22 @@ function activateMembershipCommand(): CommandDefinition<
 > {
   return {
     name: 'membership.activate',
-    projectionKeys: [CRM_PROJECTION.membershipStatus, CRM_PROJECTION.membershipValidUntil],
-    authorizeCoarse: (actor, via) => via === 'ui' && canAccessCrmApi(actor),
+    projectionKeys: [CRM_PROJECTION.membershipStatus, CRM_PROJECTION.membershipValidUntil, CRM_PROJECTION.paymentStatus],
+    authorizeCoarse: (actor, via) =>
+      via === 'ui' && canAccessCrmApi(actor) && evaluateCapability(actor, 'crm.finance.record', '*'),
     parseInput: (raw) => {
       const parsed = ActivateOrRenewMembershipInputSchema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
+    },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      if (!evaluateCapability(actor, 'crm.finance.record', '*')) return false;
+      const mem = await env.DB
+        .prepare(`SELECT person_id FROM crm_memberships WHERE id = ?`)
+        .bind(input.membershipId)
+        .first<{ person_id: string }>();
+      if (!mem) return false;
+      return (await loadReadableTaskRecord(env, actor.id, mem.person_id)) !== null;
     },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const mem = await env.DB.prepare(`SELECT * FROM crm_memberships WHERE id = ?`).bind(input.membershipId).first<MembershipRow>();
@@ -552,21 +666,23 @@ function activateMembershipCommand(): CommandDefinition<
       const err = schemePolicyError(scheme);
       if (err) return { kind: 'refuse', error: 'invalid_input', detail: { reason: err } };
 
-      const requiredMinor = scheme.contribution_amount_minor! * (mem.period_count + 1);
-      const ledSum = await env.DB
-        .prepare(
-          `SELECT COALESCE(SUM(amount_minor), 0) AS net_minor
-           FROM crm_ledger_entries
-           WHERE object_type = 'membership' AND object_id = ? AND currency = ?`,
-        )
-        .bind(mem.id, scheme.currency!)
-        .first<{ net_minor: number }>();
-      const netPaidMinor = Number(ledSum?.net_minor ?? 0);
-      if (netPaidMinor < requiredMinor) {
+      const ledger = await loadMembershipLedgerSummary(env.DB, mem.id, scheme.currency!);
+      const historicalRequiredMinor = ledger.activePeriods.reduce((sum, p) => sum + p.required_amount_minor, 0);
+      const newPeriodRequiredMinor = scheme.contribution_amount_minor!;
+      const requiredTotalMinor = historicalRequiredMinor + newPeriodRequiredMinor;
+      const availableNetMinor = ledger.netPaidMinor - ledger.pendingRefundMinor;
+
+      if (availableNetMinor < requiredTotalMinor) {
         return {
           kind: 'refuse',
           error: 'invalid_input',
-          detail: { reason: 'contribution_receipt_required', requiredMinor, netPaidMinor, currency: scheme.currency },
+          detail: {
+            reason: 'contribution_receipt_required',
+            requiredMinor: requiredTotalMinor,
+            netPaidMinor: ledger.netPaidMinor,
+            pendingRefundMinor: ledger.pendingRefundMinor,
+            currency: scheme.currency,
+          },
         };
       }
 
@@ -575,29 +691,38 @@ function activateMembershipCommand(): CommandDefinition<
         formatMemberIdentifier(scheme.identifier_prefix, scheme.identifier_digits, scheme.next_identifier_seq);
       const validFrom = now;
       const validUntil = now + scheme.validity_days! * 86_400_000;
-      const nextPeriodCount = mem.period_count + 1;
+      const nextPeriodNumber = ledger.activePeriods.length + 1;
+      const nextPaymentStatus = derivePaymentStatus({
+        dueMinor: requiredTotalMinor,
+        netPaidMinor: ledger.netPaidMinor,
+        hasPendingRefund: ledger.pendingRefundMinor > 0,
+        hasIssuedRefund: ledger.issuedRefundCount > 0,
+      });
+
       const updated: MembershipRow = {
         ...mem,
         state: 'active',
         member_identifier: memberIdentifier,
         valid_from: validFrom,
         valid_until: validUntil,
-        period_count: nextPeriodCount,
+        payment_status: nextPaymentStatus,
+        period_count: nextPeriodNumber,
         rev: mem.rev + 1,
         updated_at: now,
       };
       const personTitle = typeof personRec.data.title === 'string' ? personRec.data.title : null;
 
-      // Atomic SQL fence verifying ledger coverage at commit time!
+      // Atomic SQL fence verifying ledger minus pending refunds covers all active periods + new period!
       const ledgerCoverageFence = env.DB
         .prepare(
-          `SELECT CASE WHEN COALESCE(
-             (SELECT SUM(amount_minor) FROM crm_ledger_entries WHERE object_type = 'membership' AND object_id = ? AND currency = ?),
-             0
+          `SELECT CASE WHEN (
+             COALESCE((SELECT SUM(amount_minor) FROM crm_ledger_entries WHERE object_type = 'membership' AND object_id = ? AND currency = ?), 0)
+             - COALESCE((SELECT SUM(amount_minor) FROM crm_refund_requests WHERE object_type = 'membership' AND object_id = ? AND currency = ? AND state IN ('requested', 'approved')), 0)
            ) >= ? THEN 1 ELSE json_extract('{', '$') END`,
         )
-        .bind(mem.id, scheme.currency!, requiredMinor);
+        .bind(mem.id, scheme.currency!, mem.id, scheme.currency!, requiredTotalMinor);
 
+      const periodId = `mp_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
       const rows: D1PreparedStatement[] = [];
       if (!mem.member_identifier) {
         rows.push(
@@ -613,18 +738,30 @@ function activateMembershipCommand(): CommandDefinition<
       rows.push(
         env.DB
           .prepare(
+            `INSERT INTO crm_membership_periods
+               (id, membership_id, period_number, required_amount_minor, currency, valid_from, valid_until, status, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+          )
+          .bind(periodId, mem.id, nextPeriodNumber, newPeriodRequiredMinor, scheme.currency!, validFrom, validUntil, actor.id, now),
+        env.DB
+          .prepare(
             `UPDATE crm_memberships
-             SET state = 'active', member_identifier = ?, valid_from = ?, valid_until = ?, period_count = ?, rev = rev + 1, updated_at = ?
+             SET state = 'active', member_identifier = ?, valid_from = ?, valid_until = ?, payment_status = ?, period_count = ?, rev = rev + 1, updated_at = ?
              WHERE id = ? AND rev = ? AND state = 'awaiting_contribution'`,
           )
-          .bind(memberIdentifier, validFrom, validUntil, nextPeriodCount, now, mem.id, mem.rev),
+          .bind(memberIdentifier, validFrom, validUntil, nextPaymentStatus, nextPeriodNumber, now, mem.id, mem.rev),
         changesOneFence(env.DB),
       );
 
       return {
         kind: 'commit',
         result: { membership: mapMembershipRow(updated, scheme, personTitle, now) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash), ledgerCoverageFence],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*'),
+          schemeRevFence(env.DB, scheme.id, scheme.rev),
+          activePeriodsFence(env.DB, mem.id, ledger.activePeriods),
+          ledgerCoverageFence,
+        ],
         rows,
         records: [
           {
@@ -633,6 +770,7 @@ function activateMembershipCommand(): CommandDefinition<
             patch: {
               [CRM_PROJECTION.membershipStatus]: 'active',
               [CRM_PROJECTION.membershipValidUntil]: validUntil,
+              [CRM_PROJECTION.paymentStatus]: nextPaymentStatus,
             },
             ts: now,
           },
@@ -650,12 +788,22 @@ function renewMembershipCommand(): CommandDefinition<
 > {
   return {
     name: 'membership.renew',
-    projectionKeys: [CRM_PROJECTION.membershipStatus, CRM_PROJECTION.membershipValidUntil],
-    authorizeCoarse: (actor, via) => via === 'ui' && canAccessCrmApi(actor),
+    projectionKeys: [CRM_PROJECTION.membershipStatus, CRM_PROJECTION.membershipValidUntil, CRM_PROJECTION.paymentStatus],
+    authorizeCoarse: (actor, via) =>
+      via === 'ui' && canAccessCrmApi(actor) && evaluateCapability(actor, 'crm.finance.record', '*'),
     parseInput: (raw) => {
       const parsed = ActivateOrRenewMembershipInputSchema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
+    },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      if (!evaluateCapability(actor, 'crm.finance.record', '*')) return false;
+      const mem = await env.DB
+        .prepare(`SELECT person_id FROM crm_memberships WHERE id = ?`)
+        .bind(input.membershipId)
+        .first<{ person_id: string }>();
+      if (!mem) return false;
+      return (await loadReadableTaskRecord(env, actor.id, mem.person_id)) !== null;
     },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const mem = await env.DB.prepare(`SELECT * FROM crm_memberships WHERE id = ?`).bind(input.membershipId).first<MembershipRow>();
@@ -681,34 +829,48 @@ function renewMembershipCommand(): CommandDefinition<
         return { kind: 'refuse', error: 'stale', detail: { reason: 'membership_not_renewable', state: eff } };
       }
 
-      const nextPeriodCount = mem.period_count + 1;
-      const requiredMinor = scheme.contribution_amount_minor! * nextPeriodCount;
-      const ledSum = await env.DB
-        .prepare(
-          `SELECT COALESCE(SUM(amount_minor), 0) AS net_minor
-           FROM crm_ledger_entries
-           WHERE object_type = 'membership' AND object_id = ? AND currency = ?`,
-        )
-        .bind(mem.id, scheme.currency!)
-        .first<{ net_minor: number }>();
-      const netPaidMinor = Number(ledSum?.net_minor ?? 0);
-      if (netPaidMinor < requiredMinor) {
+      const ledger = await loadMembershipLedgerSummary(env.DB, mem.id, scheme.currency!);
+      // Preserve frozen historical period contributions instead of multiplying current scheme price across past periods!
+      const historicalRequiredMinor =
+        ledger.activePeriods.length > 0
+          ? ledger.activePeriods.reduce((sum, p) => sum + p.required_amount_minor, 0)
+          : scheme.contribution_amount_minor! * mem.period_count;
+      const newPeriodRequiredMinor = scheme.contribution_amount_minor!;
+      const requiredTotalMinor = historicalRequiredMinor + newPeriodRequiredMinor;
+      const availableNetMinor = ledger.netPaidMinor - ledger.pendingRefundMinor;
+
+      if (availableNetMinor < requiredTotalMinor) {
         return {
           kind: 'refuse',
           error: 'invalid_input',
-          detail: { reason: 'renewal_contribution_receipt_required', requiredMinor, netPaidMinor, currency: scheme.currency },
+          detail: {
+            reason: 'renewal_contribution_receipt_required',
+            requiredMinor: requiredTotalMinor,
+            netPaidMinor: ledger.netPaidMinor,
+            pendingRefundMinor: ledger.pendingRefundMinor,
+            currency: scheme.currency,
+          },
         };
       }
 
-      // Renew from existing valid_until if still active/renewal_due, or from now if lapsed
       const baseStart = mem.valid_until && mem.valid_until > now ? mem.valid_until : now;
       const nextValidUntil = baseStart + scheme.validity_days! * 86_400_000;
+      const nextPeriodNumber =
+        ledger.activePeriods.length > 0 ? ledger.activePeriods.length + 1 : mem.period_count + 1;
+      const nextPaymentStatus = derivePaymentStatus({
+        dueMinor: requiredTotalMinor,
+        netPaidMinor: ledger.netPaidMinor,
+        hasPendingRefund: ledger.pendingRefundMinor > 0,
+        hasIssuedRefund: ledger.issuedRefundCount > 0,
+      });
+
       const updated: MembershipRow = {
         ...mem,
         state: 'active',
         valid_from: mem.valid_from ?? now,
         valid_until: nextValidUntil,
-        period_count: nextPeriodCount,
+        payment_status: nextPaymentStatus,
+        period_count: nextPeriodNumber,
         rev: mem.rev + 1,
         updated_at: now,
       };
@@ -716,25 +878,39 @@ function renewMembershipCommand(): CommandDefinition<
 
       const ledgerCoverageFence = env.DB
         .prepare(
-          `SELECT CASE WHEN COALESCE(
-             (SELECT SUM(amount_minor) FROM crm_ledger_entries WHERE object_type = 'membership' AND object_id = ? AND currency = ?),
-             0
+          `SELECT CASE WHEN (
+             COALESCE((SELECT SUM(amount_minor) FROM crm_ledger_entries WHERE object_type = 'membership' AND object_id = ? AND currency = ?), 0)
+             - COALESCE((SELECT SUM(amount_minor) FROM crm_refund_requests WHERE object_type = 'membership' AND object_id = ? AND currency = ? AND state IN ('requested', 'approved')), 0)
            ) >= ? THEN 1 ELSE json_extract('{', '$') END`,
         )
-        .bind(mem.id, scheme.currency!, requiredMinor);
+        .bind(mem.id, scheme.currency!, mem.id, scheme.currency!, requiredTotalMinor);
+
+      const periodId = `mp_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
 
       return {
         kind: 'commit',
         result: { membership: mapMembershipRow(updated, scheme, personTitle, now) },
-        fences: [() => crmActorFence(env.DB, actor, tokenHash), ledgerCoverageFence],
+        fences: [
+          () => crmActorFence(env.DB, actor, tokenHash, 'crm.finance.record', '*'),
+          schemeRevFence(env.DB, scheme.id, scheme.rev),
+          activePeriodsFence(env.DB, mem.id, ledger.activePeriods),
+          ledgerCoverageFence,
+        ],
         rows: [
           env.DB
             .prepare(
+              `INSERT INTO crm_membership_periods
+                 (id, membership_id, period_number, required_amount_minor, currency, valid_from, valid_until, status, created_by, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+            )
+            .bind(periodId, mem.id, nextPeriodNumber, newPeriodRequiredMinor, scheme.currency!, baseStart, nextValidUntil, actor.id, now),
+          env.DB
+            .prepare(
               `UPDATE crm_memberships
-               SET state = 'active', valid_until = ?, period_count = ?, rev = rev + 1, updated_at = ?
+               SET state = 'active', valid_until = ?, payment_status = ?, period_count = ?, rev = rev + 1, updated_at = ?
                WHERE id = ? AND rev = ?`,
             )
-            .bind(nextValidUntil, nextPeriodCount, now, mem.id, mem.rev),
+            .bind(nextValidUntil, nextPaymentStatus, nextPeriodNumber, now, mem.id, mem.rev),
           changesOneFence(env.DB),
         ],
         records: [
@@ -744,6 +920,7 @@ function renewMembershipCommand(): CommandDefinition<
             patch: {
               [CRM_PROJECTION.membershipStatus]: 'active',
               [CRM_PROJECTION.membershipValidUntil]: nextValidUntil,
+              [CRM_PROJECTION.paymentStatus]: nextPaymentStatus,
             },
             ts: now,
           },
@@ -764,6 +941,14 @@ function cancelMembershipCommand(): CommandDefinition<CancelMembershipInput, { m
       const parsed = CancelMembershipInputSchema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: 'invalid_input' };
       return { ok: true, input: parsed.data };
+    },
+    authorizeReplay: async (actor, input, _stored, { env }) => {
+      const mem = await env.DB
+        .prepare(`SELECT person_id FROM crm_memberships WHERE id = ?`)
+        .bind(input.membershipId)
+        .first<{ person_id: string }>();
+      if (!mem) return false;
+      return (await loadReadableTaskRecord(env, actor.id, mem.person_id)) !== null;
     },
     plan: async ({ env, actor, tokenHash, input, now }) => {
       const mem = await env.DB.prepare(`SELECT * FROM crm_memberships WHERE id = ?`).bind(input.membershipId).first<MembershipRow>();
@@ -845,7 +1030,7 @@ export async function readMembershipsOverview(
   const [sessionRes, grantsRes, schemesRes, memRes] = await env.DB.batch([
     sessionAuthStmt(env.DB, actorId, tokenHash, now),
     actorGrantsStmt(env.DB, actorId),
-    env.DB.prepare(`SELECT * FROM crm_membership_schemes ORDER BY name ASC LIMIT 50`),
+    env.DB.prepare(`SELECT * FROM crm_membership_schemes ORDER BY created_at ASC LIMIT 50`),
     env.DB.prepare(`SELECT * FROM crm_memberships ORDER BY updated_at DESC LIMIT 200`),
   ]);
   const batchAuth = evaluateCrmReadAuthRows(
@@ -854,9 +1039,9 @@ export async function readMembershipsOverview(
   );
   if (!batchAuth.ok) return { status: batchAuth.status, body: batchAuth.body };
 
-  const schemeRows = schemesRes.results as unknown as SchemeRow[];
-  const schemeById = new Map(schemeRows.map((s) => [s.id, s]));
+  const schemes = schemesRes.results as unknown as SchemeRow[];
   const memRows = memRes.results as unknown as MembershipRow[];
+  const schemeById = new Map(schemes.map((s) => [s.id, s]));
 
   const gate = createReadGate(env.DB, actorId);
   const readablePeople = await loadReadableTaskRecords(
@@ -868,30 +1053,27 @@ export async function readMembershipsOverview(
   const finalAuth = await finalizeCrmReadAuth(env, actorId, tokenHash, { gate });
   if (!finalAuth.ok) return { status: finalAuth.status, body: finalAuth.body };
 
-  const visibleMems = memRows.filter((m) => readablePeople.has(m.person_id));
-  let renewalsDueCount = 0;
-  let lapsedCount = 0;
-
-  const dtos = visibleMems.map((m) => {
+  const visibleMemberships = memRows.filter((m) => readablePeople.has(m.person_id));
+  const mapped = visibleMemberships.map((m) => {
     const scheme = schemeById.get(m.scheme_id) ?? { name: 'Membership', renewal_notice_days: null };
     const rec = readablePeople.get(m.person_id);
     const name = typeof rec?.data.title === 'string' ? rec.data.title : null;
-    const dto = mapMembershipRow(m, scheme, name, now);
-    if (dto.effectiveState === 'renewal_due') renewalsDueCount += 1;
-    else if (dto.effectiveState === 'lapsed') lapsedCount += 1;
-    return dto;
+    return mapMembershipRow(m, scheme, name, now);
   });
+
+  const renewalsDueCount = mapped.filter((m) => m.effectiveState === 'renewal_due').length;
+  const lapsedCount = mapped.filter((m) => m.effectiveState === 'lapsed').length;
 
   return {
     status: 200,
     body: MembershipsOverviewResponseSchema.parse({
-      schemes: schemeRows.map(mapSchemeRow),
-      memberships: dtos,
+      schemes: schemes.map(mapSchemeRow),
+      memberships: mapped,
       renewalsDueCount,
       lapsedCount,
       canConfigure: evaluateCapability(finalAuth.actor, 'crm.configure', 'programme:common-roots'),
       canRecordFinance: evaluateCapability(finalAuth.actor, 'crm.finance.record', '*'),
-      partial: visibleMems.length < memRows.length || memRows.length >= 200,
+      partial: visibleMemberships.length < memRows.length || memRows.length >= 200,
     }),
   };
 }

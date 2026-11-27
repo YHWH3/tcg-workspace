@@ -175,13 +175,13 @@ describe('S8 Common Roots Membership & Cross-Module Merge/Unmerge Integrity', ()
       .first<{ state: string; payment_status: string }>();
     expect(afterRevRow).toEqual({ state: 'awaiting_contribution', payment_status: 'unpaid' });
 
-    // Re-pay and re-activate cleanly (keeps same member_identifier CR-0001!)
+    // Re-pay and re-activate cleanly (keeps same member_identifier CR-0001; invalidated Period 1 only requires 50,000!)
     await callCrm('/commands/ledger.record_receipt', 'fin1', {
       requestId: 's8_mem_rcpt_2',
       input: {
         objectType: 'membership',
         objectId: memId,
-        amountMinor: 100000, // Covers re-activation (period 2)
+        amountMinor: 50000,
         currency: 'INR',
         evidenceKind: 'bank_reference',
         evidenceRef: 'UTR-ROOTS-2',
@@ -348,5 +348,179 @@ describe('S8 Common Roots Membership & Cross-Module Merge/Unmerge Integrity', ()
     expect(
       await fx!.db.prepare(`SELECT person_id FROM crm_participants WHERE id = ?`).bind(cleanPtId).first('person_id'),
     ).toBe('p_loser_clean');
+  });
+
+  it('Finding 2: enforces crm.finance.record on activate/renew (incl. replay), preserves historical period prices on scheme updates, and invalidates unsupported periods on refund', async () => {
+    await setupP4Fixture();
+
+    // Grant owner1-backed approval capability to fin1? No, use owner1 to approve refund and fin1 to record receipts/activate/renew, and coord1 (NO crm.finance.record) to test refusal!
+    const schRes = await callCrm('/commands/membership_scheme.upsert', 'owner1', {
+      requestId: 'f2_sch_1',
+      input: {
+        slug: 'common-roots',
+        name: 'Common Roots',
+        validityDays: 365,
+        renewalNoticeDays: 30,
+        contributionAmountMinor: 50000,
+        currency: 'INR',
+        identifierPrefix: 'CR',
+        identifierDigits: 4,
+        active: true,
+      },
+    });
+    expect(schRes.json).toMatchObject({ ok: true });
+    const schemeId = (schRes.json.result as { scheme: { id: string } }).scheme.id;
+
+    const appRes = await callCrm('/commands/membership.apply', 'merger_no_scr', {
+      requestId: 'f2_apply',
+      input: { schemeId, personId: 'p_member' },
+    });
+    expect(appRes.json).toMatchObject({ ok: true });
+    const memId = (appRes.json.result as { membership: { id: string } }).membership.id;
+
+    const decRes = await callCrm('/commands/membership.decide', 'owner1', {
+      requestId: 'f2_approve',
+      input: { membershipId: memId, decision: 'approve', reason: 'Approved for Common Roots' },
+    });
+    expect(decRes.json).toMatchObject({ ok: true });
+    const reqRes = await callCrm('/commands/membership.issue_request', 'fin1', {
+      requestId: 'f2_issue_req',
+      input: { membershipId: memId },
+    });
+    expect(reqRes.json).toMatchObject({ ok: true });
+    await callCrm('/commands/ledger.record_receipt', 'fin1', {
+      requestId: 'f2_rcpt_p1',
+      input: {
+        objectType: 'membership',
+        objectId: memId,
+        amountMinor: 50000,
+        currency: 'INR',
+        evidenceKind: 'bank_reference',
+        evidenceRef: 'UTR-F2-P1',
+      },
+    });
+
+    // 1. merger_no_scr (admin without crm.finance.record) MUST be refused on membership.activate!
+    const unauthAct = await callCrm('/commands/membership.activate', 'merger_no_scr', {
+      requestId: 'f2_act_coord',
+      input: { membershipId: memId },
+    });
+    expect(unauthAct.json).toMatchObject({ ok: false, error: 'forbidden' });
+
+    // 2. fin1 (holds crm.finance.record) activates Period 1 cleanly (frozen at 50,000)
+    const finAct = await callCrm('/commands/membership.activate', 'fin1', {
+      requestId: 'f2_act_fin',
+      input: { membershipId: memId },
+    });
+    expect(finAct.json).toMatchObject({
+      ok: true,
+      result: { membership: { state: 'active', periodCount: 1 } },
+    });
+    const p1ValidUntil = (finAct.json.result as { membership: { validUntil: number } }).membership.validUntil;
+
+    // 3. Scheme price increases from 50,000 -> 75,000! Historical Period 1 MUST stay frozen at 50,000!
+    const schUp = await callCrm('/commands/membership_scheme.upsert', 'owner1', {
+      requestId: 'f2_sch_price_up',
+      input: {
+        schemeId,
+        slug: 'common-roots',
+        name: 'Common Roots',
+        validityDays: 365,
+        renewalNoticeDays: 30,
+        contributionAmountMinor: 75000,
+        currency: 'INR',
+        identifierPrefix: 'CR',
+        identifierDigits: 4,
+        active: true,
+      },
+    });
+    expect(schUp.json).toMatchObject({ ok: true });
+
+    // Period 2 renewal requires ONLY 75,000 (total 125,000, NOT 150,000)!
+    await callCrm('/commands/ledger.record_receipt', 'fin1', {
+      requestId: 'f2_rcpt_p2',
+      input: {
+        objectType: 'membership',
+        objectId: memId,
+        amountMinor: 75000,
+        currency: 'INR',
+        evidenceKind: 'bank_reference',
+        evidenceRef: 'UTR-F2-P2',
+      },
+    });
+
+    // merger_no_scr (without crm.finance.record) MUST be refused on membership.renew!
+    const unauthRen = await callCrm('/commands/membership.renew', 'merger_no_scr', {
+      requestId: 'f2_ren_coord',
+      input: { membershipId: memId },
+    });
+    expect(unauthRen.json).toMatchObject({ ok: false, error: 'forbidden' });
+
+    // fin1 renews Period 2 cleanly with 125,000 total net paid!
+    const finRen = await callCrm('/commands/membership.renew', 'fin1', {
+      requestId: 'f2_ren_fin',
+      input: { membershipId: memId },
+    });
+    expect(finRen.json).toMatchObject({
+      ok: true,
+      result: { membership: { state: 'active', periodCount: 2 } },
+    });
+
+    // 4. Issuing a refund of 40,000 leaves netPaid = 85,000 (< 125,000) -> invalidates Period 2, preserves Period 1!
+    const refReq = await callCrm('/commands/refund.request', 'fin1', {
+      requestId: 'f2_ref_req',
+      input: { objectType: 'membership', objectId: memId, amountMinor: 40000, currency: 'INR', reason: 'Partial refund' },
+    });
+    expect(refReq.json).toMatchObject({ ok: true });
+    const refId = (refReq.json.result as { refundRequest: { id: string } }).refundRequest.id;
+    const decRef1 = await callCrm('/commands/refund.decide', 'owner1', {
+      requestId: 'f2_ref_approve',
+      input: { refundRequestId: refId, decision: 'approve', note: 'Approved' },
+    });
+    expect(decRef1.json).toMatchObject({ ok: true });
+    const refIssue = await callCrm('/commands/refund.issue', 'fin1', {
+      requestId: 'f2_ref_issue',
+      input: { refundRequestId: refId, evidenceRef: 'UTR-REF-40K' },
+    });
+    expect(refIssue.json).toMatchObject({ ok: true });
+
+    const memAfterRef1 = await fx!.db
+      .prepare(`SELECT state, period_count, valid_until FROM crm_memberships WHERE id = ?`)
+      .bind(memId)
+      .first<{ state: string; period_count: number; valid_until: number | null }>();
+    expect(memAfterRef1).toEqual({ state: 'active', period_count: 1, valid_until: p1ValidUntil });
+
+    // Refunding another 40,000 leaves netPaid = 45,000 (< 50,000) -> invalidates Period 1 & demotes to awaiting_contribution!
+    const refReq2 = await callCrm('/commands/refund.request', 'fin1', {
+      requestId: 'f2_ref_req2',
+      input: { objectType: 'membership', objectId: memId, amountMinor: 40000, currency: 'INR', reason: 'Remaining refund' },
+    });
+    expect(refReq2.json).toMatchObject({ ok: true });
+    const refId2 = (refReq2.json.result as { refundRequest: { id: string } }).refundRequest.id;
+    const decRef2 = await callCrm('/commands/refund.decide', 'owner1', {
+      requestId: 'f2_ref_approve2',
+      input: { refundRequestId: refId2, decision: 'approve', note: 'Approved' },
+    });
+    expect(decRef2.json).toMatchObject({ ok: true });
+    const refIssue2 = await callCrm('/commands/refund.issue', 'fin1', {
+      requestId: 'f2_ref_issue2',
+      input: { refundRequestId: refId2, evidenceRef: 'UTR-REF-40K-2' },
+    });
+    expect(refIssue2.json).toMatchObject({ ok: true });
+    const memAfterRef2 = await fx!.db
+      .prepare(`SELECT state, period_count, valid_until FROM crm_memberships WHERE id = ?`)
+      .bind(memId)
+      .first<{ state: string; period_count: number; valid_until: number | null }>();
+    expect(memAfterRef2).toEqual({ state: 'awaiting_contribution', period_count: 0, valid_until: null });
+
+    // 5. Replay of membership.activate after revoking fin1's crm.finance.record -> forbidden!
+    await fx!.db
+      .prepare(`DELETE FROM crm_capability_grants WHERE user_id = 'fin1' AND capability = 'crm.finance.record'`)
+      .run();
+    const actReplay = await callCrm('/commands/membership.activate', 'fin1', {
+      requestId: 'f2_act_fin',
+      input: { membershipId: memId },
+    });
+    expect(actReplay.json).toMatchObject({ ok: false, error: 'forbidden' });
   });
 });
